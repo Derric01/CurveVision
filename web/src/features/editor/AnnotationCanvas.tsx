@@ -1,0 +1,190 @@
+/**
+ * React's window onto the annotation engine.
+ *
+ * This component owns three canvases and a resize observer, and forwards DOM events to the
+ * engine. It deliberately holds almost no state: everything that changes at pointer speed
+ * lives in the engine, so React re-renders only when something a human would notice
+ * changes.
+ */
+
+import { useEffect, useImperativeHandle, useRef, forwardRef, useCallback } from 'react';
+import { AnnotationEngine } from '@/canvas/engine';
+import type { Annotation, AnnotationChange, LabelStyle, ToolName } from '@/canvas/types';
+
+export interface CanvasHandle {
+  engine: AnnotationEngine | null;
+}
+
+interface Props {
+  annotations: Annotation[];
+  labels: LabelStyle[];
+  imageUrl: string | null;
+  activeLabelId: string | null;
+  tool: ToolName;
+  onChange: (change: AnnotationChange) => void;
+  onSelectionChange: (ids: string[]) => void;
+  onViewportChange?: (scale: number) => void;
+}
+
+export const AnnotationCanvas = forwardRef<CanvasHandle, Props>(function AnnotationCanvas(
+  { annotations, labels, imageUrl, activeLabelId, tool, onChange, onSelectionChange, onViewportChange },
+  ref,
+) {
+  const container = useRef<HTMLDivElement>(null);
+  const mediaCanvas = useRef<HTMLCanvasElement>(null);
+  const shapeCanvas = useRef<HTMLCanvasElement>(null);
+  const overlayCanvas = useRef<HTMLCanvasElement>(null);
+  const engineRef = useRef<AnnotationEngine | null>(null);
+
+  // Callbacks are read through a ref so the engine is built once, not rebuilt whenever a
+  // parent re-render produces new function identities.
+  const callbacks = useRef({ onChange, onSelectionChange, onViewportChange });
+  callbacks.current = { onChange, onSelectionChange, onViewportChange };
+
+  useImperativeHandle(ref, () => ({ engine: engineRef.current }), []);
+
+  useEffect(() => {
+    const media = mediaCanvas.current?.getContext('2d');
+    const shapes = shapeCanvas.current?.getContext('2d');
+    const overlay = overlayCanvas.current?.getContext('2d');
+    if (!media || !shapes || !overlay) return;
+
+    const engine = new AnnotationEngine({
+      layers: { media, shapes, overlay },
+      listeners: {
+        annotationsChanged: (change) => callbacks.current.onChange(change),
+        selectionChanged: (ids) => callbacks.current.onSelectionChange(ids),
+        viewportChanged: (viewport) => callbacks.current.onViewportChange?.(viewport.scale),
+      },
+    });
+    engineRef.current = engine;
+
+    const element = container.current;
+    const observer = new ResizeObserver(([entry]) => {
+      if (!entry) return;
+      const { width, height } = entry.contentRect;
+      engine.resize(width, height, window.devicePixelRatio || 1);
+    });
+    if (element) observer.observe(element);
+
+    return () => {
+      observer.disconnect();
+      engine.dispose();
+      engineRef.current = null;
+    };
+  }, []);
+
+  // Load the frame image. Decoding off the main thread keeps the first paint from janking.
+  useEffect(() => {
+    const engine = engineRef.current;
+    if (!engine) return;
+    if (!imageUrl) {
+      engine.setMedia({ width: 0, height: 0, image: null });
+      return;
+    }
+
+    let cancelled = false;
+    const image = new Image();
+    image.crossOrigin = 'use-credentials';
+    image.src = imageUrl;
+    void image
+      .decode()
+      .catch(() => undefined)
+      .then(() => {
+        if (cancelled) return;
+        engine.setMedia({
+          width: image.naturalWidth,
+          height: image.naturalHeight,
+          image,
+        });
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [imageUrl]);
+
+  useEffect(() => {
+    engineRef.current?.setLabels(labels);
+  }, [labels]);
+
+  useEffect(() => {
+    engineRef.current?.setAnnotations(annotations);
+  }, [annotations]);
+
+  useEffect(() => {
+    engineRef.current?.setActiveLabel(activeLabelId);
+  }, [activeLabelId]);
+
+  useEffect(() => {
+    engineRef.current?.setTool(tool);
+  }, [tool]);
+
+  // Keyboard handling is bound to the window rather than the canvas: annotators expect
+  // shortcuts to work while their focus is on the object list or the label picker.
+  useEffect(() => {
+    function onKeyDown(event: KeyboardEvent) {
+      const target = event.target as HTMLElement | null;
+      if (target && ['INPUT', 'TEXTAREA', 'SELECT'].includes(target.tagName)) return;
+      if (engineRef.current?.handleKey(event.key, {
+        ctrl: event.ctrlKey,
+        meta: event.metaKey,
+        shift: event.shiftKey,
+      })) {
+        event.preventDefault();
+      }
+    }
+    function onKeyUp(event: KeyboardEvent) {
+      engineRef.current?.releaseKey(event.key);
+    }
+
+    window.addEventListener('keydown', onKeyDown);
+    window.addEventListener('keyup', onKeyUp);
+    return () => {
+      window.removeEventListener('keydown', onKeyDown);
+      window.removeEventListener('keyup', onKeyUp);
+    };
+  }, []);
+
+  const localPoint = useCallback((event: React.PointerEvent | React.WheelEvent) => {
+    const bounds = container.current?.getBoundingClientRect();
+    return {
+      x: event.clientX - (bounds?.left ?? 0),
+      y: event.clientY - (bounds?.top ?? 0),
+    };
+  }, []);
+
+  return (
+    <div
+      ref={container}
+      className="relative h-full w-full overflow-hidden bg-ink-950"
+      style={{ cursor: engineRef.current?.cursor ?? 'default' }}
+      onPointerDown={(event) => {
+        (event.target as HTMLElement).setPointerCapture?.(event.pointerId);
+        engineRef.current?.pointerDown(localPoint(event), {
+          button: event.button,
+          shiftKey: event.shiftKey,
+          ctrlKey: event.ctrlKey,
+          altKey: event.altKey,
+        });
+      }}
+      onPointerMove={(event) =>
+        engineRef.current?.pointerMove(localPoint(event), {
+          shiftKey: event.shiftKey,
+          ctrlKey: event.ctrlKey,
+          altKey: event.altKey,
+        })
+      }
+      onPointerUp={(event) =>
+        engineRef.current?.pointerUp(localPoint(event), { button: event.button })
+      }
+      onDoubleClick={() => engineRef.current?.doubleClick()}
+      onWheel={(event) => engineRef.current?.wheel(localPoint(event), event.deltaY)}
+      onContextMenu={(event) => event.preventDefault()}
+    >
+      <canvas ref={mediaCanvas} className="absolute inset-0" />
+      <canvas ref={shapeCanvas} className="absolute inset-0" />
+      <canvas ref={overlayCanvas} className="absolute inset-0" />
+    </div>
+  );
+});
