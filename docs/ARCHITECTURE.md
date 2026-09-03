@@ -174,8 +174,10 @@ upload (resumable, chunked) → sha256 → dedupe → Asset row
                          client: LRU chunk cache + ±1 chunk prefetch
 ```
 
-The client never issues one request per frame. This is the difference between a video
-annotator that is pleasant and one that is unusable.
+**Status:** the chunk model and planning exist; extraction and chunked delivery are *In
+Progress*, and the client currently fetches one frame per request. That is fine for images
+and is the blocker for usable video annotation — one request per frame is the difference
+between a video annotator that is pleasant and one that is unusable.
 
 Image handling uses **Pillow**; video uses **PyAV** (FFmpeg bindings). Both are optional
 imports: the server starts and the full test suite passes without them, degrading to
@@ -278,8 +280,8 @@ See [THIRD_PARTY_NOTICES.md](./THIRD_PARTY_NOTICES.md) for attribution.
 | --- | --- |
 | Listing millions of assets | rows + object keys; always paginated; covering indexes on `(task_id, index)` |
 | 100k annotations in a job | server streams per-job with optional frame-range filter; client culls via R-tree |
-| Long video | chunked frames + client LRU + prefetch |
-| Concurrent editors | per-job row lock on annotation writes; optimistic version on the job |
+| Long video | chunked frames + client LRU + prefetch — *In Progress*; the client currently fetches one frame per request |
+| Concurrent editors | optimistic versioning on `job.annotation_version`; a stale write is rejected with 409 rather than merged |
 | Slow operations | all async background jobs with idempotency keys and progress rows |
 | Frontend frame time | layered canvases, dirty rects, rAF-throttled input, viewport culling |
 

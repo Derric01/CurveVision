@@ -54,8 +54,8 @@ docker compose up -d
 open http://localhost:8080
 ```
 
-Six containers, one command, no account, no license key. The first user you register
-becomes the instance administrator.
+Six services plus a one-shot bucket-creation step, from one command. No account, no
+license key. The first user you register becomes the instance administrator.
 
 Prefer to run it from source? See [DEVELOPMENT.md](docs/DEVELOPMENT.md) — `./scripts/dev.sh`
 gets you a hot-reloading stack.
@@ -149,7 +149,7 @@ actually need before training — **how many frames have no annotations at all**
 | Video probing, frame addressing, track data model | **Done** |
 | Client-side track interpolation (scrubbing costs no round trip) | **Done** |
 | Chunked frame delivery and extraction | **In Progress** |
-| Resumable uploads (protocol exists; client does not use it) | **In Progress** |
+| Resumable uploads (storage model only; no endpoints yet) | *Planned* |
 
 Interpolation between keyframes resamples polygons to a common arc-length parameterisation
 when vertex counts differ. Pairing vertices by index — the obvious implementation —
@@ -164,7 +164,7 @@ visibly scrambles a shape the moment an annotator inserts a vertex.
 | Review state machine: `new → in_progress → submitted → accepted/rejected` | **Done** |
 | Issues and comment threads anchored to a frame and shape | **Done** |
 | Annotation history | **Done** |
-| Ground-truth quality reports | **In Progress** |
+| Ground-truth quality reports (storage model only; nothing computes them yet) | *Planned* |
 
 Nobody reviews their own annotation work — the policy enforces it, and there is a test that
 says so.

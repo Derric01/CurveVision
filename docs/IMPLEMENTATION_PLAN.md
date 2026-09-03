@@ -111,13 +111,15 @@ already the seam.
 * Portability rule: JSON columns use `JSON().with_variant(JSONB, "postgresql")`; no raw SQL
   outside migrations; UUID primary keys stored as native `uuid` on PG and `char(36)` on
   SQLite via a custom `GUID` type.
-* Transactional integrity: one session per request, commit at the service boundary, and
-  `SELECT … FOR UPDATE` on annotation writes to serialise concurrent editors per job.
+* Transactional integrity: one session per request, commit at the service boundary.
+  Concurrent editors are handled by **optimistic versioning** on `job.annotation_version`
+  rather than row locking: a stale write is rejected with 409 and the client reloads.
+  Pessimistic locking is *Planned* only if contention proves optimistic checks insufficient.
 
 ### 0.5 Object storage
 
-* `Storage` protocol: `put`, `get`, `open_stream`, `delete`, `exists`, `presign_get`,
-  `presign_put`.
+* `Storage` protocol: `put`, `append`, `get`, `stream`, `delete`, `exists`, `public_url`
+  (which returns `None` when the backend cannot presign, so the caller proxies instead).
 * `LocalStorage` (dev/self-host single node) and `S3Storage` (boto3, works against MinIO,
   AWS S3, Cloudflare R2, Ceph).
 * All media access from the browser goes through presigned URLs or an authenticated proxy
@@ -296,14 +298,16 @@ frame navigation, label sidebar, object list, autosave to the API.
 * **Video datasets** — **In Progress.** Videos are probed for duration/fps/dimensions; frame
   addressing is by index. Frame extraction runs as a background job producing *chunks*
   (see below). The manifest/keyframe index is implemented; GPU-free decode uses PyAV.
-* **Chunked media delivery** — the browser never requests one HTTP call per frame. Frames are
-  grouped into chunks of N (default 36) delivered as a single archive or fragmented MP4;
-  the client keeps a small LRU of decoded chunks and prefetches ±1 chunk in the scroll
-  direction. This is the single most important media decision for annotation throughput.
-* **Progressive loading** — a low-resolution proxy chunk is served first so the annotator can
-  start immediately; the full-resolution chunk swaps in when decoded.
-* **Large-file handling** — resumable uploads (`PATCH`-by-offset), streaming hashing, and a
-  hard limit expressed in config rather than code.
+* **Chunked media delivery** — *In Progress*. The design: frames grouped into chunks of N
+  (default 36) served as one object, with a client-side LRU and ±1 prefetch. This is the
+  single most important media decision for annotation throughput. Today the `MediaChunk`
+  model and the chunk *plan* exist, but the client still fetches one frame per request —
+  acceptable for images, and the blocker for usable video annotation.
+* **Progressive loading** — *Planned*. A low-resolution proxy chunk served first so the
+  annotator can start immediately, with the full-resolution chunk swapping in when decoded.
+* **Large-file handling** — a size limit expressed in config rather than code is **Done**.
+  Resumable uploads are *Planned*: the `UploadSession` model is designed for an
+  offset-based `PATCH` protocol, but no endpoints implement it yet.
 
 ---
 
@@ -339,8 +343,9 @@ Planned: KITTI, LabelMe, Open Images, TFRecord, Datumaro bridge.
   `open`/`resolved` states — the mechanism by which a reviewer sends work back.
 * **Annotation history**: every write records an `AnnotationEvent` (actor, action, before/after
   diff) enabling per-object blame and rollback.
-* **Quality metrics** (*In Progress*): ground-truth job comparison producing per-label
-  precision/recall/IoU and a conflict list.
+* **Quality metrics** (*Planned*): ground-truth job comparison producing per-label
+  precision/recall/IoU and a conflict list. The `QualityReport` table exists; nothing
+  populates it yet.
 
 ---
 
@@ -424,9 +429,9 @@ Design targets and how they are met:
 | Millions of assets per instance | assets are rows + object storage keys; no directory scans; all listings paginated and indexed |
 | 100k annotations in one job | R-tree culling client-side; server returns annotations per-job, streamed, with an optional frame-range filter |
 | Long videos | chunked frame delivery + client LRU + prefetch; never a per-frame request |
-| Concurrent annotators | jobs are the concurrency unit; annotation writes take a per-job row lock and use optimistic versioning |
+| Concurrent annotators | jobs are the concurrency unit; annotation writes use optimistic versioning on `job.annotation_version` (a stale write is rejected, never merged) |
 | Heavy operations | everything slow (frame extraction, export, import, inference, quality reports) is a background job with idempotency keys |
-| Resumable uploads | offset-based `PATCH` protocol |
+| Resumable uploads | offset-based `PATCH` protocol — *Planned*, model designed, endpoints not built |
 
 Benchmarks live in `server/tests/benchmarks/` (annotation write/read at 1k/10k/100k) and
 `web/src/canvas/__bench__/` (index build, viewport query, render frame time).

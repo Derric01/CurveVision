@@ -51,8 +51,8 @@ means designed, not built.
 | Track editing UI (keyframe timeline) | **In Progress** — the model and interpolation are done on both sides; the UI is not |
 | Mask brush tool | **Planned** — RLE storage and export exist; the drawing tool does not |
 | Skeleton / keypoint editing UI | **Planned** — the model and COCO keypoint export exist |
-| Ground-truth quality reports | **In Progress** — the model exists; the comparison job does not |
-| Resumable uploads | **In Progress** — the protocol and table exist; the client does not use them |
+| Ground-truth quality reports | *Planned* — the storage model exists; nothing computes a report |
+| Resumable uploads | *Planned* — the storage model exists; there are no endpoints yet |
 
 **What "Beta" needs before we call it that:** video annotation end to end, the track
 timeline, and webhook retries.
