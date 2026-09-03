@@ -1,0 +1,75 @@
+name: Bug report
+description: Something does not work the way it should
+labels: [bug, needs-triage]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for reporting. **Security vulnerabilities do not belong here** — see
+        [SECURITY.md](https://github.com/Derric01/CurveVision/blob/main/docs/SECURITY.md).
+
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened
+      description: What did you do, and what did CurveVision do instead of what you expected?
+    validations:
+      required: true
+
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: Steps to reproduce
+      placeholder: |
+        1. Create a project with labels "car" and "pedestrian"
+        2. Upload three images
+        3. Draw a polygon on frame 0
+        4. …
+    validations:
+      required: true
+
+  - type: input
+    id: request-id
+    attributes:
+      label: Request ID
+      description: >
+        The `X-Request-ID` header on the failing response, if you have it. Every server log
+        line carries it, so it takes us straight to the cause.
+
+  - type: dropdown
+    id: area
+    attributes:
+      label: Where
+      options:
+        - Annotation editor
+        - Import / export
+        - AI-assisted annotation
+        - Projects, tasks or jobs
+        - Review workflow
+        - API / SDK / CLI
+        - Deployment
+        - Not sure
+    validations:
+      required: true
+
+  - type: input
+    id: version
+    attributes:
+      label: Version or commit
+    validations:
+      required: true
+
+  - type: textarea
+    id: environment
+    attributes:
+      label: Environment
+      placeholder: |
+        Deployment: docker compose / from source / other
+        Browser: Firefox 130 (editor issues only)
+        Database: PostgreSQL 16 / SQLite
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: Relevant logs
+      render: shell

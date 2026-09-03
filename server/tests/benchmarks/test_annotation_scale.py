@@ -50,9 +50,7 @@ async def _world(session: AsyncSession, frames: int) -> tuple[Job, Label]:
     await session.flush()
 
     label = Label(project_id=project.id, name="object")
-    task = Task(
-        project_id=project.id, name="Bench", media_kind=MediaKind.IMAGE, frame_count=frames
-    )
+    task = Task(project_id=project.id, name="Bench", media_kind=MediaKind.IMAGE, frame_count=frames)
     session.add_all([label, task])
     await session.flush()
 

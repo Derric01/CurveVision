@@ -1,0 +1,201 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  server:
+    name: Server (lint, types, tests)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: pip
+          cache-dependency-path: server/pyproject.toml
+
+      - name: Install
+        working-directory: server
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[dev]"
+
+      - name: Ruff
+        working-directory: server
+        run: |
+          ruff check .
+          ruff format --check .
+
+      - name: Mypy
+        working-directory: server
+        run: mypy curvevision
+
+      # SQLite first: fast, and it proves the promise that the suite needs no services.
+      - name: Tests (SQLite)
+        working-directory: server
+        run: pytest -q
+
+      - name: Migration round-trip
+        working-directory: server
+        env:
+          CURVEVISION_DATABASE_URL: sqlite+aiosqlite:///./ci.db
+        run: |
+          alembic upgrade head
+          alembic downgrade base
+          alembic upgrade head
+
+  server-postgres:
+    name: Server (PostgreSQL integration)
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: curvevision
+          POSTGRES_PASSWORD: curvevision
+          POSTGRES_DB: curvevision_test
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: pip
+          cache-dependency-path: server/pyproject.toml
+
+      - name: Install
+        working-directory: server
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[dev,postgres]"
+
+      # The unit suite runs on SQLite; this job proves the schema and the
+      # Postgres-specific column variants (JSONB, native uuid) actually work.
+      - name: Migrations against PostgreSQL
+        working-directory: server
+        env:
+          CURVEVISION_DATABASE_URL: postgresql+asyncpg://curvevision:curvevision@localhost:5432/curvevision_test
+        run: |
+          alembic upgrade head
+          alembic downgrade base
+          alembic upgrade head
+
+  sdk:
+    name: SDK and CLI
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: pip
+
+      - name: Install
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e "./server[dev]" -e "./sdk/python[dev]"
+
+      - name: Ruff
+        working-directory: sdk/python
+        run: |
+          ruff check .
+          ruff format --check .
+
+      - name: Mypy
+        working-directory: sdk/python
+        run: mypy curvevision_sdk
+
+      # These run against a real uvicorn server over HTTP, not an in-process transport.
+      - name: Tests
+        working-directory: sdk/python
+        run: pytest -q
+
+  web:
+    name: Web (lint, types, tests, build)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+
+      - name: Install
+        working-directory: web
+        run: npm ci --no-audit --no-fund
+
+      - name: ESLint
+        working-directory: web
+        run: npm run lint
+
+      - name: TypeScript
+        working-directory: web
+        run: npm run typecheck
+
+      - name: Tests
+        working-directory: web
+        run: npm run test
+
+      - name: Build
+        working-directory: web
+        run: npm run build
+
+  docker:
+    name: Docker images build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-buildx-action@v3
+
+      - name: Build server image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: deploy/Dockerfile.server
+          push: false
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Build web image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: deploy/Dockerfile.web
+          push: false
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+  licenses:
+    name: Third-party notices are current
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      # A dependency that reaches users without an attribution entry is a licensing
+      # problem, so it fails the build rather than being noticed later.
+      - name: Check notices cover declared dependencies
+        run: python scripts/check_notices.py
