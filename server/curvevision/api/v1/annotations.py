@@ -6,6 +6,7 @@ from fastapi import APIRouter, Query, status
 from sqlalchemy import select
 
 from curvevision.api.deps import JobScopeDep, SessionDep
+from curvevision.core.errors import ConflictError
 from curvevision.core.pagination import Page, PageParamsDep, paginate
 from curvevision.domain.review import AnnotationEvent
 from curvevision.policy import Action, ResourceType
@@ -70,6 +71,8 @@ async def write_annotations(
 @router.delete("/annotations", status_code=status.HTTP_204_NO_CONTENT)
 async def clear_annotations(scope: JobScopeDep, session: SessionDep) -> None:
     scope.authorize(Action.DELETE, ResourceType.ANNOTATION)
+    if scope.job.locked:
+        raise ConflictError("This job is locked")
     await annotation_service.clear_annotations(session, scope.job)
     scope.job.annotation_version += 1
     await session.commit()

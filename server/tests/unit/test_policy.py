@@ -84,10 +84,6 @@ class TestAnnotationWrites:
         context = ctx(ResourceType.ANNOTATION, Role.VIEWER, assignee_id=ALICE.user_id)
         assert can(ALICE, Action.UPDATE, context) is False
 
-    def test_locked_job_rejects_writes_even_from_an_owner(self) -> None:
-        context = ctx(ResourceType.ANNOTATION, Role.OWNER, locked=True)
-        assert can(ALICE, Action.UPDATE, context) is False
-
     def test_accepted_work_is_frozen_for_annotators(self) -> None:
         context = ctx(
             ResourceType.ANNOTATION,

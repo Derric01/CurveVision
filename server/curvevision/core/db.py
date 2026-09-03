@@ -84,6 +84,18 @@ def create_engine(settings: Settings | None = None) -> AsyncEngine:
     return engine
 
 
+def configure_engine(settings: Settings) -> None:
+    """Bind the process-wide engine to ``settings``.
+
+    Called from the application lifespan and from the worker entrypoint, so that
+    ``create_app(settings)`` is genuinely self-contained rather than quietly falling back
+    to whatever ``get_settings()`` reads from the environment.
+    """
+    global _engine, _sessionmaker
+    _engine = create_engine(settings)
+    _sessionmaker = async_sessionmaker(_engine, expire_on_commit=False, autoflush=False)
+
+
 def get_engine() -> AsyncEngine:
     global _engine
     if _engine is None:

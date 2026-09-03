@@ -15,7 +15,11 @@ Two rule layers compose:
 
 1. **Role floor** -- the minimum role required for ``(resource, action)``.
 2. **Assignment scope** -- rules that let a lower role act on resources assigned to them,
-   or that deny an otherwise-permitted action (a locked or accepted job, for instance).
+   or that deny an otherwise-permitted action (writing to an accepted job, for instance).
+
+Constraints that hold for *everyone* regardless of role -- a locked job, a released
+dataset version -- are not permissions and are not here. Services enforce those and
+return 409 with a message that says what is actually wrong.
 
 Rationale for not using Open Policy Agent (which CVAT uses): the decision is a pure
 function of rows already loaded to serve the request. A network hop and a second policy
@@ -97,8 +101,6 @@ class ResourceContext:
     author_id: uuid.UUID | None = None
     #: Job state, when the resource is a job or scoped to one.
     job_state: JobState | None = None
-    #: True when the job or dataset version is locked/released and therefore immutable.
-    locked: bool = False
     #: Project setting: may any annotator pick up unassigned work?
     open_assignment: bool = True
     extra: dict[str, object] = field(default_factory=dict)
@@ -218,20 +220,12 @@ def can(principal: Principal, action: Action, context: ResourceContext) -> bool:
 
     resource = context.resource_type
 
-    # --- hard denials -----------------------------------------------------------------
-    # A locked or released resource rejects writes regardless of role. Deletion of a
-    # locked job is still a maintainer concern and is handled by the role floor.
-    if (
-        context.locked
-        and action in _WRITE_ACTIONS
-        and resource
-        in (
-            ResourceType.ANNOTATION,
-            ResourceType.DATASET_VERSION,
-        )
-    ):
-        return False
-
+    # --- role-dependent state rules ----------------------------------------------------
+    # On the split: a constraint that depends on *who is asking* lives here and surfaces
+    # as 403. A constraint that holds for everyone regardless of role -- a locked job, a
+    # released dataset version -- is state, not permission: services enforce those and
+    # return 409 with a message saying what is actually wrong. Encoding them here as well
+    # would give one condition two different status codes depending on the caller.
     if (
         resource is ResourceType.ANNOTATION
         and action in _WRITE_ACTIONS
