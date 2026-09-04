@@ -1,0 +1,34 @@
+# Keep the build context small and reproducible: a stale local venv or node_modules in the
+# context makes builds slow and, worse, can shadow what the Dockerfile installs.
+
+.git
+.github
+**/.venv
+**/venv
+**/node_modules
+**/dist
+**/__pycache__
+**/*.pyc
+**/.pytest_cache
+**/.mypy_cache
+**/.ruff_cache
+**/*.egg-info
+
+# Local data and secrets must never reach an image layer.
+.env
+.env.local
+data/
+**/*.db
+**/*.db-wal
+**/*.db-shm
+
+# Not needed at runtime.
+docs/
+desktop/
+licenses/
+scripts/dev.sh
+**/tests/
+**/__tests__/
+**/__bench__/
+*.md
+!server/README.md

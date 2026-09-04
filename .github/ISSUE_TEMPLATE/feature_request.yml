@@ -1,0 +1,39 @@
+name: Feature request
+description: Suggest something CurveVision should do
+labels: [enhancement, needs-triage]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Please check the [roadmap](https://github.com/Derric01/CurveVision/blob/main/docs/ROADMAP.md)
+        first — it also lists what we have decided against, and why.
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: What problem are you trying to solve?
+      description: >
+        The problem, not the feature. What are you doing today, and what makes it painful?
+        The problem is what tells us whether the feature you have in mind is the right answer.
+    validations:
+      required: true
+
+  - type: textarea
+    id: proposal
+    attributes:
+      label: What would you like CurveVision to do?
+    validations:
+      required: true
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: What have you tried instead?
+      description: Workarounds, other tools, scripts — anything that partially works today.
+
+  - type: checkboxes
+    id: help
+    attributes:
+      label: Would you like to build it?
+      options:
+        - label: I would be willing to work on this

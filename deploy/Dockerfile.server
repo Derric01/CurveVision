@@ -1,0 +1,46 @@
+# ---- builder -----------------------------------------------------------------
+# A separate build stage keeps compilers and headers out of the runtime image.
+FROM python:3.11-slim AS builder
+
+ENV PIP_DISABLE_PIP_VERSION_CHECK=1 \
+    PIP_NO_CACHE_DIR=1 \
+    PYTHONDONTWRITEBYTECODE=1
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+      build-essential libpq-dev \
+    && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /build
+COPY server/pyproject.toml server/README.md ./
+COPY server/curvevision ./curvevision
+
+RUN python -m venv /opt/venv
+ENV PATH="/opt/venv/bin:$PATH"
+RUN pip install --upgrade pip && pip install ".[postgres,s3,media,worker]"
+
+# ---- runtime -----------------------------------------------------------------
+FROM python:3.11-slim AS runtime
+
+ENV PATH="/opt/venv/bin:$PATH" \
+    PYTHONUNBUFFERED=1 \
+    PYTHONDONTWRITEBYTECODE=1
+
+# libpq for psycopg, ffmpeg libraries for PyAV. See docs/THIRD_PARTY_NOTICES.md for the
+# licensing obligations that come with distributing an image containing FFmpeg.
+RUN apt-get update && apt-get install -y --no-install-recommends \
+      libpq5 libgl1 libglib2.0-0 curl \
+    && rm -rf /var/lib/apt/lists/*
+
+# Never run as root: a container escape should not start from uid 0.
+RUN useradd --create-home --uid 10001 curvevision
+COPY --from=builder /opt/venv /opt/venv
+
+WORKDIR /app
+COPY --chown=curvevision:curvevision server/ /app/
+USER curvevision
+
+EXPOSE 8000
+HEALTHCHECK --interval=30s --timeout=5s --start-period=20s --retries=3 \
+  CMD curl -fsS http://localhost:8000/api/v1/health || exit 1
+
+CMD ["uvicorn", "curvevision.main:app", "--host", "0.0.0.0", "--port", "8000"]

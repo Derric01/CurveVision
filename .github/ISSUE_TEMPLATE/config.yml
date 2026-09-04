@@ -1,0 +1,8 @@
+blank_issues_enabled: true
+contact_links:
+  - name: Question or idea
+    url: https://github.com/Derric01/CurveVision/discussions
+    about: Discussions are a better fit than issues for questions and open-ended ideas.
+  - name: Security vulnerability
+    url: https://github.com/Derric01/CurveVision/security/advisories/new
+    about: Report privately. Please do not open a public issue.
