@@ -11,6 +11,8 @@ weighed, the decision, and the consequences we accept.
 | [0003](./0003-canvas2d-with-spatial-index.md) | Canvas2D with an R-tree, not an SVG DOM |
 | [0004](./0004-streaming-format-registry.md) | A streaming format registry, not Datumaro |
 | [0005](./0005-http-inference-contract.md) | An HTTP inference contract, not a bundled serving platform |
+| [0006](./0006-one-codebase-two-shapes.md) | One codebase, two shapes: desktop and server |
+| [0007](./0007-cvat-reuse-policy.md) | What we reuse from CVAT, and what we do not |
 
 ## Writing one
 

@@ -18,8 +18,21 @@
 
 ## 0. Purpose and constraints
 
-CurveVision is an open-source annotation and dataset platform for computer vision. It must
-serve two equally first-class workflows:
+CurveVision is an open-source annotation and dataset platform for computer vision.
+
+### The product, in one paragraph
+
+**One product, two ways to run it, and neither is the lesser.** A person who wants an
+annotation tool downloads an installer, double-clicks it, points at a folder of images and
+starts drawing — no account, no server, no Docker, no configuration. A team that wants to
+divide work, review it and keep a shared history runs the same application as a server and
+opens it in a browser. The desktop app is not a cut-down offline viewer, and the web app is
+not the "real" version the desktop one imitates: they are the same code, reached two ways.
+
+This is the thing to protect when making a technical decision. If a change makes one of
+those two shapes better by making the other worse, it is the wrong change.
+
+### Two workflows, equally first-class
 
 ```
 Manual-first     upload → label schema → draw → review → export
@@ -29,16 +42,52 @@ AI-assisted      upload → run model → accept/correct → review → export
 Neither workflow may require the other. The AI subsystem is an *accelerator layered on top
 of* the annotation engine, never a precondition for it.
 
-Constraints that shape every decision below:
+### Two deployment shapes, one codebase
 
-1. **Self-hostable by one person on one machine.** `docker compose up` must yield a working
-   platform with no cloud account, no license key, no external inference service.
-2. **Horizontally scalable when needed.** The same code must run with N API replicas and M
+```
+Desktop                                  Server
+────────────────────────────────────     ────────────────────────────────────
+Tauri window                             Any browser
+  └─ loads http://127.0.0.1:<port>         └─ loads https://curvevision.example
+        │                                        │
+        ▼                                        ▼
+  the same web/ bundle                     the same web/ bundle
+        │                                        │
+        ▼                                        ▼
+  the same server/ application             the same server/ application
+  SQLite · local files · inline jobs       Postgres · S3 · Redis + workers
+```
+
+The difference between the two columns is **configuration, not code**: which database URL,
+which storage backend, which job queue. Every one of those was already an interface before
+the desktop app existed, which is why adding it changed 42 lines of existing code.
+
+What each shape must be allowed to be good at:
+
+| | Desktop | Server |
+| --- | --- | --- |
+| Setup | Double-click an installer | `docker compose up` |
+| Accounts | None. There is one person here | Real users, roles, orgs |
+| Data | Stays on the machine, annotated in place | Shared, backed up, audited |
+| Scale | One person's laptop | N API replicas, M workers |
+
+### Constraints that shape every decision below
+
+1. **Installable by a person who does not know what Docker is.** An installer must yield a
+   working CurveVision with no account, no license key, no external service.
+2. **Self-hostable by one person on one machine.** `docker compose up` must yield the same
+   platform for a team.
+3. **Horizontally scalable when needed.** The same code must run with N API replicas and M
    workers against managed Postgres/Redis/S3.
-3. **No artificial capability paywalls.** Everything needed to produce a high-quality dataset
+4. **No artificial capability paywalls.** Everything needed to produce a high-quality dataset
    is in the open-source core.
-4. **Leverage the ecosystem.** Prefer mature OSS over bespoke code; see
-   [ARCHITECTURE.md § Open-Source Building Blocks](./ARCHITECTURE.md#open-source-building-blocks--build-vs-extend-decisions).
+5. **Leverage the ecosystem, and CVAT specifically.** Prefer mature OSS over bespoke code,
+   and prefer adapting CVAT's MIT-licensed engineering over re-deriving it. See
+   [ARCHITECTURE.md § Open-Source Building Blocks](./ARCHITECTURE.md#open-source-building-blocks--build-vs-extend-decisions)
+   for the decision table and the license audit behind it.
+6. **Incremental over clean-slate.** Working code is not rewritten because a newer shape
+   would be tidier. A rewrite needs a stated technical reason, and the reason goes in an
+   ADR.
 
 ---
 
@@ -71,7 +120,9 @@ curvevision/
 │     ├─ api/                # generated-ish typed API client
 │     └─ ui/                 # design-system primitives
 ├─ sdk/python/               # `curvevision` Python SDK + `curvevision` CLI
-├─ desktop/                  # Tauri shell (Planned)
+├─ desktop/                  # the desktop shape of the same application
+│  ├─ sidecar/               # PyInstaller build: server + web bundle, one executable
+│  └─ shell/                 # Tauri v2 shell (Rust): supervises it, opens the window
 ├─ deploy/                   # docker compose, Dockerfiles, helm (Planned)
 ├─ docs/
 └─ scripts/                  # dev scripts
@@ -296,8 +347,16 @@ frame navigation, label sidebar, object list, autosave to the API.
 * **Image datasets** — **Done.** Upload (multipart + resumable), SHA-256 dedupe, dimension
   probing, thumbnail generation, ordered frame indexing.
 * **Video datasets** — **In Progress.** Videos are probed for duration/fps/dimensions; frame
-  addressing is by index. Frame extraction runs as a background job producing *chunks*
-  (see below). The manifest/keyframe index is implemented; GPU-free decode uses PyAV.
+  addressing is by index. Decode uses PyAV.
+
+  **The next step is adaptation, not invention.** CVAT's `media_extractors.py` is 1,649
+  lines of MIT-licensed, battle-tested frame extraction — frame-accurate seeking, keyframe
+  indexing, EXIF orientation, chunk writers — with only three CVAT imports and one DRF
+  exception standing between it and portability. Our `media/` package is 182 lines of
+  probing. Video decoding is years of accumulated edge cases (variable frame rates, broken
+  keyframe indices, rotation metadata, containers that lie about duration), and re-deriving
+  it would be the least defensible code in this repository. See
+  [ADR 0007](./adr/0007-cvat-reuse-policy.md) for the license audit and the reuse test.
 * **Chunked media delivery** — *In Progress*. The design: frames grouped into chunks of N
   (default 36) served as one object, with a client-side LRU and ±1 prefetch. This is the
   single most important media decision for annotation throughput. Today the `MediaChunk`
@@ -400,15 +459,46 @@ flips `source` to `"model_corrected"` so dataset provenance survives to export.
 
 ---
 
-## Phase 9 — Desktop application · **Planned**
+## Phase 9 — Desktop application · **In Progress**
 
-Tauri v2 shell reusing the exact web bundle, adding:
-* a local dataset picker with direct filesystem access (no upload round trip),
-* an embedded local server mode for fully offline annotation,
-* background sync to a remote CurveVision instance when connectivity returns.
+Not an add-on: one of the two shapes the product ships in ([Two deployment shapes](#two-deployment-shapes-one-codebase),
+[ADR 0006](./adr/0006-one-codebase-two-shapes.md)).
 
-Explicit non-goal: a second implementation of the product. The desktop app is a shell plus a
-storage/transport adapter behind the same API contract.
+* **Local mode** — **Done.** `local_mode` + `app_data_dir` in Settings. The server resolves
+  the per-OS application directory, migrates a SQLite database there with Alembic (not
+  `create_all` — a desktop user opens v2 against a v1 database and must not lose it),
+  provisions one local account and workspace on first launch, mints a fresh API token each
+  launch and revokes the previous one, and prints a single line of JSON on stdout.
+* **Loopback-only binding** — **Done.** `127.0.0.1` on an OS-assigned port. This is what
+  makes an auto-provisioned password-less account safe, and it is verified by a test that
+  connects to the host's non-loopback address and expects refusal. An unauthenticated
+  request is still 401.
+* **Annotating in place** — **Done.** `MediaBlob.source_path` records where a file *is*
+  rather than copying it; `POST /tasks/{id}/local-import` walks a folder in a worker thread,
+  sorts by path so frame numbers are reproducible, and reports unreadable files in `skipped`
+  rather than failing the import. The orphan-blob collector never deletes a file it did not
+  write. Every route in `api/v1/local.py` 404s unless `local_mode`.
+* **Serving the editor from the server** — **Done.** `web_root` with an SPA fallback, so the
+  desktop window is same-origin with its API and `curvevision-local` alone opens a complete
+  CurveVision in a browser.
+* **Packaged server** — **Done.** One PyInstaller executable (~38 MB; ~1.5–2.1 s spawn to
+  handshake on Linux). Migrations ship as *data*, because Alembic reads them from disk.
+  `desktop/sidecar/build.py` builds and then smoke-tests what it built.
+* **Tauri shell** — **Done.** ~450 lines of Rust: process supervision, token injection
+  before page load, native dialogs, menus. Killed on every exit path, and
+  `--exit-with-parent` makes the server stop on end-of-file when the shell cannot run its
+  own handler (crash, force quit, `kill -9`) — verified.
+* **Desktop-aware frontend** — *In Progress*. Read the injected `window.__CURVEVISION__`,
+  skip the sign-in screen, offer the folder picker, hide multi-user chrome.
+* **Signed installers** — *Planned*. `.dmg`, `.msi`, `.AppImage` built per platform in CI;
+  PyInstaller does not cross-compile, so this needs one runner per OS.
+* **Auto-update** — *Planned*.
+* **Pointing the desktop app at a shared team server** — *Planned*. The application is
+  already origin-agnostic; this is UI work, not architecture.
+
+Explicit non-goal, unchanged: a second implementation of the product. The shell supervises a
+process and opens dialogs. Adding the whole desktop application changed **1,460 lines added
+and 42 removed** in existing code.
 
 ---
 
