@@ -12,7 +12,7 @@ from curvevision import __version__
 from curvevision.api.errors import install_error_handlers
 from curvevision.api.middleware import install_security_middleware
 from curvevision.api.router import api_router
-from curvevision.core.config import Settings, get_settings
+from curvevision.core.config import Settings, configure_settings, get_settings
 from curvevision.core.db import configure_engine, dispose_engine
 from curvevision.core.logging import configure_logging, get_logger
 from curvevision.core.observability import install_middleware, metrics_response
@@ -31,8 +31,10 @@ Authenticate with either a session token (`POST /api/v1/auth/login`) or an API t
 async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     settings: Settings = app.state.settings
     configure_logging(settings.log_level, settings.log_format)
-    # Bind the engine to *this* app's settings, so an app built with an explicit Settings
-    # object does not silently talk to whatever the environment names.
+    # Bind the engine *and* the process-wide configuration to this app's settings, so an
+    # app built with an explicit Settings object does not silently talk to whatever the
+    # environment names -- neither in a request handler nor in a background job.
+    configure_settings(settings)
     configure_engine(settings)
     logger = get_logger(__name__)
     logger.info(
@@ -53,6 +55,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
 
     yield
     await dispose_engine()
+    configure_settings(None)
     logger.info("CurveVision stopped")
 
 

@@ -45,6 +45,9 @@ dev = [
 
 [project.scripts]
 curvevision-server = "curvevision.cli:main"
+# The sidecar the desktop shell spawns. Also runnable by hand, which is the simplest way
+# to get a zero-configuration local instance without the installer.
+curvevision-local = "curvevision.desktop:main"
 
 [tool.hatch.build.targets.wheel]
 packages = ["curvevision"]
