@@ -355,6 +355,17 @@ settled designs and are the easiest places to start.
 ./scripts/check.sh    # everything CI runs
 ```
 
+### Working on this with a coding agent
+
+* **[AGENTS.md](AGENTS.md)** — the working contract for any coding agent, whichever one you
+  use. Orient against the real state of the code, pick the highest-value next task, verify
+  it, document it, continue.
+* **[handoff.md](handoff.md)** — the current state, what is in flight, and the next best
+  action. Kept truthful, and updated every iteration.
+
+Humans benefit from both too: `handoff.md` is the fastest way to see where the project
+actually is, without reading the whole roadmap.
+
 ---
 
 ## Community
