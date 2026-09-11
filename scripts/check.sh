@@ -11,12 +11,21 @@ step() {
   if "$@"; then echo "   ok"; else echo "   FAILED"; failed=1; fi
 }
 
-PY=server/.venv/bin
-step "ruff (server)"    "$PY/ruff" check server
-step "ruff format"      "$PY/ruff" format --check server sdk/python
-step "mypy (server)"    "$PY/mypy" --config-file server/pyproject.toml server/curvevision
-step "pytest (server)"  "$PY/python" -m pytest server/tests -q
-step "pytest (sdk)"     "$PY/python" -m pytest sdk/python/tests -q
+# Prefer the project virtualenv, but fall back to whatever is on PATH so this script
+# works in CI, in a container, and for a contributor whose environment lives elsewhere.
+if [ -x "server/.venv/bin/python" ]; then
+  PY="server/.venv/bin/python"
+else
+  PY="$(command -v python3 || command -v python)"
+fi
+run_py() { "$PY" -m "$@"; }
+
+step "ruff (server)"    run_py ruff check server
+step "ruff format"      run_py ruff format --check server sdk/python
+step "mypy (server)"    run_py mypy --config-file server/pyproject.toml server/curvevision
+step "pytest (server)"  run_py pytest server/tests -q
+step "pytest (sdk)"     run_py pytest sdk/python/tests -q
+step "notices"          "$PY" scripts/check_notices.py
 step "eslint (web)"     npm --prefix web run lint
 step "tsc (web)"        npm --prefix web run typecheck
 step "vitest (web)"     npm --prefix web run test
