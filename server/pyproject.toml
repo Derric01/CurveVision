@@ -31,6 +31,10 @@ postgres = ["asyncpg>=0.29", "psycopg[binary]>=3.1"]
 s3 = ["boto3>=1.34"]
 media = ["pillow>=10.3", "av>=12.0"]
 worker = ["dramatiq[redis]>=1.17", "redis>=5.0"]
+# Everything needed to package the local server for the desktop application. `media` is
+# included because a desktop build without image probing would ship an annotation tool
+# that cannot read image dimensions.
+desktop = ["pyinstaller>=6.6", "pillow>=10.3"]
 dev = [
     "pytest>=8.2",
     "pytest-asyncio>=0.23",

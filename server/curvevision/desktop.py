@@ -132,6 +132,20 @@ def local_settings(app_data_dir: Path | None = None, **overrides: object) -> Set
     )
 
 
+def migrations_dir() -> Path:
+    """Where Alembic's revision scripts live.
+
+    Alembic reads `env.py` and each revision from disk, so in a packaged build they are
+    bundled as data rather than compiled into the archive, and `__file__` no longer points
+    anywhere useful -- the entry script is unpacked at the root of the bundle while the
+    data keeps its package path.
+    """
+    bundled = getattr(sys, "_MEIPASS", None)
+    if bundled is not None:
+        return Path(bundled) / "curvevision" / "migrations"
+    return Path(__file__).resolve().parent / "migrations"
+
+
 def migrate(settings: Settings) -> None:
     """Bring the local database up to the current schema.
 
@@ -139,10 +153,21 @@ def migrate(settings: Settings) -> None:
     against a database written by an older one, and that has to be a migration, not a
     surprise.
     """
+    import logging
+
     from alembic import command
     from alembic.config import Config
 
-    migrations = Path(__file__).resolve().parent / "migrations"
+    migrations = migrations_dir()
+    if not (migrations / "env.py").is_file():  # pragma: no cover - packaging mistake
+        raise RuntimeError(
+            f"This build is missing its database migrations (looked in {migrations}). "
+            "It cannot safely open a database."
+        )
+    # Alembic narrates every step at INFO. On a server that is useful; on a desktop launch
+    # it is seven lines of noise before the window opens.
+    logging.getLogger("alembic").setLevel(logging.WARNING)
+
     config = Config()
     config.set_main_option("script_location", str(migrations))
     config.set_main_option("sqlalchemy.url", settings.database_url)
