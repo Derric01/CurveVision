@@ -16,7 +16,7 @@ import pytest
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
 from curvevision.core import db as db_module
-from curvevision.core.config import Settings, get_settings
+from curvevision.core.config import Settings, configure_settings
 from curvevision.core.db import Base, session_scope
 from curvevision.domain.enums import Role
 from curvevision.jobs import InlineJobQueue, set_job_queue
@@ -85,8 +85,11 @@ async def app(
                 raise
 
     application.dependency_overrides[session_scope] = override_session
-    application.dependency_overrides[get_settings] = lambda: settings
 
+    # Request handlers read `app.state.settings`, which `create_app` already set. Job
+    # handlers and the storage factory reach for `get_settings()`, so bind the process
+    # too -- otherwise a job would write to whatever the environment names.
+    configure_settings(settings)
     # The runner opens its own sessions, so it needs the test engine too.
     db_module._sessionmaker = sessionmaker_
     queue = InlineJobQueue(wait=True)
@@ -96,6 +99,7 @@ async def app(
 
     set_job_queue(None)
     db_module._sessionmaker = None
+    configure_settings(None)
     application.dependency_overrides.clear()
 
 

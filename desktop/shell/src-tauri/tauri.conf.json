@@ -1,0 +1,49 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "CurveVision",
+  "version": "0.1.0",
+  "identifier": "dev.curvevision.desktop",
+  "build": {
+    "beforeBuildCommand": "npm --prefix ../../../web run build",
+    "beforeDevCommand": "npm --prefix ../../../web run build",
+    "frontendDist": "../../../web/dist"
+  },
+  "app": {
+    "withGlobalTauri": false,
+    "windows": [],
+    "security": {
+      "csp": null,
+      "capabilities": ["default"]
+    }
+  },
+  "bundle": {
+    "active": true,
+    "targets": ["deb", "appimage", "rpm", "nsis", "dmg"],
+    "icon": [
+      "icons/32x32.png",
+      "icons/128x128.png",
+      "icons/128x128@2x.png",
+      "icons/icon.icns",
+      "icons/icon.ico"
+    ],
+    "externalBin": ["../../sidecar/dist/curvevision-local"],
+    "shortDescription": "Annotate computer-vision datasets on your own machine",
+    "longDescription": "CurveVision is open-source annotation and dataset infrastructure for computer vision. The desktop application runs a complete CurveVision on your own machine: annotate folders of images where they already sit, work offline, and export COCO, YOLO or Pascal VOC without your data leaving the computer.",
+    "category": "DeveloperTool",
+    "copyright": "CurveVision contributors",
+    "licenseFile": "../../../LICENSE",
+    "linux": {
+      "deb": {
+        "depends": ["libwebkit2gtk-4.1-0", "libgtk-3-0"]
+      }
+    },
+    "macOS": {
+      "minimumSystemVersion": "10.15"
+    },
+    "windows": {
+      "nsis": {
+        "installMode": "perMachine"
+      }
+    }
+  }
+}

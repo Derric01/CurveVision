@@ -4,6 +4,11 @@ CurveVision is a **modular monolith**: one API application, one worker applicati
 application, and the smallest set of stateful dependencies that can support the product.
 Module boundaries are enforced in code by explicit interfaces, not by network hops.
 
+It ships in **two shapes — a desktop application and a server — and they are the same
+code**. See [§1.1](#11-two-shapes-one-codebase). That constraint is load-bearing: it is why
+storage, the job queue, the database dialect and the dataset formats were interfaces from
+the first commit rather than direct calls to S3, Redis, PostgreSQL and COCO.
+
 ---
 
 ## 1. System overview
@@ -49,6 +54,63 @@ Module boundaries are enforced in code by explicit interfaces, not by network ho
 
 Everything in the middle box ships as **one image**. The worker is the same image with a
 different entrypoint.
+
+### 1.1 Two shapes, one codebase
+
+The diagram above is the *server* shape. The desktop application is the same middle box with
+different things plugged into its four seams, running as a child process of a native window:
+
+```
+  ┌──────────────────────────────────────────────────────────────────┐
+  │  Tauri shell  (desktop/shell)              457 lines of Rust     │
+  │  · spawns the server below and kills it on exit                  │
+  │  · reads one line of JSON: { url, token, data_dir, version }     │
+  │  · opens the window at that url, injects the token before load   │
+  │  · native folder / file dialogs                                  │
+  └───────────────────────────────┬──────────────────────────────────┘
+                                  │ spawns, loopback only
+  ┌───────────────────────────────▼──────────────────────────────────┐
+  │  curvevision-local  (desktop/sidecar)     one 38 MB executable   │
+  │                                                                  │
+  │   the same server/ application  +  the same web/ bundle          │
+  │   ┌───────────┬──────────┬────────┬────────┐                     │
+  │   │ storage/  │ formats/ │  ml/   │ jobs/  │  ← the same seams   │
+  │   │ local FS  │  same    │  same  │ inline │                     │
+  │   └───────────┴──────────┴────────┴────────┘                     │
+  │                     SQLite, in the app data directory            │
+  └──────────────────────────────────────────────────────────────────┘
+```
+
+**What actually differs between the two shapes:**
+
+| | Desktop | Server |
+| --- | --- | --- |
+| Database | SQLite file in the app data dir | PostgreSQL |
+| Storage | Local filesystem, and files annotated *in place* | S3 / MinIO / local |
+| Job queue | `inline` — runs in-process | `dramatiq` — Redis + worker processes |
+| Web bundle | Served by the app itself (`web_root`) | Served by nginx in front |
+| Sign-in | None; one local account, token injected by the shell | Real accounts, roles, orgs |
+| Reachability | `127.0.0.1` on an OS-assigned port | Whatever the operator exposes |
+| `local_mode` | `True` — unlocks annotating local paths | `False` — those routes 404 |
+
+Every row is a **Settings value**, not a branch in the business logic. `services/` cannot
+tell which shape it is running in, and that is the property to preserve.
+
+**Three rules keep this honest:**
+
+1. **No second implementation.** There is no `desktop/` copy of the editor, the API or the
+   exporters. The shell is ~450 lines of Rust whose entire job is process supervision and
+   native dialogs.
+2. **Desktop-only capability is gated at the API edge, never in a service.** Reading
+   arbitrary local paths is a *feature* on your own machine and *arbitrary file disclosure*
+   on a shared one. `api/v1/local.py` refuses every route with a 404 unless
+   `settings.local_mode`, so the capability does not exist on a server at all.
+3. **Same-origin by construction.** The desktop window loads the editor from the local
+   server rather than from a `tauri://` asset URL, so there is no CORS boundary, no second
+   origin, and no desktop-only auth path to get wrong.
+
+A useful consequence: `curvevision-local` run on its own, with no shell, opens a complete
+working CurveVision in an ordinary browser. The desktop app is a window around that.
 
 ---
 
@@ -207,6 +269,47 @@ See [SECURITY.md](./SECURITY.md) for the threat model and reporting process.
 
 The rule: **use existing OSS → extend existing OSS → build**, and only build when there is a
 concrete technical reason. Below is every decision that materially shaped the architecture.
+
+### 8.0 CVAT: what we reuse, what we do not, and why
+
+CVAT is the most mature open-source annotation platform in existence and the reference this
+project was asked to stand on. Reusing its engineering is a goal, not a fallback.
+
+**License audit** — performed against `cvat-ai/cvat` at commit `1d0c395` (2026-09-11), and
+to be re-run before adapting any further code:
+
+| Finding | Result |
+| --- | --- |
+| Top-level `LICENSE` | MIT — © 2018–2022 Intel Corporation, © 2022–2025 CVAT.ai Corporation |
+| Other `LICENSE` files in the tree | None |
+| Distinct `SPDX-License-Identifier` values across 1,473 source headers | `MIT` — **all of them**, no exceptions |
+| Caveats CVAT itself documents | `/serverless` may reference third-party model assets under separate (sometimes non-commercial) licenses; FFmpeg is LGPL/GPL and reached through PyAV |
+
+So MIT-licensed CVAT code **may** be adapted, provided the copyright notice and MIT text
+travel with it. Any file we adapt keeps its CVAT copyright line, adds ours for the changes,
+and is listed in [THIRD_PARTY_NOTICES.md](./THIRD_PARTY_NOTICES.md). We do not adapt
+anything from `/serverless`, and we do not ship FFmpeg binaries.
+
+**The decision that governs the rest:** reuse is worth it when the code encodes *hard-won
+domain knowledge* (video decoding quirks, format edge cases) and cheap when the code is
+mostly *framework glue*. CVAT is Django + DRF + SVG.js; CurveVision is FastAPI +
+SQLAlchemy + Canvas2D. Porting glue across that gap is not reuse — it is a rewrite wearing
+reuse's clothes, and it would leave us maintaining Django idioms in an async codebase
+forever.
+
+| CVAT component | Nature | Decision | Reasoning |
+| --- | --- | --- | --- |
+| `cvat/apps/engine/media_extractors.py` (1,649 lines) | **Domain knowledge.** PyAV/Pillow/NumPy; only 3 CVAT imports plus one DRF exception. Frame-accurate seeking, keyframe indexing, EXIF orientation, chunk writing. | **Adapt** — *In Progress* | This is years of video-decoding edge cases. Our `media/` is 182 lines of probing, and "chunked frame extraction" is our single biggest gap. Re-deriving this would be the least defensible code we could write. |
+| Format edge cases in `cvat/apps/dataset_manager/formats/` (20+ formats) | Domain knowledge, but Datumaro-shaped | **Reference, port selectively** | The converters are thin wrappers over Datumaro. The value is the *quirks* they encode; the structure does not transfer. |
+| Datumaro itself | A library | **Depend on it, eventually** (*Planned* bridge) | Notably, CVAT depends on its **own fork**, pinned to a commit hash — evidence for [ADR 0004](./adr/0004-streaming-format-registry.md): upstream Datumaro did not fit their needs either. Ours is a streaming registry for a different reason (memory), and the bridge stays Planned. |
+| Interpolation / track semantics | Domain knowledge | **Reference for behaviour parity** | Already independently implemented with arc-length resampling. Value in cross-checking test vectors so imported CVAT projects interpolate identically. |
+| `cvat-canvas` (SVG.js, `svg.draw.js`, `svg.resize.js`) | Architecture | **Do not adapt** | [ADR 0003](./adr/0003-canvas2d-with-spatial-index.md) chose Canvas2D + R-tree over SVG DOM on a *measured* ~500x picking advantage at 100k shapes. Adopting an SVG scene graph would undo a benchmarked decision. |
+| Django models, DRF serializers, viewsets, permissions | Framework glue | **Do not adapt** | No path from a Django ORM model to a typed async SQLAlchemy one that is cheaper than the code we already have and test. |
+| `cvat-core`, `cvat-ui` | Framework glue + product | **Do not adapt** | Ties to CVAT's API shape and Ant Design; our brief is an independent product with its own UX. |
+
+**What this means in practice:** the reuse budget goes almost entirely into media handling,
+because that is where CVAT's advantage is real and transferable. Everywhere else, the honest
+answer is that the architectures diverge by design and copying would cost more than it saves.
 
 ### Backend
 

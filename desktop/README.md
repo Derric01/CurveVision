@@ -1,72 +1,123 @@
-# CurveVision Desktop — *Planned*
+# CurveVision Desktop
 
-**There is no working desktop build yet.** This directory holds the design so the intent is
-reviewable; shipping a stub that looks like an application would be worse than an empty
-directory with an honest README.
+**Install one file, point at a folder, start drawing.** No account, no server, no Docker,
+no configuration. Your images never move off your machine — CurveVision annotates them
+where they already sit.
 
-## What it will be
+This is one of the two shapes CurveVision ships in, and it is not the lesser one. The other
+is a server your team opens in a browser. They are the same code; see
+[ADR 0006](../docs/adr/0006-one-codebase-two-shapes.md).
 
-A [Tauri v2](https://tauri.app/) shell around **the same web bundle the browser serves** —
-explicitly not a second implementation of the product. The shared pieces are the API
-contract and the entire `web/` application; the desktop-specific part is a storage and
-transport adapter.
+## How it fits together
 
-## Why it earns its existence
+```
+  ┌──────────────────────────────────────────────────────────────┐
+  │  shell/     Tauri v2 · 457 lines of Rust                     │
+  │  · spawns the server below, kills it on every exit path      │
+  │  · reads one line of JSON: { url, token, data_dir, version } │
+  │  · opens the window there, injects the token before load     │
+  │  · native folder and file dialogs                            │
+  └──────────────────────────────┬───────────────────────────────┘
+                                 │  spawns · loopback only
+  ┌──────────────────────────────▼───────────────────────────────┐
+  │  sidecar/   curvevision-local — one executable, ~38 MB       │
+  │             the whole CurveVision server + the web editor    │
+  │             SQLite · local files · in-process jobs           │
+  └──────────────────────────────────────────────────────────────┘
+```
 
-Three things a browser cannot do well:
+The shell is deliberately thin. It does the three things a browser cannot — run the server,
+sign you in, open native dialogs — and nothing else. The editor, the API and the exporters
+are the same code a server deployment runs; there is no second implementation here.
 
-1. **Local datasets without an upload round trip.** A 200 GB folder of frames on an
-   external drive should be annotatable in place, not copied into object storage first.
-2. **Offline work.** An embedded local server, so annotation continues without
-   connectivity, with background sync to a remote instance when it returns.
-3. **Large local files.** Direct filesystem access sidesteps browser memory limits on
-   multi-gigabyte video.
+## Build it
+
+```bash
+pip install -e 'server[dev,media,desktop]'
+npm --prefix web install && npm --prefix web run build   # the editor, bundled into the server
+python desktop/sidecar/build.py                          # builds, then smoke-tests
+
+cd desktop/shell/src-tauri
+cargo build --release
+```
+
+[`sidecar/README.md`](./sidecar/README.md) documents the packaging, the handshake protocol
+and the measured numbers.
+
+### Without the shell
+
+The packaged server is useful on its own — it is the shortest path to a working CurveVision
+with no configuration whatsoever:
+
+```bash
+./sidecar/dist/curvevision-local                 # prints its URL and token, then serves
+./sidecar/dist/curvevision-local --port 8000     # a fixed port, for scripting
+./sidecar/dist/curvevision-local --print-data-dir
+```
+
+Open the printed URL in any browser and you get the complete application.
+
+## Status
+
+**Working, verified end to end against the packaged binary:**
+
+| | |
+| --- | --- |
+| Zero-configuration local mode — app data dir, Alembic migration, one local account | **Done** |
+| Handshake — loopback-only OS-assigned port, fresh token each launch, previous revoked | **Done** |
+| Packaged server: ~38 MB, ~1.5–2.1 s spawn to handshake (Linux, x86-64) | **Done** |
+| Shell: process supervision, no-sign-in token injection, native dialogs, menus (6.2 MB release binary) | **Done** |
+| Never orphans the server — verified by `kill -9` on the shell | **Done** |
+| Annotating local folders in place, nothing copied | **Done** |
+| The editor served by the app itself, same-origin with its API | **Done** |
+| Frontend reads the injected connection and skips the sign-in screen | **In Progress** |
+| Signed installers (`.dmg`, `.msi`, `.AppImage`) built per platform in CI | **Planned** |
+| Auto-update | **Planned** |
+| Pointing the desktop app at a shared team server | **Planned** |
+
+Measurements are from this repository's own Linux build, not targets. They will differ on
+other platforms.
+
+## Where your data lives
+
+One directory, which you can copy to another machine:
+
+| Platform | Path |
+| --- | --- |
+| macOS | `~/Library/Application Support/CurveVision` |
+| Windows | `%LOCALAPPDATA%\CurveVision` |
+| Linux | `$XDG_DATA_HOME/CurveVision`, else `~/.local/share/CurveVision` |
+
+It holds `curvevision.db` (all your projects and annotations), `media/` (anything you
+uploaded rather than annotated in place), and `secret.key`. **Images you annotated in place
+are not in here** — they are wherever you left them, and CurveVision never writes to or
+deletes them.
 
 ## Why Tauri rather than Electron
 
 | | Tauri | Electron |
 | --- | --- | --- |
-| Bundle size | ~10 MB | ~150 MB |
+| Shell binary | **6.2 MB** measured here (release, Linux x86-64) | ~150 MB typical |
 | Memory | System webview | Bundled Chromium per app |
 | Security model | Explicit capability allow-list | Broad by default |
 | Backend language | Rust | Node |
 
-The system webview is the one real trade: rendering differs slightly across platforms. For
-a Canvas2D annotation surface with no exotic CSS, that is an acceptable cost for a 15x
-smaller download.
+The system webview is the real trade: rendering differs slightly across platforms. For a
+Canvas2D annotation surface with no exotic CSS, that is an acceptable cost for a far
+smaller download. The capability allow-list is in
+[`shell/src-tauri/capabilities/default.json`](./shell/src-tauri/capabilities/default.json)
+and is deliberately short.
 
-## Planned structure
+## Security
 
-```
-desktop/
-├─ src-tauri/
-│  ├─ Cargo.toml
-│  ├─ tauri.conf.json      capability allow-list: fs, dialog, shell(none)
-│  └─ src/
-│     ├─ main.rs           window and menu setup
-│     ├─ local_store.rs    filesystem-backed Storage implementation
-│     └─ sync.rs           background reconciliation with a remote instance
-└─ (the web bundle, built from ../web)
-```
+The auto-provisioned account with no password is safe for exactly one reason: **the server
+binds `127.0.0.1` on an OS-assigned port and is reachable from nothing else.** Verified by
+connecting to the host's non-loopback address and being refused.
 
-The local store implements the same `Storage` contract the server uses, which is why the
-seam exists at all.
+Two further properties:
 
-## Open questions
-
-* **Sync conflicts.** The server has optimistic concurrency on `annotation_version`;
-  offline editing needs a merge strategy the current model does not describe.
-* **Embedded server.** Ship the Python server as a sidecar process, or reimplement a
-  subset in Rust? The sidecar is far less work and far larger to distribute.
-* **Local vs remote identity.** How offline work is attributed once it syncs.
-
-None of these are resolved. Input welcome — open a discussion.
-
-## Building, once it exists
-
-```bash
-cd web && npm run build
-cd ../desktop && cargo tauri build
-```
-
-Tracked in [../docs/ROADMAP.md](../docs/ROADMAP.md).
+* An unauthenticated request is still rejected (401), so a stray page in a browser on the
+  same machine gets nothing.
+* Reading arbitrary local paths — the whole point of annotating in place — exists *only*
+  when `local_mode` is on. On a shared server those routes return 404, so the capability is
+  absent rather than merely forbidden.

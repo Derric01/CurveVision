@@ -27,8 +27,22 @@ from curvevision.services import organizations as org_service
 from curvevision.services import projects as project_service
 from curvevision.services import tasks as task_service
 
+
+def request_settings(request: Request) -> Settings:
+    """The Settings the *application* was built with.
+
+    Not `get_settings()`: an app constructed as `create_app(settings)` — the desktop
+    sidecar, every test — would otherwise have its engine bound to one configuration and
+    its request handlers reading another from the environment. That divergence is silent
+    and the symptoms are baffling (media written to the wrong directory, `local_mode`
+    false inside a local install), so the app object is the single source of truth.
+    """
+    settings = getattr(request.app.state, "settings", None)
+    return settings if isinstance(settings, Settings) else get_settings()
+
+
 SessionDep = Annotated[AsyncSession, Depends(session_scope)]
-SettingsDep = Annotated[Settings, Depends(get_settings)]
+SettingsDep = Annotated[Settings, Depends(request_settings)]
 
 
 @dataclass(frozen=True, slots=True)

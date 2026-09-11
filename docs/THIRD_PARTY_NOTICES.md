@@ -7,11 +7,33 @@ This file is checked by CI (`scripts/check_notices.py`): a declared dependency w
 entry here fails the build. That is deliberate — software reaching users without
 attribution is a licensing problem, not a documentation nit.
 
-**Nothing in this repository is copied or adapted from another project's source code.**
-Where CurveVision implements a published *format* (COCO, YOLO, Pascal VOC), that is an
-independent implementation written from the format's specification. See
+**As of this commit, no file in this repository is copied or adapted from another project's
+source code.** Where CurveVision implements a published *format* (COCO, YOLO, Pascal VOC),
+that is an independent implementation written from the format's specification. See
 [ARCHITECTURE_COMPARISON.md](./ARCHITECTURE_COMPARISON.md#1-licensing-position) for the
-full licensing position, including our relationship to CVAT.
+full licensing position.
+
+### Adapting CVAT code
+
+[ADR 0007](./adr/0007-cvat-reuse-policy.md) establishes that we *will* adapt specific
+MIT-licensed code from [CVAT](https://github.com/cvat-ai/cvat) — starting with video frame
+extraction, where re-deriving years of decoder edge cases would be indefensible. A license
+audit of `cvat-ai/cvat` at commit `1d0c395` (2026-09-11) found a single MIT `LICENSE` and
+`SPDX-License-Identifier: MIT` on all 1,473 source headers, with no exceptions.
+
+When such a file lands, three things happen together, and a change that does fewer is
+incomplete:
+
+1. The file keeps CVAT's copyright line and MIT notice at the top, with a note saying what
+   we changed and why.
+2. A row is added to the **Adapted source** table below, naming the upstream file and commit.
+3. `licenses/MIT-cvat.txt` carries CVAT's full license text.
+
+Until then, this section describes a policy, and the sentence above it is the current fact.
+
+### Adapted source
+
+*None yet.* Rows here will name the upstream project, file, commit and license.
 
 Full license texts for permissive licenses used here are reproduced under
 [`licenses/`](../licenses/).
@@ -41,8 +63,28 @@ Full license texts for permissive licenses used here are reproduced under
 | [boto3](https://github.com/boto/boto3) | Apache-2.0 | Amazon.com, Inc. | S3-compatible storage (`s3` extra) |
 | [Pillow](https://github.com/python-pillow/Pillow) | MIT-CMU | Jeffrey A. Clark and contributors | Image probing and thumbnails (`media` extra) |
 | [PyAV](https://github.com/PyAV-Org/PyAV) | BSD-3-Clause | PyAV authors | Video decoding (`media` extra) — see FFmpeg note below |
+| [PyInstaller](https://github.com/pyinstaller/pyinstaller) | GPL-2.0-or-later **with a bootloader exception** | PyInstaller Development Team | Packages the local server into one executable (`desktop` extra). The exception explicitly permits distributing applications built with it under any license; PyInstaller itself is a build-time tool and is not linked into CurveVision. |
 | [Dramatiq](https://github.com/Bogdanp/dramatiq) | LGPL-3.0 | CLEARTYPE SRL | Background job queue, used unmodified as a library (`worker` extra) |
 | [redis-py](https://github.com/redis/redis-py) | MIT | Redis Inc. and contributors | Redis client (`worker` extra) |
+
+## Desktop shell (Rust)
+
+Used only by the Tauri shell in `desktop/shell`, which is built per platform and is not
+part of the server or web distributions.
+
+| Crate | License | Copyright / Author | Role |
+| --- | --- | --- | --- |
+| [tauri](https://github.com/tauri-apps/tauri) | Apache-2.0 OR MIT | Tauri Programme within The Commons Conservancy | Native window, webview, IPC |
+| [tauri-build](https://github.com/tauri-apps/tauri) | Apache-2.0 OR MIT | Tauri Programme within The Commons Conservancy | Build-time code generation |
+| [tauri-plugin-dialog](https://github.com/tauri-apps/plugins-workspace) | Apache-2.0 OR MIT | Tauri Programme within The Commons Conservancy | Native file and folder pickers |
+| [tauri-plugin-opener](https://github.com/tauri-apps/plugins-workspace) | Apache-2.0 OR MIT | Tauri Programme within The Commons Conservancy | Opening the data folder in the OS file manager |
+| [serde](https://github.com/serde-rs/serde) | Apache-2.0 OR MIT | Erick Tryzelaar, David Tolnay | Serialisation |
+| [serde_json](https://github.com/serde-rs/json) | Apache-2.0 OR MIT | Erick Tryzelaar, David Tolnay | Parsing the sidecar handshake |
+
+The shell also links the platform's own webview — WebKitGTK on Linux, WKWebView on macOS,
+WebView2 on Windows — which is provided by the operating system and not redistributed here.
+On Linux, packages produced from this repository declare a dependency on
+`libwebkit2gtk-4.1-0` rather than bundling it.
 
 ### FFmpeg (transitive, through PyAV)
 

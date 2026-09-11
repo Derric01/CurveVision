@@ -250,3 +250,7 @@ class HealthOut(StrictModel):
     database: str
     storage: str
     job_queue: str
+    #: True when this instance is a single-user desktop installation. The web client reads
+    #: it to skip the sign-in screen and hide the multi-user chrome; it is not a secret,
+    #: and a local instance is only reachable from the machine it runs on anyway.
+    local_mode: bool = False

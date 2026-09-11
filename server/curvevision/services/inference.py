@@ -61,7 +61,7 @@ async def collect_frames(
         collected.append(
             InferenceFrame(
                 frame=frame,
-                image=await storage.get(blob.storage_key),
+                image=await media_service.read_blob(blob, storage),
                 content_type=blob.content_type,
                 width=blob.width,
                 height=blob.height,

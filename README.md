@@ -27,6 +27,20 @@ Manual-first    upload → define labels → draw → review → export
 AI-assisted     upload → run a model → accept or correct → review → export
 ```
 
+And it runs two ways, from one codebase — **neither is the lesser**:
+
+```
+Desktop app     install it, point at a folder, start drawing.
+                No account, no server, no Docker. Your files never move.
+
+Server          docker compose up, open a browser.
+                Real accounts, roles, review queues, shared dataset releases.
+```
+
+The desktop application is not a cut-down offline viewer, and the web application is not
+the "real" one it imitates. They are the same editor, the same API and the same exporters,
+reached two ways — see [ADR 0006](docs/adr/0006-one-codebase-two-shapes.md).
+
 Most tools in this space are either a toy canvas or an enterprise platform with a sales
 call attached. CurveVision aims at the space between: the breadth a real annotation
 workflow needs, with an editor that stays fast at a hundred thousand objects, that you can
@@ -42,6 +56,40 @@ run on a laptop with one command.
 ---
 
 ## Quick start
+
+### As a desktop application
+
+Build it from source — there are no signed installers yet, and we would rather say so than
+link a download that does not exist:
+
+```bash
+pip install -e 'server[dev,media,desktop]'
+npm --prefix web install && npm --prefix web run build
+python desktop/sidecar/build.py          # one self-contained executable, then a smoke test
+```
+
+That alone gives you `desktop/sidecar/dist/curvevision-local`. Run it and it prints a
+loopback URL and a token, and serves the complete application — no configuration at all:
+
+```bash
+./desktop/sidecar/dist/curvevision-local
+```
+
+For the native window, build the Rust shell around it:
+
+```bash
+cd desktop/shell/src-tauri
+cargo build --release          # the application binary
+cargo test                     # supervises a real server and shuts it down
+```
+
+Producing platform installers (`.dmg`, `.msi`, `.AppImage`) additionally needs the Tauri
+CLI (`cargo install tauri-cli --version '^2'`) and a runner per platform, since PyInstaller
+does not cross-compile. That part is **Planned** and not yet exercised in CI.
+
+See [desktop/](desktop/) for what is working today and what is not.
+
+### As a server
 
 ```bash
 git clone https://github.com/Derric01/CurveVision.git

@@ -246,18 +246,22 @@ async def frame_data(
         raise NotFoundError("Media is missing for this frame")
 
     storage = get_storage(settings)
-    presigned = storage.public_url(blob.storage_key, expires_in=settings.presigned_url_ttl_seconds)
-    if presigned:
-        return Response(status_code=307, headers={"Location": presigned})
+    if media_service.is_presignable(blob) and blob.storage_key is not None:
+        presigned = storage.public_url(
+            blob.storage_key, expires_in=settings.presigned_url_ttl_seconds
+        )
+        if presigned:
+            return Response(status_code=307, headers={"Location": presigned})
 
     try:
-        return StreamingResponse(
-            storage.stream(blob.storage_key),
-            media_type=blob.content_type,
-            headers={"Cache-Control": "private, max-age=3600"},
-        )
+        body = await media_service.open_blob(blob, storage)
     except ObjectNotFoundError as exc:
         raise NotFoundError("Media data is missing from storage") from exc
+    return StreamingResponse(
+        body,
+        media_type=blob.content_type,
+        headers={"Cache-Control": "private, max-age=3600"},
+    )
 
 
 @router.get("/tasks/{task_id}/frames/{frame}/thumbnail")

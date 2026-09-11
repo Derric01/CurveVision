@@ -4,6 +4,11 @@ CurveVision is built by volunteers. **This roadmap has no dates**, because a dat
 keep is worse than no date at all. It states what is done, what is next, and what we have
 decided against — in that order of usefulness.
 
+**The product is one thing you can run two ways:** a desktop application you install, and a
+server your team opens in a browser. Both are first-class, both are the same code, and no
+item below may improve one at the other's expense. See
+[ARCHITECTURE.md § 1.1](./ARCHITECTURE.md#11-two-shapes-one-codebase).
+
 Status markers match [IMPLEMENTATION_PLAN.md](./IMPLEMENTATION_PLAN.md) and the README:
 **Done** means implemented and tested; **In Progress** means partially usable; **Planned**
 means designed, not built.
@@ -26,9 +31,12 @@ means designed, not built.
 | Export: COCO, YOLO, Pascal VOC, CurveVision JSON | **Done** |
 | Import with append/replace conflict policy | **Done** |
 | Docker Compose deployment | **Done** |
+| Desktop application: zero-config local mode, packaged server, Tauri shell | **Done** |
+| Annotate local folders in place, without copying | **Done** |
 | Python SDK and CLI | **Done** |
 
-**MVP is complete.** You can install CurveVision today and produce a dataset with it.
+**MVP is complete.** You can run CurveVision today — as a server or as a desktop
+application — and produce a real dataset with it.
 
 ---
 
@@ -47,7 +55,7 @@ means designed, not built.
 | Dataset versions with immutable releases | **Done** |
 | REST API and API tokens | **Done** |
 | Webhooks with HMAC signing | **In Progress** — delivery works; retry/backoff is not wired to the queue |
-| Video annotation | **In Progress** — probing and the data model are done; chunked frame extraction is not |
+| Video annotation | **In Progress** — probing and the data model are done; chunked frame extraction is not. Next step is adapting CVAT's MIT-licensed `media_extractors`, not re-deriving it |
 | Track editing UI (keyframe timeline) | **In Progress** — the model and interpolation are done on both sides; the UI is not |
 | Mask brush tool | **Planned** — RLE storage and export exist; the drawing tool does not |
 | Skeleton / keypoint editing UI | **Planned** — the model and COCO keypoint export exist |
@@ -71,7 +79,6 @@ timeline, and webhook retries.
 | OIDC / SAML single sign-on | **Planned** — the `AuthBackend` seam exists |
 | Kubernetes Helm chart | **Planned** |
 | Backup and restore tooling | **Planned** |
-| Desktop application (Tauri) | **Planned** — see below |
 | Published TypeScript client package | **Planned** |
 | Additional formats: KITTI, LabelMe, Open Images, TFRecord | **Planned** |
 | Datumaro bridge for the long tail of formats | **Planned** |
@@ -106,12 +113,34 @@ Directions we believe in, without commitment:
 
 ## The desktop application
 
-Planned as a **Tauri v2 shell around the same web bundle**, adding local dataset access
-without an upload round trip, an embedded server for offline work, and background sync.
+A **Tauri v2 shell** that spawns the CurveVision server, packaged by PyInstaller as one
+executable, and opens a window on it. Installing it requires no Python, no PostgreSQL, no
+Redis and no object store.
 
-Explicitly **not** a second implementation of the product. `desktop/` currently holds the
-configuration and a README explaining the design; there is no working desktop build yet,
-and we would rather say so than ship a stub that looks like one.
+**Working today**, verified end to end against the packaged binary:
+
+| | Status |
+| --- | --- |
+| Zero-configuration local mode: app data dir, Alembic migration, one local account | **Done** |
+| Handshake: loopback-only OS-assigned port, fresh token per launch, previous one revoked | **Done** |
+| Packaged server (~38 MB, ~1.5–2.1 s from spawn to handshake on Linux) | **Done** |
+| Tauri shell: process supervision, no-sign-in token injection, native folder dialogs | **Done** |
+| Annotating local folders in place, with nothing copied | **Done** |
+| The editor served by the app itself, same-origin with its API | **Done** |
+| Frontend reads the injected connection and skips sign-in | **In Progress** |
+| Signed installers for macOS and Windows, built per platform in CI | **Planned** |
+| Auto-update | **Planned** |
+| Pointing the desktop app at a shared team server | **Planned** — the app is already same-origin-agnostic; this is UI work |
+
+Explicitly **not** a second implementation of the product: the shell is ~450 lines of Rust
+whose whole job is starting a child process and opening native dialogs. The editor, the API
+and the exporters are the same code the server runs. See
+[`desktop/`](../desktop/) and
+[ARCHITECTURE.md § 1.1](./ARCHITECTURE.md#11-two-shapes-one-codebase).
+
+Two numbers to keep honest: **1,460 lines added and 42 removed** across the four commits
+that turned the server into a desktop application. Nothing was rewritten to get here,
+because storage, jobs, the database dialect and the formats were already interfaces.
 
 ## What we have decided against
 

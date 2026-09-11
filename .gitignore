@@ -21,6 +21,11 @@ dist/
 # Rust / Tauri
 target/
 
+# Packaged sidecar (build output; built by desktop/sidecar/build.py)
+/desktop/sidecar/dist/
+/desktop/sidecar/build/
+*.spec.bak
+
 # Local data and secrets
 .env
 .env.local
@@ -34,3 +39,7 @@ htmlcov/
 .DS_Store
 .idea/
 .vscode/
+
+# Tauri shell build output
+/desktop/shell/src-tauri/target/
+/desktop/shell/src-tauri/gen/

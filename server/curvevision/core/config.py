@@ -30,6 +30,20 @@ class Settings(BaseSettings):
     environment: Environment = "development"
     debug: bool = False
 
+    # --- local (desktop) mode -----------------------------------------------------
+    #: Single-user desktop mode: the app owns its data directory, provisions one local
+    #: account at first launch, and skips the sign-in screen entirely. This is how the
+    #: installed application runs; it is never enabled on a shared instance because it
+    #: also unlocks reading media from arbitrary paths on this machine.
+    local_mode: bool = False
+    #: Where the desktop app keeps its database, media and settings. Resolved per-OS by
+    #: `curvevision.desktop.default_app_data_dir()` when unset.
+    app_data_dir: str | None = None
+    #: A built copy of the web application to serve from this process. The desktop build
+    #: sets it so the whole product is one executable and the editor is same-origin with
+    #: the API. A container deployment leaves it unset and puts a web server in front.
+    web_root: str | None = None
+
     # --- security -----------------------------------------------------------------
     secret_key: str = Field(default="", description="HMAC key for tokens. Required outside dev.")
     access_token_ttl_seconds: int = 60 * 30
@@ -115,5 +129,29 @@ class Settings(BaseSettings):
 
 
 @lru_cache
-def get_settings() -> Settings:
+def _settings_from_environment() -> Settings:
     return Settings()
+
+
+_bound: Settings | None = None
+
+
+def configure_settings(settings: Settings | None) -> None:
+    """Bind this process to an explicit configuration.
+
+    The application factory accepts a ``Settings`` object, and background job handlers,
+    the storage factory and the job-queue factory all reach for ``get_settings()``. Unless
+    the process is told which one won, those two answers differ: the app writes media to
+    the directory it was given while a job reads from whatever the environment names. The
+    desktop sidecar makes that divergence certain, because nothing about its configuration
+    comes from the environment at all.
+
+    Pass ``None`` to unbind, which is what tests do on teardown.
+    """
+    global _bound
+    _bound = settings
+
+
+def get_settings() -> Settings:
+    """The configuration this process is running with."""
+    return _bound if _bound is not None else _settings_from_environment()

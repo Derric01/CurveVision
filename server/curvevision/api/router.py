@@ -10,6 +10,7 @@ from curvevision.api.v1 import annotations as annotations_api
 from curvevision.api.v1 import (
     auth,
     datasets,
+    local,
     models,
     organizations,
     projects,
@@ -27,6 +28,7 @@ for module_router in (
     organizations.router,
     projects.router,
     tasks.router,
+    local.router,
     annotations_api.router,
     review.router,
     datasets.router,
