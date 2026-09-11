@@ -35,7 +35,14 @@ class MediaBlob(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     __tablename__ = "media_blobs"
 
     sha256: Mapped[str] = mapped_column(String(64), unique=True, index=True, nullable=False)
-    storage_key: Mapped[str] = mapped_column(String(500), nullable=False)
+    #: Where the bytes live in object storage. Null for a blob annotated in place, whose
+    #: bytes were never copied anywhere.
+    storage_key: Mapped[str | None] = mapped_column(String(500))
+    #: An absolute path on *this machine*, for media the desktop application annotates
+    #: where it already sits. A file referenced this way is the user's, not ours: it is
+    #: read, never written, and never garbage-collected. Always null on a shared server,
+    #: where a path from one request has no meaning to anyone else.
+    source_path: Mapped[str | None] = mapped_column(String(4000))
     size_bytes: Mapped[int] = mapped_column(BigInteger, nullable=False)
     content_type: Mapped[str] = mapped_column(String(120), default="application/octet-stream")
     kind: Mapped[MediaKind] = mapped_column(EnumString(MediaKind, 16), nullable=False)

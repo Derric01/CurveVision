@@ -105,6 +105,23 @@ class AssetOut(ORMModel):
     created_at: datetime
 
 
+class LocalImportRequest(StrictModel):
+    """Attach media that is already on this machine. Desktop (local) mode only."""
+
+    #: An absolute path to a file or a folder. `~` is expanded.
+    path: str = Field(min_length=1, max_length=4000)
+    recursive: bool = True
+
+
+class LocalImportResult(StrictModel):
+    task_id: uuid.UUID
+    imported: list[AssetOut]
+    #: Files that were found but could not be attached, each with the reason. A folder of
+    #: photographs with one corrupt file still imports the rest.
+    skipped: list[str] = Field(default_factory=list)
+    frame_count: int
+
+
 class FrameInfo(StrictModel):
     """Everything the editor needs to display one frame."""
 

@@ -41,6 +41,7 @@ from curvevision.formats import (
     get_format,
 )
 from curvevision.formats.base import AttributeSpec
+from curvevision.services import media as media_service
 from curvevision.services.interpolation import Keyframe, interpolate_track
 from curvevision.storage import Storage
 
@@ -138,7 +139,7 @@ async def build_dataset_view(
                     and blob is not None
                     and asset.frame_count == 1
                 ):
-                    media = await storage.get(blob.storage_key)
+                    media = await media_service.read_blob(blob, storage)
 
                 frame_records.append(
                     FrameRecord(

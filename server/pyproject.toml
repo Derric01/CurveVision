@@ -62,7 +62,9 @@ select = ["E", "F", "I", "UP", "B", "C4", "SIM", "RUF", "ASYNC"]
 ignore = ["B008", "RUF012"]
 
 [tool.ruff.lint.per-file-ignores]
-"tests/**" = ["B011"]
+# ASYNC240: blocking filesystem calls are a real problem in a request handler and a
+# non-problem in a test, which has no other work to starve.
+"tests/**" = ["B011", "ASYNC240"]
 
 [tool.mypy]
 python_version = "3.11"

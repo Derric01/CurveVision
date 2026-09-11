@@ -43,6 +43,7 @@ async def health(session: SessionDep, settings: SettingsDep) -> HealthOut:
         database=database,
         storage=settings.storage_backend,
         job_queue=settings.job_queue_backend,
+        local_mode=settings.local_mode,
     )
 
 

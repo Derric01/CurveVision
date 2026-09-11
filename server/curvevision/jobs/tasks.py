@@ -156,7 +156,10 @@ async def reclaim_orphan_blobs(payload: dict[str, Any]) -> dict[str, Any]:
             .all()
         )
         for blob in orphans:
-            await storage.delete(blob.storage_key)
+            # A blob annotated in place points at a file the user owns. Forgetting the
+            # row is right; deleting their picture is not.
+            if blob.storage_key is not None:
+                await storage.delete(blob.storage_key)
             if blob.thumbnail_key:
                 await storage.delete(blob.thumbnail_key)
             await session.delete(blob)
