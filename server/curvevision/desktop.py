@@ -23,8 +23,10 @@ import os
 import secrets
 import socket
 import sys
+import threading
 from dataclasses import asdict, dataclass
 from pathlib import Path
+from typing import Any
 
 from curvevision.core.config import Settings, configure_settings
 from curvevision.core.logging import configure_logging, get_logger
@@ -107,11 +109,14 @@ def local_settings(app_data_dir: Path | None = None, **overrides: object) -> Set
     """Build the Settings a desktop installation runs with."""
     data_dir = Path(app_data_dir) if app_data_dir else default_app_data_dir()
     data_dir.mkdir(parents=True, exist_ok=True)
+    bundled_web = web_root()
 
     return Settings(
         environment="production",
         local_mode=True,
         app_data_dir=str(data_dir),
+        # Same-origin with the API, so there is no CORS policy to get wrong here.
+        web_root=str(bundled_web) if bundled_web else None,
         secret_key=_persistent_secret(data_dir),
         # A SQLite file in the app directory: no service to install, and the whole of a
         # user's work is one file they can copy to another machine.
@@ -130,6 +135,23 @@ def local_settings(app_data_dir: Path | None = None, **overrides: object) -> Set
         metrics_enabled=False,
         **overrides,  # type: ignore[arg-type]
     )
+
+
+def web_root() -> Path | None:
+    """The built web application to serve, if this build carries one.
+
+    Serving the editor from the same process is what makes the desktop app a single
+    executable and what makes the editor same-origin with the API -- no CORS, no second
+    port, and `curvevision-local` on its own opens a complete working CurveVision in a
+    browser. A source checkout has it only after `npm run build`.
+    """
+    bundled = getattr(sys, "_MEIPASS", None)
+    candidates = (
+        [Path(bundled) / "web"]
+        if bundled is not None
+        else [Path(__file__).resolve().parents[2] / "web" / "dist"]
+    )
+    return next((path for path in candidates if (path / "index.html").is_file()), None)
 
 
 def migrations_dir() -> Path:
@@ -281,7 +303,12 @@ def bootstrap(app_data_dir: Path | None = None) -> tuple[Settings, str]:
     return settings, token
 
 
-def serve(app_data_dir: Path | None = None, port: int | None = None) -> None:
+def serve(
+    app_data_dir: Path | None = None,
+    port: int | None = None,
+    *,
+    exit_with_parent: bool = False,
+) -> None:
     """Run the local server and announce itself on stdout.
 
     Blocks until the process is terminated, which is what the shell expects of a sidecar.
@@ -303,13 +330,44 @@ def serve(app_data_dir: Path | None = None, port: int | None = None) -> None:
     # One line, flushed immediately: the shell blocks on this before showing a window.
     print(HANDSHAKE_PREFIX + json.dumps(asdict(handshake)), flush=True)
 
-    uvicorn.run(
-        create_app(settings),
-        host="127.0.0.1",  # loopback only; never reachable from the network
-        port=chosen,
-        log_level="warning",
-        access_log=False,
+    server = uvicorn.Server(
+        uvicorn.Config(
+            create_app(settings),
+            host="127.0.0.1",  # loopback only; never reachable from the network
+            port=chosen,
+            log_level="warning",
+            access_log=False,
+        )
     )
+    if exit_with_parent:
+        _exit_when_parent_does(server)
+    server.run()
+
+
+def _exit_when_parent_does(server: Any) -> None:
+    """Shut down when whoever launched us goes away.
+
+    A desktop application that leaves an HTTP server running after its window closes is a
+    bug people discover much later and never quite explain. The shell's own exit handler
+    covers the ordinary case; this covers the ones it cannot -- a crash, a force quit, a
+    kill -9 -- by watching the pipe the parent holds open. When the parent dies the OS
+    closes its end and the read returns end-of-file.
+
+    Requested explicitly with `--exit-with-parent`, never assumed: run from a terminal,
+    consuming standard input would eat the user's keystrokes.
+    """
+
+    def watch() -> None:
+        try:
+            while sys.stdin.readline():
+                pass
+        except (OSError, ValueError):  # pragma: no cover - the pipe was torn down
+            pass
+        # Asking uvicorn to stop, rather than killing the process, so an in-flight write
+        # to the database finishes.
+        server.should_exit = True
+
+    threading.Thread(target=watch, name="parent-watch", daemon=True).start()
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -337,13 +395,22 @@ def main(argv: list[str] | None = None) -> int:
         action="store_true",
         help="Print where this installation keeps its data, then exit.",
     )
+    parser.add_argument(
+        "--exit-with-parent",
+        action="store_true",
+        help=(
+            "Shut down when the process that launched this one goes away, detected by "
+            "end-of-file on standard input. The desktop shell passes this so a crash "
+            "cannot leave a server running."
+        ),
+    )
     args = parser.parse_args(argv)
 
     if args.print_data_dir:
         print(args.data_dir or default_app_data_dir())
         return 0
 
-    serve(args.data_dir, args.port)
+    serve(args.data_dir, args.port, exit_with_parent=args.exit_with_parent)
     return 0
 
 

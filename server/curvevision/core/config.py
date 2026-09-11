@@ -39,6 +39,10 @@ class Settings(BaseSettings):
     #: Where the desktop app keeps its database, media and settings. Resolved per-OS by
     #: `curvevision.desktop.default_app_data_dir()` when unset.
     app_data_dir: str | None = None
+    #: A built copy of the web application to serve from this process. The desktop build
+    #: sets it so the whole product is one executable and the editor is same-origin with
+    #: the API. A container deployment leaves it unset and puts a web server in front.
+    web_root: str | None = None
 
     # --- security -----------------------------------------------------------------
     secret_key: str = Field(default="", description="HMAC key for tokens. Required outside dev.")

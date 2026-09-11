@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import platform
 import shutil
 import subprocess
 import sys
@@ -60,7 +61,48 @@ def build(dist: Path, work: Path) -> Path:
         raise SystemExit(f"the build produced no executable at {binary}")
     binary.chmod(0o755)
     print(f"\n  {binary}  ({binary.stat().st_size / 1024 / 1024:.0f} MB)")
+    _write_tauri_alias(binary)
     return binary
+
+
+def _write_tauri_alias(binary: Path) -> Path:
+    """Copy the executable to the name Tauri expects for an external binary.
+
+    Tauri identifies a sidecar by target triple so that one configuration can describe a
+    build for every platform. It strips the suffix again when it installs the file, so the
+    running application sees the plain name.
+    """
+    alias = binary.with_name(f"{binary.stem}-{target_triple()}{binary.suffix}")
+    shutil.copy2(binary, alias)
+    alias.chmod(0o755)
+    print(f"  {alias.name}  (for the desktop bundler)")
+    return alias
+
+
+def target_triple() -> str:
+    """The Rust target triple for this machine.
+
+    Asked of `rustc`, which is authoritative and is installed wherever the desktop shell
+    gets built anyway. The fallbacks cover building the sidecar alone, on a machine with
+    no Rust toolchain.
+    """
+    try:
+        output = subprocess.run(["rustc", "-vV"], check=True, capture_output=True, text=True).stdout
+        for line in output.splitlines():
+            if line.startswith("host: "):
+                return line.removeprefix("host: ").strip()
+    except (OSError, subprocess.CalledProcessError):
+        pass
+
+    machine = platform.machine().lower()
+    arch = {"x86_64": "x86_64", "amd64": "x86_64", "arm64": "aarch64", "aarch64": "aarch64"}.get(
+        machine, machine
+    )
+    if sys.platform == "darwin":
+        return f"{arch}-apple-darwin"
+    if sys.platform == "win32":
+        return f"{arch}-pc-windows-msvc"
+    return f"{arch}-unknown-linux-gnu"
 
 
 def smoke_test(binary: Path) -> None:

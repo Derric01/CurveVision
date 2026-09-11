@@ -48,6 +48,15 @@ datas = [
     *collect_data_files("alembic"),
 ]
 
+# The built editor, served by the same process so the desktop app is one executable and
+# the editor is same-origin with the API. Build it first with `npm --prefix web run build`;
+# without it the binary still serves a working API, which is what a headless build wants.
+WEB_DIST = (SPEC_DIR.parents[1] / "web" / "dist").resolve()
+if (WEB_DIST / "index.html").is_file():
+    datas.append((str(WEB_DIST), "web"))
+else:
+    print(f"NOTE: no built web application at {WEB_DIST}; packaging the API only")
+
 
 analysis = Analysis(  # noqa: F821 - PyInstaller builtins
     [str(SERVER_DIR / "curvevision" / "desktop.py")],
