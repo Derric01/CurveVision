@@ -100,7 +100,8 @@ export type ToolName =
   | 'polygon'
   | 'polyline'
   | 'points'
-  | 'ellipse';
+  | 'ellipse'
+  | 'scissors';
 
 export interface PointerInput {
   /** Position in image space. */

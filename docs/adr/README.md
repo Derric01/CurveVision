@@ -14,6 +14,7 @@ weighed, the decision, and the consequences we accept.
 | [0006](./0006-one-codebase-two-shapes.md) | One codebase, two shapes: desktop and server |
 | [0007](./0007-reusing-third-party-code.md) | Reusing third-party code, and what that obliges us to do |
 | [0008](./0008-calling-the-desktop-shell.md) | How the page calls the desktop shell |
+| [0009](./0009-intelligent-scissors.md) | Implementing intelligent scissors, not loading OpenCV |
 
 ## Writing one
 

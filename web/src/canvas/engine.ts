@@ -46,6 +46,9 @@ export class AnnotationEngine {
 
   private viewportState: ViewportState = createViewport();
   private media: SceneMedia = { width: 0, height: 0, image: null };
+  /** Frame pixels, rasterised lazily for tools that read the image. See `frameImageData`. */
+  private cachedImageData: ImageData | null = null;
+  private cachedImageDataSource: CanvasImageSource | null = null;
   private tool: Tool = createTool('select');
   private overlay: OverlayState = { ...EMPTY_OVERLAY };
 
@@ -90,6 +93,10 @@ export class AnnotationEngine {
 
   setMedia(media: SceneMedia, { fit = true }: { fit?: boolean } = {}): void {
     this.media = media;
+    if (media.image !== this.cachedImageDataSource) {
+      this.cachedImageData = null;
+      this.cachedImageDataSource = null;
+    }
     if (fit) {
       this.viewportState = fitToImage(this.viewportState, media.width, media.height);
       this.listeners.viewportChanged?.(this.viewportState);
@@ -153,7 +160,42 @@ export class AnnotationEngine {
       imageSize: () => ({ width: this.media.width, height: this.media.height }),
       activeLabelId: () => this.activeLabel,
       snapEnabled: () => this.snapEnabled,
+      imageData: () => this.frameImageData(),
     };
+  }
+
+  /**
+   * Pixels of the current frame, rasterised on demand and cached until the frame changes.
+   *
+   * Only the scissors tool needs this, and it needs it once per frame rather than once per
+   * event, so the work is done lazily and the result held. Returning the *same object* while
+   * the frame is unchanged is load-bearing: the tool uses identity to decide whether its
+   * precomputed edge features are still valid.
+   */
+  private frameImageData(): ImageData | null {
+    const { image, width, height } = this.media;
+    if (!image || width <= 0 || height <= 0) return null;
+    if (this.cachedImageData && this.cachedImageDataSource === image) {
+      return this.cachedImageData;
+    }
+    try {
+      const canvas = document.createElement('canvas');
+      canvas.width = width;
+      canvas.height = height;
+      const context = canvas.getContext('2d', { willReadFrequently: true });
+      if (!context) return null;
+      context.drawImage(image, 0, 0, width, height);
+      this.cachedImageData = context.getImageData(0, 0, width, height);
+      this.cachedImageDataSource = image;
+      return this.cachedImageData;
+    } catch {
+      // A cross-origin frame taints the canvas and `getImageData` throws. Frames are fetched
+      // through the API client and drawn from object URLs, so this should not happen -- but
+      // a tool that cannot read pixels must decline, not take down the editor.
+      this.cachedImageData = null;
+      this.cachedImageDataSource = null;
+      return null;
+    }
   }
 
   // ------------------------------------------------------------------ pointer input
