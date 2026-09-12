@@ -5,7 +5,7 @@
 > [`AGENTS.md`](./AGENTS.md) first; it is the working contract. Update this file after every
 > iteration, including the ones that mostly failed.
 >
-> **Last updated:** 2026-09-12 (iteration 8) · branch `claude/curvevision-platform-build-n1g71n` · PRs [#1](https://github.com/Derric01/CurveVision/pull/1)–[#4](https://github.com/Derric01/CurveVision/pull/4) merged · iterations 3–5 in open PR [#5](https://github.com/Derric01/CurveVision/pull/5) · iteration 6 on the same branch
+> **Last updated:** 2026-09-12 (iteration 8) · branch `claude/curvevision-platform-build-n1g71n` · PRs [#1](https://github.com/Derric01/CurveVision/pull/1)–[#5](https://github.com/Derric01/CurveVision/pull/5) merged · iterations 6–8 in open PR [#6](https://github.com/Derric01/CurveVision/pull/6)
 
 ---
 
