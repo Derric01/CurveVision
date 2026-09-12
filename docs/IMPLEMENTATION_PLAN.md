@@ -447,6 +447,16 @@ Planned: KITTI, LabelMe, Open Images, TFRecord, Datumaro bridge.
 
 * Job state machine: `new → in_progress → submitted → (accepted | rejected → in_progress)`.
 * Reviewer role, review assignment separate from annotation assignment.
+* **Merging overlapping jobs** (**Done**): a task with `overlap > 0` hands the same frames to
+  two annotators so a track can cross a job seam. Export reconciles those frames instead of
+  concatenating them — `services/merge.py`, adapted from the upstream design. Two shapes are
+  one object when label, shape type and geometry (≥ 0.75 IoU, exact rather than
+  bounding-box) all agree; pairing is an **optimal** assignment rather than greedy, because
+  greedy strands a real correspondence when two objects sit close together and then ships
+  the duplicate. Different labels are never merged: that is a disagreement to review, not a
+  duplicate to collapse. Track identity is unified across the seam, which is the whole point
+  of buying the overlap, and track ids are allocated per task so unrelated tracks in
+  different jobs cannot collide.
 * **Issues**: a positioned, threaded comment anchored to a frame and optional shape, with
   `open`/`resolved` states — the mechanism by which a reviewer sends work back.
 * **Annotation history**: every write records an `AnnotationEvent` (actor, action, before/after

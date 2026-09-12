@@ -242,6 +242,7 @@ actually need before training — **how many frames have no annotations at all**
 | --- | --- |
 | Organizations, six roles, membership | **Done** |
 | Jobs as the unit of assignment (parallel annotation on one task) | **Done** |
+| Overlapping jobs merged on export — one object at a seam, not two | **Done** |
 | Review state machine: `new → in_progress → submitted → accepted/rejected` | **Done** |
 | Issues and comment threads anchored to a frame and shape | **Done** |
 | Annotation history | **Done** |

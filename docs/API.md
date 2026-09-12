@@ -208,6 +208,35 @@ Five things worth knowing about what the number means:
 Computing a report is a `review` action; a ground-truth job cannot be scored against
 itself. The comparison runs inline rather than as a background job.
 
+## Overlapping jobs, and what export does with them
+
+A task created with `segment_size` and `overlap` splits into jobs that deliberately share
+frames, so a track can stay continuous across a job seam — whoever annotates job 2 can see
+where the object was at the end of job 1.
+
+```http
+POST /api/v1/tasks   { "project_id": "…", "name": "Batch 1",
+                       "segment_size": 500, "overlap": 20 }
+```
+
+Those shared frames get annotated twice, so **export reconciles them rather than
+concatenating**. On a shared frame, two shapes are the same object when they carry the same
+label, the same shape type, and geometry agreeing above 0.75 IoU; the copy from the earlier
+job is kept. Pairing is an optimal one-to-one assignment, not a greedy sweep, so two objects
+close together are both matched rather than one being stranded and shipped as a duplicate.
+
+Three things are deliberately **not** merged:
+
+* **Different labels.** Two annotators disagreeing about what an object is, is a
+  disagreement for review — collapsing it would silently pick one of them.
+* **Shapes that enclose no area** (polylines, point sets, skeletons). IoU says nothing about
+  them, so they are left as two objects rather than merged on a guess.
+* **Anything inside a single job.** Two close boxes one annotator drew are their business.
+
+Track identity survives the seam: a track matched across the boundary is exported under one
+`track_id` for its whole life, rather than appearing to vanish and be replaced. Track ids are
+allocated per task, so two unrelated tracks in different jobs never collide.
+
 ## Import and export
 
 ```http
