@@ -55,7 +55,7 @@ application — and produce a real dataset with it.
 | Dataset versions with immutable releases | **Done** |
 | REST API and API tokens | **Done** |
 | Webhooks with HMAC signing | **In Progress** — delivery works; retry/backoff is not wired to the queue |
-| Video annotation | **In Progress** — probing and the data model are done; chunked frame extraction is not. Next step is adapting CVAT's MIT-licensed `media_extractors`, not re-deriving it |
+| Video annotation | **In Progress** — a video task is annotatable: frames are decoded and served individually, adapted from CVAT's MIT-licensed `media_extractors`. Chunked delivery is not built, so scrubbing deep into a long video is slow |
 | Track editing UI (keyframe timeline) | **In Progress** — the model and interpolation are done on both sides; the UI is not |
 | Mask brush tool | **Planned** — RLE storage and export exist; the drawing tool does not |
 | Skeleton / keypoint editing UI | **Planned** — the model and COCO keypoint export exist |

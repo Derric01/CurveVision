@@ -230,6 +230,38 @@ async def open_blob(
     return storage.stream(blob.storage_key)
 
 
+async def render_video_frame(blob: MediaBlob, storage: Storage, index: int) -> bytes:
+    """One frame of a video, as a JPEG.
+
+    Decoding is CPU-bound and runs off the event loop. A blob annotated in place is read
+    straight from its path so a large video is not loaded into memory to reach one frame;
+    a stored blob has to be fetched first.
+
+    **This is O(n) in the frame index.** Frames are decoded from the start of the file
+    because a frame number has to identify the same picture every time (see
+    `media.video.VideoReader.iterate_frames`), and scrubbing deep into a long video is
+    therefore slow. The fix is the chunked delivery the media pipeline is designed around
+    -- `MediaChunk` and the chunk plan exist, the extraction does not -- and it is tracked
+    as *In Progress* rather than hidden behind a cache that would only mask it.
+    """
+    from curvevision.media.video import VideoReader, VideoUnavailableError
+
+    source: bytes | Path
+    if blob.source_path is not None:
+        source = Path(blob.source_path)
+        if not await asyncio.to_thread(source.is_file):
+            raise NotFoundError(
+                f"The file for this media has moved or cannot be read: {blob.source_path}"
+            )
+    else:
+        source = await read_blob(blob, storage)
+
+    try:
+        return await asyncio.to_thread(VideoReader(source).frame_jpeg, index)
+    except VideoUnavailableError as exc:
+        raise NotFoundError(str(exc)) from exc
+
+
 async def _read_handle(handle: IO[bytes], chunk_size: int) -> AsyncIterator[bytes]:
     try:
         while chunk := await asyncio.to_thread(handle.read, chunk_size):

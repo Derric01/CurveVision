@@ -19,7 +19,7 @@ from curvevision.api.deps import (
 )
 from curvevision.core.errors import NotFoundError, ValidationError
 from curvevision.core.pagination import Page, PageParamsDep, paginate
-from curvevision.domain.enums import JobState, TaskStatus
+from curvevision.domain.enums import JobState, MediaKind, TaskStatus
 from curvevision.domain.identity import OrganizationMembership
 from curvevision.domain.media import MediaBlob
 from curvevision.domain.project import Project
@@ -240,12 +240,23 @@ async def frame_data(
     check as the rest of the API, and redirects to a presigned URL when the backend can
     issue one.
     """
-    asset, _offset = await media_service.resolve_frame(session, scope.task.id, frame)
+    asset, offset = await media_service.resolve_frame(session, scope.task.id, frame)
     blob = await session.get(MediaBlob, asset.blob_id)
     if blob is None:
         raise NotFoundError("Media is missing for this frame")
 
     storage = get_storage(settings)
+
+    # A video blob is one file holding thousands of frames, so the bytes of the blob are
+    # not the bytes of the frame. Decode the one that was asked for.
+    if blob.kind is MediaKind.VIDEO:
+        jpeg = await media_service.render_video_frame(blob, storage, offset)
+        return Response(
+            content=jpeg,
+            media_type="image/jpeg",
+            headers={"Cache-Control": "private, max-age=3600"},
+        )
+
     if media_service.is_presignable(blob) and blob.storage_key is not None:
         presigned = storage.public_url(
             blob.storage_key, expires_in=settings.presigned_url_ttl_seconds

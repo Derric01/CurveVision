@@ -137,31 +137,56 @@ def _probe_video(data: bytes, filename: str, content_type: str) -> MediaInfo:
         )
         return MediaInfo(kind=MediaKind.VIDEO, content_type=content_type, frame_count=0)
 
+    del av  # only imported to detect availability; the reader does the work
+
+    from curvevision.media.video import VideoReader
+
+    reader = VideoReader(data)
     try:
-        with av.open(io.BytesIO(data)) as container:
-            stream = next((s for s in container.streams if s.type == "video"), None)
-            if stream is None:
-                raise ValidationError(f"{filename!r} contains no video stream")
-            rate = float(stream.average_rate) if stream.average_rate else None
-            duration = (
-                float(stream.duration * stream.time_base)
-                if stream.duration and stream.time_base
-                else None
-            )
-            frames = stream.frames or (int(duration * rate) if duration and rate else 0)
-            return MediaInfo(
-                kind=MediaKind.VIDEO,
-                content_type=content_type,
-                width=stream.codec_context.width or None,
-                height=stream.codec_context.height or None,
-                frame_count=int(frames),
-                duration_seconds=duration,
-                frame_rate=rate,
-            )
+        # `count_frames=False` on purpose: an exact count means decoding every frame, and
+        # this runs inside the upload request. A two-hour video would time out. The
+        # estimate below is what the task is created with; `frame_count` on the reader is
+        # the authoritative answer when something is willing to pay for it.
+        meta = reader.metadata(count_frames=False)
     except ValidationError:
         raise
     except Exception as exc:
         raise ValidationError(f"Could not read this video: {exc}") from exc
+
+    frames = _estimate_frame_count(data, meta.duration_seconds, meta.frame_rate)
+    return MediaInfo(
+        kind=MediaKind.VIDEO,
+        content_type=content_type,
+        width=meta.width,
+        height=meta.height,
+        frame_count=frames,
+        duration_seconds=meta.duration_seconds,
+        frame_rate=meta.frame_rate,
+    )
+
+
+def _estimate_frame_count(data: bytes, duration: float | None, rate: float | None) -> int:
+    """A frame count good enough to create a task with, cheaply.
+
+    Container metadata first, then duration x frame rate. Both are approximations --
+    `stream.frames` is zero in many containers and wrong in others, and the product drifts
+    on variable-frame-rate video -- which is why `VideoReader.frame_count()` exists and
+    counts properly. Nothing here should be presented to a user as exact.
+    """
+    import av
+
+    try:
+        with av.open(io.BytesIO(data)) as container:
+            stream = next((s for s in container.streams if s.type == "video"), None)
+            declared = int(stream.frames) if stream is not None and stream.frames else 0
+    except Exception:  # pragma: no cover - already opened successfully once above
+        declared = 0
+
+    if declared:
+        return declared
+    if duration and rate:
+        return max(1, int(duration * rate))
+    return 0
 
 
 def make_thumbnail(data: bytes, max_edge: int) -> bytes | None:
