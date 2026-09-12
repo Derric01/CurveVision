@@ -380,8 +380,24 @@ frame navigation, label sidebar, object list, autosave to the API.
   follows the scrub free. Per-frame decoding remains the fallback for every case a chunk
   cannot serve, so a video is never *unservable*, only slower.
 
-  **Still to do:** a client-side LRU and ±1 prefetch, so the editor fetches one chunk
-  instead of 36 frame requests. The server half is what this entry covers.
+  **The editor fetches chunks too.** `ChunkCache` keeps a three-archive LRU, shares one
+  request between frames of the same chunk, and prefetches the neighbouring chunks so
+  crossing a boundary does not stall. Reading the archive needs no dependency: the server
+  writes `ZIP_STORED`, so `web/src/media/storedZip.ts` is container parsing and nothing is
+  compressed — and it refuses anything it does not understand rather than guessing, which
+  puts the caller back on the single-frame endpoint.
+
+  Measured in Chromium against the packaged server, stepping through 36 frames:
+
+  | | Chunk requests | Per-frame requests |
+  | --- | --- | --- |
+  | Chunked | 2 | 1 |
+  | Chunking off (`frames_per_chunk = 0`) | 0 | 36 |
+
+  The one remaining per-frame request is the first frame, asked for before
+  `/tasks/{id}/media` has answered. That is wanted: the first picture appears without
+  waiting for 36, and it costs a round trip rather than a decode, because the server builds
+  the chunk to answer it. `scripts/verify_chunked_frames.py` drives both rows.
 * **Progressive loading** — *Planned*. A low-resolution proxy chunk served first so the
   annotator can start immediately, with the full-resolution chunk swapping in when decoded.
 * **Large-file handling** — a size limit expressed in config rather than code is **Done**.

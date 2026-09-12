@@ -5,7 +5,7 @@
 > [`AGENTS.md`](./AGENTS.md) first; it is the working contract. Update this file after every
 > iteration, including the ones that mostly failed.
 >
-> **Last updated:** 2026-09-12 (iteration 6) · branch `claude/curvevision-platform-build-n1g71n` · PRs [#1](https://github.com/Derric01/CurveVision/pull/1)–[#4](https://github.com/Derric01/CurveVision/pull/4) merged · iterations 3–5 in open PR [#5](https://github.com/Derric01/CurveVision/pull/5) · iteration 6 on the same branch
+> **Last updated:** 2026-09-12 (iteration 7) · branch `claude/curvevision-platform-build-n1g71n` · PRs [#1](https://github.com/Derric01/CurveVision/pull/1)–[#4](https://github.com/Derric01/CurveVision/pull/4) merged · iterations 3–5 in open PR [#5](https://github.com/Derric01/CurveVision/pull/5) · iteration 6 on the same branch
 
 ---
 
@@ -31,12 +31,13 @@ produces a task with many frames, and the editor is served each frame as an imag
 previously a frame request returned the whole container, which made video unusable.
 `media/video.py` is adapted from CVAT under ADR 0007.
 
-Frames are served from **chunks**: 36 frames decoded in one pass and stored as one archive.
-Measured on a 600-frame 640×480 clip, stepping through frames 400–435 went from 15,066
-decoded frames (3.62s) to 900 (0.78s). The cost is a sparse scrub, which pays to build a
-chunk it mostly does not use — that trade, and the numbers behind it, are in the
-implementation plan. Per-frame decoding stays as the fallback, so a video is never
-*unservable*, only slower.
+Frames are served from **chunks**, end to end: 36 frames decoded in one pass, stored as one
+archive, and fetched by the editor as one request. Measured on a 600-frame 640×480 clip,
+stepping through frames 400–435 went from 15,066 decoded frames (3.62s) to 900 (0.78s); in
+Chromium, the same 36 steps went from 36 requests to 3. The cost is a sparse scrub, which
+pays to build a chunk it mostly does not use — that trade, and the numbers behind it, are in
+the implementation plan. Per-frame decoding and per-frame fetching both stay as fallbacks,
+so a video is never *unservable*, only slower.
 
 **The application has now been driven in a real browser**, which it never had been, and
 that immediately found two defects that made it unusable and that every existing test
@@ -60,36 +61,33 @@ was the last unconnected piece of the desktop application.
 
 ## Next best action
 
-**Fetch chunks from the editor, instead of one request per frame.** The server half of
-chunked delivery is done and measured; the client still asks for 36 separate frames where it
-could ask for one archive. That is 36 round trips, 36 permission checks and 36 responses to
-serve one chunk's worth of scrubbing.
+**An exact frame count for video.** A video task's frame count is taken from container
+metadata at upload time, because an exact count means decoding the whole file. That is
+wrong for variable-frame-rate video, and a task whose frame count is too high sends
+annotators to frames that do not exist — the worst kind of wrong, because it looks like a
+missing file rather than a bad number.
 
-Work to do:
+`VideoReader.frame_count()` is exact, cached, and called by nothing. The work is to call it
+from a background job after upload and correct `Asset.frame_count`, then
+`task_service.recount_frames` and `rebuild_jobs`. Watch two things:
 
-1. Fetch `GET /tasks/{id}/chunks/{n}` (a ZIP of JPEGs named `%06d.jpg` by task-global frame
-   number), unzip in the browser, and hand the editor object URLs — `useFrameObjectUrl`
-   already owns the revoke discipline, so extend it rather than adding a second path.
-2. An **LRU** of a few chunks, so stepping backwards does not refetch.
-3. **±1 prefetch**: request the next chunk while the annotator is working through this one.
-4. Keep the per-frame endpoint as the fallback for anything the chunk does not cover — an
-   image task, a mixed task, chunking switched off.
-
-A decompression library is needed in the browser (`fflate` is small and MIT); check
-`THIRD_PARTY_NOTICES.md` before adding it. `scripts/screenshot.py` is the harness for
-verifying it end to end — a video task, step through frames, assert the network did what it
-should.
+* **Jobs are built from frame ranges.** Changing a task's frame count after jobs exist has
+  to rebuild them, and must not orphan annotations that were drawn on frames that survive.
+* **Chunks are keyed by frame range.** A corrected count changes which frames fall in the
+  last chunk, so that chunk has to be invalidated — `MediaChunk` rows for the tail, and the
+  archives behind them.
 
 **Then, in rough order:**
 
-* **An exact frame count for video**, corrected in a background job rather than estimated
-  from container metadata at upload. Wrong for variable-frame-rate video today, and
-  `VideoReader.frame_count()` is exact and called by nothing.
-* **Pre-build chunks after a video upload.** `media.build_chunks` now builds rather than
-  plans, and nothing enqueues it. The reason to be careful: the desktop queue is inline, so
-  enqueueing at upload would decode a whole clip on the event loop's doorstep while the user
-  waits. Either dispatch it properly off-thread or only pre-build on a server with a worker.
-* **Track-editing timeline UI.**
+* **Pre-build chunks after a video upload.** `media.build_chunks` builds rather than plans,
+  and nothing enqueues it. The care needed: the desktop queue is inline, so enqueueing at
+  upload would decode a whole clip while the user waits. Either dispatch it properly
+  off-thread or only pre-build where a real worker exists.
+* **Track-editing timeline UI** — the model and interpolation exist on both sides.
+* **Put a browser harness in CI.** Three now exist (`screenshot.py`,
+  `verify_local_import.py`, `verify_chunked_frames.py`) and between them they have found
+  every defect the unit suites missed. Nightly or pre-release; each needs a packaged
+  sidecar and a Chromium, so none is a cheap per-PR job.
 
 ## Completed
 
@@ -133,12 +131,14 @@ numbers are reproducible, and reports unreadable files in `skipped` rather than 
 The orphan-blob collector never deletes a file it did not write. Every route in
 `api/v1/local.py` returns 404 unless `settings.local_mode`.
 
-**Chunked video frames** — `build_chunk` decodes a chunk's frames in one pass and stores
-them as one ZIP of JPEGs named by task-global frame number, recorded as `MediaChunk`. The
-frame endpoint reads from a built chunk, builds the chunk when it misses, and decodes the
-single frame when neither is possible. `GET /tasks/{id}/chunks/{n}` serves the archive.
-17× fewer decoded frames when stepping; the measurements and the sparse-scrub cost are in
-`docs/IMPLEMENTATION_PLAN.md`.
+**Chunked video frames, end to end** — `build_chunk` decodes a chunk's frames in one pass
+and stores them as one ZIP of JPEGs named by task-global frame number, recorded as
+`MediaChunk`. The frame endpoint reads from a built chunk, builds the chunk when it misses,
+and decodes the single frame when neither is possible. `GET /tasks/{id}/chunks/{n}` serves
+the archive; the editor fetches it through `ChunkCache` (three-archive LRU, shared in-flight
+requests, ±1 prefetch) and reads it with a dependency-free stored-ZIP reader that refuses
+anything it does not understand. 17× fewer decoded frames and 12× fewer requests when
+stepping; the measurements and the sparse-scrub cost are in `docs/IMPLEMENTATION_PLAN.md`.
 
 **Opening a folder from the desktop app** — *Add media from this computer* on the task page,
 and File ▸ Open Folder… (Cmd/Ctrl+O), both call `chooseFolder()` and post the path. Shown in
@@ -205,6 +205,37 @@ full docs set including seven ADRs.
 ---
 
 ## Last iteration
+
+**The editor fetches a chunk instead of 36 frames.** The server half landed last iteration;
+this is the client half, and the request count is the claim it makes.
+
+* **`web/src/media/storedZip.ts`** reads the archive. No dependency: the server writes
+  `ZIP_STORED`, so every entry's bytes sit verbatim in the file and there is nothing to
+  inflate — this is container parsing, and `fflate` would have been shipped for the half we
+  do not need. It **refuses** what it does not understand (a compressed entry, a missing
+  central directory, an entry running past the end) rather than guessing, because handing
+  the editor the wrong pixels for a frame number is worse than being slow.
+* **`ChunkCache`** keeps a three-archive LRU, shares one in-flight request between frames of
+  the same chunk, prefetches the neighbouring chunks, and remembers a chunk that came back
+  unreadable so one bad archive does not become a failed request per keystroke.
+* **Every path can decline.** An image task, chunking off, an unreadable archive, a failed
+  request, a frame the archive does not contain — each returns `null`, and
+  `useFrameObjectUrl` falls through to the single-frame endpoint. A frame must never fail to
+  appear because an optimisation did not work out.
+
+**Measured in Chromium against the packaged server**, stepping through 36 frames:
+
+| | Chunk requests | Per-frame requests | Distinct pictures rendered |
+| --- | --- | --- | --- |
+| Chunked | 2 | 1 | 36 / 36 |
+| `frames_per_chunk = 0` | 0 | 36 | 36 / 36 |
+
+The single per-frame request is the first frame, asked for before `/tasks/{id}/media` has
+answered. Kept deliberately: the first picture appears without waiting for a whole chunk,
+and it costs a round trip rather than a decode, because the server builds the chunk to
+answer it.
+
+### Iteration 6
 
 **Video frames are served from pre-decoded chunks.** Reaching frame *n* means decoding *n*
 frames — a frame number has to identify the same picture every time, so seeking is out — and
@@ -349,8 +380,24 @@ present. Both corrected; the second is a licensing claim and was the more urgent
 ```
 ./scripts/check.sh                    all 9 steps green
   ruff · ruff format · mypy (78 files) · pytest server (213) · pytest sdk (12)
-  notices (52 deps) · eslint · tsc · vitest (125)
+  notices (52 deps) · eslint · tsc · vitest (151)
 ```
+
+Iteration 7 added 26 web tests (151 total, up from 125): 7 on the ZIP reader, with fixtures
+built by Node's own zlib rather than by the reader under test, and 19 on the cache, which
+count *requests* — a cache that produced the right pixels while still fetching per frame
+would pass a pixel test and miss the entire point.
+
+`scripts/verify_chunked_frames.py` then drove it in Chromium against the packaged server,
+in both configurations, with the numbers in the table above. It found two things worth
+recording:
+
+* **The test clip had duplicate frames, and the check blamed the editor.** 13 of 36 frames
+  came back byte-identical to their predecessor. Decoding the clip directly server-side
+  reproduced exactly the same 13 positions — a 4/255 colour ramp is quantised away by
+  mpeg4. The fixture was wrong, not the code; it now moves a bar 8 pixels per frame.
+* **The first fingerprint was the tail of a data URL**, which collided between frames that
+  were genuinely different. A fingerprint cheaper than the thing it identifies is not one.
 
 Iteration 6 added 12 tests in `server/tests/api/test_video_chunks.py` — 213 server tests in
 total, up from 201 — and confirmed three of them bite by breaking the code they cover:
@@ -424,8 +471,11 @@ missing, and it is the reason this iteration found anything):
 - **The first frame of a chunk is slower than it was**: 36 decodes where there used to be 1.
   Unavoidable if the other 35 are to be free, and it is why the measurement above reports
   frames 0–35 as a whole rather than frame 0 alone.
-- **The editor still fetches one frame per request.** The server can serve a chunk; nothing
-  asks for one. That is the next task and the rest of the win.
+- **The stored-ZIP reader handles only what this server writes.** No ZIP64, no compressed
+  entries, no encryption. That is deliberate — both ends of the format are ours — and it
+  refuses rather than guesses, so the cost of meeting something else is a fallback to
+  per-frame fetching, not a wrong picture. If the server ever compresses a chunk, the client
+  silently gets slower; the archive format is effectively part of the API contract now.
 - **A video task's frame count is an estimate**, taken from container metadata at upload
   time because an exact count means decoding the whole file. It can be slightly wrong for
   variable-frame-rate video. `VideoReader.frame_count()` is exact and cheap to call from a
@@ -460,6 +510,20 @@ missing, and it is the reason this iteration found anything):
 
 ## Tried and rejected
 
+- **Shipping `fflate` to read the chunk archives.** The obvious "reuse before you build"
+  answer, and wrong here: the server writes `ZIP_STORED`, so there is nothing to decompress
+  and the library would have been carried for the half we do not use. What is actually
+  needed is ~90 lines of container parsing that refuses anything unexpected. Revisit the
+  moment the server has a reason to compress a chunk — at which point the library is the
+  right answer, not a hand-rolled inflater.
+- **Fingerprinting a rendered canvas by the tail of its data URL.** Cheap, and it reported
+  collisions between frames that were genuinely different. A fingerprint cheaper than the
+  thing it identifies is not a fingerprint. Hash the whole string.
+- **Trusting a synthetic test clip to have distinct frames.** A 4/255 colour ramp per frame
+  is quantised away by mpeg4: 13 of 36 frames came back identical to their predecessor, and
+  the browser check duly reported the editor as broken. Decoding the clip server-side
+  reproduced the same 13 positions, which is what isolated it. Move something by 8 pixels,
+  not 4 grey levels — and when a check fails, reproduce it one layer down before believing it.
 - **A chunk endpoint that only *reads* chunks, with a background job building them.** The
   first scoping of chunked delivery. It passed its tests and delivered nothing: nothing
   enqueued the job, so no chunk ever existed, so every frame took the fallback path and the

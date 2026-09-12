@@ -133,6 +133,15 @@ export interface Task {
   progress?: TaskProgress | null;
 }
 
+export interface TaskMediaMeta {
+  task_id: string;
+  media_kind: 'image' | 'video';
+  frame_count: number;
+  /** How many frames one chunk holds. Zero means chunking is switched off server-side. */
+  frames_per_chunk: number;
+  chunk_count: number;
+}
+
 export interface Asset {
   id: string;
   task_id: string;

@@ -252,7 +252,7 @@ actually need before training — **how many frames have no annotations at all**
 | Annotating local folders in place, without copying | **Done** |
 | Video: frames decoded and served individually, so a video task is annotatable | **Done** |
 | Client-side track interpolation (scrubbing costs no round trip) | **Done** |
-| Chunked frame delivery — a chunk is decoded in one pass, so stepping through frames costs 17× fewer decodes | **In Progress** — server side **Done**; the editor still fetches one frame at a time |
+| Chunked frame delivery — 36 frames decoded in one pass and fetched in one request, so stepping costs 17× fewer decodes and 12× fewer requests | **Done** |
 | Track-editing timeline UI — the model and interpolation exist on both sides | **In Progress** |
 | Resumable uploads — storage model only; no endpoints yet | *Planned* |
 
