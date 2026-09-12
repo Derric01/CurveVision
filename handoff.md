@@ -5,7 +5,7 @@
 > [`AGENTS.md`](./AGENTS.md) first; it is the working contract. Update this file after every
 > iteration, including the ones that mostly failed.
 >
-> **Last updated:** 2026-09-12 (iteration 13) · branch `claude/curvevision-platform-build-n1g71n` · PRs [#1](https://github.com/Derric01/CurveVision/pull/1)–[#6](https://github.com/Derric01/CurveVision/pull/6) merged (iterations 1–12) · iteration 13 is the open PR on this branch
+> **Last updated:** 2026-09-12 (iteration 14) · branch `claude/curvevision-platform-build-n1g71n` · PRs [#1](https://github.com/Derric01/CurveVision/pull/1)–[#7](https://github.com/Derric01/CurveVision/pull/7) merged (iterations 1–13) · iteration 14 is the open PR on this branch
 
 ---
 
@@ -162,6 +162,17 @@ requests, ±1 prefetch) and reads it with a dependency-free stored-ZIP reader th
 anything it does not understand. 17× fewer decoded frames and 12× fewer requests when
 stepping; the measurements and the sparse-scrub cost are in `docs/IMPLEMENTATION_PLAN.md`.
 
+**Merging overlapping jobs** — export reconciles the frames two jobs share instead of
+concatenating them. Two shapes are one object when label, shape type and geometry all agree
+(≥ 0.75 IoU, exact rather than bounding-box), and the earlier job's copy is kept. Pairing is
+an **optimal** one-to-one assignment (`services/matching.py`, the Hungarian algorithm in ~90
+lines with no dependency), because greedy strands a real correspondence when two objects sit
+close together and then ships the duplicate. Never merged: different labels (a disagreement
+to review), shapes that enclose no area, and anything inside a single job. Track identity is
+unified across the seam by union-find, and track ids are allocated per task. Adapted from the
+upstream `ObjectManager` design; credited in
+[THIRD_PARTY_NOTICES](./docs/THIRD_PARTY_NOTICES.md#adapted-source).
+
 **Quality reports against ground truth** — `POST /tasks/{id}/ground-truth` creates the job
 holding a task's answer key (one per task, any contiguous frame range, defaulting to the
 whole task); `POST /jobs/{id}/quality` scores an annotation job against it and stores a
@@ -253,6 +264,64 @@ being updated and this one was not. Check it against* Completed *before trusting
 ---
 
 ## Last iteration
+
+**Overlapping jobs are reconciled on export instead of concatenated, and two silent
+data-corruption bugs went with it.** This came from a direct question — *use more of the
+upstream project's code, many people contributed to it* — and the right answer turned out
+not to be "port more lines" but "go find where their accumulated experience covers a hole we
+have". There was one, and it was serious.
+
+**The bug.** A task with `overlap > 0` hands the same frames to two annotators on purpose:
+it is how a track stays continuous across a job seam. Export walked the jobs and *appended*
+every job's shapes, so every object in the seam shipped **twice**. Nothing complained — the
+archive is well-formed, the frame count is right, and a model trains on doubled boxes with
+no error anywhere. `overlap` is a first-class, API-settable task field and had **zero test
+coverage**.
+
+**The second bug, found while fixing the first.** `track_id` fell back to a job-local
+`enumerate` index, so job 1's first car and job 2's first pedestrian were both `track_id: 0`.
+Any consumer grouping by track id welds two unrelated objects into one. This needed no
+overlap at all — a plain segmented task was enough — and it is arguably the worse of the
+two, because a duplicate is visible and a weld is not. Track ids are now allocated per task,
+with an explicit `object_id` still honoured and generated ids stepping around those values.
+
+* **`services/merge.py`** follows the upstream `ObjectManager`/`ShapeManager`/`TagManager`
+  design: only objects inside the overlap are candidates, one cost matrix per frame, an
+  optimal one-to-one assignment, a similarity floor, and "the earlier job wins". Their
+  threshold of 0.25 is a tuned constant and was inherited rather than re-guessed.
+* **`services/matching.py`** is the Hungarian algorithm, ~90 lines, no dependency. The
+  upstream uses `scipy.optimize.linear_sum_assignment`; SciPy is tens of megabytes inside a
+  single-executable desktop build, for one function on matrices smaller than 10×10.
+* **Their similarity function was not taken** — it returns 0 for points, polylines, ellipses
+  and 2D cuboids with a `FIXME` saying so. `comparison.py`'s exact IoU (shoelace +
+  Sutherland–Hodgman, built last iteration for quality scoring) is strictly better and now
+  serves both engines.
+* **Track identity is unified across the seam** by a union-find over the ids discovered to
+  be one object. Without it the merge would remove the duplicate and still leave the car
+  appearing to vanish and be replaced — which is the exact discontinuity the overlap was
+  bought to prevent, so this is the point of the feature rather than a nicety.
+
+**A measurement I got wrong before, corrected.** An earlier iteration reported that only
+**2.4%** of the upstream Python is "free of Django/DRF/Datumaro" and treated that as the
+ceiling on reuse. That measured the wrong thing. Counting *import lines* rather than
+*importability*: `dataset_manager/annotation.py` is 1,237 lines with **4** framework
+imports; `media_extractors.py` is 1,649 with 4; `annotation_matching.py` is 1,287 with 3.
+The coupling is shallow and sits at the edges. The honest figure is that the framework-bound
+*surface* is large and the framework-bound *domain logic* is small — so the reusable
+fraction is far higher than 2.4%, and the real constraint is finding holes worth filling,
+not licence or portability.
+
+**Still available and shallow-coupled**, in rough order of value:
+`consensus/intersect_merge.py` (551 lines, 3 framework imports) — merging N annotators'
+work on the same frames by agreement, the natural extension of what landed here;
+`dataset_manager/annotation.py`'s `TrackManager.get_interpolated_shapes` (~420 lines) for
+mask and skeleton interpolation, which ours holds rather than interpolates. The second is
+**deliberately not taken yet**: our interpolation is implemented identically in TypeScript
+and Python against shared test vectors, and that parity is load-bearing for client-side
+scrubbing. Swapping one half for a different algorithm would break it, and the shapes it
+would improve (masks, skeletons) have no drawing tool yet.
+
+### Iteration 13
 
 **Made the quality report real.** `QualityReport` declared `iou_threshold`, `precision`,
 `recall`, `f1` and `details`, and **nothing computed any of it** — no service, no handler,
@@ -632,9 +701,29 @@ present. Both corrected; the second is a licensing claim and was the more urgent
 
 ```
 ./scripts/check.sh                    all 9 steps green
-  ruff · ruff format · mypy · pytest server (272) · pytest sdk (13)
+  ruff · ruff format · mypy · pytest server (326) · pytest sdk (13)
   notices (52 deps) · eslint · tsc · vitest (170)
 ```
+
+Iteration 14 added 54 server tests (326, up from 272): 24 on the merge rules, 23 on the
+assignment solver and 8 over HTTP (including a frame four jobs all cover). Two were written to **fail first** and did — the
+duplicate-on-export and the track-id collision, both of which were real bugs rather than
+hypotheticals. Verified to bite by breaking the code they cover:
+
+| Broken deliberately | Caught by |
+| --- | --- |
+| Track-pair recording in the merge disabled | `test_a_track_crossing_the_seam_keeps_one_identity` |
+| The optimal solver swapped for a greedy one | `test_the_optimal_assignment_is_used_where_greedy_would_fail`, plus 8 of the solver's brute-force cases |
+
+The solver is checked **against brute force** — every permutation, on hundreds of random
+matrices from 1×1 to 5×5, square and rectangular. An assignment algorithm that is subtly
+wrong does not crash; it quietly returns a slightly worse pairing and every caller believes
+it, so computing the true optimum independently is the only honest test.
+
+One test was caught checking nothing and rewritten: the first version of the seam test
+asserted that the *shared frames* carried one track id, which is trivially true once the
+duplicate is dropped. It passed with the feature disabled. The property that matters is that
+the id **before** the seam equals the id **after** it.
 
 Iteration 13 added 51 server tests (272, up from 221): 32 in
 `tests/services/test_comparison.py` and 19 in `tests/api/test_quality.py`, plus one SDK test
@@ -737,6 +826,9 @@ missing, and it is the reason this iteration found anything):
 | Video tests would have skipped silently in CI | `av` was in the `media` extra but not `dev`, and CI installs `[dev]`. `pytest.importorskip` would have skipped every video test while the suite reported green. | Added to `dev`; the tests run rather than skip |
 | The editor's label list was cut through the middle of a row | A fixed `max-h-52` (13rem) cap on the list; six labels need ~14rem. Functional — it scrolled — but it looked broken, and a six-label schema is not unusual. Now `max-h-[30vh]`. | Regenerated screenshot: all six labels visible, `OBJECTS` heading intact below |
 | Two documents claimed no third-party source is present, while a third section of one of them listed the file that is | Iteration 3 corrected that sentence in the README only; two other documents kept their copies. A licensing claim that contradicts itself three sections apart is worse than no claim. | Both now defer to **THIRD_PARTY_NOTICES § Adapted source** as the authoritative list |
+| Every object on a job seam was **exported twice** | A task with `overlap > 0` shares frames between two jobs by design; export appended each job's shapes instead of reconciling them. The archive is well-formed and nothing errors, so a model simply trains on doubled boxes. `overlap` is API-settable and had no test coverage at all. | `test_one_object_annotated_in_both_jobs_is_exported_once`, written to fail first |
+| Two unrelated tracks in different jobs shared one `track_id` | The id fell back to a job-local `enumerate` index, so job 1's first object and job 2's first object were both `0`. Any consumer grouping by track id welds them into one. No overlap needed — a plain segmented task was enough. | `test_two_unrelated_tracks_in_different_jobs_get_different_ids`, written to fail first |
+| A track crossing a job seam was exported as two objects | Even once the duplicate was removed, the two halves kept different ids, so the export said the car vanished and a stranger appeared — the precise discontinuity the overlap exists to prevent. | `test_a_track_crossing_the_seam_keeps_one_identity`; confirmed to fail with unification disabled |
 | A box drawn too loosely scored **precision 1.0** | A below-threshold annotated shape was counted as a false negative against the ground truth but skipped in the false-positive pass, so it never reached precision's denominator. An annotator who drew everything sloppily got "everything you drew was right". Found by dumping a real report to check a doc example, not by a test. | `test_a_near_miss_costs_precision_as_well_as_recall` and `test_one_loose_box_over_two_objects_is_counted_once`, both written to fail first |
 | An annotator could read the ground truth they were scored against | `(ANNOTATION, VIEW)` floors at `Role.VIEWER`, and nothing distinguished a ground-truth job from any other. The answer key was readable by everyone being tested on it. | `test_an_annotator_cannot_read_the_answer_key`; confirmed to fail with the guard disabled |
 | A polyline could "match" a rectangle | `to_polygon` returned a polyline's vertices, which the shoelace formula closes into a phantom triangle — a three-point polyline reported an area of 25 and could claim agreement that does not exist. | `AREA_SHAPES` gates it; `test_a_polyline_encloses_nothing` |
@@ -770,6 +862,14 @@ missing, and it is the reason this iteration found anything):
   applying half of itself. The job reports it; nothing surfaces that to a user yet. Rare by
   construction (the job runs right after upload), but it is a real hole: a task that
   acquired annotations before the job ran stays wrong permanently.
+- **Merging happens at export, not in the editor.** Two annotators working the same seam
+  still both see their own copy while annotating; the reconciliation is applied when the
+  dataset is built. That is the right place for it — merging live would mean editing
+  someone's job under them — but it means the duplicate is invisible until export.
+- **A merged object keeps the earlier job's geometry verbatim.** No averaging of the two
+  annotators' boxes. Averaging is defensible and is what a consensus pass would do; picking
+  one is predictable, which matters more when nobody is watching. `consensus/intersect_merge.py`
+  upstream is the piece to adapt if averaging is ever wanted.
 - **A quality report has no UI.** Creating a ground-truth job and scoring against it are
   API, SDK and CLI only. A reviewer working in the editor cannot see any of it, which means
   the feature is currently for scripted workflows. The conflict list is frame- and
@@ -812,6 +912,26 @@ missing, and it is the reason this iteration found anything):
 
 ## Tried and rejected
 
+- **Greedy matching for the merge.** Four lines, and it loses pairs that matter. With the
+  similarity matrix `[[0.951, 0.860], [0.818, 0.667]]` it takes the best pair first and then
+  finds the remainder below the floor, keeping a duplicate the optimal assignment removes.
+  `test_the_optimal_assignment_is_used_where_greedy_would_fail` computes the greedy answer
+  inline so the test fails if anyone swaps the solver back. Note the deliberate
+  inconsistency: `comparison.py` *does* match greedily, because greedy-by-descending-IoU is
+  COCO's rule and a quality score that disagrees with COCO would be the wrong number.
+- **SciPy for the assignment**, as the upstream uses. Correct and battle-tested, and tens of
+  megabytes inside a single-file desktop executable for one function on matrices that are
+  almost always smaller than 10×10.
+- **Porting the upstream similarity function along with the merge design.** It returns 0 for
+  points, polylines, ellipses and 2D cuboids, with a `FIXME` saying so. Ours already computes
+  exact IoU for every area shape, so taking theirs would have been a downgrade wearing the
+  authority of upstream code. Take the strategy, keep the better primitive.
+- **Replacing our interpolation with the upstream `TrackManager`.** Theirs handles mask and
+  skeleton interpolation, which ours holds rather than interpolates — a real gap. Not taken:
+  our interpolation is implemented identically in TypeScript and Python against shared test
+  vectors, and that parity is what makes client-side scrubbing safe. Half of a matched pair
+  cannot be swapped for a different algorithm. Revisit when the mask brush and keypoint UI
+  exist and the parity can be re-established on both sides at once.
 - **A honeypot-frame selector**, adapted from the same upstream source as the comparison
   strategy. It was written, and then deleted: `Job` carries only a contiguous frame range,
   so nothing in this codebase can *call* a function that picks scattered ground-truth frames

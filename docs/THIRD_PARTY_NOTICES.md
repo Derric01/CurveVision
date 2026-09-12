@@ -7,10 +7,10 @@ This file is checked by CI (`scripts/check_notices.py`): a declared dependency w
 entry here fails the build. That is deliberate — software reaching users without
 attribution is a licensing problem, not a documentation nit.
 
-**Two files in this repository owe something to another project's source**, listed under
-[Adapted source](#adapted-source) below — one adapts code, the other follows a design.
-Everything else is independently implemented: where CurveVision implements a published
-*format* (COCO, YOLO, Pascal VOC), that is written from the format's specification.
+**Three files in this repository owe something to another project's source**, listed under
+[Adapted source](#adapted-source) below — one adapts code, two follow a design. Everything
+else is independently implemented: where CurveVision implements a published *format* (COCO,
+YOLO, Pascal VOC), that is written from the format's specification.
 
 ### Adapted source
 
@@ -22,13 +22,15 @@ the code is not something this project does.**
 | CurveVision file | Adapted from | Upstream commit | License | What was taken |
 | --- | --- | --- | --- | --- |
 | `server/curvevision/services/comparison.py` | [`cvat/apps/quality_control/annotation_matching.py`](https://github.com/cvat-ai/cvat/blob/1d0c39576c3239dcaf8ba7baee71a1b8de496c0e/cvat/apps/quality_control/annotation_matching.py) | `1d0c395` (2026-09-11) | MIT — © CVAT.ai Corporation | The *strategy* rather than the code: compare frame by frame and label by label, match by overlap above a threshold, and classify the remainder into distinct conflict kinds (missing / extra / wrong label / poor overlap) instead of one "mismatch" bucket. No upstream code is copied — the upstream computes overlap through Datumaro and solves the assignment with SciPy, neither of which CurveVision depends on. Listed here anyway because the design is theirs and saying so costs nothing. |
+| `server/curvevision/services/merge.py` | [`cvat/apps/dataset_manager/annotation.py`](https://github.com/cvat-ai/cvat/blob/1d0c39576c3239dcaf8ba7baee71a1b8de496c0e/cvat/apps/dataset_manager/annotation.py) (`ObjectManager`, `ShapeManager`, `TagManager`) | `1d0c395` (2026-09-11) | MIT — © 2018–2022 Intel Corporation, © CVAT.ai Corporation | The *strategy* for reconciling two annotators' work on the frames their jobs share: only objects inside the overlap are candidates, one cost matrix per frame with cost = 1 − similarity, an optimal one-to-one assignment, a similarity floor below which a pair is two objects rather than one, and "the earlier job wins" as the tie-break. Their cost threshold of 0.25 is a tuned constant and is inherited rather than re-guessed. Not taken: their similarity function (which returns 0 for points, polylines, ellipses and 2D cuboids, with a `FIXME`; CurveVision uses its own exact IoU instead and merges shape types theirs cannot), SciPy for the assignment (`services/matching.py` is the same algorithm without the dependency), and their IR-level track merging (CurveVision flattens tracks before export and reunites identity afterwards). |
 | `server/curvevision/media/video.py` | [`cvat/apps/engine/media_extractors.py`](https://github.com/cvat-ai/cvat/blob/1d0c39576c3239dcaf8ba7baee71a1b8de496c0e/cvat/apps/engine/media_extractors.py) | `1d0c395` (2026-09-11) | MIT — © 2019–2022 Intel Corporation, © CVAT.ai Corporation | The decoding strategy (count frames by decoding rather than trusting container metadata; address frames in decode order rather than by seeking) and two edge cases real files require: the `DURATION` metadata fallback for containers that omit a stream duration, and honouring rotation metadata. Re-derived in CurveVision's own idiom — bytes or a filesystem path instead of the upstream `Openable`, no 3D dimension, no manifest, no Django or DRF. |
 
-The licence audit behind these rows was performed against the upstream repository at the
-named commit, and re-run before the second one was added: one MIT `LICENSE`, no other
-licence file anywhere in the tree, and `SPDX-License-Identifier: MIT` on every source header
-with no exceptions. Both files keep an upstream copyright header, and
-`licenses/MIT-video-decoding.txt` carries the full licence text.
+All three rows are the same upstream project at the same audited commit: one MIT `LICENSE`,
+no other licence file anywhere in the tree, and `SPDX-License-Identifier: MIT` on every
+source header with no exceptions. The audit is re-run before each row is added. Every one of
+the three files keeps an upstream copyright header, and `licenses/MIT-video-decoding.txt`
+carries the full licence text — a name that is now historical, since it was added for the
+video work and covers all three.
 
 Full license texts for permissive licenses used here are reproduced under
 [`licenses/`](../licenses/).

@@ -48,6 +48,7 @@ application — and produce a real dataset with it.
 | --- | --- |
 | Roles and per-organization membership | **Done** |
 | Job assignment and the review state machine | **Done** |
+| Overlapping jobs reconciled on export (no duplicated objects at a job seam; track identity survives it) | **Done** |
 | Issues and comment threads anchored to frames | **Done** |
 | Annotation history | **Done** |
 | `ModelProvider` abstraction and the HTTP inference contract | **Done** |

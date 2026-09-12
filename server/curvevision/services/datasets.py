@@ -42,6 +42,7 @@ from curvevision.formats import (
 )
 from curvevision.formats.base import AttributeSpec
 from curvevision.services import media as media_service
+from curvevision.services import merge
 from curvevision.services.interpolation import Keyframe, interpolate_track
 from curvevision.storage import Storage
 
@@ -115,10 +116,21 @@ async def build_dataset_view(
         by_frame: dict[int, list[ShapeRecord]] = {}
         tags_by_frame: dict[int, list[str]] = {}
 
+        # Jobs are folded in one at a time rather than concatenated, because a task with
+        # `overlap > 0` hands the same frames to two annotators on purpose and their work on
+        # the seam describes the same objects twice. See `services/merge.py`.
+        covered: list[tuple[int, int]] = []
+        track_ids = _TrackIds(await _reserved_object_ids(session, [job.id for job in jobs]))
         for job in jobs:
+            job_frames: dict[int, list[ShapeRecord]] = {}
+            job_tags: dict[int, list[str]] = {}
             await _collect_job_annotations(
-                session, job, label_names, by_frame, tags_by_frame, present_types
+                session, job, label_names, job_frames, job_tags, present_types, track_ids
             )
+            shared = merge.overlapping_frames(covered, (job.start_frame, job.stop_frame))
+            merge.merge_frames(by_frame, job_frames, shared_frames=shared)
+            merge.merge_tags(tags_by_frame, job_tags, shared_frames=shared)
+            covered.append((job.start_frame, job.stop_frame))
 
         for asset in assets:
             blob = blobs.get(asset.blob_id)
@@ -193,6 +205,48 @@ def _label_spec(label: Label) -> LabelSpec:
     )
 
 
+class _TrackIds:
+    """Export-scoped track identity, unique across a whole task.
+
+    Numbering each job's tracks from zero is the obvious thing and it is wrong: job 1's
+    first car and job 2's first pedestrian both become `track_id: 0`, so an export claims
+    one object teleported across the task and any consumer that groups by track id welds two
+    objects together. Identity has to be allocated per task, not per job.
+
+    A track that carries an explicit `object_id` keeps it — that field is documented as
+    stable identity across the dataset, and an author who set it means it. Generated ids
+    step around those values so the two kinds can never collide.
+    """
+
+    def __init__(self, reserved: set[int]) -> None:
+        self._reserved = reserved
+        self._assigned: dict[uuid.UUID, int] = {}
+        self._next = 0
+
+    def of(self, track: Track) -> int:
+        if track.object_id is not None:
+            return track.object_id
+        existing = self._assigned.get(track.id)
+        if existing is not None:
+            return existing
+        while self._next in self._reserved:
+            self._next += 1
+        value = self._next
+        self._next += 1
+        self._assigned[track.id] = value
+        return value
+
+
+async def _reserved_object_ids(session: AsyncSession, job_ids: list[uuid.UUID]) -> set[int]:
+    """Every explicitly-set `object_id` in a task, so generated ids can avoid them."""
+    if not job_ids:
+        return set()
+    result = await session.execute(
+        select(Track.object_id).where(Track.job_id.in_(job_ids), Track.object_id.is_not(None))
+    )
+    return {value for value in result.scalars().all() if value is not None}
+
+
 async def _collect_job_annotations(
     session: AsyncSession,
     job: Job,
@@ -200,6 +254,7 @@ async def _collect_job_annotations(
     by_frame: dict[int, list[ShapeRecord]],
     tags_by_frame: dict[int, list[str]],
     present_types: set[ShapeType],
+    track_ids: _TrackIds,
 ) -> None:
     shapes = (await session.execute(select(Shape).where(Shape.job_id == job.id))).scalars().all()
     for shape in shapes:
@@ -230,7 +285,7 @@ async def _collect_job_annotations(
         .scalars()
         .all()
     )
-    for index, track in enumerate(tracks):
+    for track in tracks:
         present_types.add(ShapeType(track.shape_type))
         keyframes = [
             Keyframe(
@@ -264,7 +319,7 @@ async def _collect_job_annotations(
                     occluded=position.occluded,
                     z_order=position.z_order,
                     group=track.group,
-                    track_id=track.object_id if track.object_id is not None else index,
+                    track_id=track_ids.of(track),
                     attributes={**track.attributes, **position.attributes},
                     source=str(track.source),
                     confidence=track.confidence,
