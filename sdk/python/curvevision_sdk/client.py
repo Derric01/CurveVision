@@ -331,6 +331,45 @@ class CurveVision:
             )
         )
 
+    # ---------------------------------------------------------------------- quality
+
+    def create_ground_truth_job(
+        self,
+        task_id: uuid.UUID,
+        *,
+        start_frame: int | None = None,
+        stop_frame: int | None = None,
+        assignee_id: uuid.UUID | None = None,
+    ) -> Job:
+        """Add the job holding this task's answer key. Both bounds default to the task."""
+        body: dict[str, Any] = {}
+        if start_frame is not None:
+            body["start_frame"] = start_frame
+        if stop_frame is not None:
+            body["stop_frame"] = stop_frame
+        if assignee_id is not None:
+            body["assignee_id"] = str(assignee_id)
+        return self._job(self._json("POST", f"/tasks/{task_id}/ground-truth", json=body))
+
+    def score_job(self, job_id: uuid.UUID, *, iou_threshold: float = 0.5) -> dict[str, Any]:
+        """Compare a job against its task's ground truth and store the report.
+
+        Returns precision/recall/F1 plus ``details`` -- a per-label breakdown and every
+        conflict named (missing, extra, wrong_label, poor_overlap). Only frames the ground
+        truth covers are scored.
+        """
+        return dict(
+            self._json("POST", f"/jobs/{job_id}/quality", json={"iou_threshold": iou_threshold})
+        )
+
+    def quality_report(self, job_id: uuid.UUID) -> dict[str, Any]:
+        """The job's most recent report. Raises if none has been computed."""
+        return dict(self._json("GET", f"/jobs/{job_id}/quality"))
+
+    def task_quality(self, task_id: uuid.UUID) -> list[dict[str, Any]]:
+        """Every scored job on the task, newest first."""
+        return [dict(item) for item in self._json("GET", f"/tasks/{task_id}/quality")]
+
     @staticmethod
     def _job(payload: dict[str, Any]) -> Job:
         return Job._from(

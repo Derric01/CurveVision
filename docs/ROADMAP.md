@@ -59,7 +59,7 @@ application — and produce a real dataset with it.
 | Track editing UI (keyframe timeline) | **In Progress** — the timeline shows every track's keyframes and where it is present, and `,`/`.` step between keyframes; adding, moving and removing keyframes from it is not built |
 | Mask brush tool | **Planned** — RLE storage and export exist; the drawing tool does not |
 | Skeleton / keypoint editing UI | **Planned** — the model and COCO keypoint export exist |
-| Ground-truth quality reports | *Planned* — the storage model exists; nothing computes a report |
+| Ground-truth quality reports | **In Progress** — a task can hold a ground-truth job, and scoring an annotation job against it gives precision/recall/F1 per label plus classified conflicts (missing, extra, wrong label, poor overlap) over the API. No UI shows a report yet, and the comparison runs inline rather than as a background job |
 | Resumable uploads | *Planned* — the storage model exists; there are no endpoints yet |
 
 **What "Beta" needs before we call it that:** video annotation end to end, the track

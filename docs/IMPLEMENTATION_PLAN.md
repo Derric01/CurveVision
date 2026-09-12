@@ -451,9 +451,29 @@ Planned: KITTI, LabelMe, Open Images, TFRecord, Datumaro bridge.
   `open`/`resolved` states — the mechanism by which a reviewer sends work back.
 * **Annotation history**: every write records an `AnnotationEvent` (actor, action, before/after
   diff) enabling per-object blame and rollback.
-* **Quality metrics** (*Planned*): ground-truth job comparison producing per-label
-  precision/recall/IoU and a conflict list. The `QualityReport` table exists; nothing
-  populates it yet.
+* **Quality metrics** (**In Progress**): `POST /tasks/{id}/ground-truth` adds the job that
+  holds a task's answer key; `POST /jobs/{id}/quality` scores an annotation job against it
+  and stores a `QualityReport` with per-label precision/recall/F1/mean IoU and a conflict
+  list classified into *missing*, *extra*, *wrong label* and *poor overlap*. Four things
+  the arithmetic gets right and a naive version would not:
+
+  * **A box too loose to count as the object costs precision, not only recall.** Counting
+    it against recall alone means an annotator who draws everything sloppily scores
+    precision 1.0 — the flattering failure this feature exists to prevent.
+
+  * **Only frames the ground truth covers are scored.** A ground truth over frames 0-49 is
+    evidence about frames 0-49; counting the annotator's unchecked frame 300 as correct
+    inflates the score in the direction that makes a team trust bad data.
+  * **Tracks are flattened to their interpolated position on every frame**, so an annotator
+    working with tracks and a reviewer working with shapes score the same.
+  * **The ground truth's annotations need reviewer rank to read** (or assignment to that
+    job). A score an annotator could have copied measures nothing.
+
+  Geometry is exact rather than bbox-approximate: polygons are clipped
+  (Sutherland–Hodgman) and measured by the shoelace formula, and matching is greedy on
+  descending IoU, which is COCO's rule. What is not built: any UI for a report, and running
+  the comparison as a background job — it runs inline, which a very large ground truth
+  would change.
 
 ---
 

@@ -254,3 +254,43 @@ class HealthOut(StrictModel):
     #: it to skip the sign-in screen and hide the multi-user chrome; it is not a secret,
     #: and a local instance is only reachable from the machine it runs on anyway.
     local_mode: bool = False
+
+
+class QualityReportOut(ORMModel):
+    """What comparing a job against ground truth found."""
+
+    id: uuid.UUID
+    task_id: uuid.UUID
+    job_id: uuid.UUID | None
+    ground_truth_job_id: uuid.UUID | None
+    iou_threshold: float
+    precision: float
+    recall: float
+    f1: float
+    #: Per-label scores and the classified conflicts. See `services/comparison.py`.
+    details: dict[str, Any] = Field(default_factory=dict)
+    created_at: datetime
+
+
+class QualityRequest(StrictModel):
+    """Ask for a job to be scored.
+
+    `iou_threshold` is how much overlap counts as "the same object". 0.5 is the COCO
+    convention and a reasonable default for boxes; raise it when the task needs tight
+    geometry and lower it when objects are small or annotators trace loosely.
+    """
+
+    iou_threshold: float = Field(default=0.5, gt=0.0, le=1.0)
+
+
+class GroundTruthJobIn(StrictModel):
+    """Create the job that holds a task's ground truth.
+
+    Both frame bounds are optional and default to the whole task. Narrowing the range is the
+    normal case on video: a reviewer annotates a slice properly, and every job overlapping
+    that slice is scored on it.
+    """
+
+    start_frame: int | None = Field(default=None, ge=0)
+    stop_frame: int | None = Field(default=None, ge=0)
+    assignee_id: uuid.UUID | None = None

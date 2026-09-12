@@ -160,7 +160,7 @@ async def frame_annotations(session: AsyncSession, job: Job, frame: int) -> dict
 
     materialised: list[dict[str, Any]] = [_shape_to_dict(shape) for shape in shapes]
     for track in tracks:
-        keyframes = [_track_shape_to_keyframe(ts) for ts in track.shapes]
+        keyframes = [track_shape_to_keyframe(ts) for ts in track.shapes]
         position = interpolate_track(keyframes, ShapeType(track.shape_type), frame)
         if position is None:
             continue
@@ -209,7 +209,8 @@ def _shape_to_dict(shape: Shape) -> dict[str, Any]:
     }
 
 
-def _track_shape_to_keyframe(track_shape: TrackShape) -> Keyframe:
+def track_shape_to_keyframe(track_shape: TrackShape) -> Keyframe:
+    """A stored keyframe as the interpolator wants it. Shared with `quality`."""
     return Keyframe(
         frame=track_shape.frame,
         points=list(track_shape.points),
