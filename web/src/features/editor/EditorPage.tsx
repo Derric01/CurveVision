@@ -390,7 +390,11 @@ function LabelPanel({
   return (
     <div className="border-b border-ink-800">
       <h3 className="px-3 py-2 text-xs font-medium uppercase tracking-wide text-ink-500">Labels</h3>
-      <ul className="max-h-52 overflow-auto pb-2">
+      {/* Proportional rather than a fixed 13rem: six labels overflowed that cap and the
+          list was cut through the middle of a row. It still scrolls on a short window —
+          the object list below has to keep its share — but a normal window shows the
+          whole schema. */}
+      <ul className="max-h-[30vh] overflow-auto pb-2">
         {labels.map((label, index) => (
           <li key={label.id}>
             <div

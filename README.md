@@ -20,13 +20,13 @@ Same editor, same exporters, same code — your images never leave your infrastr
 </div>
 
 <p align="center">
-  <img src="docs/images/editor.png" alt="The CurveVision annotation editor: a street scene with labelled cars and pedestrians, the label schema and object list on the right, and the frame timeline along the bottom." width="100%" />
+  <img src="docs/images/editor.png" alt="The CurveVision annotation editor: a photograph of an espresso cup on a saucer with a spoon, each boxed and labelled, the label schema and object list on the right, and the frame timeline along the bottom." width="100%" />
 </p>
 
 <div align="center"><sub>
 The actual editor, photographed by <a href="scripts/screenshot.py"><code>scripts/screenshot.py</code></a> —
-which drives the real application in a real browser and draws those boxes with real pointer events.
-Nothing here is a mockup.
+which drives the real application in a real browser and draws those boxes with real pointer events
+on a real photograph. Nothing here is a mockup.
 </sub></div>
 
 ---

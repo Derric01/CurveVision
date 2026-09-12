@@ -5,7 +5,7 @@
 > [`AGENTS.md`](./AGENTS.md) first; it is the working contract. Update this file after every
 > iteration, including the ones that mostly failed.
 >
-> **Last updated:** 2026-09-12 (iteration 3) · branch `claude/curvevision-platform-build-n1g71n` · PRs [#1](https://github.com/Derric01/CurveVision/pull/1)–[#3](https://github.com/Derric01/CurveVision/pull/3) merged · [#4](https://github.com/Derric01/CurveVision/pull/4) merged · iteration 3 unpushed at time of writing
+> **Last updated:** 2026-09-12 (iteration 4) · branch `claude/curvevision-platform-build-n1g71n` · PRs [#1](https://github.com/Derric01/CurveVision/pull/1)–[#4](https://github.com/Derric01/CurveVision/pull/4) merged · iterations 3–4 unpushed at time of writing
 
 ---
 
@@ -41,7 +41,8 @@ rather than status codes.
 
 `scripts/screenshot.py` is the harness that found them, and it is kept: it drives the
 packaged app in Chromium, seeds a project, draws with real pointer events and photographs
-the result. The README's screenshots come from it.
+the result. The README's screenshots come from it, **on real photographs** — public domain
+and CC0, committed under `docs/images/samples/` with their attribution.
 
 The remaining desktop gap is the open-folder flow: the server endpoint and the shell's
 native picker both exist and are tested, but the web UI does not call them yet, so importing
@@ -191,6 +192,40 @@ full docs set including seven ADRs.
 
 ## Last iteration
 
+**Replaced the screenshots' synthetic frames with real photographs, and fixed what that
+exposed.** The complaint was that the imagery did not look real, and it was right: the old
+frames were vector shapes drawn in PIL.
+
+* **Four real photographs are now committed** under `docs/images/samples/` — an espresso cup
+  (CC0), a cat (CC0), an astronaut portrait (NASA, public domain) and a rocket on the pad
+  (SpaceX, public domain). `scripts/extract_sample_images.py` is how they were produced, and
+  `docs/images/samples/CREDITS.md` carries licence and attribution per file. scikit-image was
+  a one-time extraction tool, **not** a new dependency; the JPEGs are the artefact.
+* **The label schema now matches the imagery** (`cup`, `saucer`, `spoon`, `cat`, `person`,
+  `rocket`) and covers the whole set rather than only the frame being photographed.
+* **Boxes are measured in image pixels, not viewport fractions.** `canvas_point()` in the
+  screenshot script mirrors `fitToImage` from `web/src/canvas/viewport.ts`, so a box measured
+  once off the photograph lands on the object at any window size. The old fractions were
+  tuned to one layout and would have slid off it silently.
+* **The project page is photographed last**, after the annotations are drawn, so its
+  statistics (`Shapes 3`, `Unannotated frames 3`, class distribution) describe work that
+  actually happened. Captured before, it showed an empty project next to a full editor.
+* **The trim height is measured, not hard-coded** — a magic `770` had already stopped
+  matching the page and cut a card in half once the statistics grew a row.
+
+Two defects came out of looking at the result:
+
+* **The editor's label list clipped through the middle of a row** at six labels — a fixed
+  `max-h-52` (13rem) cap. Now proportional (`max-h-[30vh]`), so a normal window shows the
+  whole schema and a short one still scrolls.
+* **Two licensing claims were false.** `THIRD_PARTY_NOTICES.md` and
+  `ARCHITECTURE_COMPARISON.md` both still asserted "No CVAT source code is present in this
+  repository" while the same notices file listed `media/video.py` as adapted from CVAT three
+  sections earlier. Iteration 3 corrected that sentence in the README and missed its two
+  copies. Both now point at the adaptation table as the authoritative list.
+
+### Iteration 3 (for context)
+
 **Drove the application in a real browser for the first time, and fixed the two defects
 that found.** Also rewrote the README as a landing page.
 
@@ -227,6 +262,14 @@ present. Both corrected; the second is a licensing claim and was the more urgent
   notices (51 deps) · eslint · tsc · vitest (115)
 ```
 
+Iteration 4 additionally rebuilt the web bundle and the PyInstaller sidecar and re-ran
+`scripts/screenshot.py` against the packaged binary end to end: four photographs uploaded,
+three boxes drawn through real pointer events, autosave settled, both screenshots
+regenerated. Each screenshot was then **looked at**, including a 1:1 crop — which is what
+caught the label-list clipping and the 4x-magnified mush described under *Tried and
+rejected*. A screenshot script that is never run with human eyes on its output is a script
+that ships a broken picture.
+
 13 of those server tests are new and assert response **headers** — what a browser acts on,
 and what nothing previously checked.
 
@@ -258,6 +301,8 @@ missing, and it is the reason this iteration found anything):
 | The web application never loaded when the server served it | `Content-Security-Policy: default-src 'none'` — correct for a JSON API, and correct when written — blocked every script and stylesheet once the same process began serving the bundle. The desktop window opened blank. Every request returned 200. | `tests/api/test_web_app_serving.py` (13 tests), plus a real browser with a clean console |
 | No frame image ever rendered in the editor | `<img>.src` on the frame endpoint with `crossOrigin = 'use-credentials'` sends cookies; the API uses bearer tokens, so every frame was 401 and the canvas drew a broken element. | Frames fetched through the API client as object URLs; verified by screenshotting a drawn annotation over a rendered frame |
 | Video tests would have skipped silently in CI | `av` was in the `media` extra but not `dev`, and CI installs `[dev]`. `pytest.importorskip` would have skipped every video test while the suite reported green. | Added to `dev`; the tests run rather than skip |
+| The editor's label list was cut through the middle of a row | A fixed `max-h-52` (13rem) cap on the list; six labels need ~14rem. Functional — it scrolled — but it looked broken, and a six-label schema is not unusual. Now `max-h-[30vh]`. | Regenerated screenshot: all six labels visible, `OBJECTS` heading intact below |
+| Two documents claimed no CVAT source code is present, while a third section of one of them listed the file that is | Iteration 3 corrected that sentence in the README only; `THIRD_PARTY_NOTICES.md` and `ARCHITECTURE_COMPARISON.md` kept their copies. A licensing claim that contradicts itself three sections apart is worse than no claim. | Both now defer to **THIRD_PARTY_NOTICES § Adapting CVAT code** as the authoritative list |
 
 ---
 
@@ -298,6 +343,24 @@ missing, and it is the reason this iteration found anything):
 
 ## Tried and rejected
 
+- **Hand-rolling photorealism in PIL.** The first answer to "the images do not look real"
+  was a more elaborate synthetic renderer — single vanishing point, atmospheric perspective,
+  contact shadows, depth of field, sensor grain, vignette. It was rendered, looked at, and
+  was **worse**: noisy, with buildings floating translucent over the road, and still
+  unmistakably vector art. Deleted rather than kept alongside the original. The ceiling on
+  procedural realism in a 2D drawing library is low, and real public-domain photography costs
+  four files and an attribution table. Do not re-attempt this.
+- **Fetching photographs from the obvious places.** Wikimedia Commons, NASA and stock
+  libraries are all refused by the egress proxy (403 on CONNECT). PyPI and GitHub are
+  reachable, which is why the images come from a Python package's bundled sample data.
+  Anything larger in that dataset needs `pooch` and is either poorly suited (a retinal
+  fundus, a deep field) or of unclear licence (Middlebury stereo pairs), so 600×400 is the
+  practical ceiling here.
+- **Capturing the editor at `device_scale_factor=2`.** Sharper chrome, *softer* photograph:
+  the editor already fits a 600×400 frame to a ~1200px canvas, and doubling that magnifies it
+  to 4× native, which is visibly mushy in a 1:1 crop. Now captured at 1, which is close to
+  1:1 for a README on a high-density display anyway. If a larger source photograph ever
+  becomes available, revisit — the trade only exists because the frames are small.
 - **Computing `start_frame` from a `SUM` per asset during import.** Looked like a bug fix;
   was not. `tasks.recount_frames` already reindexes every offset from position order after
   the batch, so the per-asset value is provisional either way — and the SUM added a query per

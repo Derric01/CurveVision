@@ -5,9 +5,17 @@ annotation platform in existence, and we studied it deliberately rather than red
 its lessons the expensive way. This document records what we learned, what we adopted, what
 we did differently, and — importantly — the licensing position.
 
-**CurveVision is not a fork or a rename of CVAT.** No CVAT source code has been copied into
-this repository. What we took from CVAT is *architectural understanding*: which
-decompositions of the annotation problem hold up under production load, and which do not.
+**CurveVision is not a fork or a rename of CVAT.** Most of what we took from CVAT is
+*architectural understanding*: which decompositions of the annotation problem hold up under
+production load, and which do not.
+
+Where we do adapt CVAT's MIT-licensed code — because the knowledge in it is worth more than
+the lines, and rewriting it from scratch would only re-earn its bugs — we say so, keep its
+copyright notice in the file, and list it. There is exactly one such file today
+(`server/curvevision/media/video.py`, from CVAT's video decoding strategy). The
+authoritative list lives in
+[THIRD_PARTY_NOTICES.md § Adapting CVAT code](./THIRD_PARTY_NOTICES.md#adapting-cvat-code),
+and the policy that governs it in [ADR 0007](./adr/0007-cvat-reuse-policy.md).
 
 ---
 
