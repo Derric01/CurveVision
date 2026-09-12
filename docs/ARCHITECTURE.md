@@ -236,10 +236,21 @@ upload (resumable, chunked) → sha256 → dedupe → Asset row
                          client: LRU chunk cache + ±1 chunk prefetch
 ```
 
-**Status:** the chunk model and planning exist; extraction and chunked delivery are *In
-Progress*, and the client currently fetches one frame per request. That is fine for images
-and is the blocker for usable video annotation — one request per frame is the difference
-between a video annotator that is pleasant and one that is unusable.
+**Status: built, end to end.** A chunk is 36 frames decoded in one pass and stored as one
+uncompressed ZIP of JPEGs named by task-global frame number; the editor fetches the archive,
+keeps a three-chunk LRU and prefetches its neighbours. Stepping through 36 frames costs 3
+requests and 36 frame-decodes, against 36 requests and 630 decodes per-frame. The numbers,
+and the one case this costs rather than saves — a sparse scrub, which builds chunks it
+mostly does not use — are in
+[IMPLEMENTATION_PLAN § Phase 3](./IMPLEMENTATION_PLAN.md).
+
+Per-frame decoding remains the fallback for every case a chunk cannot serve: chunking
+switched off, an image asset in the range, an archive storage lost, one the client cannot
+read. A video is never *unservable*, only slower.
+
+**Chunks go to object storage rather than a dedicated cache service.** That keeps them
+durable and shareable across API replicas for free, and it is one fewer stateful thing to
+operate — the same reasoning that keeps the deployment at six services.
 
 Image handling uses **Pillow**; video uses **PyAV** (FFmpeg bindings). Both are optional
 imports: the server starts and the full test suite passes without them, degrading to
@@ -385,7 +396,7 @@ See [THIRD_PARTY_NOTICES.md](./THIRD_PARTY_NOTICES.md) for attribution.
 | --- | --- |
 | Listing millions of assets | rows + object keys; always paginated; covering indexes on `(task_id, index)` |
 | 100k annotations in a job | server streams per-job with optional frame-range filter; client culls via R-tree |
-| Long video | chunked frames + client LRU + prefetch — *In Progress*; the client currently fetches one frame per request |
+| Long video | chunked frames (36/chunk, one decode pass) + client LRU + ±1 prefetch — **Done**; 36 frames cost 3 requests and 36 decodes rather than 36 and 630 |
 | Concurrent editors | optimistic versioning on `job.annotation_version`; a stale write is rejected with 409 rather than merged |
 | Slow operations | all async background jobs with idempotency keys and progress rows |
 | Frontend frame time | layered canvases, dirty rects, rAF-throttled input, viewport culling |

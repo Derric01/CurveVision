@@ -143,6 +143,30 @@ Two numbers to keep honest: **1,460 lines added and 42 removed** across the four
 that turned the server into a desktop application. Nothing was rewritten to get here,
 because storage, jobs, the database dialect and the formats were already interfaces.
 
+## What it does not do
+
+Limitations belong in the same document as the plans, stated plainly, because a reader
+deciding whether to adopt this needs them more than they need the roadmap.
+
+* **No 3D or point-cloud annotation.** No LiDAR, no cuboids in 3D. Not close, and not
+  planned for 1.0.
+* **Four dataset formats**, not twenty. COCO, YOLO, Pascal VOC and the lossless native
+  format, each declaring honestly what it can represent. The registry takes plugins through
+  entry points, so a fifth is an add-on rather than a fork — but four is what ships.
+* **S3-compatible object storage only.** MinIO, Ceph, Backblaze B2, AWS S3 and anything else
+  speaking that API. **Azure Blob Storage and Google Cloud Storage are not supported**, and
+  adding them means a new `Storage` implementation — a contained piece of work nobody has
+  done yet.
+* **No consensus or honeypot quality workflows.** The quality module is *In Progress* and
+  starts with ground-truth comparison; consensus scoring and honeypot frames are under
+  *Later*.
+* **No signed installers.** The desktop app builds and runs from source; `.dmg`, `.msi` and
+  `.AppImage` need one CI runner per platform and are not built yet.
+* **Young.** This has not been through years of production use across many organisations.
+  Anyone choosing an annotation platform for critical work today should weigh that
+  seriously — the README says so too, and it is the honest reason to prefer something older
+  for that job.
+
 ## What we have decided against
 
 Saying no is part of a roadmap:

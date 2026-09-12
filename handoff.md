@@ -5,7 +5,7 @@
 > [`AGENTS.md`](./AGENTS.md) first; it is the working contract. Update this file after every
 > iteration, including the ones that mostly failed.
 >
-> **Last updated:** 2026-09-12 (iteration 11) · branch `claude/curvevision-platform-build-n1g71n` · PRs [#1](https://github.com/Derric01/CurveVision/pull/1)–[#5](https://github.com/Derric01/CurveVision/pull/5) merged · iterations 6–8 in open PR [#6](https://github.com/Derric01/CurveVision/pull/6)
+> **Last updated:** 2026-09-12 (iteration 12) · branch `claude/curvevision-platform-build-n1g71n` · PRs [#1](https://github.com/Derric01/CurveVision/pull/1)–[#5](https://github.com/Derric01/CurveVision/pull/5) merged · iterations 6–8 in open PR [#6](https://github.com/Derric01/CurveVision/pull/6)
 
 ---
 
@@ -193,25 +193,30 @@ full docs set including seven ADRs.
 
 | Item | Where it stands |
 | --- | --- |
-| Open-folder flow in the web UI | Server endpoint, shell commands and menu event all exist and are tested; nothing in `web/` calls them. See [Next best action](#next-best-action). |
-| Chunked media delivery | `MediaChunk`, the chunk plan job and the range helpers exist; no archives are written and the client still fetches one frame per request. Now the main limit on video. See [Next best action](#next-best-action). |
-| Track editing UI | Model and interpolation done on both sides; the keyframe timeline UI does not exist. |
+| Track keyframe **editing** | The timeline shows every track's keyframes and where it is present, and `,`/`.` step between them. Adding, moving, removing and marking a departure from the timeline is not built. See [Next best action](#next-best-action). |
+| Pre-building chunks after upload | `media.build_chunks` builds rather than plans, and nothing enqueues it. `media.probe_task` already walks the whole file to count frames, so one job that counts *and* builds probably beats two that each decode it. |
+| Surfacing an uncorrected frame count | When a task already carries annotations, `media.probe_task` declines the correction and says so in its result. Nothing shows that to a user. |
 | Webhooks | Delivery works and is signed; retry/backoff is not wired to the queue. |
+| Mask brush, keypoint UI | Storage, export and the model exist on both sides; neither drawing tool does. |
+
+*This table went stale once — it still listed the open-folder flow and chunked delivery as
+unbuilt several iterations after both shipped, because the narrative sections above were
+being updated and this one was not. Check it against* Completed *before trusting it.*
 
 ---
 
 ## Remaining high-priority work
 
-1. **Track-editing timeline UI** — the model and interpolation exist on both sides; the UI
-   does not.
+1. **Editing keyframes from the timeline** — it shows them; acting on them is what makes it
+   a tool rather than a map. See [Next best action](#next-best-action).
 2. **Pre-build chunks after a video upload.** `media.build_chunks` builds rather than plans,
-   and nothing enqueues it. Careful: the desktop queue is inline.
-3. **A browser harness in CI.** Three exist and between them they have found every defect the
-   unit suites missed.
+   and nothing enqueues it. Careful: the desktop queue is inline, and `media.probe_task`
+   already decodes the whole file — one job that counts and builds probably beats two.
+3. **A browser harness in CI.** Four exist (`screenshot.py`, `verify_local_import.py`,
+   `verify_chunked_frames.py`, `verify_track_timeline.py`) and between them they have found
+   every defect the unit suites missed.
 4. **Signed installers in CI** — one runner per platform; PyInstaller does not cross-compile.
 5. **Webhook retry/backoff** wired to the job queue.
-6. **`choose_files` is still unused** — the shell can open a native *file* picker as well as
-   a folder one.
 6. **`choose_files` is still unused.** The shell can open a native *file* picker as well as a
    folder one, and `/tasks/{id}/local-import` accepts a file path. Connecting it is small, and
    deliberately left until someone wants it — the folder case is the one that matters.
@@ -219,6 +224,36 @@ full docs set including seven ADRs.
 ---
 
 ## Last iteration
+
+**A doc-drift audit, prompted by a good question: had the fast pace cost quality?** It had,
+in four places. None of them was code — the tree stayed green throughout — and all four were
+documentation claiming something that had stopped being true.
+
+* **`ARCHITECTURE.md` §6 still said chunked delivery was unbuilt** and that "the client
+  currently fetches one frame per request", two iterations after it shipped. §9's performance
+  table said the same. Both corrected, with the measured numbers.
+* **The *In progress* table here was entirely stale** — it listed the open-folder flow and
+  chunked media delivery as unbuilt, several iterations after both shipped. The narrative
+  sections above it were being updated every iteration and this table was not. Rewritten,
+  with a note on the table saying it has gone stale before.
+* ***Remaining high-priority work* had a duplicated item 6** and a stale item 1, both from my
+  own edits colliding.
+* **Deleting `ARCHITECTURE_COMPARISON.md` took an honest limitations list with it.** Most of
+  that document was comparison and no loss, but its §6 listed what the platform *does not do*
+  — and one item, that only S3-compatible object storage is supported and Azure Blob and GCS
+  are not, was recorded nowhere else afterwards. Restored to `ROADMAP.md` as **What it does
+  not do**, stated as our own limitations, which needs no comparison to anyone.
+
+Checked and found *not* lost: the job-as-unit-of-work rationale, the attributes-as-JSON
+rationale ("a side table would triple row counts for no query benefit"), the arc-length
+resampling reasoning, and the `Segment`-collapse rationale — all still in `ARCHITECTURE.md`
+or the plan.
+
+The lesson worth carrying: **narrative prose gets updated because you are writing it; tables
+and status markers elsewhere in the same file do not.** After finishing a feature, grep for
+its name across the docs rather than editing the section you happen to be in.
+
+### Iteration 11
 
 **The editor shows where every track lives.** Until now a track was invisible unless you
 happened to scrub onto a frame it occupied: the canvas draws this frame and nothing told you
