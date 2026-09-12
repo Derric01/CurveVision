@@ -5,7 +5,7 @@
 > [`AGENTS.md`](./AGENTS.md) first; it is the working contract. Update this file after every
 > iteration, including the ones that mostly failed.
 >
-> **Last updated:** 2026-09-12 (iteration 9) · branch `claude/curvevision-platform-build-n1g71n` · PRs [#1](https://github.com/Derric01/CurveVision/pull/1)–[#5](https://github.com/Derric01/CurveVision/pull/5) merged · iterations 6–8 in open PR [#6](https://github.com/Derric01/CurveVision/pull/6)
+> **Last updated:** 2026-09-12 (iteration 10) · branch `claude/curvevision-platform-build-n1g71n` · PRs [#1](https://github.com/Derric01/CurveVision/pull/1)–[#5](https://github.com/Derric01/CurveVision/pull/5) merged · iterations 6–8 in open PR [#6](https://github.com/Derric01/CurveVision/pull/6)
 
 ---
 
@@ -220,6 +220,34 @@ full docs set including seven ADRs.
 ---
 
 ## Last iteration
+
+**Corrected a benchmark the README invites readers to check.** The reconcile pass that opens
+every iteration found it: the README said *"picking from 100,000 shapes takes ~1 µs; a linear
+scan of 10,000 takes ~550 µs"* and called it a ~500× gap. Two problems, and the second is the
+one that mattered.
+
+* **The number had drifted.** `npm run bench` now reports the scan at ~410–500 µs, not 550.
+* **The comparison was not like for like.** Picking from *100,000* against a scan of
+  *10,000* is two different datasets. `scan` was only benched at 1k and 10k, so the honest
+  comparison could not be made at all.
+
+`scan` now runs at every scale the index is measured at, and the figures are:
+
+| Shapes | Pick, with the R-tree | Pick, by linear scan | Gap |
+| --- | --- | --- | --- |
+| 10,000 | ~0.3 µs | ~450 µs | ~1,500× |
+| 100,000 | ~0.7 µs | ~5,000 µs | ~7,000× |
+
+Three runs, one machine; the scan at 100k varies between 4.6 ms and 6.4 ms, so the
+multiplier is rounded down rather than up. Corrected in the README, ADR 0003,
+`ARCHITECTURE.md`, ADR 0007 and here.
+
+The honest number is **larger** than the one it replaces, which is worth saying plainly: the
+old figure understated the result while being methodologically wrong. ADR 0003 carries a
+dated note recording the correction rather than quietly restating it — the decision it
+records is unchanged.
+
+### Iteration 9
 
 **Removed the upstream project's name from everywhere it was not legally required.** It
 appeared roughly 100 times across 20 files; it now appears four times across three, and
@@ -724,7 +752,7 @@ Significant ones have ADRs; these are the ones a future agent would otherwise se
   code**, and removing it while keeping the code is not an option the ADR leaves open — the
   answer to an unwanted attribution is to re-derive the file, not to drop the notice.
   Never adopt an architecture an ADR rejected on measured grounds: Canvas2D was chosen over
-  an SVG DOM on a ~500× picking advantage at 100k shapes
+  an SVG DOM on a picking advantage of roughly 7,000× at 100k shapes
   ([ADR 0003](./docs/adr/0003-canvas2d-with-spatial-index.md)).
 - **Desktop-only capability is gated at the API edge, never in a service.** Reading arbitrary
   local paths is a feature on your own machine and arbitrary file disclosure on a shared one.

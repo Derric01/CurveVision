@@ -60,8 +60,8 @@ algorithm rather than the framework around it.
 
 That last row matters. Reuse is not automatically the right answer: where an ADR chose a
 design on *measured* grounds — [ADR 0003](./0003-canvas2d-with-spatial-index.md) chose
-Canvas2D plus an R-tree over an SVG DOM on a ~500× picking advantage at 100k shapes, and
-[ADR 0004](./0004-streaming-format-registry.md) chose a streaming registry because a
+Canvas2D plus an R-tree over an SVG DOM on a picking advantage of roughly 7,000× at 100k
+shapes, and [ADR 0004](./0004-streaming-format-registry.md) chose a streaming registry because a
 memory-resident one cannot export 500k images — adopting the alternative to gain code would
 undo a benchmarked decision and cost the performance it bought.
 

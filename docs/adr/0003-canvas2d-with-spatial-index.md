@@ -51,8 +51,20 @@ faster static structure later.
 
 **We gain (measured, `npm run bench`):**
 
-* Picking from 100,000 shapes: ~1 µs. A linear scan of 10,000: ~550 µs. A ~500x gap, and
-  the gap widens with size.
+* Picking, with the index against without it, **at the same dataset size**:
+
+  | Shapes in the dataset | Pick, with the R-tree | Pick, by linear scan | Gap |
+  | --- | --- | --- | --- |
+  | 10,000 | ~0.3 µs | ~450 µs | ~1,500× |
+  | 100,000 | ~0.7 µs | ~5,000 µs | ~7,000× |
+
+  The gap widens with size, which is the claim that matters — culling costs what is on
+  screen, scanning costs what is in the dataset.
+
+  *Re-measured 2026-09.* The original figure compared picking from 100,000 shapes against a
+  linear scan of **10,000** and called the result "~500×". That is two different datasets,
+  and the comparison was not ours to make: the bench now scans at every scale the index is
+  measured at. The decision is unchanged — the honest number is larger, not smaller.
 * Viewport queries stay within an order of magnitude across 1k / 10k / 100k, which is the
   culling claim stated as a number.
 * Hover and drag repaint a transparent overlay, never the shape set.

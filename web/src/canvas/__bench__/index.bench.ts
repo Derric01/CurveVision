@@ -76,7 +76,11 @@ describe('hit testing', () => {
 describe('linear scan (the approach culling replaces)', () => {
   // Kept as a control: this is what picking costs without a spatial index, and it is why
   // the index is not optional.
-  for (const count of [1_000, 10_000] as const) {
+  //
+  // Every scale the index is measured at, so the comparison is like for like. Quoting
+  // `pick from 100,000` against `scan 10,000` — as the docs once did — compares different
+  // datasets and flatters the index by an order of magnitude it did not earn.
+  for (const count of SCALES) {
     const annotations = makeAnnotations(count);
     bench(`scan ${count.toLocaleString()}`, () => {
       annotations.filter((a) => hitTest(a, { x: 640, y: 480 }, 6));

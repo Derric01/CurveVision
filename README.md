@@ -182,9 +182,15 @@ represent, *before* you rely on it.
 | Skeletons / keypoints — model and COCO export exist; the UI does not | *Planned* |
 
 **It stays fast.** The canvas is a Canvas2D engine with an R-tree spatial index, so
-rendering costs what is *on screen* rather than what is in the dataset. Measured on this
-machine: picking from 100,000 shapes takes ~1 µs; a linear scan of 10,000 takes ~550 µs.
-Run `npm run bench` in `web/` and check for yourself.
+rendering costs what is *on screen* rather than what is in the dataset.
+
+| Shapes in the dataset | Pick, with the R-tree | Pick, by linear scan | Gap |
+| --- | --- | --- | --- |
+| 10,000 | ~0.3 µs | ~450 µs | ~1,500× |
+| 100,000 | ~0.7 µs | ~5,000 µs | ~7,000× |
+
+One developer machine, and your numbers will differ — the shape will not, and the gap widens
+with size. Run `npm run bench` in `web/` and check for yourself.
 
 Autosave keeps a local write-ahead buffer in IndexedDB, so a browser crash does not cost
 you an afternoon — and a stale write is rejected with a conflict rather than silently

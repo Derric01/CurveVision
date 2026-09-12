@@ -308,8 +308,8 @@ the least defensible code we could write. `server/curvevision/media/video.py` is
 adapted file, and it carries its upstream copyright header in place.
 
 Everywhere else the architectures diverge by design: [ADR 0003](./adr/0003-canvas2d-with-spatial-index.md)
-chose Canvas2D plus an R-tree over an SVG DOM on a measured ~500× picking advantage at 100k
-shapes, and [ADR 0004](./adr/0004-streaming-format-registry.md) chose a streaming format
+chose Canvas2D plus an R-tree over an SVG DOM on a measured picking advantage of roughly
+7,000× at 100k shapes, and [ADR 0004](./adr/0004-streaming-format-registry.md) chose a streaming format
 registry because a memory-resident one cannot export 500k images. Adopting the alternatives
 to gain code would undo benchmarked decisions.
 
