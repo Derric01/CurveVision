@@ -127,7 +127,8 @@ Redis and no object store.
 | Tauri shell: process supervision, no-sign-in token injection, native folder dialogs | **Done** |
 | Annotating local folders in place, with nothing copied | **Done** |
 | The editor served by the app itself, same-origin with its API | **Done** |
-| Frontend reads the injected connection and skips sign-in | **In Progress** |
+| Frontend reads the injected connection and skips sign-in | **Done** |
+| Open-folder flow wired to the shell's native picker | **In Progress** |
 | Signed installers for macOS and Windows, built per platform in CI | **Planned** |
 | Auto-update | **Planned** |
 | Pointing the desktop app at a shared team server | **Planned** — the app is already same-origin-agnostic; this is UI work |

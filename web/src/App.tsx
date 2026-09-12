@@ -2,6 +2,7 @@ import { useEffect } from 'react';
 import { Link, Navigate, Route, Routes, useLocation } from 'react-router-dom';
 import { LogOut, Layers, ListChecks } from 'lucide-react';
 import { useSession } from '@/store/session';
+import { desktop } from '@/desktop';
 import { Button, Spinner } from '@/ui/primitives';
 import { LoginPage } from '@/features/auth/LoginPage';
 import { ProjectsPage } from '@/features/projects/ProjectsPage';
@@ -50,10 +51,21 @@ function TopBar() {
         </nav>
       </div>
       <div className="flex items-center gap-3">
-        <span className="text-xs text-ink-400">{user?.username}</span>
-        <Button size="sm" variant="ghost" onClick={() => void logout()} title="Sign out">
-          <LogOut size={14} />
-        </Button>
+        {/* On a shared server, who you are matters and you can stop being them. In the
+            desktop application there is one person and no session to end, so a name badge
+            and a sign-out button would both be furniture. */}
+        {desktop ? (
+          <span className="text-xs text-ink-500" title={desktop.dataDir || undefined}>
+            {desktop.version ? `v${desktop.version}` : 'Desktop'}
+          </span>
+        ) : (
+          <>
+            <span className="text-xs text-ink-400">{user?.username}</span>
+            <Button size="sm" variant="ghost" onClick={() => void logout()} title="Sign out">
+              <LogOut size={14} />
+            </Button>
+          </>
+        )}
       </div>
     </header>
   );
@@ -85,8 +97,43 @@ function NavLink({
   );
 }
 
+function LocalServerUnavailable({
+  error,
+  onRetry,
+}: {
+  error: string | null;
+  onRetry: () => void;
+}) {
+  return (
+    <div className="flex h-full items-center justify-center p-8">
+      <div className="max-w-md space-y-4 text-center">
+        <h1 className="text-base font-semibold text-ink-100">
+          CurveVision could not start this session
+        </h1>
+        <p className="text-sm text-ink-400">
+          The application runs a server on this machine and talks to it privately. This
+          window could not establish a session with it — usually because CurveVision was
+          relaunched while this window was still open, which replaces the credential this
+          window was given.
+        </p>
+        {error ? (
+          <p className="rounded-md bg-ink-800 px-3 py-2 text-left font-mono text-xs text-ink-400">
+            {error}
+          </p>
+        ) : null}
+        <div className="space-y-2">
+          <Button size="sm" onClick={onRetry}>
+            Try again
+          </Button>
+          <p className="text-xs text-ink-500">If it keeps failing, restart CurveVision.</p>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export default function App() {
-  const { status, restore } = useSession();
+  const { status, error, restore } = useSession();
 
   useEffect(() => {
     void restore();
@@ -98,6 +145,12 @@ export default function App() {
         <Spinner className="h-6 w-6" />
       </div>
     );
+  }
+
+  // Desktop only. A sign-in form here would be a dead end: there is no password to type,
+  // so the useful thing is to say what actually went wrong.
+  if (status === 'unavailable') {
+    return <LocalServerUnavailable error={error} onRetry={() => void restore()} />;
   }
 
   if (status === 'anonymous') {

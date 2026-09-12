@@ -488,8 +488,15 @@ Not an add-on: one of the two shapes the product ships in ([Two deployment shape
   before page load, native dialogs, menus. Killed on every exit path, and
   `--exit-with-parent` makes the server stop on end-of-file when the shell cannot run its
   own handler (crash, force quit, `kill -9`) — verified.
-* **Desktop-aware frontend** — *In Progress*. Read the injected `window.__CURVEVISION__`,
-  skip the sign-in screen, offer the folder picker, hide multi-user chrome.
+* **Desktop-aware frontend** — **Done** for authentication. `web/src/desktop.ts` validates
+  the injected `window.__CURVEVISION__`, the API client prefers that token over any
+  stored session, and a failed restore in desktop mode shows a recoverable error rather
+  than a sign-in form nobody can use. Multi-user chrome is hidden. The shape is pinned
+  from both sides: a Rust test asserts the injected JSON keys, and the TypeScript tests
+  parse the same fixture.
+* **Open-folder flow** — *In Progress*. The server endpoint (`/tasks/{id}/local-import`)
+  and the shell commands (`choose_folder`, `choose_files`, the `menu:open-folder` event)
+  both exist and are tested; the web UI does not call them yet.
 * **Signed installers** — *Planned*. `.dmg`, `.msi`, `.AppImage` built per platform in CI;
   PyInstaller does not cross-compile, so this needs one runner per OS.
 * **Auto-update** — *Planned*.

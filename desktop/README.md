@@ -70,7 +70,8 @@ Open the printed URL in any browser and you get the complete application.
 | Never orphans the server — verified by `kill -9` on the shell | **Done** |
 | Annotating local folders in place, nothing copied | **Done** |
 | The editor served by the app itself, same-origin with its API | **Done** |
-| Frontend reads the injected connection and skips the sign-in screen | **In Progress** |
+| Frontend reads the injected connection and skips the sign-in screen | **Done** |
+| Open-folder flow wired to the shell's native picker | **In Progress** — the server endpoint and the shell command exist; the web UI does not call them yet |
 | Signed installers (`.dmg`, `.msi`, `.AppImage`) built per platform in CI | **Planned** |
 | Auto-update | **Planned** |
 | Pointing the desktop app at a shared team server | **Planned** |

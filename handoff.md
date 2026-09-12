@@ -5,7 +5,7 @@
 > [`AGENTS.md`](./AGENTS.md) first; it is the working contract. Update this file after every
 > iteration, including the ones that mostly failed.
 >
-> **Last updated:** 2026-09-11 · branch `claude/curvevision-platform-build-n1g71n` · PR [#2](https://github.com/Derric01/CurveVision/pull/2)
+> **Last updated:** 2026-09-12 · branch `claude/curvevision-platform-build-n1g71n` · PRs [#1](https://github.com/Derric01/CurveVision/pull/1), [#2](https://github.com/Derric01/CurveVision/pull/2), [#3](https://github.com/Derric01/CurveVision/pull/3) all merged
 
 ---
 
@@ -23,42 +23,49 @@ Honestly incomplete, and marked as such everywhere: video annotation (chunked fr
 extraction), the track-editing timeline, the mask brush, the keypoint UI, quality reports,
 resumable uploads, and signed desktop installers.
 
-The immediate gap is that the **frontend does not yet read the connection the desktop shell
-injects**, so the desktop window still shows a sign-in screen it should not. That is the next
-task and it is small.
+The desktop window now **signs itself in from the connection the shell injects** and opens
+straight into the application. The remaining desktop gap is the open-folder flow: the server
+endpoint and the shell's native picker both exist and are tested, but the web UI does not
+call them yet, so importing a folder still goes through the ordinary upload path.
 
 ---
 
 ## Next best action
 
-**Make the frontend desktop-aware** (`web/src`).
+**Wire the open-folder flow into the web UI.**
 
-The shell already injects, before any page script runs:
+Everything it depends on exists and is verified; this is the last piece of the desktop
+story that is not connected end to end.
 
-```js
-window.__CURVEVISION__ = { url, token, data_dir, version, desktop: true }
-```
+Available already:
 
-Nothing in `web/` reads it yet. Needed:
+| Piece | Where |
+| --- | --- |
+| `POST /tasks/{id}/local-import` `{path, recursive}` | `server/curvevision/api/v1/local.py`, 404s unless `local_mode` |
+| `choose_folder` / `choose_files` Tauri commands | `desktop/shell/src-tauri/src/lib.rs` |
+| `menu:open-folder` event (File ▸ Open Folder…, Cmd/Ctrl+O) | emitted by the shell, nothing listens |
+| `desktop` connection object in the page | `web/src/desktop.ts` |
 
-1. Read it at startup; when `desktop === true`, seed the API client with the token and skip
-   the sign-in screen entirely (do not render a signed-out state first — the value is
-   available before React mounts).
-2. Hide multi-user chrome in desktop mode: organization switching, member management,
-   invitations. There is one person here.
-3. Wire an **Open folder…** action to `POST /tasks/{id}/local-import`, using the shell's
-   native picker via `invoke("choose_folder")`. The shell also emits a `menu:open-folder`
-   event from its File menu — listen for it.
-4. Keep the browser path unchanged. The same bundle serves a real server with real accounts;
-   `desktop` simply is not set there.
+What it needs:
 
-Why this one: it is the last thing between the current state and a desktop app that opens
-straight into the editor, and every piece it depends on already exists and is verified.
+1. **A way to call the shell.** The shell runs with `withGlobalTauri: false`, so
+   `window.__TAURI__` does not exist and the page cannot `invoke` without
+   `@tauri-apps/api`. Two options, and this is the one real decision in the task:
+   - add `@tauri-apps/api` and **dynamic-import** it behind the `isDesktop()` check, so a
+     browser never downloads it — needs a `docs/THIRD_PARTY_NOTICES.md` entry (the CI gate
+     will catch it if forgotten); or
+   - flip `withGlobalTauri: true` and use `window.__TAURI__.core.invoke`, no dependency,
+     but it exposes the whole JS API surface to the page.
+   Prefer the first: it keeps the tighter Tauri setting, and the capability allow-list in
+   `capabilities/default.json` already limits what is reachable either way.
+2. An **Open folder** action on the task page, shown only when `isDesktop()`.
+3. A listener for the `menu:open-folder` event doing the same thing.
+4. Surface the result honestly: `imported` count, and the `skipped` list when non-empty —
+   the endpoint deliberately reports per-file failures rather than failing the import.
 
-After that: **adapt CVAT's `media_extractors.py`** for video frame extraction — see
-[Remaining high-priority work](#remaining-high-priority-work).
-
----
+Verify with the real packaged app, not just unit tests: build the web bundle, run
+`desktop/sidecar/build.py`, and drive it (`/tmp` scratch scripts from previous iterations
+show the pattern — spawn, read the handshake, call the API with its token).
 
 ## Completed
 
@@ -102,6 +109,16 @@ numbers are reproducible, and reports unreadable files in `skipped` rather than 
 The orphan-blob collector never deletes a file it did not write. Every route in
 `api/v1/local.py` returns 404 unless `settings.local_mode`.
 
+**Desktop sign-in** — `web/src/desktop.ts` validates the `window.__CURVEVISION__` object the
+shell injects before any page script runs. The API client prefers that token over any stored
+session; it is never written to `localStorage`, because the shell mints a fresh one each
+launch and revokes the previous one. In desktop mode a failed restore becomes a recoverable
+`unavailable` screen with a retry, not a sign-in form the user has no password for, and the
+username/sign-out chrome is replaced by the version. The injected shape is pinned from
+**both** sides — a Rust test asserts the exact JSON keys, and the TypeScript tests parse the
+same fixture — because a rename on one side alone would silently strand the desktop window
+on a sign-in screen.
+
 **Also** — Python SDK and CLI, Docker Compose deployment, CI, issue/PR templates, and the
 full docs set including seven ADRs.
 
@@ -111,7 +128,7 @@ full docs set including seven ADRs.
 
 | Item | Where it stands |
 | --- | --- |
-| Desktop-aware frontend | Nothing started in `web/`. The shell side is done and verified. See [Next best action](#next-best-action). |
+| Open-folder flow in the web UI | Server endpoint, shell commands and menu event all exist and are tested; nothing in `web/` calls them. See [Next best action](#next-best-action). |
 | Video annotation | Probing, the data model and frame addressing are done. Chunked extraction is not. `MediaChunk` and the chunk *plan* exist; the client still fetches one frame per request. |
 | Track editing UI | Model and interpolation done on both sides; the keyframe timeline UI does not exist. |
 | Webhooks | Delivery works and is signed; retry/backoff is not wired to the queue. |
@@ -137,52 +154,56 @@ full docs set including seven ADRs.
 
 ## Last iteration
 
-Built the desktop shape and then re-grounded the documentation.
+**Made the desktop window sign itself in** — the blocker between a packaged app that runs
+and one that is usable.
 
-- **Desktop mode, in place annotation, packaging, and the Tauri shell** (commits `e0ffedc`,
-  `d25f0e9`, `3e6be4c`, `4f283aa`). Notably this changed **1,460 lines added and 42 removed**
-  in pre-existing code — nothing was rewritten, because the four seams and the portable
-  column types were already there.
-- **Docs realigned to the truth** (`c54b8ff`). The docs had described the desktop app as
-  *Planned* while it worked, and had no written policy on CVAT reuse. Added ADR 0006 (one
-  codebase, two shapes) and ADR 0007 (CVAT reuse, with a license audit performed rather than
-  recalled), rewrote the plan's purpose section around the two shapes, and corrected Phase 9.
-- **Hardened `scripts/check.sh`** — it silently skipped the notices gate that CI runs, and
-  hard-coded `server/.venv/bin`, so it would fail for an agent whose environment lives
-  elsewhere. Now nine steps, with a PATH fallback.
-- **Added the agent protocol**: `AGENTS.md`, `CLAUDE.md`, `.claude/skills/start-work/`, and
-  this file.
+- `web/src/desktop.ts` (new) reads and validates the injected connection. Only two fields
+  are load-bearing (`desktop === true`, and a non-empty token); the rest is cosmetic and
+  tolerated when missing, so the shell gaining or dropping an informational field cannot
+  break the app. The `desktop` flag is checked for `=== true` rather than truthiness
+  specifically so a stray global cannot switch off authentication.
+- `api/client.ts` prefers the injected token over `tokenStore`. One line; the browser path
+  is untouched, and the existing refresh logic already no-ops without a refresh token.
+- `store/session.ts` gained an `unavailable` status for desktop-mode restore failures.
+- `App.tsx` renders that state with the underlying error and a **Try again** button, and
+  swaps the username/sign-out chrome for the version in desktop mode.
+- Two Rust tests pin the injected JSON contract from the shell's side.
 
----
+Also updated the status markers in `desktop/README.md`, `docs/ROADMAP.md` and
+`docs/IMPLEMENTATION_PLAN.md` Phase 9, and split "desktop-aware frontend" into the part
+that is now **Done** (authentication) and the part that is not (open-folder).
+
+**A self-review caught two things before this landed:** the error screen originally asserted
+"the server rejected this session", which is only one of the causes that reach that state —
+a connection failure reaches it too — and it offered no way out but restarting the whole
+application. Both fixed.
 
 ## Verification performed
+
+This iteration:
 
 ```
 ./scripts/check.sh                    all 9 steps green
   ruff · ruff format · mypy (77 files) · pytest server (160) · pytest sdk (12)
-  notices (51 deps) · eslint · tsc · vitest (107)
+  notices (51 deps) · eslint · tsc · vitest (115 — 8 new)
 
-cargo test --lib (desktop/shell)      3 passed
-cargo clippy --all-targets -D warnings clean
+cargo test --lib (desktop/shell)      5 passed (2 new: the injected JSON contract)
 ```
 
-Beyond the suite, measured rather than assumed:
+Then against the **real packaged application**, because unit tests cannot prove the shipped
+bundle and the shell agree — rebuilt `web/dist`, repackaged the sidecar, spawned the binary
+and read its handshake:
 
-- **The packaged binary driven end to end**: spawn → handshake parsed from stdout → import a
-  nested folder of five photographs in place → **0 files written to the app data directory**
-  → frame bytes byte-identical to the originals → annotations saved → COCO export *with
-  images* read back off disk.
-- **Loopback-only**: connecting to the host's non-loopback address is refused
-  (`ConnectionRefusedError`).
-- **Path traversal**: raw un-normalised sockets (`/../../../../etc/passwd`, `/..%2f..%2f`,
-  `/%2e%2e/`, `/....//`) against the SPA route — none escaped the bundle.
-- **Orphan prevention**: `kill -9` on the shell; the server was gone within 0.5 s.
-- **Migration** run up, down, and up again.
-- **Start-up cost**: ~1.5–2.1 s spawn to handshake; 38 MB sidecar, 6.2 MB shell (Linux
-  x86-64, release).
-- **All 91 relative links in the docs resolve.**
+| Check | Result |
+| --- | --- |
+| The served bundle contains code reading `__CURVEVISION__` | yes, in `/assets/index-*.js` |
+| `GET /api/v1/auth/me` with the injected token | 200, user `local`, superuser |
+| The same call with no token | 401 — loopback is the boundary, not anonymity |
+| `GET /api/v1/organizations` with that token | 200, `[('local', 'owner')]` |
 
----
+Carried forward from earlier iterations (still true, not re-run this time): loopback-only
+refusal from the host's non-loopback address, path-traversal probes against the SPA route,
+`kill -9` orphan prevention, and the migration up/down/up.
 
 ## Bugs fixed
 
@@ -196,10 +217,20 @@ Beyond the suite, measured rather than assumed:
 | Two ADR links pointed at filenames that do not exist | Guessed names. | Link checker over 91 links |
 | Two doc sections both numbered 0.2 | New section collided with Phase 0's numbering. | Manual |
 
+*No new bugs were found in the latest iteration.* The two issues the self-review caught
+(an error message asserting a cause it could not know, and a screen with no way out) were in
+unshipped code from the same iteration, not pre-existing defects.
+
 ---
 
 ## Known issues
 
+- **The desktop UI has been verified through the API, not through a rendered window.**
+  The chain is covered — the shipped bundle reads the injection, the token authenticates,
+  both sides pin the JSON keys — but no test renders `App.tsx` and asserts that the sign-in
+  screen is skipped. The web test setup is `environment: node` with no DOM, so adding React
+  rendering tests would mean jsdom plus `@testing-library/react`. Worth doing when the UI
+  surface grows; not worth it for one conditional.
 - **The window-close path is code-reviewed, not exercised.** Graceful shutdown is covered by
   a Rust test that boots the real packaged server and proves shutdown reaps it, and the crash
   path is verified by `kill -9` — but *a human clicking the close button* could not be tested
@@ -229,6 +260,11 @@ Beyond the suite, measured rather than assumed:
   Alembic owns its own event loop. `bootstrap` is a synchronous entry point by design; tests
   call it through `asyncio.to_thread`, exactly as the packaged sidecar does before uvicorn
   starts.
+- **Storing the injected desktop token in `localStorage`** alongside ordinary sessions.
+  Tempting because it needs no change to the client, but wrong: the shell mints a fresh
+  token each launch and revokes the previous one, so a stored copy is a stale credential
+  that outlives the session that owned it. The token now lives only in memory, read from
+  the injected object.
 - **Loading the desktop window from a `tauri://` asset URL.** Would have created a second
   origin, a CORS boundary and a desktop-only auth path. The window loads the editor from the
   local server instead — same-origin by construction.
