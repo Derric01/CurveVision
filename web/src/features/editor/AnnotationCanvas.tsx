@@ -85,7 +85,8 @@ export const AnnotationCanvas = forwardRef<CanvasHandle, Props>(function Annotat
 
     let cancelled = false;
     const image = new Image();
-    image.crossOrigin = 'use-credentials';
+    // `imageUrl` is an object URL created from bytes the API client already fetched with
+    // its credentials, so there is no cross-origin request to configure here.
     image.src = imageUrl;
     void image
       .decode()

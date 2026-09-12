@@ -37,6 +37,7 @@ import type { AnnotationChange, LabelStyle, ToolName } from '@/canvas/types';
 import { Badge, Button, ErrorNotice, Kbd, Spinner, jobStateTone } from '@/ui/primitives';
 import { AnnotationCanvas, type CanvasHandle } from './AnnotationCanvas';
 import { frameAnnotations, toLabelStyles } from './adapters';
+import { useFrameObjectUrl } from './useFrameObjectUrl';
 import { useAutosave } from './useAutosave';
 
 const TOOLS: { name: ToolName; icon: typeof Square; label: string; key: string }[] = [
@@ -103,10 +104,7 @@ export function EditorPage() {
     [annotations.data, currentFrame],
   );
 
-  const imageUrl = useMemo(
-    () => (task.data ? api.frameUrl(task.data.id, currentFrame) : null),
-    [task.data, currentFrame],
-  );
+  const imageUrl = useFrameObjectUrl(task.data?.id, currentFrame);
 
   const handleChange = useCallback(
     (change: AnnotationChange) => autosave.record(change),

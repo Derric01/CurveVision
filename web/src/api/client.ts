@@ -277,8 +277,16 @@ export const api = {
   frameInfo: (taskId: string, frame: number) =>
     request<FrameInfo>(`/tasks/${taskId}/frames/${frame}`),
 
-  /** Absolute URL for a frame's pixels; the <img> element fetches it directly. */
-  frameUrl: (taskId: string, frame: number) => `${API_PREFIX}/tasks/${taskId}/frames/${frame}/data`,
+  /**
+   * A frame's pixels.
+   *
+   * Fetched rather than handed to `<img src>`, because an `<img>` element cannot send an
+   * `Authorization` header and the media endpoint requires one — it enforces the same
+   * permission check as the rest of the API rather than serving pixels from a public
+   * bucket. The caller turns this into an object URL and revokes it when done.
+   */
+  frameBlob: (taskId: string, frame: number, signal?: AbortSignal) =>
+    request<Blob>(`/tasks/${taskId}/frames/${frame}/data`, { signal }),
 
   // ------------------------------------------------------------------------- jobs
   jobs: (params?: { mine?: boolean; state?: string; limit?: number }) =>
