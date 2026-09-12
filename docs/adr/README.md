@@ -13,6 +13,7 @@ weighed, the decision, and the consequences we accept.
 | [0005](./0005-http-inference-contract.md) | An HTTP inference contract, not a bundled serving platform |
 | [0006](./0006-one-codebase-two-shapes.md) | One codebase, two shapes: desktop and server |
 | [0007](./0007-cvat-reuse-policy.md) | What we reuse from CVAT, and what we do not |
+| [0008](./0008-calling-the-desktop-shell.md) | How the page calls the desktop shell |
 
 ## Writing one
 

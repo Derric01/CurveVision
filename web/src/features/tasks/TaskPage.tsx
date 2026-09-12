@@ -1,9 +1,14 @@
+import { useCallback, useEffect, useState } from 'react';
+import clsx from 'clsx';
 import { Link, useParams } from 'react-router-dom';
-import { useQuery } from '@tanstack/react-query';
-import { ArrowLeft, PenLine } from 'lucide-react';
+import { useQueryClient, useQuery } from '@tanstack/react-query';
+import { ArrowLeft, FolderOpen, PenLine } from 'lucide-react';
 import { api } from '@/api/client';
+import { chooseFolder, isDesktop, onOpenFolder } from '@/desktop';
+import { summariseImport, type ImportSummary } from './localImport';
 import {
   Badge,
+  Button,
   EmptyState,
   ErrorNotice,
   Panel,
@@ -17,6 +22,46 @@ export function TaskPage() {
 
   const task = useQuery({ queryKey: ['task', taskId], queryFn: () => api.task(taskId) });
   const jobs = useQuery({ queryKey: ['jobs', taskId], queryFn: () => api.taskJobs(taskId) });
+
+  const queryClient = useQueryClient();
+  const [importing, setImporting] = useState(false);
+  const [summary, setSummary] = useState<ImportSummary | null>(null);
+  const [importError, setImportError] = useState<unknown>(null);
+
+  const importFolder = useCallback(async () => {
+    if (!taskId) return;
+    setImportError(null);
+    let path: string | null;
+    try {
+      path = await chooseFolder('Choose a folder of images to annotate');
+    } catch (error) {
+      setImportError(error);
+      return;
+    }
+    if (!path) return; // Cancelled, or no shell. Neither is an error.
+
+    setImporting(true);
+    setSummary(null);
+    try {
+      const result = await api.localImport(taskId, { path, recursive: true });
+      setSummary(summariseImport(result));
+      // The frame count, the job list and the project's statistics all move when media
+      // is attached, so none of them may be left showing the state from before.
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ['task', taskId] }),
+        queryClient.invalidateQueries({ queryKey: ['jobs', taskId] }),
+        queryClient.invalidateQueries({ queryKey: ['project'] }),
+      ]);
+    } catch (error) {
+      setImportError(error);
+    } finally {
+      setImporting(false);
+    }
+  }, [queryClient, taskId]);
+
+  // File ▸ Open Folder… (Cmd/Ctrl+O) does exactly what the button does. In a browser this
+  // subscribes to nothing and unsubscribes from nothing.
+  useEffect(() => onOpenFolder(() => void importFolder()), [importFolder]);
 
   if (task.isLoading) {
     return (
@@ -49,6 +94,53 @@ export function TaskPage() {
           {task.data?.frame_count.toLocaleString()} frames · {task.data?.media_kind}
         </p>
       </header>
+
+      {isDesktop() && (
+        <Panel
+          title="Add media from this computer"
+          actions={
+            <Button variant="secondary" size="sm" onClick={() => void importFolder()} disabled={importing}>
+              <FolderOpen size={13} />
+              {importing ? 'Importing…' : 'Choose folder…'}
+            </Button>
+          }
+        >
+          <p className="text-sm text-ink-400">
+            Images are annotated where they are. Nothing is copied into the application, so a
+            folder of any size is attached in the time it takes to list it.
+          </p>
+          {importError !== null && (
+            <div className="mt-3">
+              <ErrorNotice error={importError} />
+            </div>
+          )}
+          {summary && (
+            <div
+              className={clsx(
+                'mt-3 rounded-md border px-3 py-2 text-sm',
+                summary.tone === 'success'
+                  ? 'border-emerald-500/30 bg-emerald-500/10 text-emerald-200'
+                  : 'border-amber-500/30 bg-amber-500/10 text-amber-200',
+              )}
+            >
+              <p>{summary.headline}</p>
+              {summary.skipped.length > 0 && (
+                <details className="mt-2">
+                  <summary className="cursor-pointer text-xs opacity-80 hover:opacity-100">
+                    Show the {summary.skipped.length.toLocaleString()} file
+                    {summary.skipped.length === 1 ? '' : 's'} that could not be read
+                  </summary>
+                  <ul className="mt-2 max-h-40 space-y-1 overflow-auto font-mono text-xs opacity-80">
+                    {summary.skipped.map((reason, index) => (
+                      <li key={`${index}-${reason}`}>{reason}</li>
+                    ))}
+                  </ul>
+                </details>
+              )}
+            </div>
+          )}
+        </Panel>
+      )}
 
       {progress && (
         <Panel title="Progress">
@@ -109,7 +201,11 @@ export function TaskPage() {
         ) : (
           <EmptyState
             title="No jobs yet"
-            description="Jobs appear once this task has media. Upload images from the project page."
+            description={
+              isDesktop()
+                ? 'Jobs appear once this task has media. Choose a folder above, or upload images from the project page.'
+                : 'Jobs appear once this task has media. Upload images from the project page.'
+            }
           />
         )}
       </Panel>

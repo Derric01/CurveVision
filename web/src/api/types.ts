@@ -133,6 +133,28 @@ export interface Task {
   progress?: TaskProgress | null;
 }
 
+export interface Asset {
+  id: string;
+  task_id: string;
+  name: string;
+  position: number;
+  start_frame: number;
+  frame_count: number;
+  created_at: string;
+}
+
+export interface LocalImportResult {
+  task_id: string;
+  imported: Asset[];
+  /**
+   * Files that were found but could not be attached, each with its reason. The server
+   * imports what it can rather than failing the whole folder, so this is routinely
+   * non-empty on a real photo library and has to be shown, not swallowed.
+   */
+  skipped: string[];
+  frame_count: number;
+}
+
 export interface Job {
   id: string;
   task_id: string;

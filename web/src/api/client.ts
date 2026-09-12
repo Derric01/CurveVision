@@ -20,6 +20,7 @@ import type {
   Issue,
   Job,
   Label,
+  LocalImportResult,
   ModelRegistration,
   Organization,
   Page,
@@ -271,6 +272,15 @@ export const api = {
       formData: form,
     });
   },
+
+  /**
+   * Attach media that is already on this machine, without copying it.
+   *
+   * Desktop only: the server 404s this route unless it is running in local mode, because
+   * on a shared instance a path names a file on the *server's* disk.
+   */
+  localImport: (taskId: string, input: { path: string; recursive?: boolean }) =>
+    request<LocalImportResult>(`/tasks/${taskId}/local-import`, { method: 'POST', body: input }),
 
   taskJobs: (taskId: string) => request<Job[]>(`/tasks/${taskId}/jobs`),
   taskProgress: (taskId: string) => request<TaskProgress>(`/tasks/${taskId}/progress`),

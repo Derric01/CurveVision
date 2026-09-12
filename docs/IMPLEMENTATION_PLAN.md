@@ -501,9 +501,15 @@ Not an add-on: one of the two shapes the product ships in ([Two deployment shape
   than a sign-in form nobody can use. Multi-user chrome is hidden. The shape is pinned
   from both sides: a Rust test asserts the injected JSON keys, and the TypeScript tests
   parse the same fixture.
-* **Open-folder flow** — *In Progress*. The server endpoint (`/tasks/{id}/local-import`)
-  and the shell commands (`choose_folder`, `choose_files`, the `menu:open-folder` event)
-  both exist and are tested; the web UI does not call them yet.
+* **Open-folder flow** — **Done**. The task page offers *Add media from this computer* in
+  the desktop build and not in a browser, opening the operating system's own dialog and
+  posting the chosen path to `/tasks/{id}/local-import`; File ▸ Open Folder… (Cmd/Ctrl+O)
+  does the same. The result is reported honestly — the count imported, and the per-file
+  reasons when the server skipped something, which it does rather than failing a folder over
+  one corrupt file. `scripts/verify_local_import.py` drives the whole thing in a browser
+  against the packaged server. One seam is genuinely uncovered and says so: `invoke()`
+  across the Tauri IPC bridge, because Playwright drives Chromium and not the webview — see
+  [ADR 0008](./adr/0008-calling-the-desktop-shell.md).
 * **Signed installers** — *Planned*. `.dmg`, `.msi`, `.AppImage` built per platform in CI;
   PyInstaller does not cross-compile, so this needs one runner per OS.
 * **Auto-update** — *Planned*.

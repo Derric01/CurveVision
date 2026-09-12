@@ -81,3 +81,69 @@ export function isDesktop(): boolean {
 export function desktopToken(): string | null {
   return desktop?.token ?? null;
 }
+
+// ---------------------------------------------------------------- asking the shell
+
+/**
+ * Everything below talks to the Tauri shell, and it is deliberately the *only* place that
+ * does. Two consequences fall out of keeping it here:
+ *
+ * 1. Every caller can be tested without a shell, because in a browser these are a `null`
+ *    and a no-op rather than a thrown error.
+ * 2. Playwright drives Chromium, not the Tauri webview, so an actual `invoke()` across the
+ *    IPC bridge cannot be exercised in CI. Confining it to three short functions keeps the
+ *    untestable surface as small as it can be, and everything either side of it testable.
+ *
+ * `@tauri-apps/api` is imported **dynamically**, so a browser never fetches the chunk, and
+ * `withGlobalTauri` stays `false` — the shell's API is not attached to `window`. See
+ * ADR 0008.
+ */
+
+/** The event the shell emits for File ▸ Open Folder… (and Cmd/Ctrl+O). */
+export const OPEN_FOLDER_EVENT = 'menu:open-folder';
+
+/**
+ * Ask the shell for a folder of images, via the operating system's own dialog.
+ *
+ * Returns the chosen path, or `null` when the user cancelled — and also when there is no
+ * shell, so a browser build simply does nothing rather than breaking. The shell returns a
+ * path and nothing else: the page has no filesystem access, and the *server* reads the
+ * folder.
+ */
+export async function chooseFolder(title?: string): Promise<string | null> {
+  if (!isDesktop()) return null;
+  const { invoke } = await import('@tauri-apps/api/core');
+  const chosen = await invoke<string | null>('choose_folder', { title: title ?? null });
+  return typeof chosen === 'string' && chosen.length > 0 ? chosen : null;
+}
+
+/**
+ * Run `handler` when the shell's Open Folder menu item is used. Returns an unsubscribe.
+ *
+ * Subscribing is asynchronous and unmounting is not, so a component that unmounts before
+ * the listener is registered would otherwise leak one — hence `cancelled`.
+ */
+export function onOpenFolder(handler: () => void): () => void {
+  let stop: (() => void) | null = null;
+  let cancelled = false;
+
+  void (async () => {
+    if (!isDesktop()) return;
+    try {
+      const { listen } = await import('@tauri-apps/api/event');
+      const unlisten = await listen(OPEN_FOLDER_EVENT, () => handler());
+      if (cancelled) unlisten();
+      else stop = unlisten;
+    } catch (error) {
+      // A menu that does not reach the page is a degraded shell, not a broken app: the
+      // button does the same thing. Say so once rather than taking the page down.
+      console.warn('CurveVision: the shell menu is not available', error);
+    }
+  })();
+
+  return () => {
+    cancelled = true;
+    stop?.();
+    stop = null;
+  };
+}

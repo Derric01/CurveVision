@@ -124,6 +124,7 @@ because it is easy to inherit without noticing.
 | [rbush](https://github.com/mourner/rbush) | MIT | Vladimir Agafonkin | R-tree spatial index behind the canvas |
 | [clsx](https://github.com/lukeed/clsx) | MIT | Luke Edwards | Class-name composition |
 | [lucide-react](https://github.com/lucide-icons/lucide) | ISC | Lucide contributors | Icons |
+| [@tauri-apps/api](https://github.com/tauri-apps/tauri) | Apache-2.0 OR MIT | © 2017–present Tauri Apps Contributors | Calling the desktop shell (native folder picker, menu events). Dynamic-imported behind `isDesktop()`, so a browser never loads it. See [ADR 0008](./adr/0008-calling-the-desktop-shell.md). |
 
 ## Container images
 

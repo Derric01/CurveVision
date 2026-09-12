@@ -5,7 +5,7 @@
 > [`AGENTS.md`](./AGENTS.md) first; it is the working contract. Update this file after every
 > iteration, including the ones that mostly failed.
 >
-> **Last updated:** 2026-09-12 (iteration 4) · branch `claude/curvevision-platform-build-n1g71n` · PRs [#1](https://github.com/Derric01/CurveVision/pull/1)–[#4](https://github.com/Derric01/CurveVision/pull/4) merged · iterations 3–4 unpushed at time of writing
+> **Last updated:** 2026-09-12 (iteration 5) · branch `claude/curvevision-platform-build-n1g71n` · PRs [#1](https://github.com/Derric01/CurveVision/pull/1)–[#4](https://github.com/Derric01/CurveVision/pull/4) merged · iterations 3–5 pushed to the branch, no PR open for them yet
 
 ---
 
@@ -44,52 +44,44 @@ packaged app in Chromium, seeds a project, draws with real pointer events and ph
 the result. The README's screenshots come from it, **on real photographs** — public domain
 and CC0, committed under `docs/images/samples/` with their attribution.
 
-The remaining desktop gap is the open-folder flow: the server endpoint and the shell's
-native picker both exist and are tested, but the web UI does not call them yet, so importing
-a folder still goes through the ordinary upload path. **That harness is also what unblocks
-it** — see [Next best action](#next-best-action).
+**The open-folder flow is connected.** The desktop build offers *Add media from this
+computer* on the task page — the operating system's own dialog, then
+`/tasks/{id}/local-import` with the chosen path — and File ▸ Open Folder… (Cmd/Ctrl+O) does
+the same. A browser is not offered it, because a browser cannot open a native dialog. That
+was the last unconnected piece of the desktop application.
 
 ---
 
 ## Next best action
 
-**Wire the open-folder flow into the web UI.** It was deferred twice for lack of a way to
-verify it; `scripts/screenshot.py` is now that way.
+**Chunked media delivery.** It is the main thing still limiting video: serving frame *n*
+decodes *n* frames, so scrubbing to the middle of a ten-minute clip decodes half of it.
+Correct, and not comfortable.
 
-Everything it depends on exists and is tested:
+The pieces already exist — this is assembly, not design:
 
 | Piece | Where |
 | --- | --- |
-| `POST /tasks/{id}/local-import` `{path, recursive}` | `api/v1/local.py`, 404s unless `local_mode` |
-| `choose_folder` / `choose_files` Tauri commands | `desktop/shell/src-tauri/src/lib.rs` |
-| `menu:open-folder` event (File ▸ Open Folder…, Cmd/Ctrl+O) | emitted by the shell; nothing listens |
-| `desktop` connection object in the page | `web/src/desktop.ts` |
-| A browser harness that drives the real app | `scripts/screenshot.py` |
+| `MediaChunk` model and the chunk-plan job | `domain/`, `jobs/` |
+| `VideoReader.iterate_frames(wanted)` — one decode pass for a set of frames | `media/video.py` |
+| HTTP range helpers | `api/` |
+| Per-frame decoding, to keep as the fallback | `services/media.render_video_frame` |
 
 Work to do:
 
-1. **Calling the shell.** The page runs with `withGlobalTauri: false`, so it needs either
-   `@tauri-apps/api` (dynamic-imported behind `isDesktop()`, plus a THIRD_PARTY_NOTICES
-   entry) or that flag flipped. Reading the Tauri source settled the security question:
-   `withGlobalTauri` only controls whether the convenience object is attached to `window`;
-   the IPC bootstrap is injected either way, so `capabilities/default.json` is the real
-   boundary, not the flag. Either option is defensible — pick one and record it.
-2. An **Open folder** action on the task page, shown only when `isDesktop()`.
-3. A listener for `menu:open-folder` doing the same thing.
-4. Surface the result honestly: the `imported` count, and the `skipped` list when non-empty
-   — the endpoint reports per-file failures rather than failing the whole import.
+1. Build a chunk on demand (and from the background job), decoding its frames in **one**
+   pass rather than one pass per frame.
+2. Serve a chunk, and have the editor prefetch the next one.
+3. **Keep per-frame decoding as the fallback** for a chunk that has not been built yet, so
+   nothing regresses while the job catches up — a video must never become unplayable because
+   a chunk is missing.
 
-**What still cannot be verified here**, and should be stated rather than glossed: Playwright
-drives Chromium, not the Tauri webview, so the *React* half is now testable end to end but
-an actual `invoke()` across the IPC bridge is not. Structure the code so the shell call sits
-behind one small seam (`web/src/desktop.ts` is the natural home) and the UI either side of
-it is testable without it.
+Measure before and after on a real clip and put the numbers in this file. "Faster" without a
+number is not a claim anyone can check.
 
-**Then:** chunked media delivery, which is the main thing still limiting video — serving
-frame *n* decodes *n* frames. `MediaChunk`, the chunk plan job, the range helpers and
-`VideoReader.iterate_frames(wanted)` all exist, so the server half is one decode pass per
-chunk instead of one per frame. Keep per-frame decoding as the fallback for a chunk that
-has not been built, so nothing regresses while the job catches up.
+**Then:** correct a video task's frame count in a background job. It is currently estimated
+from container metadata at upload time, which is wrong for variable-frame-rate video;
+`VideoReader.frame_count()` is exact and nothing calls it.
 
 ## Completed
 
@@ -132,6 +124,13 @@ injects the token, and provides native dialogs and menus.
 numbers are reproducible, and reports unreadable files in `skipped` rather than failing.
 The orphan-blob collector never deletes a file it did not write. Every route in
 `api/v1/local.py` returns 404 unless `settings.local_mode`.
+
+**Opening a folder from the desktop app** — *Add media from this computer* on the task page,
+and File ▸ Open Folder… (Cmd/Ctrl+O), both call `chooseFolder()` and post the path. Shown in
+the desktop build only. The result is summarised by a pure, separately tested function that
+refuses to call a partial import a success. `scripts/verify_local_import.py` drives it in a
+browser against the packaged server; ADR 0008 records how the page reaches the shell and
+what about it is not covered.
 
 **Desktop sign-in** — `web/src/desktop.ts` validates the `window.__CURVEVISION__` object the
 shell injects before any page script runs. The API client prefers that token over any stored
@@ -176,21 +175,59 @@ full docs set including seven ADRs.
 
 ## Remaining high-priority work
 
-1. **The open-folder flow in the web UI** — the last unconnected piece of the desktop
-   story. Deferred this iteration because verifying Tauri IPC from the page needs a rendered
-   webview, which this environment cannot provide; see *Tried and rejected*.
-2. **Chunked media delivery** — see [Next best action](#next-best-action). Now the main
+1. **Chunked media delivery** — see [Next best action](#next-best-action). Now the main
    limit on video annotation, and `VideoReader.iterate_frames(wanted)` already makes the
    server half cheap: one decode pass per chunk instead of one per frame.
-3. **An exact frame count for video**, corrected in a background job rather than estimated
+2. **An exact frame count for video**, corrected in a background job rather than estimated
    at upload.
-4. **Track-editing timeline UI.**
-5. **Signed installers in CI** — one runner per platform; PyInstaller does not cross-compile.
-6. **Webhook retry/backoff** wired to the job queue.
+3. **Track-editing timeline UI.**
+4. **Signed installers in CI** — one runner per platform; PyInstaller does not cross-compile.
+5. **Webhook retry/backoff** wired to the job queue.
+6. **`choose_files` is still unused.** The shell can open a native *file* picker as well as a
+   folder one, and `/tasks/{id}/local-import` accepts a file path. Connecting it is small, and
+   deliberately left until someone wants it — the folder case is the one that matters.
 
 ---
 
 ## Last iteration
+
+**Connected the open-folder flow — the last unwired piece of the desktop application.**
+Deferred twice before this, both times because it could not be verified; a browser harness
+existed by this iteration, so it went first.
+
+* **How the page calls the shell is now decided and recorded**: `@tauri-apps/api`, imported
+  dynamically behind `isDesktop()`, with `withGlobalTauri` left `false`. The build confirms
+  the split — `core-*.js` (0.24 kB) and `event-*.js` (1.45 kB) are separate chunks a browser
+  never requests. Reasoning, and the two rejected alternatives, in
+  [ADR 0008](./docs/adr/0008-calling-the-desktop-shell.md).
+* **The whole shell surface is three functions** in `web/src/desktop.ts` — `chooseFolder`,
+  `onOpenFolder`, `OPEN_FOLDER_EVENT` — because that is the part with no automated coverage
+  anywhere, and it should be as small as it can be. Their browser contract (`null` from the
+  picker, a no-op subscription) is itself tested, so the browser build cannot start throwing
+  from a menu subscription at mount.
+* **The task page offers *Add media from this computer*** in the desktop build only, and the
+  shell's File ▸ Open Folder… menu event does the same thing through the same function.
+* **The result is reported honestly.** `summariseImport` is a pure function with its own
+  tests, and the case it exists for is the partial one: the server attaches what it can and
+  lists what it could not, so a folder with one corrupt file must never be reported as a
+  clean success. It also distinguishes "no media found" from "nothing could be read", which
+  are different problems with different fixes.
+* **`scripts/verify_local_import.py`** drives all of it in Chromium against the packaged
+  server — eleven checks: the browser build is not offered the picker, the desktop build is,
+  mounting with no shell raises nothing, and a missing shell shows an error rather than
+  white-screening.
+
+  Then it **clicks the whole thing through**. `invoke` bottoms out at
+  `window.__TAURI_INTERNALS__.invoke`; standing in for *that*, and only that, leaves
+  everything above it real — the click, the dynamic import, the HTTP call, the cache
+  invalidation, and the sentence the user reads. On a folder of four photographs plus one
+  corrupt image the page says *"Imported 4 files; skipped 1 file. This task now has 4
+  frames."* and names `truncated.jpg` with the server's own reason. This is not a claim that
+  IPC works; it is how much can be checked without it.
+
+  The browser-build check was confirmed to fail when the `isDesktop()` guard is removed.
+
+### Iteration 4
 
 **Replaced the screenshots' synthetic frames with real photographs, and fixed what that
 exposed.** The complaint was that the imagery did not look real, and it was right: the old
@@ -262,7 +299,11 @@ present. Both corrected; the second is a licensing claim and was the more urgent
   notices (51 deps) · eslint · tsc · vitest (115)
 ```
 
-Iteration 4 additionally rebuilt the web bundle and the PyInstaller sidecar and re-ran
+Iteration 5 additionally ran `scripts/verify_local_import.py` against a freshly built bundle
+and sidecar — eleven checks, all green — and confirmed it bites by removing the `isDesktop()`
+guard and watching the browser-build check fail.
+
+Iteration 4 rebuilt the web bundle and the PyInstaller sidecar and re-ran
 `scripts/screenshot.py` against the packaged binary end to end: four photographs uploaded,
 three boxes drawn through real pointer events, autosave settled, both screenshots
 regenerated. Each screenshot was then **looked at**, including a 1:1 crop — which is what
@@ -314,10 +355,11 @@ missing, and it is the reason this iteration found anything):
   time because an exact count means decoding the whole file. It can be slightly wrong for
   variable-frame-rate video. `VideoReader.frame_count()` is exact and cheap to call from a
   background job; nothing calls it yet.
-- **The browser harness is not in CI.** `scripts/screenshot.py` found two release-blocking
-  bugs in one run, and nothing stops them coming back automatically. It needs a packaged
-  sidecar and a Chromium, so it is not a cheap CI job — but it is the only thing that tests
-  the product as a user meets it. Worth a nightly or pre-release job.
+- **The browser harnesses are not in CI.** `scripts/screenshot.py` found two
+  release-blocking bugs in one run, and `scripts/verify_local_import.py` is the only check on
+  the desktop import flow; nothing stops either regressing automatically. Both need a
+  packaged sidecar and a Chromium, so neither is a cheap CI job — but they are the only
+  things that test the product as a user meets it. Worth a nightly or pre-release job.
 - **Playwright drives Chromium, not the Tauri webview.** The React half is now testable end
   to end; an actual `invoke()` across the IPC bridge still is not.
 - **The screenshots are generated, not committed by hand** — re-run `scripts/screenshot.py`
@@ -379,17 +421,21 @@ missing, and it is the reason this iteration found anything):
   work. Both give up the permission check the media endpoint performs, which is the point
   of it. Fetching with the client's credential and wrapping the bytes in an object URL keeps
   authorisation intact and costs one hook.
-- **Building the open-folder flow in the previous iteration**, which the handoff before last
-  named as the next action. Investigated and deferred, not forgotten. The page runs with
-  `withGlobalTauri: false`, so calling the shell needs either `@tauri-apps/api`
-  (dynamic-imported behind `isDesktop()`) or flipping that flag. Reading the Tauri source
-  settled the security question — `withGlobalTauri` only controls whether the convenience
-  object is attached to `window`; the IPC bootstrap (`__TAURI_INTERNALS__`) is injected
-  either way, so the real boundary is `capabilities/default.json`, not the flag. **The
-  blocker is verification, not the decision:** proving IPC works from the page's remote
-  origin needs a rendered webview, which this environment has no way to drive. Video
-  extraction was fully verifiable and higher value, so it went first. Whoever picks this up
-  should either have a desktop to test on, or add a webview-driving harness before starting.
+- **Deferring the open-folder flow, twice** — *resolved in iteration 5, kept because the
+  reasoning still applies to anything else that touches IPC.* Both deferrals were for the
+  same reason: proving `invoke()` works from the page needs a rendered Tauri webview, and
+  this environment has no way to drive one. That never became possible. What changed is the
+  conclusion drawn from it — the *uncoverable* part is three functions, and everything
+  around them (which build offers the picker, what happens when the shell is missing, what
+  the user is told about a partial import) is coverable and now covered. Waiting for total
+  coverage would have meant waiting forever. See ADR 0008.
+- **Flipping `withGlobalTauri` to `true`, and calling `__TAURI_INTERNALS__` directly.** The
+  two alternatives to taking the `@tauri-apps/api` dependency. Reading the Tauri source
+  settled what had been treated as a security question: `withGlobalTauri` only controls
+  whether the convenience object is attached to `window`; the IPC bootstrap is injected
+  either way, so the real boundary is `capabilities/default.json`, not the flag. That makes
+  it a question of surface area and types, which the dependency wins — and calling the
+  internals directly buys the same thing with no stability contract at all. ADR 0008.
 - **Rotating video frames through NumPy**, as CVAT does. It is the natural port of their
   code, but it would add NumPy as a dependency for an operation Pillow — already required —
   performs on the very next line, when the frame becomes an image. Rotation is applied at
@@ -444,6 +490,12 @@ Significant ones have ADRs; these are the ones a future agent would otherwise se
   that made the application unusable survived 300 passing tests because both return 200 to
   a non-browser client. Status codes and response bodies are not enough; headers and a real
   rendering engine are.
+- **[ADR 0008](./docs/adr/0008-calling-the-desktop-shell.md) — reaching the shell.** The page
+  calls Tauri through `@tauri-apps/api`, dynamically imported behind `isDesktop()`, with
+  `withGlobalTauri` left `false`. The corollary matters more than the choice: **anything that
+  cannot be covered gets confined, not avoided.** IPC has no automated coverage anywhere and
+  will not get any here, so it lives in three functions whose browser behaviour *is* tested,
+  and every caller is written against that contract.
 - **Screenshots are generated from the running product, never mocked up.** A flattering
   mockup is a lie anyone who installs the app can check.
 - **Optional dependencies are installed in `dev`.** Pillow and PyAV are optional at runtime
