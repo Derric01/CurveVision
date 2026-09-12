@@ -138,6 +138,7 @@ def api(
     files: bytes | None = None,
     filename: str = "frame.jpg",
     content_type: str = "image/jpeg",
+    method: str | None = None,
 ):
     url = f"{base}/api/v1{path}"
     if files is not None:
@@ -153,7 +154,9 @@ def api(
         request.add_header("Content-Type", f"multipart/form-data; boundary={boundary}")
     else:
         data = json.dumps(payload).encode() if payload is not None else None
-        request = urllib.request.Request(url, data=data, method="POST" if data else "GET")
+        request = urllib.request.Request(
+            url, data=data, method=method or ("POST" if data else "GET")
+        )
         if data:
             request.add_header("Content-Type", "application/json")
     request.add_header("Authorization", f"Bearer {token}")

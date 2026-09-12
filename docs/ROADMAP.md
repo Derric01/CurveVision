@@ -56,7 +56,7 @@ application — and produce a real dataset with it.
 | REST API and API tokens | **Done** |
 | Webhooks with HMAC signing | **In Progress** — delivery works; retry/backoff is not wired to the queue |
 | Video annotation | **In Progress** — a video task is annotatable, and frames are served from chunks decoded one pass at a time (17× fewer decodes when stepping through frames; see the implementation plan for the measurements). The editor fetches a chunk rather than 36 frames. The track-editing timeline is not built |
-| Track editing UI (keyframe timeline) | **In Progress** — the model and interpolation are done on both sides; the UI is not |
+| Track editing UI (keyframe timeline) | **In Progress** — the timeline shows every track's keyframes and where it is present, and `,`/`.` step between keyframes; adding, moving and removing keyframes from it is not built |
 | Mask brush tool | **Planned** — RLE storage and export exist; the drawing tool does not |
 | Skeleton / keypoint editing UI | **Planned** — the model and COCO keypoint export exist |
 | Ground-truth quality reports | *Planned* — the storage model exists; nothing computes a report |

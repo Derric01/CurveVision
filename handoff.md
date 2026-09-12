@@ -5,7 +5,7 @@
 > [`AGENTS.md`](./AGENTS.md) first; it is the working contract. Update this file after every
 > iteration, including the ones that mostly failed.
 >
-> **Last updated:** 2026-09-12 (iteration 10) · branch `claude/curvevision-platform-build-n1g71n` · PRs [#1](https://github.com/Derric01/CurveVision/pull/1)–[#5](https://github.com/Derric01/CurveVision/pull/5) merged · iterations 6–8 in open PR [#6](https://github.com/Derric01/CurveVision/pull/6)
+> **Last updated:** 2026-09-12 (iteration 11) · branch `claude/curvevision-platform-build-n1g71n` · PRs [#1](https://github.com/Derric01/CurveVision/pull/1)–[#5](https://github.com/Derric01/CurveVision/pull/5) merged · iterations 6–8 in open PR [#6](https://github.com/Derric01/CurveVision/pull/6)
 
 ---
 
@@ -61,40 +61,34 @@ was the last unconnected piece of the desktop application.
 
 ## Next best action
 
-**The track-editing timeline.** It is the largest remaining gap between "you can annotate
-video" and "you would want to". The interpolation engine exists and is held to the same test
-vectors on both sides, `Track` / `TrackShape` keyframes are modelled and stored, and the
-editor already interpolates for display — what is missing is the UI for *editing* a track:
-seeing its keyframes on the timeline, adding and removing them, and seeing where a track
-starts and ends.
+**Edit keyframes from the timeline.** The lanes now *show* a track's keyframes and where it
+is present; the next step is acting on them, which is what turns the timeline from a map
+into a tool. In rough order of value:
 
-Where the pieces are:
+1. **Toggle a keyframe on the current frame** for the selected track — add one where the
+   shape has been moved, remove one that was a mistake.
+2. **Mark a departure** (`outside`) at the current frame, which is how an annotator says
+   "the object leaves here". `trackSegments` already renders it correctly, so the gap
+   appears the moment the write lands.
+3. **Drag a keyframe** along its lane to a different frame.
 
-| Piece | Where |
-| --- | --- |
-| `Track` + `TrackShape` keyframes, outline/visibility per keyframe | `domain/annotation.py` |
-| Server-side interpolation, arc-length resampling | `services/annotations.py` |
-| Client-side interpolation, same test vectors | `web/src/features/editor/interpolate.ts` |
-| The frame strip the timeline would extend | `EditorPage.tsx`, the footer |
-
-Start by rendering a track's keyframes on the existing frame strip — read-only, no editing.
-That is small, visible, and it forces the data plumbing (which tracks exist in this job,
-which frames are keyframes) that everything else needs.
+Each of those is an annotation write through the existing autosave path — `useAutosave`
+already batches and handles the 409 — so the work is UI plus a `TrackIn` payload, not new
+server surface. `web/src/features/editor/timeline.ts` is where the maths lives and where
+anything new about keyframe positions belongs.
 
 **Then, in rough order:**
 
 * **Pre-build chunks after a video upload.** `media.build_chunks` builds rather than plans,
-  and nothing enqueues it. The care needed: the desktop queue is inline, so enqueueing at
-  upload would decode a whole clip while the user waits. `media.probe_task` is now enqueued
-  from the same place and already decodes the whole file to count it — so the honest move is
-  probably to have *one* job that counts and builds in a single pass, rather than two that
-  each walk the file.
+  and nothing enqueues it. `media.probe_task` is now enqueued from the same place and
+  already decodes the whole file to count it — so the honest move is probably **one** job
+  that counts and builds in a single pass, rather than two that each walk the file.
 * **Surface a task whose frame count could not be corrected.** The job reports "this task
   already has annotation work"; nothing shows it to anyone.
-* **Put a browser harness in CI.** Three now exist (`screenshot.py`,
-  `verify_local_import.py`, `verify_chunked_frames.py`) and between them they have found
-  every defect the unit suites missed. Nightly or pre-release; each needs a packaged sidecar
-  and a Chromium.
+* **Put a browser harness in CI.** Four now exist (`screenshot.py`,
+  `verify_local_import.py`, `verify_chunked_frames.py`, `verify_track_timeline.py`) and
+  between them they have found every defect the unit suites missed. Nightly or pre-release;
+  each needs a packaged sidecar and a Chromium.
 
 ## Completed
 
@@ -137,6 +131,11 @@ injects the token, and provides native dialogs and menus.
 numbers are reproducible, and reports unreadable files in `skipped` rather than failing.
 The orphan-blob collector never deletes a file it did not write. Every route in
 `api/v1/local.py` returns 404 unless `settings.local_mode`.
+
+**The track timeline** — a lane per track under the frame slider showing where it is
+present and where its keyframes are, with `,`/`.` stepping between keyframes and a click
+seeking. Presence follows the same `outside` rules as the interpolator, asserted frame by
+frame. Read-only: editing keyframes from the timeline is not built.
 
 **Exact video frame counts** — `media.probe_task` decodes each video asset to count its
 frames, corrects the task and its jobs, and discards the chunks the renumbering invalidated.
@@ -220,6 +219,42 @@ full docs set including seven ADRs.
 ---
 
 ## Last iteration
+
+**The editor shows where every track lives.** Until now a track was invisible unless you
+happened to scrub onto a frame it occupied: the canvas draws this frame and nothing told you
+an object exists two hundred frames away, or that the one in front of you vanishes in six.
+
+The subtlety this is really about: **a track's presence is not one span.** A keyframe marked
+`outside` is the object *leaving* — behind a wall, out of shot — and it can come back. A bar
+drawn from first keyframe to last claims the object is on screen throughout its absences,
+and an annotator who trusts it goes looking for something that is not there.
+
+* **`timeline.ts`** derives presence from the keyframes in one pass: `trackSegments`,
+  `trackRows`, `framePosition`, `adjacentKeyframe`. Pure, and separate from the component
+  because the rules are the part worth testing.
+* **`TrackTimeline.tsx`** draws a lane per track under the frame slider — presence as bars,
+  keyframes as ticks, departures drawn hollow because they mark where the object *goes*, not
+  where it is. Clicking a lane seeks to that frame. Hidden entirely when a job has no tracks,
+  so an image task loses no canvas height.
+* **`,` and `.` step between keyframes** rather than frames, which is how you move through a
+  track annotated every thirtieth frame without pressing an arrow thirty times.
+
+The load-bearing test is `agrees with the interpolator on every frame`: for eight fixtures
+covering every lifetime shape that occurs — leaves and returns, leaves twice, outside from
+the very first keyframe, a departure adjacent to a return — it asserts frame by frame that
+"the timeline says present" equals "`interpolateTrack` returns a shape". Two implementations
+of presence *will* drift, and the drift is invisible in the worst way: the bar says the
+object is there and the canvas draws nothing.
+
+Replacing `trackSegments` with the naive "first keyframe to last" fails 6 of the 19 tests,
+that property first.
+
+`scripts/verify_track_timeline.py` seeds a 48-frame clip with three tracks — one present
+throughout, one that leaves at frame 8 and returns at 26, one starting late — and checks in
+Chromium that the lanes render, that the returning track is drawn as **two** runs rather than
+one, and that `,`/`.` move between keyframes.
+
+### Iteration 10
 
 **Corrected a benchmark the README invites readers to check.** The reconcile pass that opens
 every iteration found it: the README said *"picking from 100,000 shapes takes ~1 µs; a linear
@@ -489,13 +524,16 @@ present. Both corrected; the second is a licensing claim and was the more urgent
 ```
 ./scripts/check.sh                    all 9 steps green
   ruff · ruff format · mypy (78 files) · pytest server (221) · pytest sdk (12)
-  notices (52 deps) · eslint · tsc · vitest (151)
+  notices (52 deps) · eslint · tsc · vitest (170)
 ```
 
 Iteration 8 added 8 tests in `server/tests/api/test_frame_count_correction.py` (221 server
 tests, up from 213) and confirmed they bite: with the correction disabled, 6 of the 8 fail,
 including the one that matters — `test_the_frame_the_estimate_lost_is_servable`, which asks
 for the last frame over HTTP and gets it.
+
+Iteration 11 added 19 web tests in `timeline.test.ts` (170 web tests, up from 151) and
+confirmed they bite: the naive one-span implementation fails 6 of them.
 
 Iteration 7 added 26 web tests (151 total, up from 125): 7 on the ZIP reader, with fixtures
 built by Node's own zlib rather than by the reader under test, and 19 on the cache, which

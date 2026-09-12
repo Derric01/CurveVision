@@ -338,7 +338,7 @@ filtering, frame navigation with prefetch, and snapping to nearby vertices.
 **Done:** engine core (scene, R-tree index, renderer, command stack, tools for rectangle,
 polygon, polyline, point, ellipse; select/transform; zoom/pan; undo/redo; keyboard map),
 frame navigation, label sidebar, object list, autosave to the API.
-**In Progress:** mask brush tool, skeleton editing UI, track keyframe timeline UI.
+**In Progress:** mask brush tool, skeleton editing UI, track keyframe *editing* (the timeline shows keyframes and presence; adding and removing them is not built).
 **Planned:** cuboid, magnetic lasso, multi-user presence cursors.
 
 ---
