@@ -28,6 +28,7 @@ import {
   Spline,
   Square,
   Trash2,
+  Scissors,
   Undo2,
   Wand2,
 } from 'lucide-react';
@@ -49,6 +50,7 @@ const TOOLS: { name: ToolName; icon: typeof Square; label: string; key: string }
   { name: 'polygon', icon: Pentagon, label: 'Polygon', key: 'P' },
   { name: 'polyline', icon: Spline, label: 'Polyline', key: 'L' },
   { name: 'ellipse', icon: CircleDashed, label: 'Ellipse', key: 'E' },
+  { name: 'scissors', icon: Scissors, label: 'Scissors (snaps to edges)', key: 'S' },
 ];
 
 export function EditorPage() {

@@ -27,6 +27,7 @@ import type {
   ViewportState,
 } from './types';
 import { MIN_VERTICES } from './types';
+import { computeFeatures, LiveWire, simplify, type EdgeFeatures } from './scissors';
 
 export interface ToolContext {
   scene: Scene;
@@ -36,6 +37,14 @@ export interface ToolContext {
   activeLabelId: () => string | null;
   /** Snapping to nearby vertices, so adjacent polygons share a boundary exactly. */
   snapEnabled: () => boolean;
+  /**
+   * Pixels of the current frame, for tools that read the image rather than only the pointer.
+   *
+   * Optional and lazy: reading pixels back means rasterising the frame to an offscreen
+   * canvas, which no other tool needs and none should pay for. Returns `null` when no frame
+   * is loaded, or when the browser refuses the read.
+   */
+  imageData?: () => ImageData | null;
 }
 
 export interface ToolResult {
@@ -521,8 +530,149 @@ export class PanTool implements Tool {
   }
 }
 
+// ------------------------------------------------------------------------- scissors
+
+/**
+ * Intelligent scissors: click to anchor, and the wire to your cursor hugs the edge.
+ *
+ * The bindings deliberately match {@link PathTool} — click to commit, Enter to finish,
+ * Backspace to undo the last anchor, Escape to abandon — because switching tools should not
+ * mean relearning your hands. What differs is what lands between the clicks: `PathTool`
+ * draws a straight segment, this draws the cheapest boundary the image offers.
+ *
+ * `services`-style separation applies here too: the algorithm lives in `scissors.ts` and
+ * knows nothing about tools, pointers or annotations. This class is the state machine that
+ * decides *when* to anchor and what to commit.
+ */
+export class ScissorsTool implements Tool {
+  readonly name = 'scissors' as const;
+  readonly cursor = 'crosshair';
+
+  /** Committed boundary, flattened as x,y pairs. */
+  private committed: number[] = [];
+  /** Where each anchor's segment starts in `committed`, so Backspace can unwind exactly. */
+  private offsets: number[] = [];
+  private wire: LiveWire | null = null;
+  private features: EdgeFeatures | null = null;
+  /** The image the features were built from, so a frame change rebuilds them. */
+  private featureSource: ImageData | null = null;
+  private draft: Annotation | null = null;
+  private labelId: string | null = null;
+
+  /**
+   * How far a vertex may move when the dense pixel path is thinned, in image pixels.
+   *
+   * The wire arrives one vertex per pixel; a 400-pixel boundary is 400 vertices, which is
+   * unusable as a polygon and enormous in an export. One pixel is below what an annotator
+   * can see and cuts the count by an order of magnitude.
+   */
+  private static readonly SIMPLIFY_TOLERANCE = 1;
+
+  private ensureFeatures(context: ToolContext): boolean {
+    const image = context.imageData?.() ?? null;
+    if (!image) return false;
+    if (this.features && this.featureSource === image) return true;
+    this.features = computeFeatures(image);
+    this.featureSource = image;
+    this.wire = new LiveWire(this.features);
+    return true;
+  }
+
+  onPointerDown(input: PointerInput, context: ToolContext): ToolResult {
+    const labelId = context.activeLabelId();
+    if (!labelId) return {};
+    if (!this.ensureFeatures(context) || !this.wire) {
+      // No pixels to read: refuse rather than silently degrading to straight lines, which
+      // would look like the tool working badly instead of not running.
+      return {};
+    }
+    this.labelId = labelId;
+
+    if (this.committed.length === 0) {
+      this.offsets = [0];
+      this.committed = [input.image.x, input.image.y];
+    } else {
+      // Freeze the wire currently on screen, then re-anchor at its far end.
+      const segment = this.segmentTo(input.image);
+      this.offsets.push(this.committed.length);
+      this.committed.push(...segment);
+    }
+
+    this.wire.setAnchor(input.image);
+    this.draft = draftAnnotation(labelId, 'polygon', [...this.committed]);
+    return { draft: this.draft };
+  }
+
+  /** The live wire from the current anchor to `target`, thinned, without the anchor itself. */
+  private segmentTo(target: Point): number[] {
+    if (!this.wire || !this.wire.hasAnchor) return [target.x, target.y];
+    const path = simplify(this.wire.pathTo(target), ScissorsTool.SIMPLIFY_TOLERANCE);
+    const flat: number[] = [];
+    // Skip index 0: it is the anchor, which the previous segment already committed.
+    for (let i = 1; i < path.length; i++) flat.push(path[i]!.x, path[i]!.y);
+    return flat.length > 0 ? flat : [target.x, target.y];
+  }
+
+  onPointerMove(input: PointerInput, _context: ToolContext): ToolResult {
+    if (this.committed.length === 0 || !this.labelId) return {};
+    const preview = [...this.committed, ...this.segmentTo(input.image)];
+    this.draft = draftAnnotation(this.labelId, 'polygon', preview);
+    return { draft: this.draft };
+  }
+
+  onPointerUp(): ToolResult {
+    return {};
+  }
+
+  onKey(key: string, _context: ToolContext): ToolResult | null {
+    if (key === 'Enter') return this.finish();
+    if (key === 'Escape') return this.cancel();
+    if (key === 'Backspace' && this.offsets.length > 0) {
+      // Unwind one anchor: drop its segment and re-anchor at the previous one.
+      const start = this.offsets.pop()!;
+      this.committed = this.committed.slice(0, start === 0 ? 0 : start);
+      if (this.committed.length < 2 || !this.wire) return this.cancel();
+      const x = this.committed[this.committed.length - 2]!;
+      const y = this.committed[this.committed.length - 1]!;
+      this.wire.setAnchor({ x, y });
+      this.draft = this.labelId
+        ? draftAnnotation(this.labelId, 'polygon', [...this.committed])
+        : null;
+      return { draft: this.draft };
+    }
+    return null;
+  }
+
+  finish(): ToolResult {
+    if (!this.draft || this.committed.length / 2 < MIN_VERTICES.polygon) return this.cancel();
+    const created: Annotation = { ...this.draft, points: [...this.committed] };
+    this.reset();
+    return { created, draft: null, snap: null };
+  }
+
+  cancel(): ToolResult {
+    this.reset();
+    return { draft: null, snap: null };
+  }
+
+  private reset(): void {
+    this.committed = [];
+    this.offsets = [];
+    this.draft = null;
+    this.labelId = null;
+    // Features are kept: they belong to the frame, not to the shape being drawn, and
+    // recomputing them on every Escape would make the tool feel broken.
+  }
+
+  get vertexCount(): number {
+    return this.committed.length / 2;
+  }
+}
+
 export function createTool(name: ToolName): Tool {
   switch (name) {
+    case 'scissors':
+      return new ScissorsTool();
     case 'rectangle':
       return new RectangleTool();
     case 'ellipse':
@@ -547,6 +697,7 @@ export const TOOL_SHORTCUTS: Record<string, ToolName> = {
   l: 'polyline',
   n: 'points',
   e: 'ellipse',
+  s: 'scissors',
 };
 
 export { boundsOf };

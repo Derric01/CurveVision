@@ -173,6 +173,7 @@ represent, *before* you rely on it.
 | | |
 | --- | --- |
 | Rectangles, polygons, polylines, points, ellipses | **Done** |
+| **Intelligent scissors** — click once and the boundary snaps to the edge under your cursor | **Done** |
 | Selection, move, vertex editing, marquee | **Done** |
 | Undo/redo with drag coalescing | **Done** |
 | Zoom, pan, vertex snapping | **Done** |

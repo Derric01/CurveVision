@@ -5,7 +5,7 @@
 > [`AGENTS.md`](./AGENTS.md) first; it is the working contract. Update this file after every
 > iteration, including the ones that mostly failed.
 >
-> **Last updated:** 2026-09-12 (iteration 14) · branch `claude/curvevision-platform-build-n1g71n` · PRs [#1](https://github.com/Derric01/CurveVision/pull/1)–[#7](https://github.com/Derric01/CurveVision/pull/7) merged (iterations 1–13) · iteration 14 is the open PR on this branch
+> **Last updated:** 2026-09-12 (iteration 15) · branch `claude/curvevision-platform-build-n1g71n` · PRs [#1](https://github.com/Derric01/CurveVision/pull/1)–[#8](https://github.com/Derric01/CurveVision/pull/8) merged (iterations 1–14) · iteration 15 is the open PR on this branch
 
 ---
 
@@ -162,6 +162,13 @@ requests, ±1 prefetch) and reads it with a dependency-free stored-ZIP reader th
 anything it does not understand. 17× fewer decoded frames and 12× fewer requests when
 stepping; the measurements and the sparse-scrub cost are in `docs/IMPLEMENTATION_PLAN.md`.
 
+**Intelligent scissors** — an edge-snapping boundary tool. `canvas/scissors.ts` implements
+live-wire (Mortensen & Barrett, SIGGRAPH 1995) directly rather than loading a ~10 MB OpenCV
+build; the search is lazy, so anchoring costs 2.8 ms and a short drag single-digit
+milliseconds. Bindings match `PathTool`. Output is simplified to an editable polygon.
+Verified in Chromium against a disc: every vertex within 1.5 px of the rim.
+[ADR 0009](./docs/adr/0009-intelligent-scissors.md).
+
 **Merging overlapping jobs** — export reconciles the frames two jobs share instead of
 concatenating them. Two shapes are one object when label, shape type and geometry all agree
 (≥ 0.75 IoU, exact rather than bounding-box), and the earlier job's copy is kept. Pairing is
@@ -264,6 +271,59 @@ being updated and this one was not. Check it against* Completed *before trusting
 ---
 
 ## Last iteration
+
+**Intelligent scissors: click once, and the boundary snaps to the edge under your cursor.**
+The most-requested tool in this space, and the one that makes tracing a curved object — a
+leaf, a sign, a coat — take three clicks instead of forty.
+
+**The reference implementation is a 196-line wrapper around a 9,991,739-byte OpenCV.js
+asset.** All of its algorithm lives in OpenCV's C++, so "reuse their code" would have bought
+the state machine and none of the substance. The decision, recorded in
+[ADR 0009](./docs/adr/0009-intelligent-scissors.md), was to implement the published live-wire
+algorithm (Mortensen & Barrett, SIGGRAPH 1995) directly: ~300 lines, no dependency, and
+`web/src/canvas/` keeps its rule of importing nothing.
+
+* **`canvas/scissors.ts`** — Sobel gradients, Laplacian zero-crossings and edge orientation
+  feed a three-term cost; Dijkstra from the anchor gives a tree, and the path to any cursor
+  position is a walk back up it. Dropping the direction term is tempting and is the
+  difference between a wire that hugs a curve and one that shortcuts across it.
+* **`ScissorsTool`** shares `PathTool`'s bindings exactly — click commits, Enter finishes,
+  Backspace unwinds one anchor, Escape abandons — because switching tools should not mean
+  relearning your hands.
+* **Ramer–Douglas–Peucker on the way out.** The wire arrives one vertex per pixel; a
+  400-pixel boundary as 400 vertices is unusable as a polygon. The disc in the browser check
+  comes back as 36.
+
+**Two measured departures from a literal reading of the paper:**
+
+* **Dial's algorithm, not a binary heap.** Link costs are bounded small integers.
+* **The search is lazy** — this one mattered most. Building the whole tree per click measured
+  **200 ms** on a 1024×576 grid, a visible hitch, and nearly all of it wasted: an annotator's
+  next click is tens of pixels along a boundary, not across the image. Expanding only as far
+  as the cursor asks took `setAnchor` to **2.8 ms**, and a 40 px drag to **5.9 ms** settling
+  1,149 pixels instead of 590,000. Correctness survives because Dijkstra settles in
+  non-decreasing cost order; `resuming the search cannot change an answer it already gave`
+  asserts that against cold recomputation rather than leaving it as an argument.
+
+An `acos` lookup table took another 70 ms off before the laziness landed — the direction term
+was making ~4.7 million `Math.acos` calls per click.
+
+**A bug found by a test rather than argued about:** an exactly-zero Laplacian is *not* an
+edge. Flat regions are full of exact zeros, and marking them made empty space cheap to cross,
+so the wire wandered instead of tracking boundaries. Only a sign change is a crossing.
+
+**Verified in a real browser**, which is where this project's defects have always actually
+lived. `scripts/verify_scissors.py` seeds a disc, drives the editor in Chromium with real
+pointer events, and measures the polygon that comes back: 36 vertices, every one within
+**1.5 px** of the rim (radius 149.6–151.5 against a true 150), and the nearest vertex to the
+chord's midpoint 45 px away — so it followed the arc rather than cutting across. The
+screenshot was looked at, not just written.
+
+*The harness's own first run failed, and it was the harness: it never clicked a label, and
+every drawing tool declines silently without one. Worth knowing before debugging the next
+tool.*
+
+### Iteration 14
 
 **Overlapping jobs are reconciled on export instead of concatenated, and two silent
 data-corruption bugs went with it.** This came from a direct question — *use more of the
@@ -702,8 +762,17 @@ present. Both corrected; the second is a licensing claim and was the more urgent
 ```
 ./scripts/check.sh                    all 9 steps green
   ruff · ruff format · mypy · pytest server (326) · pytest sdk (13)
-  notices (52 deps) · eslint · tsc · vitest (170)
+  notices (52 deps) · eslint · tsc · vitest (205)
 ```
+
+Iteration 15 added 35 web tests (205, up from 170): 22 on the live-wire algorithm and 13 on
+the tool. The load-bearing ones use images whose correct answer is known and is visibly *not*
+a straight line — a bulging band and a circle — so an implementation that ignored the pixels
+would fail. Replacing the cost function with a constant fails four of them.
+
+`scripts/verify_scissors.py` then drove it in Chromium against the packaged server: 36
+vertices, every one within 1.5 px of a disc's rim, and the nearest vertex to the chord's
+midpoint 45 px away.
 
 Iteration 14 added 54 server tests (326, up from 272): 24 on the merge rules, 23 on the
 assignment solver and 8 over HTTP (including a frame four jobs all cover). Two were written to **fail first** and did — the
@@ -870,6 +939,16 @@ missing, and it is the reason this iteration found anything):
   annotators' boxes. Averaging is defensible and is what a consensus pass would do; picking
   one is predictable, which matters more when nobody is watching. `consensus/intersect_merge.py`
   upstream is the piece to adapt if averaging is ever wanted.
+- **The scissors run on the main thread.** A cursor move that jumps across a large frame can
+  cost ~100 ms in the worst case (full 1920 px width, 285k pixels settled). Typical use is
+  single-digit milliseconds because the search is lazy, but a very long drag will stutter. A
+  worker is the fix if it ever bites; the per-pixel feature pass would move first.
+- **Scissors output is a polygon, not a mask.** Which is what the upstream tool produces too,
+  and what every shipped export format can carry — but a mask brush would want the region,
+  not the boundary.
+- **The scissors search grid caps at 1024 on the long side.** On a 4K frame that is a 4x
+  downscale, so the wire lands within a few source pixels of the true edge rather than on it
+  exactly. Raising it is a constant, and costs time quadratically.
 - **A quality report has no UI.** Creating a ground-truth job and scoring against it are
   API, SDK and CLI only. A reviewer working in the editor cannot see any of it, which means
   the feature is currently for scripted workflows. The conflict list is frame- and
@@ -932,6 +1011,19 @@ missing, and it is the reason this iteration found anything):
   vectors, and that parity is what makes client-side scrubbing safe. Half of a matched pair
   cannot be swapped for a different algorithm. Revisit when the mask brush and keypoint UI
   exist and the parity can be re-established on both sides at once.
+- **Loading OpenCV.js for the scissors, as upstream does.** 9,991,739 bytes for one tool, in
+  a web bundle that is ~320 kB today and a desktop app that ships as one executable. Their
+  196 lines are state management; the algorithm is OpenCV's C++, so reusing their code would
+  have bought the wrapper and none of the substance. Full reasoning in ADR 0009. Revisit only
+  if a tool needs *several* OpenCV algorithms, at which point the asset is amortised.
+- **Building the whole shortest-path tree on each scissors click.** The textbook shape of the
+  algorithm, and a 200 ms hitch per click of which almost all was wasted. Expanding the
+  frontier lazily is the same algorithm with the same answers and ~70x less work for a
+  typical drag.
+- **Treating an exactly-zero Laplacian as an edge** in the scissors cost. It looks like the
+  obvious reading of "zero crossing" and it is wrong: flat regions are full of exact zeros,
+  so it made empty space cheap to cross and the wire stopped tracking boundaries. Only a sign
+  change between neighbours is a crossing.
 - **A honeypot-frame selector**, adapted from the same upstream source as the comparison
   strategy. It was written, and then deleted: `Job` carries only a contiguous frame range,
   so nothing in this codebase can *call* a function that picks scattered ground-truth frames
