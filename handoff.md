@@ -241,6 +241,10 @@ What stayed, and why it had to:
 | `docs/THIRD_PARTY_NOTICES.md`, the Adapted source row | Names the file, the upstream path, the commit and the copyright holders |
 | `licenses/MIT-video-decoding.txt` | The full licence text (renamed from `MIT-cvat.txt`) |
 
+The README keeps **one short named acknowledgement** — the upstream project, the one file,
+and a link to the notices. A repository that names a project in its licence file while
+refusing to name it in prose reads as evasive, and the mention costs a sentence.
+
 **MIT's single condition is that the copyright notice travels with the code.** Retaining it
 *is* the licence; removing it while keeping the code is the one thing the permission does
 not extend to. ADR 0007 now says so explicitly, including the only clean route to removing

@@ -405,12 +405,12 @@ worked, and more usefully, what did not.
 CurveVision stands on a decade of open-source work in this space, and we studied it
 deliberately rather than rediscovering its lessons the expensive way.
 
-**One file is adapted from another project's MIT-licensed source**:
-`server/curvevision/media/video.py` carries its upstream copyright header and is recorded in
-[THIRD_PARTY_NOTICES](docs/THIRD_PARTY_NOTICES.md#adapted-source), with the reasoning in
-[ADR 0007](docs/adr/0007-reusing-third-party-code.md). Everything else is independently
-implemented. We claim no affiliation with, or endorsement by, any project we depend on or
-adapt from.
+**One file adapts MIT-licensed source from [CVAT](https://github.com/cvat-ai/cvat)**:
+`server/curvevision/media/video.py`, for video frame decoding. It carries CVAT's copyright
+header and is recorded in
+[THIRD_PARTY_NOTICES](docs/THIRD_PARTY_NOTICES.md#adapted-source). Everything else here is
+independently implemented, and we claim no affiliation with or endorsement by CVAT.ai
+Corporation or Intel Corporation.
 
 CurveVision is built on other people's well-maintained code, and that is the point. See
 [THIRD_PARTY_NOTICES.md](docs/THIRD_PARTY_NOTICES.md) for every dependency, its license and
