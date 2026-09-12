@@ -7,7 +7,7 @@
  */
 
 import { describe, expect, it } from 'vitest';
-import { parseConnection } from '@/desktop';
+import { chooseFolder, isDesktop, onOpenFolder, parseConnection } from '@/desktop';
 
 const valid = {
   url: 'http://127.0.0.1:49312',
@@ -71,5 +71,44 @@ describe('parseConnection', () => {
     const connection = parseConnection({ ...valid, url: 99, version: null, data_dir: [] });
     expect(connection).toMatchObject({ url: '', version: '', dataDir: '' });
     expect(connection?.token).toBe('cv_abc123_secret');
+  });
+});
+
+/**
+ * The shell seam, from the side that can actually be tested here.
+ *
+ * Playwright drives Chromium and not the Tauri webview, so a real `invoke()` across the IPC
+ * bridge has no coverage anywhere — which is exactly why it matters that the *absence* of a
+ * shell is a defined, quiet outcome rather than an exception. Every caller of these is
+ * written against that contract and tested without a shell; if it broke, the browser build
+ * would throw from a menu subscription at mount.
+ */
+describe('the shell seam without a shell', () => {
+  it('is not in desktop mode under test, which is what makes the rest meaningful', () => {
+    expect(isDesktop()).toBe(false);
+  });
+
+  it('resolves the folder picker to null rather than throwing', async () => {
+    // Same value as a cancelled dialog: callers have one "nothing was chosen" path.
+    await expect(chooseFolder()).resolves.toBeNull();
+    await expect(chooseFolder('Pick something')).resolves.toBeNull();
+  });
+
+  it('never loads the shell API in a browser', async () => {
+    // If the dynamic import were unconditional, this would reject in Node with no Tauri
+    // internals present. It resolving is the assertion.
+    await expect(chooseFolder()).resolves.toBeNull();
+  });
+
+  it('subscribes to nothing and still returns a usable unsubscribe', () => {
+    let calls = 0;
+    const stop = onOpenFolder(() => {
+      calls += 1;
+    });
+
+    expect(typeof stop).toBe('function');
+    expect(() => stop()).not.toThrow();
+    expect(() => stop()).not.toThrow(); // Unmounting twice must also be safe.
+    expect(calls).toBe(0);
   });
 });

@@ -1,55 +1,86 @@
 <div align="center">
 
-<img src="web/public/favicon.svg" width="72" height="72" alt="CurveVision" />
+<img src="web/public/favicon.svg" width="76" height="76" alt="" />
 
 # CurveVision
 
-### Open-source annotation and dataset infrastructure for computer vision
+### Annotate computer-vision datasets on your own machine
 
-**Annotate manually. Accelerate with AI. Build better datasets. Keep control of your data.**
+**Install it and start drawing. Or run it for your team.
+Same editor, same exporters, same code — your images never leave your infrastructure.**
 
-Free · Open source · Self-hostable · Web and desktop
+[![CI](https://github.com/Derric01/CurveVision/actions/workflows/ci.yml/badge.svg)](https://github.com/Derric01/CurveVision/actions/workflows/ci.yml)
+[![License: MIT](https://img.shields.io/badge/license-MIT-14b8a6.svg)](LICENSE)
+[![Python 3.11+](https://img.shields.io/badge/python-3.11%2B-3776ab.svg)](server/pyproject.toml)
+[![Node 20+](https://img.shields.io/badge/node-20%2B-5fa04e.svg)](web/package.json)
+[![PRs welcome](https://img.shields.io/badge/PRs-welcome-f59e0b.svg)](docs/CONTRIBUTING.md)
 
-[Quick start](#quick-start) · [Features](#what-it-does) · [Architecture](docs/ARCHITECTURE.md) · [API](docs/API.md) · [Roadmap](docs/ROADMAP.md) · [Contributing](docs/CONTRIBUTING.md)
+[**Quick start**](#quick-start) · [Features](#what-it-does) · [Architecture](docs/ARCHITECTURE.md) · [API](docs/API.md) · [Roadmap](docs/ROADMAP.md) · [Contributing](docs/CONTRIBUTING.md)
 
 </div>
 
+<p align="center">
+  <img src="docs/images/editor.png" alt="The CurveVision annotation editor: a photograph of an espresso cup on a saucer with a spoon, each boxed and labelled, the label schema and object list on the right, and the frame timeline along the bottom." width="100%" />
+</p>
+
+<div align="center"><sub>
+The actual editor, photographed by <a href="scripts/screenshot.py"><code>scripts/screenshot.py</code></a> —
+which drives the real application in a real browser and draws those boxes with real pointer events
+on a real photograph. Nothing here is a mockup.
+</sub></div>
+
 ---
 
-CurveVision is annotation tooling for people building computer-vision datasets: students,
-researchers, indie developers, startups, ML engineers, and teams who would rather not send
-their images to someone else's cloud.
+## Why
+
+You have a folder of images and you need a labelled dataset. Your options today are
+usually a toy canvas that cannot do review or export properly, a cloud service that wants
+your data, or an enterprise platform with a sales call attached to it.
+
+CurveVision is the space in between.
+
+<table>
+<tr>
+<td width="33%" valign="top">
+
+### 🖥 &nbsp;It installs
+
+Download, double-click, point at a folder, start drawing. No account, no server, no Docker,
+no configuration file. Your images are annotated **where they already sit** — a 40 GB
+folder on an external drive is not copied anywhere.
+
+</td>
+<td width="33%" valign="top">
+
+### 👥 &nbsp;It scales to a team
+
+The same application runs as a server: real accounts, roles, job assignment, a review
+queue, issue threads, immutable dataset releases. The desktop app is not a cut-down
+edition — it is this, configured differently.
+
+</td>
+<td width="33%" valign="top">
+
+### 🔒 &nbsp;It stays yours
+
+MIT licensed, self-hosted, no phone-home, no telemetry, no annotation limit, no feature
+held back for a paid tier. Nothing in the core is withheld to sell you later.
+
+</td>
+</tr>
+</table>
 
 It does two things equally well, and **neither requires the other**:
 
 ```
 Manual-first    upload → define labels → draw → review → export
-AI-assisted     upload → run a model → accept or correct → review → export
+AI-assisted     upload → run your model → accept or correct → review → export
 ```
 
-And it runs two ways, from one codebase — **neither is the lesser**:
-
-```
-Desktop app     install it, point at a folder, start drawing.
-                No account, no server, no Docker. Your files never move.
-
-Server          docker compose up, open a browser.
-                Real accounts, roles, review queues, shared dataset releases.
-```
-
-The desktop application is not a cut-down offline viewer, and the web application is not
-the "real" one it imitates. They are the same editor, the same API and the same exporters,
-reached two ways — see [ADR 0006](docs/adr/0006-one-codebase-two-shapes.md).
-
-Most tools in this space are either a toy canvas or an enterprise platform with a sales
-call attached. CurveVision aims at the space between: the breadth a real annotation
-workflow needs, with an editor that stays fast at a hundred thousand objects, that you can
-run on a laptop with one command.
-
-> **Status: early.** The manual annotation path is complete and tested end to end. Video
-> annotation, the track-editing UI and quality reports are partially built. Every feature
-> below is marked with its real state — nothing here is marked done unless it works. If you
-> need a mature platform for critical work today, look at
+> **Status: early, and honestly labelled.** The manual annotation path is complete and
+> tested end to end. Video, the track-editing timeline and quality reports are partly
+> built. **Every feature below carries its real state** — nothing is marked Done unless it
+> works and has tests. If you need a mature platform for critical work today, use
 > [CVAT](https://github.com/cvat-ai/cvat); we say so plainly in our
 > [architecture comparison](docs/ARCHITECTURE_COMPARISON.md).
 
@@ -57,10 +88,10 @@ run on a laptop with one command.
 
 ## Quick start
 
-### As a desktop application
+### The desktop application
 
-Build it from source — there are no signed installers yet, and we would rather say so than
-link a download that does not exist:
+There are no signed installers yet — we would rather say so than link a download that does
+not exist. Building it takes three commands:
 
 ```bash
 pip install -e 'server[dev,media,desktop]'
@@ -68,8 +99,8 @@ npm --prefix web install && npm --prefix web run build
 python desktop/sidecar/build.py          # one self-contained executable, then a smoke test
 ```
 
-That alone gives you `desktop/sidecar/dist/curvevision-local`. Run it and it prints a
-loopback URL and a token, and serves the complete application — no configuration at all:
+That alone gives you a complete CurveVision in a single file. Run it and open the URL it
+prints — no configuration at all:
 
 ```bash
 ./desktop/sidecar/dist/curvevision-local
@@ -78,16 +109,10 @@ loopback URL and a token, and serves the complete application — no configurati
 For the native window, build the Rust shell around it:
 
 ```bash
-cd desktop/shell/src-tauri
-cargo build --release          # the application binary
-cargo test                     # supervises a real server and shuts it down
+cd desktop/shell/src-tauri && cargo build --release
 ```
 
-Producing platform installers (`.dmg`, `.msi`, `.AppImage`) additionally needs the Tauri
-CLI (`cargo install tauri-cli --version '^2'`) and a runner per platform, since PyInstaller
-does not cross-compile. That part is **Planned** and not yet exercised in CI.
-
-See [desktop/](desktop/) for what is working today and what is not.
+See [`desktop/`](desktop/) for what works today, what does not, and where your data lives.
 
 ### As a server
 
@@ -96,33 +121,54 @@ git clone https://github.com/Derric01/CurveVision.git
 cd CurveVision
 
 cp .env.example .env
-python3 -c 'import secrets; print(secrets.token_urlsafe(48))'   # paste into CURVEVISION_SECRET_KEY
+python3 -c 'import secrets; print(secrets.token_urlsafe(48))'   # → CURVEVISION_SECRET_KEY
 
 docker compose up -d
 open http://localhost:8080
 ```
 
-Six services plus a one-shot bucket-creation step, from one command. No account, no
-license key. The first user you register becomes the instance administrator.
+Six services from one command. No account, no license key. The first user you register
+becomes the instance administrator.
 
-Prefer to run it from source? See [DEVELOPMENT.md](docs/DEVELOPMENT.md) — `./scripts/dev.sh`
-gets you a hot-reloading stack.
+### From source
+
+```bash
+./scripts/dev.sh      # infra in Docker, app on the host with hot reload
+./scripts/check.sh    # everything CI runs, in one command
+```
+
+The whole server test suite runs on SQLite with an in-process queue and local files, so
+you can clone and run `pytest` with no services installed.
 
 ---
 
 ## What it does
 
-### Manual annotation — first class, not a fallback
-
 <table>
-<tr><td width="50%">
+<tr><td width="50%" valign="top">
 
-The editor is keyboard-driven and built for long sessions. Every tool is one keystroke
-away, undo works the way it should (one press per gesture, not per pointer-move), and
-autosave keeps a local write-ahead buffer so a browser crash does not cost you an
-afternoon.
+**Annotate**
+Rectangles, polygons, polylines, points, ellipses. Keyboard-first, built for long
+sessions. Undo is one press per gesture, not per pointer-move.
 
-</td><td>
+**Review**
+Jobs as the unit of assignment, a real review state machine, issue threads anchored to a
+frame and a shape. Nobody reviews their own work — the policy enforces it.
+
+</td><td width="50%" valign="top">
+
+**Accelerate**
+Point it at any inference endpoint. Predictions arrive as suggestions you accept, edit or
+reject. No bundled weights, no vendor SDK.
+
+**Export**
+COCO, YOLO, Pascal VOC and a lossless native format — each declaring honestly what it can
+represent, *before* you rely on it.
+
+</td></tr>
+</table>
+
+### Manual annotation — first class, not a fallback
 
 | | |
 | --- | --- |
@@ -132,22 +178,22 @@ afternoon.
 | Zoom, pan, vertex snapping | **Done** |
 | Per-label visibility and locking | **Done** |
 | Crash-resilient autosave | **Done** |
-| Masks (RLE storage and export exist; brush tool does not) | *Planned* |
-| Skeletons / keypoints (model and export exist; UI does not) | *Planned* |
-
-</td></tr>
-</table>
+| Masks — RLE storage and export exist; the brush tool does not | *Planned* |
+| Skeletons / keypoints — model and COCO export exist; the UI does not | *Planned* |
 
 **It stays fast.** The canvas is a Canvas2D engine with an R-tree spatial index, so
 rendering costs what is *on screen* rather than what is in the dataset. Measured on this
 machine: picking from 100,000 shapes takes ~1 µs; a linear scan of 10,000 takes ~550 µs.
 Run `npm run bench` in `web/` and check for yourself.
 
+Autosave keeps a local write-ahead buffer in IndexedDB, so a browser crash does not cost
+you an afternoon — and a stale write is rejected with a conflict rather than silently
+merged over somebody else's.
+
 ### AI-assisted annotation — bring your own model
 
 CurveVision ships **no model weights and imports no vendor SDK**. You point it at an
-inference endpoint; predictions arrive as ordinary annotations you can accept, edit or
-reject one at a time.
+inference endpoint; predictions arrive as ordinary annotations.
 
 ```json
 POST /your-endpoint
@@ -157,53 +203,34 @@ POST /your-endpoint
                  "points": [10, 20, 110, 220], "confidence": 0.93 }] }
 ```
 
-That contract is a 30-line FastAPI script. It also happens to be what Triton, TorchServe,
-BentoML, Ray Serve and every hosted vendor can already speak — which is the point. Bundling
-a serving platform would force our choice on every operator and drag non-commercial model
-licenses into the core.
+That contract is a 30-line FastAPI script, and it is what Triton, TorchServe, BentoML, Ray
+Serve and every hosted vendor already speak — which is the point. Bundling a serving
+platform would force our choice on every operator and drag non-commercial model licenses
+into the core.
 
 Editing a prediction records `model_corrected` provenance, so your dataset knows which
-objects a machine proposed and a human fixed. That distinction survives to export and is
+objects a machine proposed and a human fixed. That distinction survives to export, and is
 what makes an active-learning loop measurable.
 
 | | |
 | --- | --- |
-| `ModelProvider` abstraction, HTTP provider | **Done** |
+| `ModelProvider` abstraction and the HTTP contract | **Done** |
 | Predictions as accept/reject suggestions | **Done** |
 | Provenance chain (`model` → `model_corrected`) | **Done** |
 | Interactive segmentation (click-to-segment) | *Planned* |
 | Trackers, OCR, classification model kinds | *Planned* |
 
-### Dataset management
+### Datasets, review and release
+
+<p align="center">
+  <img src="docs/images/project.png" alt="A CurveVision project page showing its tasks, label schema, annotation statistics and the export format selector." width="100%" />
+</p>
 
 `Dataset → Version → Annotation → Review → Release`
 
-A released version is immutable and carries a content hash, so "which data trained this
-model" has an answer. Statistics surface class distribution and — the number people
+A released version is immutable and carries a content hash, so *"which data trained this
+model"* has an answer. Statistics surface class distribution and — the number people
 actually need before training — **how many frames have no annotations at all**.
-
-| | |
-| --- | --- |
-| Immutable dataset releases with content hashing | **Done** |
-| Class distribution and annotation statistics | **Done** |
-| Content-addressed media (the same file across tasks is stored once) | **Done** |
-| Export jobs with downloadable artifacts | **In Progress** |
-
-### Images and video
-
-| | |
-| --- | --- |
-| Image datasets, dedupe, thumbnails, frame indexing | **Done** |
-| Video probing, frame addressing, track data model | **Done** |
-| Client-side track interpolation (scrubbing costs no round trip) | **Done** |
-| Chunked frame delivery and extraction | **In Progress** |
-| Resumable uploads (storage model only; no endpoints yet) | *Planned* |
-
-Interpolation between keyframes resamples polygons to a common arc-length parameterisation
-when vertex counts differ. Pairing vertices by index — the obvious implementation —
-visibly scrambles a shape the moment an annotator inserts a vertex.
-
-### Collaboration and review
 
 | | |
 | --- | --- |
@@ -212,10 +239,26 @@ visibly scrambles a shape the moment an annotator inserts a vertex.
 | Review state machine: `new → in_progress → submitted → accepted/rejected` | **Done** |
 | Issues and comment threads anchored to a frame and shape | **Done** |
 | Annotation history | **Done** |
-| Ground-truth quality reports (storage model only; nothing computes them yet) | *Planned* |
+| Immutable dataset releases with content hashing | **Done** |
+| Content-addressed media (the same file across tasks is stored once) | **Done** |
+| Export jobs with downloadable artifacts | **In Progress** |
+| Ground-truth quality reports — storage model only; nothing computes them yet | *Planned* |
 
-Nobody reviews their own annotation work — the policy enforces it, and there is a test that
-says so.
+### Images and video
+
+| | |
+| --- | --- |
+| Image datasets, dedupe, thumbnails, frame indexing | **Done** |
+| Annotating local folders in place, without copying | **Done** |
+| Video: frames decoded and served individually, so a video task is annotatable | **Done** |
+| Client-side track interpolation (scrubbing costs no round trip) | **Done** |
+| Chunked frame delivery — deep scrubbing is slow without it | **In Progress** |
+| Track-editing timeline UI — the model and interpolation exist on both sides | **In Progress** |
+| Resumable uploads — storage model only; no endpoints yet | *Planned* |
+
+Interpolation between keyframes resamples polygons to a common arc-length parameterisation
+when vertex counts differ. Pairing vertices by index — the obvious implementation —
+visibly scrambles a shape the moment an annotator inserts a vertex.
 
 ### Import and export
 
@@ -257,20 +300,6 @@ curvevision export <project-id> --format coco --output dataset.zip
 OpenAPI 3.1 at `/api/v1/openapi.json`, generated from the same models that validate
 requests — so it cannot drift from the implementation. Swagger UI at `/api/docs`.
 
-### Self-hosting
-
-Six services: API, worker, web, PostgreSQL, Redis, and an S3-compatible store.
-
-That number is a deliberate design goal. Fewer moving parts to operate, back up and reason
-about is the difference between "we self-host this" and "we meant to self-host this". Your
-media never leaves your infrastructure, and there is no phone-home.
-
-### Desktop application
-
-*Planned.* A Tauri shell around the same web bundle, adding local dataset access without an
-upload round trip and offline annotation with sync. `desktop/` holds the design; there is
-no working build yet, and we would rather say so than ship a stub.
-
 ---
 
 ## Architecture
@@ -289,18 +318,9 @@ A **modular monolith**: one API image, one worker image, module boundaries enfor
 explicit interfaces rather than network hops. `Storage`, `DatasetFormat`, `ModelProvider`
 and `JobQueue` are the seams — swappable, and unit-testable with no database.
 
-The whole server test suite runs on SQLite with an in-process queue and local files, so a
-contributor can clone the repo and run `pytest` with nothing installed.
-
-* [ARCHITECTURE.md](docs/ARCHITECTURE.md) — the design, and an
-  [OSS build-vs-extend table](docs/ARCHITECTURE.md#open-source-building-blocks--build-vs-extend-decisions)
-  giving the reasoning for every dependency choice.
-* [ARCHITECTURE_COMPARISON.md](docs/ARCHITECTURE_COMPARISON.md) — an honest comparison with
-  CVAT: what we learned from it, where we differ, what it still does better, and the
-  licensing position.
-* [IMPLEMENTATION_PLAN.md](docs/IMPLEMENTATION_PLAN.md) — the plan of record.
-
-### Why these choices
+**Those seams are why the desktop app exists.** Swap PostgreSQL for SQLite, S3 for the
+filesystem, and Redis for an in-process queue, and the same server runs on a laptop. Adding
+the entire desktop application changed 1,460 lines and removed 42; nothing was rewritten.
 
 | Decision | Reasoning |
 | --- | --- |
@@ -311,19 +331,30 @@ contributor can clone the repo and run `pytest` with nothing installed.
 | Canvas2D + R-tree, not SVG | Rendering cost tracks the viewport, not the dataset |
 | An HTTP inference contract, not a serving platform | Every serving stack already speaks it; model licenses stay on the operator's side |
 | Streaming format registry | A server exporting 500k images cannot hold the dataset in memory |
+| Tauri, not Electron | A 6.2 MB shell against ~150 MB, using the system webview |
+
+* [ARCHITECTURE.md](docs/ARCHITECTURE.md) — the design, and an
+  [OSS build-vs-extend table](docs/ARCHITECTURE.md#open-source-building-blocks--build-vs-extend-decisions)
+  giving the reasoning for every dependency choice.
+* [ARCHITECTURE_COMPARISON.md](docs/ARCHITECTURE_COMPARISON.md) — an honest comparison with
+  CVAT: what we learned, where we differ, what it still does better, and the licensing
+  position.
+* [docs/adr/](docs/adr/) — the decisions, with the evidence behind them.
 
 ---
 
 ## Roadmap
 
-**MVP is complete** — you can install CurveVision today and produce a real dataset.
+**MVP is complete** — you can run CurveVision today, as a desktop application or a server,
+and produce a real dataset with it.
 
-**Beta** needs video annotation end to end, the track-editing timeline, and webhook
-retries. **1.0** needs distributed rate limiting, backup tooling, and an external security
-review — we will not call a release 1.0 before that, because it would be a claim we cannot
-back.
+**Beta** needs video annotation to be comfortable rather than merely working (chunked
+delivery), the track-editing timeline, and webhook retries. **1.0** needs distributed rate
+limiting, backup tooling and an external security review — we will not call a release 1.0
+before that, because it would be a claim we cannot back.
 
 Full detail, including what we have decided *against*, in [ROADMAP.md](docs/ROADMAP.md).
+For where the project stands right now, [handoff.md](handoff.md) is the fastest read.
 
 ---
 
@@ -342,7 +373,7 @@ Licensed **MIT**. Self-host it, fork it, build a product on it.
 
 ## Contributing
 
-Contributions of every size are welcome. The items marked *In Progress* in the roadmap have
+Contributions of every size are welcome. Items marked **In Progress** in the roadmap have
 settled designs and are the easiest places to start.
 
 * [CONTRIBUTING.md](docs/CONTRIBUTING.md) — how to work on it
@@ -355,16 +386,9 @@ settled designs and are the easiest places to start.
 ./scripts/check.sh    # everything CI runs
 ```
 
-### Working on this with a coding agent
-
-* **[AGENTS.md](AGENTS.md)** — the working contract for any coding agent, whichever one you
-  use. Orient against the real state of the code, pick the highest-value next task, verify
-  it, document it, continue.
-* **[handoff.md](handoff.md)** — the current state, what is in flight, and the next best
-  action. Kept truthful, and updated every iteration.
-
-Humans benefit from both too: `handoff.md` is the fastest way to see where the project
-actually is, without reading the whole roadmap.
+**Working on this with a coding agent?** [AGENTS.md](AGENTS.md) is the working contract for
+any agent — Claude Code, Codex or otherwise — and [handoff.md](handoff.md) is the current
+state and the next best action, updated every iteration.
 
 ---
 
@@ -383,9 +407,14 @@ worked, and more usefully, what did not.
 
 CurveVision exists in a landscape that [CVAT](https://github.com/cvat-ai/cvat) largely
 defined, and we studied it deliberately rather than rediscovering its lessons the expensive
-way. **No CVAT source code is present in this repository**; what we took was architectural
-understanding, and we document exactly what and why. We claim no affiliation with, or
-endorsement by, CVAT.ai Corporation or Intel Corporation.
+way.
+
+**One file is adapted from CVAT's MIT-licensed source**: `server/curvevision/media/video.py`
+carries CVAT's copyright header and is recorded in
+[THIRD_PARTY_NOTICES](docs/THIRD_PARTY_NOTICES.md#adapted-source), with the reasoning in
+[ADR 0007](docs/adr/0007-cvat-reuse-policy.md). Everything else is independently
+implemented. We claim no affiliation with, or endorsement by, CVAT.ai Corporation or Intel
+Corporation.
 
 CurveVision is built on other people's well-maintained code, and that is the point. See
 [THIRD_PARTY_NOTICES.md](docs/THIRD_PARTY_NOTICES.md) for every dependency, its license and

@@ -11,8 +11,8 @@ from fastapi.responses import JSONResponse
 
 from curvevision.core.config import Settings
 
-#: Applied to every response. The API is JSON-only, so the CSP can be maximally strict --
-#: the web frontend is served separately and ships its own policy.
+#: Applied to every response. `default-src 'none'` is right for a JSON API: it can load
+#: nothing, so it is allowed to load nothing.
 SECURITY_HEADERS = {
     "X-Content-Type-Options": "nosniff",
     "X-Frame-Options": "DENY",
@@ -21,6 +21,36 @@ SECURITY_HEADERS = {
     "Permissions-Policy": "geolocation=(), microphone=(), camera=()",
     "Cross-Origin-Resource-Policy": "same-site",
 }
+
+#: The policy for responses that are *the web application itself*, which the server sends
+#: when `web_root` is configured (the desktop build, and any deployment that would rather
+#: not run a separate web server).
+#:
+#: `default-src 'none'` above would block every script and stylesheet the page needs, so a
+#: strict policy on these responses is not strict — it is a blank window. Each directive
+#: below is the narrowest thing that still lets the editor run:
+#:
+#: * `script-src 'self'` — Vite emits external files; nothing is inlined.
+#: * `style-src` needs `'unsafe-inline'` because React writes `style` attributes, which
+#:   CSP treats as inline styles. It buys an attacker styling, not execution.
+#: * `img-src` needs `blob:` and `data:` — the editor renders frames and thumbnails it has
+#:   fetched, and the canvas produces blobs.
+#: * `connect-src 'self'` — the API is same-origin by construction, which is the whole
+#:   reason the desktop window loads from the server rather than an asset protocol.
+#: * `frame-ancestors 'none'` and `object-src 'none'` stay: no clickjacking, no plugins.
+WEB_APP_CSP = (
+    "default-src 'self'; "
+    "script-src 'self'; "
+    "style-src 'self' 'unsafe-inline'; "
+    "img-src 'self' data: blob:; "
+    "font-src 'self' data:; "
+    "connect-src 'self'; "
+    "worker-src 'self' blob:; "
+    "object-src 'none'; "
+    "base-uri 'self'; "
+    "form-action 'self'; "
+    "frame-ancestors 'none'"
+)
 
 #: Endpoints where the docs UI needs to load its own assets.
 _DOC_PATHS = ("/api/docs", "/api/redoc", "/api/openapi.json")
@@ -64,6 +94,19 @@ def install_security_middleware(app: FastAPI, settings: Settings) -> None:
     limiter = SlidingWindowLimiter(settings.rate_limit_per_minute)
     app.state.rate_limiter = limiter
 
+    # Only relax the policy when this process actually serves the application. A pure API
+    # deployment, which is every containerised one, keeps `default-src 'none'`.
+    serves_web_app = bool(settings.web_root)
+    api_prefix = settings.api_prefix
+
+    def policy_for(path: str) -> str | None:
+        """The CSP for this response, or None to leave it unset."""
+        if path.startswith(_DOC_PATHS):
+            return None  # the docs UI loads its own assets from a CDN
+        if serves_web_app and not path.startswith(api_prefix) and path != "/metrics":
+            return WEB_APP_CSP
+        return SECURITY_HEADERS["Content-Security-Policy"]
+
     @app.middleware("http")
     async def security(
         request: Request, call_next: Callable[[Request], Awaitable[Response]]
@@ -91,7 +134,9 @@ def install_security_middleware(app: FastAPI, settings: Settings) -> None:
 
         response = await call_next(request)
         for header, value in SECURITY_HEADERS.items():
-            if header == "Content-Security-Policy" and request.url.path.startswith(_DOC_PATHS):
+            if header == "Content-Security-Policy":
+                if (policy := policy_for(request.url.path)) is not None:
+                    response.headers.setdefault(header, policy)
                 continue
             response.headers.setdefault(header, value)
         return response

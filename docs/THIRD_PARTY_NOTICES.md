@@ -124,6 +124,7 @@ because it is easy to inherit without noticing.
 | [rbush](https://github.com/mourner/rbush) | MIT | Vladimir Agafonkin | R-tree spatial index behind the canvas |
 | [clsx](https://github.com/lukeed/clsx) | MIT | Luke Edwards | Class-name composition |
 | [lucide-react](https://github.com/lucide-icons/lucide) | ISC | Lucide contributors | Icons |
+| [@tauri-apps/api](https://github.com/tauri-apps/tauri) | Apache-2.0 OR MIT | © 2017–present Tauri Apps Contributors | Calling the desktop shell (native folder picker, menu events). Dynamic-imported behind `isDesktop()`, so a browser never loads it. See [ADR 0008](./adr/0008-calling-the-desktop-shell.md). |
 
 ## Container images
 
@@ -140,8 +141,28 @@ These run as unmodified services; CurveVision links to none of them.
 
 | Project | License | Relationship |
 | --- | --- | --- |
-| [CVAT](https://github.com/cvat-ai/cvat) | MIT — © 2018-2022 Intel Corporation, © 2022-2025 CVAT.ai Corporation | Studied as an architectural and product reference. **No CVAT source code is present in this repository.** See [ARCHITECTURE_COMPARISON.md](./ARCHITECTURE_COMPARISON.md). We claim no affiliation with, or endorsement by, CVAT.ai Corporation or Intel Corporation. |
+| [CVAT](https://github.com/cvat-ai/cvat) | MIT — © 2018-2022 Intel Corporation, © 2022-2025 CVAT.ai Corporation | Studied as an architectural and product reference; see [ARCHITECTURE_COMPARISON.md](./ARCHITECTURE_COMPARISON.md). Where code is actually adapted rather than only studied, it is listed under [Adapting CVAT code](#adapting-cvat-code) above — that table, not this row, is the authoritative list. We claim no affiliation with, or endorsement by, CVAT.ai Corporation or Intel Corporation. |
 | [Datumaro](https://github.com/openvinotoolkit/datumaro) | MIT — © Intel Corporation | Evaluated for dataset format conversion and not adopted, for the streaming reasons documented in the architecture comparison. An optional bridge is planned. |
+
+## Sample photographs
+
+`docs/images/samples/` holds four public-domain and CC0 photographs, used by
+`scripts/screenshot.py` to produce the screenshots in the README. Per-image licence and
+attribution travel with them in
+[`docs/images/samples/CREDITS.md`](./images/samples/CREDITS.md).
+
+| File | Licence | Credit |
+| --- | --- | --- |
+| `coffee.jpg` | CC0 | Rachel Michetti, courtesy of Pikolo Espresso Bar |
+| `astronaut.jpg` | Public domain (no known copyright restrictions) | NASA — astronaut Eileen Collins |
+| `rocket.jpg` | Public domain | SpaceX — Falcon 9 carrying DSCOVR, Cape Canaveral |
+| `cat.jpg` | CC0 | Stefan van der Walt |
+
+They were extracted from [scikit-image](https://github.com/scikit-image/scikit-image)'s
+bundled sample data (BSD-3-Clause project; these particular files are public domain or CC0
+in their own right) by `scripts/extract_sample_images.py`. scikit-image is not a
+CurveVision dependency — it was a one-time extraction tool, and the four JPEGs are what is
+committed.
 
 ## Reporting an omission
 

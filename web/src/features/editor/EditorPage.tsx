@@ -37,6 +37,7 @@ import type { AnnotationChange, LabelStyle, ToolName } from '@/canvas/types';
 import { Badge, Button, ErrorNotice, Kbd, Spinner, jobStateTone } from '@/ui/primitives';
 import { AnnotationCanvas, type CanvasHandle } from './AnnotationCanvas';
 import { frameAnnotations, toLabelStyles } from './adapters';
+import { useFrameObjectUrl } from './useFrameObjectUrl';
 import { useAutosave } from './useAutosave';
 
 const TOOLS: { name: ToolName; icon: typeof Square; label: string; key: string }[] = [
@@ -103,10 +104,7 @@ export function EditorPage() {
     [annotations.data, currentFrame],
   );
 
-  const imageUrl = useMemo(
-    () => (task.data ? api.frameUrl(task.data.id, currentFrame) : null),
-    [task.data, currentFrame],
-  );
+  const imageUrl = useFrameObjectUrl(task.data?.id, currentFrame);
 
   const handleChange = useCallback(
     (change: AnnotationChange) => autosave.record(change),
@@ -392,7 +390,11 @@ function LabelPanel({
   return (
     <div className="border-b border-ink-800">
       <h3 className="px-3 py-2 text-xs font-medium uppercase tracking-wide text-ink-500">Labels</h3>
-      <ul className="max-h-52 overflow-auto pb-2">
+      {/* Proportional rather than a fixed 13rem: six labels overflowed that cap and the
+          list was cut through the middle of a row. It still scrolls on a short window —
+          the object list below has to keep its share — but a normal window shows the
+          whole schema. */}
+      <ul className="max-h-[30vh] overflow-auto pb-2">
         {labels.map((label, index) => (
           <li key={label.id}>
             <div

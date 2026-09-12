@@ -5,7 +5,7 @@
 > [`AGENTS.md`](./AGENTS.md) first; it is the working contract. Update this file after every
 > iteration, including the ones that mostly failed.
 >
-> **Last updated:** 2026-09-12 (iteration 2) · branch `claude/curvevision-platform-build-n1g71n` · PRs [#1](https://github.com/Derric01/CurveVision/pull/1)–[#3](https://github.com/Derric01/CurveVision/pull/3) merged · [#4](https://github.com/Derric01/CurveVision/pull/4) open (desktop sign-in + video frames)
+> **Last updated:** 2026-09-12 (iteration 5) · branch `claude/curvevision-platform-build-n1g71n` · PRs [#1](https://github.com/Derric01/CurveVision/pull/1)–[#4](https://github.com/Derric01/CurveVision/pull/4) merged · iterations 3–5 pushed to the branch, no PR open for them yet
 
 ---
 
@@ -32,44 +32,56 @@ container, which made video unusable. `media/video.py` is adapted from CVAT unde
 Frames are decoded from the start of the file, so deep scrubbing is O(n); chunked delivery
 is the next piece and is what turns "works" into "comfortable".
 
-The remaining desktop gap is the open-folder flow: the server endpoint and the shell's
-native picker both exist and are tested, but the web UI does not call them yet, so importing
-a folder still goes through the ordinary upload path.
+**The application has now been driven in a real browser**, which it never had been, and
+that immediately found two defects that made it unusable and that every existing test
+missed: a Content-Security-Policy that blocked the page's own scripts (the desktop window
+opened blank), and frame images fetched by an `<img>` tag that cannot send a bearer token
+(no image ever rendered). Both fixed, both covered by tests that assert response *headers*
+rather than status codes.
+
+`scripts/screenshot.py` is the harness that found them, and it is kept: it drives the
+packaged app in Chromium, seeds a project, draws with real pointer events and photographs
+the result. The README's screenshots come from it, **on real photographs** — public domain
+and CC0, committed under `docs/images/samples/` with their attribution.
+
+**The open-folder flow is connected.** The desktop build offers *Add media from this
+computer* on the task page — the operating system's own dialog, then
+`/tasks/{id}/local-import` with the chosen path — and File ▸ Open Folder… (Cmd/Ctrl+O) does
+the same. A browser is not offered it, because a browser cannot open a native dialog. That
+was the last unconnected piece of the desktop application.
 
 ---
 
 ## Next best action
 
-**Chunked media delivery**, which is now the single thing most limiting video annotation.
+**Chunked media delivery.** It is the main thing still limiting video: serving frame *n*
+decodes *n* frames, so scrubbing to the middle of a ten-minute clip decodes half of it.
+Correct, and not comfortable.
 
-Serving frame *n* decodes from the start of the file (`services/media.render_video_frame`),
-so scrubbing to frame 4,000 of a long video decodes 4,000 frames. That is correct — a frame
-number must identify the same picture every time, which seeking cannot guarantee — but it
-is slow, and it is slow in exactly the interaction annotators do most.
+The pieces already exist — this is assembly, not design:
 
-The design already exists and is half-built:
-
-| Piece | State |
+| Piece | Where |
 | --- | --- |
-| `MediaChunk` model (task, index, quality, start_frame, frame_count, storage_key) | exists |
-| `media.chunk_count` / `chunk_range` helpers | exist, tested |
-| `media.build_chunks` job computing the chunk *plan* | exists; writes no archives |
-| `frames_per_chunk` setting (default 36) | exists |
-| `VideoReader.iterate_frames(wanted)` — decode many frames in one pass | **exists, and is what makes this cheap now** |
+| `MediaChunk` model and the chunk-plan job | `domain/`, `jobs/` |
+| `VideoReader.iterate_frames(wanted)` — one decode pass for a set of frames | `media/video.py` |
+| HTTP range helpers | `api/` |
+| Per-frame decoding, to keep as the fallback | `services/media.render_video_frame` |
 
-The shape: `build_chunks` decodes each run of N frames in a single sequential pass and
-stores them as one zip per chunk; the frame endpoint serves from the chunk; the client keeps
-an LRU and prefetches ±1. One pass per chunk instead of one pass per frame is the whole win.
+Work to do:
 
-Start with the server half (build and serve chunks) and keep per-frame decoding as the
-fallback for a chunk that has not been built yet — that way nothing regresses while the
-background job catches up.
+1. Build a chunk on demand (and from the background job), decoding its frames in **one**
+   pass rather than one pass per frame.
+2. Serve a chunk, and have the editor prefetch the next one.
+3. **Keep per-frame decoding as the fallback** for a chunk that has not been built yet, so
+   nothing regresses while the job catches up — a video must never become unplayable because
+   a chunk is missing.
 
-**Also worth doing, smaller:** `_estimate_frame_count` in `media/probe.py` still uses
-container metadata at upload time, so a task's frame count can be slightly wrong for
-variable-frame-rate video. `VideoReader.frame_count()` is exact. The right fix is to correct
-the count in the background job (where paying for a full decode is fine) rather than in the
-upload request — the `media.probe_task` job is the natural place.
+Measure before and after on a real clip and put the numbers in this file. "Faster" without a
+number is not a claim anyone can check.
+
+**Then:** correct a video task's frame count in a background job. It is currently estimated
+from container metadata at upload time, which is wrong for variable-frame-rate video;
+`VideoReader.frame_count()` is exact and nothing calls it.
 
 ## Completed
 
@@ -113,6 +125,13 @@ numbers are reproducible, and reports unreadable files in `skipped` rather than 
 The orphan-blob collector never deletes a file it did not write. Every route in
 `api/v1/local.py` returns 404 unless `settings.local_mode`.
 
+**Opening a folder from the desktop app** — *Add media from this computer* on the task page,
+and File ▸ Open Folder… (Cmd/Ctrl+O), both call `chooseFolder()` and post the path. Shown in
+the desktop build only. The result is summarised by a pure, separately tested function that
+refuses to call a partial import a success. `scripts/verify_local_import.py` drives it in a
+browser against the packaged server; ADR 0008 records how the page reaches the shell and
+what about it is not covered.
+
 **Desktop sign-in** — `web/src/desktop.ts` validates the `window.__CURVEVISION__` object the
 shell injects before any page script runs. The API client prefers that token over any stored
 session; it is never written to `localStorage`, because the shell mints a fresh one each
@@ -129,6 +148,14 @@ in [THIRD_PARTY_NOTICES](./docs/THIRD_PARTY_NOTICES.md#adapted-source) with the 
 in `licenses/MIT-cvat.txt`. Frames are addressed in decode order rather than by seeking,
 counted by decoding rather than trusted from the container, and served as JPEG with rotation
 metadata applied. A video task is annotatable end to end.
+
+**Serving the application from the server** — `web_root` with an SPA fallback and a
+Content-Security-Policy that actually permits the page to run, which is what makes the
+desktop app one executable and `curvevision-local` a complete CurveVision in a browser.
+
+**A browser harness** — `scripts/screenshot.py` drives the packaged application in Chromium,
+seeds a project, draws with real pointer events and photographs the result. It produces the
+README's screenshots and found two release-blocking bugs on its first run.
 
 **Also** — Python SDK and CLI, Docker Compose deployment, CI, issue/PR templates, and the
 full docs set including seven ADRs.
@@ -148,74 +175,156 @@ full docs set including seven ADRs.
 
 ## Remaining high-priority work
 
-1. **The open-folder flow in the web UI** — the last unconnected piece of the desktop
-   story. Deferred this iteration because verifying Tauri IPC from the page needs a rendered
-   webview, which this environment cannot provide; see *Tried and rejected*.
-2. **Chunked media delivery** — see [Next best action](#next-best-action). Now the main
+1. **Chunked media delivery** — see [Next best action](#next-best-action). Now the main
    limit on video annotation, and `VideoReader.iterate_frames(wanted)` already makes the
    server half cheap: one decode pass per chunk instead of one per frame.
-3. **An exact frame count for video**, corrected in a background job rather than estimated
+2. **An exact frame count for video**, corrected in a background job rather than estimated
    at upload.
-4. **Track-editing timeline UI.**
-5. **Signed installers in CI** — one runner per platform; PyInstaller does not cross-compile.
-6. **Webhook retry/backoff** wired to the job queue.
+3. **Track-editing timeline UI.**
+4. **Signed installers in CI** — one runner per platform; PyInstaller does not cross-compile.
+5. **Webhook retry/backoff** wired to the job queue.
+6. **`choose_files` is still unused.** The shell can open a native *file* picker as well as a
+   folder one, and `/tasks/{id}/local-import` accepts a file path. Connecting it is small, and
+   deliberately left until someone wants it — the folder case is the one that matters.
 
 ---
 
 ## Last iteration
 
-**Made video tasks annotatable**, by adapting CVAT's decoding strategy rather than
-re-deriving it.
+**Connected the open-folder flow — the last unwired piece of the desktop application.**
+Deferred twice before this, both times because it could not be verified; a browser harness
+existed by this iteration, so it went first.
 
-The bug: `GET /tasks/{id}/frames/{n}/data` streamed the *blob*. For an image that is the
-frame; for a video it is the entire container. Every frame of a video task returned the same
-multi-megabyte file, so video annotation did not work at all.
+* **How the page calls the shell is now decided and recorded**: `@tauri-apps/api`, imported
+  dynamically behind `isDesktop()`, with `withGlobalTauri` left `false`. The build confirms
+  the split — `core-*.js` (0.24 kB) and `event-*.js` (1.45 kB) are separate chunks a browser
+  never requests. Reasoning, and the two rejected alternatives, in
+  [ADR 0008](./docs/adr/0008-calling-the-desktop-shell.md).
+* **The whole shell surface is three functions** in `web/src/desktop.ts` — `chooseFolder`,
+  `onOpenFolder`, `OPEN_FOLDER_EVENT` — because that is the part with no automated coverage
+  anywhere, and it should be as small as it can be. Their browser contract (`null` from the
+  picker, a no-op subscription) is itself tested, so the browser build cannot start throwing
+  from a menu subscription at mount.
+* **The task page offers *Add media from this computer*** in the desktop build only, and the
+  shell's File ▸ Open Folder… menu event does the same thing through the same function.
+* **The result is reported honestly.** `summariseImport` is a pure function with its own
+  tests, and the case it exists for is the partial one: the server attaches what it can and
+  lists what it could not, so a folder with one corrupt file must never be reported as a
+  clean success. It also distinguishes "no media found" from "nothing could be read", which
+  are different problems with different fixes.
+* **`scripts/verify_local_import.py`** drives all of it in Chromium against the packaged
+  server — eleven checks: the browser build is not offered the picker, the desktop build is,
+  mounting with no shell raises nothing, and a missing shell shows an error rather than
+  white-screening.
 
-- `server/curvevision/media/video.py` (new, adapted from CVAT `media_extractors.py` at
-  `1d0c395`). Three things were worth taking and would have been painful to rediscover:
-  frames are addressed **in decode order rather than by seeking**, because seeking lands on
-  the nearest keyframe and a frame number must identify the same picture every time an
-  annotation refers to it; frame counts are **measured by decoding**, because
-  `stream.frames` is zero in many containers and wrong in others; and two real-file edge
-  cases — the `DURATION` metadata fallback (Matroska routinely omits a stream duration) and
-  rotation metadata, without which phone video is annotated sideways.
-- `services/media.render_video_frame` decodes off the event loop, reading a blob annotated
-  in place straight from its path so a large video is not loaded into memory for one frame.
-- `api/v1/tasks.frame_data` serves that for video blobs.
-- `media/probe.py` now delegates metadata to the reader, gaining the duration fallback, and
-  keeps a *fast* frame-count estimate at upload time with the reason written down — an exact
-  count means decoding the whole video, and that cannot happen inside an upload request.
+  Then it **clicks the whole thing through**. `invoke` bottoms out at
+  `window.__TAURI_INTERNALS__.invoke`; standing in for *that*, and only that, leaves
+  everything above it real — the click, the dynamic import, the HTTP call, the cache
+  invalidation, and the sentence the user reads. On a folder of four photographs plus one
+  corrupt image the page says *"Imported 4 files; skipped 1 file. This task now has 4
+  frames."* and names `truncated.jpg` with the server's own reason. This is not a claim that
+  IPC works; it is how much can be checked without it.
 
-**Departures from CVAT's version, deliberately:** rotation is applied when a frame becomes
-an image (Pillow, already a dependency) rather than to the decoded frame (NumPy, which would
-be a new one); there is no 3D/point-cloud dimension, no manifest, and no Django or DRF.
+  The browser-build check was confirmed to fail when the `isDesktop()` guard is removed.
 
-**A gap this turned up:** `av` was not in the `dev` extra, so every video test would have
-**silently skipped in CI** — the hardest code in the repository shipping untested while the
-suite showed green. Added, for the same reason Pillow already was.
+### Iteration 4
+
+**Replaced the screenshots' synthetic frames with real photographs, and fixed what that
+exposed.** The complaint was that the imagery did not look real, and it was right: the old
+frames were vector shapes drawn in PIL.
+
+* **Four real photographs are now committed** under `docs/images/samples/` — an espresso cup
+  (CC0), a cat (CC0), an astronaut portrait (NASA, public domain) and a rocket on the pad
+  (SpaceX, public domain). `scripts/extract_sample_images.py` is how they were produced, and
+  `docs/images/samples/CREDITS.md` carries licence and attribution per file. scikit-image was
+  a one-time extraction tool, **not** a new dependency; the JPEGs are the artefact.
+* **The label schema now matches the imagery** (`cup`, `saucer`, `spoon`, `cat`, `person`,
+  `rocket`) and covers the whole set rather than only the frame being photographed.
+* **Boxes are measured in image pixels, not viewport fractions.** `canvas_point()` in the
+  screenshot script mirrors `fitToImage` from `web/src/canvas/viewport.ts`, so a box measured
+  once off the photograph lands on the object at any window size. The old fractions were
+  tuned to one layout and would have slid off it silently.
+* **The project page is photographed last**, after the annotations are drawn, so its
+  statistics (`Shapes 3`, `Unannotated frames 3`, class distribution) describe work that
+  actually happened. Captured before, it showed an empty project next to a full editor.
+* **The trim height is measured, not hard-coded** — a magic `770` had already stopped
+  matching the page and cut a card in half once the statistics grew a row.
+
+Two defects came out of looking at the result:
+
+* **The editor's label list clipped through the middle of a row** at six labels — a fixed
+  `max-h-52` (13rem) cap. Now proportional (`max-h-[30vh]`), so a normal window shows the
+  whole schema and a short one still scrolls.
+* **Two licensing claims were false.** `THIRD_PARTY_NOTICES.md` and
+  `ARCHITECTURE_COMPARISON.md` both still asserted "No CVAT source code is present in this
+  repository" while the same notices file listed `media/video.py` as adapted from CVAT three
+  sections earlier. Iteration 3 corrected that sentence in the README and missed its two
+  copies. Both now point at the adaptation table as the authoritative list.
+
+### Iteration 3 (for context)
+
+**Drove the application in a real browser for the first time, and fixed the two defects
+that found.** Also rewrote the README as a landing page.
+
+Both bugs hid behind a 200, which is why 300 tests missed them:
+
+* **The page never loaded.** `Content-Security-Policy: default-src 'none'` is exactly right
+  for a JSON API and was written when that is all this process was. Once the same process
+  began serving the web bundle, it blocked every script and stylesheet. The desktop window
+  had been opening blank. The API keeps the strict policy; only responses that *are* the
+  application get one that lets it run, and an API-only deployment is untouched.
+* **No image ever rendered.** The editor set `<img>.src` to the frame endpoint with
+  `crossOrigin = 'use-credentials'`, which sends cookies — but the API authenticates with
+  bearer tokens, so every frame was a 401 and the canvas drew a broken image. Frames are now
+  fetched through the API client and handed over as object URLs, revoked when replaced.
+
+`scripts/screenshot.py` is the harness that found both, kept deliberately. It seeds a
+project from synthetic frames, drives the real packaged app in Chromium, draws with real
+pointer events, and photographs the result.
+
+**README rewritten as a landing page**: hero screenshot of the working editor, the problem
+in the reader's words, three columns on why it exists, then the fastest path to running it.
+Badges limited to verifiable facts — CI, licence, language versions — with no download
+counts, star counts or coverage number there is no gate for.
+
+**Two claims in it had gone false**, which matters more than the layout: it still said the
+desktop application was Planned with no working build, and that no CVAT source code was
+present. Both corrected; the second is a licensing claim and was the more urgent.
 
 ## Verification performed
 
-This iteration:
-
 ```
 ./scripts/check.sh                    all 9 steps green
-  ruff · ruff format · mypy (78 files) · pytest server (188) · pytest sdk (12)
+  ruff · ruff format · mypy (78 files) · pytest server (201) · pytest sdk (12)
   notices (51 deps) · eslint · tsc · vitest (115)
 ```
 
-28 of those server tests are new: 21 unit tests that encode a real video with PyAV and
-decode it back (a mocked decoder would test the mock), and 7 API tests driving upload →
-task → frame.
+Iteration 5 additionally ran `scripts/verify_local_import.py` against a freshly built bundle
+and sidecar — eleven checks, all green — and confirmed it bites by removing the `isDesktop()`
+guard and watching the browser-build check fail.
 
-**The regression tests were proved to bite.** The frame-serving fix was disabled and the
-suite re-run: three tests failed, including `PIL.UnidentifiedImageError` when the editor
-received a container where it expected a picture. Restored, all pass. A fix never seen to
-fail is a guess.
+Iteration 4 rebuilt the web bundle and the PyInstaller sidecar and re-ran
+`scripts/screenshot.py` against the packaged binary end to end: four photographs uploaded,
+three boxes drawn through real pointer events, autosave settled, both screenshots
+regenerated. Each screenshot was then **looked at**, including a 1:1 crop — which is what
+caught the label-list clipping and the 4x-magnified mush described under *Tried and
+rejected*. A screenshot script that is never run with human eyes on its output is a script
+that ships a broken picture.
 
-Carried forward from earlier iterations (still true, not re-run this time): the packaged
-desktop binary authenticating from the injected connection, loopback-only refusal,
-path-traversal probes, `kill -9` orphan prevention, and the migration up/down/up.
+13 of those server tests are new and assert response **headers** — what a browser acts on,
+and what nothing previously checked.
+
+**In a real browser, against the packaged binary** (this is the verification that was
+missing, and it is the reason this iteration found anything):
+
+| Check | Before | After |
+| --- | --- | --- |
+| Page renders | blank; 5 CSP violations in console | renders, console clean |
+| Frame image | 401, `drawImage` on a broken element | image drawn |
+| Drawing with real pointer events | n/a | 5 shapes, mixed labels, autosave settled |
+| Desktop injection path end to end | never exercised in a browser | works; the version chip confirms it |
+
+122 relative links and images across the docs resolve.
 
 ## Bugs fixed
 
@@ -230,7 +339,11 @@ path-traversal probes, `kill -9` orphan prevention, and the migration up/down/up
 | Two doc sections both numbered 0.2 | New section collided with Phase 0's numbering. | Manual |
 
 | A video frame request returned the entire video | `frame_data` streamed the blob. For an image the blob *is* the frame; for a video it is a container holding thousands. Video annotation did not work at all. | `tests/api/test_video_media.py` — proved to fail with the fix disabled |
+| The web application never loaded when the server served it | `Content-Security-Policy: default-src 'none'` — correct for a JSON API, and correct when written — blocked every script and stylesheet once the same process began serving the bundle. The desktop window opened blank. Every request returned 200. | `tests/api/test_web_app_serving.py` (13 tests), plus a real browser with a clean console |
+| No frame image ever rendered in the editor | `<img>.src` on the frame endpoint with `crossOrigin = 'use-credentials'` sends cookies; the API uses bearer tokens, so every frame was 401 and the canvas drew a broken element. | Frames fetched through the API client as object URLs; verified by screenshotting a drawn annotation over a rendered frame |
 | Video tests would have skipped silently in CI | `av` was in the `media` extra but not `dev`, and CI installs `[dev]`. `pytest.importorskip` would have skipped every video test while the suite reported green. | Added to `dev`; the tests run rather than skip |
+| The editor's label list was cut through the middle of a row | A fixed `max-h-52` (13rem) cap on the list; six labels need ~14rem. Functional — it scrolled — but it looked broken, and a six-label schema is not unusual. Now `max-h-[30vh]`. | Regenerated screenshot: all six labels visible, `OBJECTS` heading intact below |
+| Two documents claimed no CVAT source code is present, while a third section of one of them listed the file that is | Iteration 3 corrected that sentence in the README only; `THIRD_PARTY_NOTICES.md` and `ARCHITECTURE_COMPARISON.md` kept their copies. A licensing claim that contradicts itself three sections apart is worse than no claim. | Both now defer to **THIRD_PARTY_NOTICES § Adapting CVAT code** as the authoritative list |
 
 ---
 
@@ -242,12 +355,16 @@ path-traversal probes, `kill -9` orphan prevention, and the migration up/down/up
   time because an exact count means decoding the whole file. It can be slightly wrong for
   variable-frame-rate video. `VideoReader.frame_count()` is exact and cheap to call from a
   background job; nothing calls it yet.
-- **The desktop UI has been verified through the API, not through a rendered window.**
-  The chain is covered — the shipped bundle reads the injection, the token authenticates,
-  both sides pin the JSON keys — but no test renders `App.tsx` and asserts that the sign-in
-  screen is skipped. The web test setup is `environment: node` with no DOM, so adding React
-  rendering tests would mean jsdom plus `@testing-library/react`. Worth doing when the UI
-  surface grows; not worth it for one conditional.
+- **The browser harnesses are not in CI.** `scripts/screenshot.py` found two
+  release-blocking bugs in one run, and `scripts/verify_local_import.py` is the only check on
+  the desktop import flow; nothing stops either regressing automatically. Both need a
+  packaged sidecar and a Chromium, so neither is a cheap CI job — but they are the only
+  things that test the product as a user meets it. Worth a nightly or pre-release job.
+- **Playwright drives Chromium, not the Tauri webview.** The React half is now testable end
+  to end; an actual `invoke()` across the IPC bridge still is not.
+- **The screenshots are generated, not committed by hand** — re-run `scripts/screenshot.py`
+  after any visible UI change or they will drift from the product, which is the specific
+  failure mode a screenshot in a README has.
 - **The window-close path is code-reviewed, not exercised.** Graceful shutdown is covered by
   a Rust test that boots the real packaged server and proves shutdown reaps it, and the crash
   path is verified by `kill -9` — but *a human clicking the close button* could not be tested
@@ -268,6 +385,24 @@ path-traversal probes, `kill -9` orphan prevention, and the migration up/down/up
 
 ## Tried and rejected
 
+- **Hand-rolling photorealism in PIL.** The first answer to "the images do not look real"
+  was a more elaborate synthetic renderer — single vanishing point, atmospheric perspective,
+  contact shadows, depth of field, sensor grain, vignette. It was rendered, looked at, and
+  was **worse**: noisy, with buildings floating translucent over the road, and still
+  unmistakably vector art. Deleted rather than kept alongside the original. The ceiling on
+  procedural realism in a 2D drawing library is low, and real public-domain photography costs
+  four files and an attribution table. Do not re-attempt this.
+- **Fetching photographs from the obvious places.** Wikimedia Commons, NASA and stock
+  libraries are all refused by the egress proxy (403 on CONNECT). PyPI and GitHub are
+  reachable, which is why the images come from a Python package's bundled sample data.
+  Anything larger in that dataset needs `pooch` and is either poorly suited (a retinal
+  fundus, a deep field) or of unclear licence (Middlebury stereo pairs), so 600×400 is the
+  practical ceiling here.
+- **Capturing the editor at `device_scale_factor=2`.** Sharper chrome, *softer* photograph:
+  the editor already fits a 600×400 frame to a ~1200px canvas, and doubling that magnifies it
+  to 4× native, which is visibly mushy in a 1:1 crop. Now captured at 1, which is close to
+  1:1 for a README on a high-density display anyway. If a larger source photograph ever
+  becomes available, revisit — the trade only exists because the frames are small.
 - **Computing `start_frame` from a `SUM` per asset during import.** Looked like a bug fix;
   was not. `tasks.recount_frames` already reindexes every offset from position order after
   the batch, so the per-asset value is provisional either way — and the SUM added a query per
@@ -277,17 +412,30 @@ path-traversal probes, `kill -9` orphan prevention, and the migration up/down/up
   Alembic owns its own event loop. `bootstrap` is a synchronous entry point by design; tests
   call it through `asyncio.to_thread`, exactly as the packaged sidecar does before uvicorn
   starts.
-- **Building the open-folder flow this iteration**, which the previous handoff named as the
-  next action. Investigated and deferred, not forgotten. The page runs with
-  `withGlobalTauri: false`, so calling the shell needs either `@tauri-apps/api`
-  (dynamic-imported behind `isDesktop()`) or flipping that flag. Reading the Tauri source
-  settled the security question — `withGlobalTauri` only controls whether the convenience
-  object is attached to `window`; the IPC bootstrap (`__TAURI_INTERNALS__`) is injected
-  either way, so the real boundary is `capabilities/default.json`, not the flag. **The
-  blocker is verification, not the decision:** proving IPC works from the page's remote
-  origin needs a rendered webview, which this environment has no way to drive. Video
-  extraction was fully verifiable and higher value, so it went first. Whoever picks this up
-  should either have a desktop to test on, or add a webview-driving harness before starting.
+- **Keeping `default-src 'none'` on the served web application.** It reads as the secure
+  choice and it is not a choice at all: it blocks the page's own scripts, so the result is
+  a blank window, not a hardened one. The API keeps it; the application gets the narrowest
+  policy that still runs. If someone tightens this again, the tests in
+  `test_web_app_serving.py` say why they should not.
+- **Serving frames from a public bucket, or via a query-string token**, to make `<img src>`
+  work. Both give up the permission check the media endpoint performs, which is the point
+  of it. Fetching with the client's credential and wrapping the bytes in an object URL keeps
+  authorisation intact and costs one hook.
+- **Deferring the open-folder flow, twice** — *resolved in iteration 5, kept because the
+  reasoning still applies to anything else that touches IPC.* Both deferrals were for the
+  same reason: proving `invoke()` works from the page needs a rendered Tauri webview, and
+  this environment has no way to drive one. That never became possible. What changed is the
+  conclusion drawn from it — the *uncoverable* part is three functions, and everything
+  around them (which build offers the picker, what happens when the shell is missing, what
+  the user is told about a partial import) is coverable and now covered. Waiting for total
+  coverage would have meant waiting forever. See ADR 0008.
+- **Flipping `withGlobalTauri` to `true`, and calling `__TAURI_INTERNALS__` directly.** The
+  two alternatives to taking the `@tauri-apps/api` dependency. Reading the Tauri source
+  settled what had been treated as a security question: `withGlobalTauri` only controls
+  whether the convenience object is attached to `window`; the IPC bootstrap is injected
+  either way, so the real boundary is `capabilities/default.json`, not the flag. That makes
+  it a question of surface area and types, which the dependency wins — and calling the
+  internals directly buys the same thing with no stability contract at all. ADR 0008.
 - **Rotating video frames through NumPy**, as CVAT does. It is the natural port of their
   code, but it would add NumPy as a dependency for an operation Pillow — already required —
   performs on the very next line, when the frame becomes an image. Rotation is applied at
@@ -338,6 +486,18 @@ Significant ones have ADRs; these are the ones a future agent would otherwise se
   video design: it rules out seeking, forces decode-order addressing, and makes chunking
   (rather than caching or approximation) the correct way to get speed back. An annotation
   that drifts to a different frame is worse than a slow one.
+- **The product gets tested as a user meets it, not only through its API.** Two defects
+  that made the application unusable survived 300 passing tests because both return 200 to
+  a non-browser client. Status codes and response bodies are not enough; headers and a real
+  rendering engine are.
+- **[ADR 0008](./docs/adr/0008-calling-the-desktop-shell.md) — reaching the shell.** The page
+  calls Tauri through `@tauri-apps/api`, dynamically imported behind `isDesktop()`, with
+  `withGlobalTauri` left `false`. The corollary matters more than the choice: **anything that
+  cannot be covered gets confined, not avoided.** IPC has no automated coverage anywhere and
+  will not get any here, so it lives in three functions whose browser behaviour *is* tested,
+  and every caller is written against that contract.
+- **Screenshots are generated from the running product, never mocked up.** A flattering
+  mockup is a lie anyone who installs the app can check.
 - **Optional dependencies are installed in `dev`.** Pillow and PyAV are optional at runtime
   and the server degrades honestly without them — but a test that skips is not a test that
   passes, so CI installs both.

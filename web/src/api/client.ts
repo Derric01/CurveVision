@@ -20,6 +20,7 @@ import type {
   Issue,
   Job,
   Label,
+  LocalImportResult,
   ModelRegistration,
   Organization,
   Page,
@@ -272,13 +273,30 @@ export const api = {
     });
   },
 
+  /**
+   * Attach media that is already on this machine, without copying it.
+   *
+   * Desktop only: the server 404s this route unless it is running in local mode, because
+   * on a shared instance a path names a file on the *server's* disk.
+   */
+  localImport: (taskId: string, input: { path: string; recursive?: boolean }) =>
+    request<LocalImportResult>(`/tasks/${taskId}/local-import`, { method: 'POST', body: input }),
+
   taskJobs: (taskId: string) => request<Job[]>(`/tasks/${taskId}/jobs`),
   taskProgress: (taskId: string) => request<TaskProgress>(`/tasks/${taskId}/progress`),
   frameInfo: (taskId: string, frame: number) =>
     request<FrameInfo>(`/tasks/${taskId}/frames/${frame}`),
 
-  /** Absolute URL for a frame's pixels; the <img> element fetches it directly. */
-  frameUrl: (taskId: string, frame: number) => `${API_PREFIX}/tasks/${taskId}/frames/${frame}/data`,
+  /**
+   * A frame's pixels.
+   *
+   * Fetched rather than handed to `<img src>`, because an `<img>` element cannot send an
+   * `Authorization` header and the media endpoint requires one — it enforces the same
+   * permission check as the rest of the API rather than serving pixels from a public
+   * bucket. The caller turns this into an object URL and revokes it when done.
+   */
+  frameBlob: (taskId: string, frame: number, signal?: AbortSignal) =>
+    request<Blob>(`/tasks/${taskId}/frames/${frame}/data`, { signal }),
 
   // ------------------------------------------------------------------------- jobs
   jobs: (params?: { mine?: boolean; state?: string; limit?: number }) =>
