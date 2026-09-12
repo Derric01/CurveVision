@@ -5,7 +5,7 @@
 > [`AGENTS.md`](./AGENTS.md) first; it is the working contract. Update this file after every
 > iteration, including the ones that mostly failed.
 >
-> **Last updated:** 2026-09-12 (iteration 12) · branch `claude/curvevision-platform-build-n1g71n` · PRs [#1](https://github.com/Derric01/CurveVision/pull/1)–[#5](https://github.com/Derric01/CurveVision/pull/5) merged · iterations 6–8 in open PR [#6](https://github.com/Derric01/CurveVision/pull/6)
+> **Last updated:** 2026-09-12 (iteration 13) · branch `claude/curvevision-platform-build-n1g71n` · PRs [#1](https://github.com/Derric01/CurveVision/pull/1)–[#6](https://github.com/Derric01/CurveVision/pull/6) merged (iterations 1–12) · iteration 13 is the open PR on this branch
 
 ---
 
@@ -19,9 +19,15 @@ supervises it, and folders annotated in place without copying a byte.
 
 **The tree is green.** `./scripts/check.sh` passes all nine steps.
 
-Honestly incomplete, and marked as such everywhere: video annotation (chunked frame
-extraction), the track-editing timeline, the mask brush, the keypoint UI, quality reports,
-resumable uploads, and signed desktop installers.
+Honestly incomplete, and marked as such everywhere: the track-editing timeline (read-only),
+the mask brush, the keypoint UI, quality reports (no UI), resumable uploads, and signed
+desktop installers.
+
+**Annotation quality is now measured rather than declared.** `QualityReport` had been a
+table nothing wrote to — the clearest "toy" left in the codebase. A task can now hold a
+ground-truth job, and scoring an annotation job against it produces per-label
+precision/recall/F1 and a conflict list that names each mistake. Over the API and the SDK
+and the CLI; not yet in the editor.
 
 The desktop window **signs itself in from the connection the shell injects** and opens
 straight into the application.
@@ -79,6 +85,11 @@ anything new about keyframe positions belongs.
 
 **Then, in rough order:**
 
+* **Show a quality report in the editor.** The arithmetic, the endpoints, the SDK and the
+  CLI all exist; a reviewer still has to run `curvevision job score` to see any of it. The
+  conflict list is already frame-addressed and shape-addressed, so the natural shape is a
+  panel that lists conflicts and seeks to one on click — the same move the issues panel
+  makes. Creating a ground-truth job has no UI either.
 * **Pre-build chunks after a video upload.** `media.build_chunks` builds rather than plans,
   and nothing enqueues it. `media.probe_task` is now enqueued from the same place and
   already decodes the whole file to count it — so the honest move is probably **one** job
@@ -151,6 +162,21 @@ requests, ±1 prefetch) and reads it with a dependency-free stored-ZIP reader th
 anything it does not understand. 17× fewer decoded frames and 12× fewer requests when
 stepping; the measurements and the sparse-scrub cost are in `docs/IMPLEMENTATION_PLAN.md`.
 
+**Quality reports against ground truth** — `POST /tasks/{id}/ground-truth` creates the job
+holding a task's answer key (one per task, any contiguous frame range, defaulting to the
+whole task); `POST /jobs/{id}/quality` scores an annotation job against it and stores a
+`QualityReport`. Matching is greedy on descending IoU, which is COCO's rule, and geometry is
+exact — polygons clipped by Sutherland–Hodgman and measured by the shoelace formula, so two
+triangles sharing a bounding box score near zero rather than one. Conflicts are classified
+into *missing*, *extra*, *wrong label* and *poor overlap*, because "you missed it", "you
+invented it", "you called it the wrong thing" and "you were close" need different fixes.
+Three ways the number could have been dishonest are each refused by a test: scoring frames
+the ground truth never covered, scoring a job against itself, and letting the annotator read
+the answer key. `services/comparison.py` is pure — no ORM import — and follows the
+comparison strategy of another project's MIT-licensed source, credited in
+[THIRD_PARTY_NOTICES](./docs/THIRD_PARTY_NOTICES.md#adapted-source). Reachable from the SDK
+(`create_ground_truth_job`, `score_job`) and the CLI (`task ground-truth`, `job score`).
+
 **Opening a folder from the desktop app** — *Add media from this computer* on the task page,
 and File ▸ Open Folder… (Cmd/Ctrl+O), both call `chooseFolder()` and post the path. Shown in
 the desktop build only. The result is summarised by a pure, separately tested function that
@@ -198,6 +224,7 @@ full docs set including seven ADRs.
 | Surfacing an uncorrected frame count | When a task already carries annotations, `media.probe_task` declines the correction and says so in its result. Nothing shows that to a user. |
 | Webhooks | Delivery works and is signed; retry/backoff is not wired to the queue. |
 | Mask brush, keypoint UI | Storage, export and the model exist on both sides; neither drawing tool does. |
+| Quality reports | Scoring works end to end over the API, the SDK and the CLI, and is tested. **No UI**: nothing in the editor creates a ground-truth job or shows a report. The comparison also runs inline rather than on the `quality` queue, which a very large ground truth would change. |
 
 *This table went stale once — it still listed the open-folder flow and chunked delivery as
 unbuilt several iterations after both shipped, because the narrative sections above were
@@ -209,21 +236,68 @@ being updated and this one was not. Check it against* Completed *before trusting
 
 1. **Editing keyframes from the timeline** — it shows them; acting on them is what makes it
    a tool rather than a map. See [Next best action](#next-best-action).
-2. **Pre-build chunks after a video upload.** `media.build_chunks` builds rather than plans,
+2. **A quality report in the editor**, and a way to create a ground-truth job without the
+   CLI. The measuring is done and tested; none of it is visible to someone annotating.
+3. **Pre-build chunks after a video upload.** `media.build_chunks` builds rather than plans,
    and nothing enqueues it. Careful: the desktop queue is inline, and `media.probe_task`
    already decodes the whole file — one job that counts and builds probably beats two.
-3. **A browser harness in CI.** Four exist (`screenshot.py`, `verify_local_import.py`,
+4. **A browser harness in CI.** Four exist (`screenshot.py`, `verify_local_import.py`,
    `verify_chunked_frames.py`, `verify_track_timeline.py`) and between them they have found
    every defect the unit suites missed.
-4. **Signed installers in CI** — one runner per platform; PyInstaller does not cross-compile.
-5. **Webhook retry/backoff** wired to the job queue.
-6. **`choose_files` is still unused.** The shell can open a native *file* picker as well as a
+5. **Signed installers in CI** — one runner per platform; PyInstaller does not cross-compile.
+6. **Webhook retry/backoff** wired to the job queue.
+7. **`choose_files` is still unused.** The shell can open a native *file* picker as well as a
    folder one, and `/tasks/{id}/local-import` accepts a file path. Connecting it is small, and
    deliberately left until someone wants it — the folder case is the one that matters.
 
 ---
 
 ## Last iteration
+
+**Made the quality report real.** `QualityReport` declared `iou_threshold`, `precision`,
+`recall`, `f1` and `details`, and **nothing computed any of it** — no service, no handler,
+no endpoint. A table with metric columns that nothing writes to is the most flattering kind
+of unfinished: it reads as a shipped feature in every schema diagram.
+
+* **`services/comparison.py`** is the arithmetic, and it imports no ORM — `ComparableShape`
+  is a `Protocol`, so the module is pure and testable without a database. Greedy matching on
+  descending IoU (COCO's rule), exact polygon geometry (Sutherland–Hodgman clipping, shoelace
+  area), and four named conflict kinds. It follows the comparison strategy of another
+  project's MIT-licensed source; credited in THIRD_PARTY_NOTICES.
+* **`services/quality.py`** decides *what* to measure, which is where the judgement is:
+  only frames the ground truth covers, and tracks flattened to their interpolated position
+  on every frame so a track and a shape describing the same object score as a match.
+* **`POST /tasks/{id}/ground-truth`** was the missing link. Without it the feature was
+  unreachable — the tests had to insert a `Job` row directly, which is exactly the signal
+  that a feature is not finished. One per task, refusing a second: `find_ground_truth_job`
+  takes the lowest-indexed one, so two would silently decide every score on the task.
+* **The answer key is now protected.** Any org member at viewer rank could read any job's
+  annotations, ground-truth jobs included — so an annotator being scored could read the
+  answers. `ResourceContext` gained `job_kind`, and reading a ground-truth job's annotations
+  now takes reviewer rank or assignment to that job. A score an annotator could have copied
+  measures nothing, which is worse than no score because it looks like evidence.
+* **SDK and CLI** reach all of it: `create_ground_truth_job`, `score_job`,
+  `quality_report`, `task_quality`; `curvevision task ground-truth` and
+  `curvevision job score --iou`. Both CLI commands were driven against a live server.
+
+**A flattering-failure bug, found by looking at a real report rather than at the tests.**
+Dumping an actual response to check the API doc's example showed `missing: 2` against only
+one `missing` conflict — and the arithmetic behind it counted a below-threshold box as a
+false negative but **not** as a false positive. So an annotator who drew every box too
+loosely scored precision 1.0: "everything you drew was right", when by the threshold's own
+definition none of it was. It was also inconsistent with the wrong-label branch four lines
+up, which correctly counts one mistake on both sides. Fixed, with two tests written to fail
+first; the conflict is still *reported* once, because a reviewer wants one row saying "you
+were close", not two.
+
+**Parked and deleted rather than committed:** a honeypot-frame selector adapted from the
+same upstream source. Our `Job` model has only contiguous `start_frame`/`stop_frame` with no
+per-job frame list, so sprinkling ground-truth frames through ordinary jobs has no caller
+without a schema change. It was written, then deleted — committing it would have been dead
+code wearing the appearance of a feature, which is the thing this iteration set out to
+remove.
+
+### Iteration 12
 
 **A doc-drift audit, prompted by a good question: had the fast pace cost quality?** It had,
 in four places. None of them was code — the tree stayed green throughout — and all four were
@@ -558,9 +632,29 @@ present. Both corrected; the second is a licensing claim and was the more urgent
 
 ```
 ./scripts/check.sh                    all 9 steps green
-  ruff · ruff format · mypy (78 files) · pytest server (221) · pytest sdk (12)
+  ruff · ruff format · mypy · pytest server (272) · pytest sdk (13)
   notices (52 deps) · eslint · tsc · vitest (170)
 ```
+
+Iteration 13 added 51 server tests (272, up from 221): 32 in
+`tests/services/test_comparison.py` and 19 in `tests/api/test_quality.py`, plus one SDK test
+that drives the whole loop over real HTTP. Two of them were written to **fail first** and
+did, which is how the precision bug above was caught rather than argued about. Three more
+were confirmed to bite by breaking the code they cover:
+
+| Broken deliberately | Caught by |
+| --- | --- |
+| `Action.UPDATE` → `Action.VIEW` on ground-truth creation | `test_an_annotator_cannot_declare_the_ground_truth` |
+| The ground-truth annotation guard disabled | `test_an_annotator_cannot_read_the_answer_key` |
+| `frames=None` instead of the overlap | `test_frames_the_ground_truth_never_covered_are_not_scored` |
+
+The load-bearing one is `test_a_polygon_is_not_compared_by_its_bounding_box`: two triangles
+sharing a bounding box must score under 0.02, because a bbox approximation would report them
+as the same object and every polygon score would be fiction.
+
+Both CLI commands were run against a live uvicorn server — `task ground-truth` (including
+its 409 on a second) and `job score` at two thresholds — because a CLI has no test harness
+here and "it type-checks" is not the same as "it works".
 
 Iteration 8 added 8 tests in `server/tests/api/test_frame_count_correction.py` (221 server
 tests, up from 213) and confirmed they bite: with the correction disabled, 6 of the 8 fail,
@@ -643,6 +737,9 @@ missing, and it is the reason this iteration found anything):
 | Video tests would have skipped silently in CI | `av` was in the `media` extra but not `dev`, and CI installs `[dev]`. `pytest.importorskip` would have skipped every video test while the suite reported green. | Added to `dev`; the tests run rather than skip |
 | The editor's label list was cut through the middle of a row | A fixed `max-h-52` (13rem) cap on the list; six labels need ~14rem. Functional — it scrolled — but it looked broken, and a six-label schema is not unusual. Now `max-h-[30vh]`. | Regenerated screenshot: all six labels visible, `OBJECTS` heading intact below |
 | Two documents claimed no third-party source is present, while a third section of one of them listed the file that is | Iteration 3 corrected that sentence in the README only; two other documents kept their copies. A licensing claim that contradicts itself three sections apart is worse than no claim. | Both now defer to **THIRD_PARTY_NOTICES § Adapted source** as the authoritative list |
+| A box drawn too loosely scored **precision 1.0** | A below-threshold annotated shape was counted as a false negative against the ground truth but skipped in the false-positive pass, so it never reached precision's denominator. An annotator who drew everything sloppily got "everything you drew was right". Found by dumping a real report to check a doc example, not by a test. | `test_a_near_miss_costs_precision_as_well_as_recall` and `test_one_loose_box_over_two_objects_is_counted_once`, both written to fail first |
+| An annotator could read the ground truth they were scored against | `(ANNOTATION, VIEW)` floors at `Role.VIEWER`, and nothing distinguished a ground-truth job from any other. The answer key was readable by everyone being tested on it. | `test_an_annotator_cannot_read_the_answer_key`; confirmed to fail with the guard disabled |
+| A polyline could "match" a rectangle | `to_polygon` returned a polyline's vertices, which the shoelace formula closes into a phantom triangle — a three-point polyline reported an area of 25 and could claim agreement that does not exist. | `AREA_SHAPES` gates it; `test_a_polyline_encloses_nothing` |
 
 ---
 
@@ -673,6 +770,18 @@ missing, and it is the reason this iteration found anything):
   applying half of itself. The job reports it; nothing surfaces that to a user yet. Rare by
   construction (the job runs right after upload), but it is a real hole: a task that
   acquired annotations before the job ran stays wrong permanently.
+- **A quality report has no UI.** Creating a ground-truth job and scoring against it are
+  API, SDK and CLI only. A reviewer working in the editor cannot see any of it, which means
+  the feature is currently for scripted workflows. The conflict list is frame- and
+  shape-addressed already, so a panel that seeks to a conflict is the obvious next step.
+- **The comparison runs inline, not on the queue.** It is arithmetic over rows already in
+  the database and a reviewer asking "how did this go" should get an answer rather than a
+  task id to poll — but a ground truth of many thousands of frames would make that a slow
+  request. `QUEUE_ROUTING` already has a `quality` queue waiting for the day it matters.
+- **A ground-truth job covers one contiguous frame range.** `Job` has `start_frame` and
+  `stop_frame` and no per-job frame list, so ground-truth frames cannot be *sprinkled*
+  through a task the way a honeypot scheme wants. Checking a contiguous slice is the honest
+  version of the feature that fits the model; anything finer needs a schema change first.
 - **The browser harnesses are not in CI.** `scripts/screenshot.py` found two
   release-blocking bugs in one run, and `scripts/verify_local_import.py` is the only check on
   the desktop import flow; nothing stops either regressing automatically. Both need a
@@ -703,6 +812,20 @@ missing, and it is the reason this iteration found anything):
 
 ## Tried and rejected
 
+- **A honeypot-frame selector**, adapted from the same upstream source as the comparison
+  strategy. It was written, and then deleted: `Job` carries only a contiguous frame range,
+  so nothing in this codebase can *call* a function that picks scattered ground-truth frames
+  per job. Committing it would have been dead code that reads like a shipped feature —
+  precisely what this iteration existed to remove. Revisit if `Job` ever grows an explicit
+  frame list; the selector is ~60 lines and easy to rewrite then.
+- **Comparing shapes by their bounding boxes.** Vastly simpler, and it would make every
+  polygon score fiction: two triangles that share a bounding box would report IoU 1.0.
+  Sutherland–Hodgman clipping plus the shoelace formula is about 40 lines and is pinned by
+  `test_a_polygon_is_not_compared_by_its_bounding_box`.
+- **Matching annotations to ground truth by object identity.** The obvious reading of
+  "compare two jobs", and it scores every track against every shape at zero — which would
+  make the quality feature useless on exactly the video work it exists for. Matching is by
+  *position*: tracks are flattened to their interpolated shape on each frame first.
 - **Shipping `fflate` to read the chunk archives.** The obvious "reuse before you build"
   answer, and wrong here: the server writes `ZIP_STORED`, so there is nothing to decompress
   and the library would have been carried for the half we do not use. What is actually

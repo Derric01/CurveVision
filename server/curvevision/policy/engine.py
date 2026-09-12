@@ -35,7 +35,7 @@ from dataclasses import dataclass, field
 from enum import StrEnum
 
 from curvevision.core.errors import PermissionDeniedError
-from curvevision.domain.enums import ROLE_RANK, JobState, Role
+from curvevision.domain.enums import ROLE_RANK, JobKind, JobState, Role
 
 
 class ResourceType(StrEnum):
@@ -101,6 +101,9 @@ class ResourceContext:
     author_id: uuid.UUID | None = None
     #: Job state, when the resource is a job or scoped to one.
     job_state: JobState | None = None
+    #: Job kind, when the resource is a job or scoped to one. Ground truth is restricted:
+    #: see `_ground_truth_visible`.
+    job_kind: JobKind | None = None
     #: Project setting: may any annotator pick up unassigned work?
     open_assignment: bool = True
     extra: dict[str, object] = field(default_factory=dict)
@@ -213,6 +216,21 @@ def _annotation_write_allowed(principal: Principal, context: ResourceContext) ->
     return context.assignee_id is None and context.open_assignment
 
 
+def _ground_truth_visible(principal: Principal, context: ResourceContext) -> bool:
+    """Who may see a ground-truth job's annotations.
+
+    Ground truth is the answer key. An annotator who can read it can copy it, and the score
+    that comes back then measures nothing — which is worse than having no score, because
+    the number looks like evidence. So reading it takes reviewer rank, with one exception:
+    whoever is assigned to annotate the ground-truth job obviously has to see it.
+
+    This is about the *annotations*, not the job's existence. A job listing still shows that
+    a ground-truth job exists and which frames it covers; that leaks nothing an annotator
+    cannot infer, and hiding it would make the frame ranges in their own job list confusing.
+    """
+    return _has_role(context, Role.REVIEWER) or _is_assigned(principal, context)
+
+
 def can(principal: Principal, action: Action, context: ResourceContext) -> bool:
     """Return whether ``principal`` may perform ``action`` on ``context``. Pure function."""
     if principal.is_superuser:
@@ -221,6 +239,13 @@ def can(principal: Principal, action: Action, context: ResourceContext) -> bool:
     resource = context.resource_type
 
     # --- role-dependent state rules ----------------------------------------------------
+    if (
+        resource is ResourceType.ANNOTATION
+        and context.job_kind is JobKind.GROUND_TRUTH
+        and not _ground_truth_visible(principal, context)
+    ):
+        return False
+
     # On the split: a constraint that depends on *who is asking* lives here and surfaces
     # as 403. A constraint that holds for everyone regardless of role -- a locked job, a
     # released dataset version -- is state, not permission: services enforce those and

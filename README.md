@@ -248,7 +248,7 @@ actually need before training — **how many frames have no annotations at all**
 | Immutable dataset releases with content hashing | **Done** |
 | Content-addressed media (the same file across tasks is stored once) | **Done** |
 | Export jobs with downloadable artifacts | **In Progress** |
-| Ground-truth quality reports — storage model only; nothing computes them yet | *Planned* |
+| Ground-truth quality reports: precision/recall/F1 per label and classified conflicts, over the API — no UI yet | **In Progress** |
 
 ### Images and video
 

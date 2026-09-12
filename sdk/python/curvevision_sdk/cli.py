@@ -281,6 +281,49 @@ def job_review(
         typer.secho(f"Job is now {job.state}", fg=typer.colors.GREEN)
 
 
+@job_app.command("score")
+def job_score(
+    job_id: str,
+    iou: Annotated[float, typer.Option(help="How much overlap counts as the same object")] = 0.5,
+) -> None:
+    """Score a job against its task's ground truth."""
+    with client() as cv:
+        report = handle(lambda: cv.score_job(uuid.UUID(job_id), iou_threshold=iou))
+        details = report["details"]
+        typer.echo(
+            f"precision {report['precision']:.3f}  recall {report['recall']:.3f}  "
+            f"F1 {report['f1']:.3f}   over {details['compared_frames']} checked frames"
+        )
+        typer.echo(
+            f"  {details['matched']} matched, {details['missing']} missing, "
+            f"{details['extra']} extra"
+        )
+        for conflict in details["conflicts"][:20]:
+            iou_text = f"  IoU {conflict['iou']:.2f}" if conflict["iou"] is not None else ""
+            typer.echo(f"  frame {conflict['frame']:<6} {conflict['kind']}{iou_text}")
+        if len(details["conflicts"]) > 20:
+            typer.echo(f"  ... and {len(details['conflicts']) - 20} more")
+
+
+@task_app.command("ground-truth")
+def task_ground_truth(
+    task_id: str,
+    start_frame: Annotated[int | None, typer.Option(help="Defaults to the task's first")] = None,
+    stop_frame: Annotated[int | None, typer.Option(help="Defaults to the task's last")] = None,
+) -> None:
+    """Create the job holding this task's ground truth."""
+    with client() as cv:
+        job = handle(
+            lambda: cv.create_ground_truth_job(
+                uuid.UUID(task_id), start_frame=start_frame, stop_frame=stop_frame
+            )
+        )
+        typer.secho(
+            f"Ground-truth job {job.id} over frames {job.start_frame}-{job.stop_frame}",
+            fg=typer.colors.GREEN,
+        )
+
+
 @app.command()
 def export(
     project_id: str,

@@ -156,6 +156,7 @@ def _retype(context: ResourceContext, resource: ResourceType) -> ResourceContext
         reviewer_id=context.reviewer_id,
         author_id=context.author_id,
         job_state=context.job_state,
+        job_kind=context.job_kind,
         open_assignment=context.open_assignment,
         extra=context.extra,
     )
@@ -223,6 +224,7 @@ async def job_scope(
         assignee_id=job.assignee_id,
         reviewer_id=job.reviewer_id,
         job_state=job.state,
+        job_kind=job.kind,
         open_assignment=project.open_assignment,
     )
     scope = JobScope(job=job, task=task, project=project, identity=identity, context=context)

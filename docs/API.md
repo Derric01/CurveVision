@@ -82,6 +82,7 @@ the right credential for anything unattended.
 | Jobs | `/jobs`, `/jobs/{id}`, `/jobs/{id}/review` |
 | Annotations | `/jobs/{id}/annotations`, `/jobs/{id}/frames/{frame}/annotations`, `/jobs/{id}/history` |
 | Review | `/jobs/{id}/issues`, `/jobs/{id}/issues/{id}/comments` |
+| Quality | `/tasks/{id}/ground-truth`, `/jobs/{id}/quality`, `/tasks/{id}/quality` |
 | Datasets | `/projects/{id}/export`, `/tasks/{id}/import`, `/projects/{id}/versions` |
 | AI | `/models`, `/jobs/{id}/inference`, `/jobs/{id}/suggestions` |
 | Integrations | `/webhooks` |
@@ -144,6 +145,68 @@ the job and wrong for an interactive editor.
 
 Geometry is `[x1, y1, x2, y2, …]` in **image pixel space**. Rectangles are two corners,
 ellipses are `[cx, cy, rx, ry]`, polygons and polylines are vertex lists.
+
+## Quality: scoring work against ground truth
+
+A task can hold one **ground-truth job** — the answer key a reviewer annotates as carefully
+as they can. Every other job on the task is then scored against it.
+
+```http
+POST /api/v1/tasks/{id}/ground-truth   { "start_frame": 0, "stop_frame": 49 }
+POST /api/v1/jobs/{id}/quality         { "iou_threshold": 0.5 }
+GET  /api/v1/jobs/{id}/quality
+GET  /api/v1/tasks/{id}/quality
+```
+
+Both frame bounds are optional and default to the whole task. Narrowing the range is the
+normal case on video: checking 50 frames properly beats checking 5,000 carelessly.
+
+A report carries overall `precision`, `recall` and `f1`, plus `details` with a per-label
+breakdown and every conflict named:
+
+```json
+{
+  "iou_threshold": 0.5, "precision": 0.9, "recall": 0.75, "f1": 0.818,
+  "details": {
+    "compared_frames": 50, "matched": 18, "missing": 6, "extra": 2, "mean_iou": 0.87,
+    "per_label": {
+      "3f2a…": { "matched": 12, "missing": 1, "extra": 0,
+                 "precision": 1.0, "recall": 0.923, "f1": 0.96, "mean_iou": 0.91 }
+    },
+    "conflicts": [
+      { "kind": "missing", "frame": 12, "ground_truth_shape_id": "…", "iou": null },
+      { "kind": "wrong_label", "frame": 30, "shape_id": "…",
+        "label_id": "…", "expected_label_id": "…", "iou": 0.88 },
+      { "kind": "poor_overlap", "frame": 31, "shape_id": "…", "iou": 0.41 }
+    ]
+  }
+}
+```
+
+`per_label` is keyed by label id, as everything else in this API is; resolve names from
+`GET /projects/{id}/labels`. `mean_iou` averages over matched pairs only — it answers "how
+tight were the boxes you got right", not "how right were you"; that is what `f1` is for.
+
+Five things worth knowing about what the number means:
+
+* **A box drawn too loosely costs precision as well as recall.** Below the threshold it is
+  not that object, so it is a false positive exactly as an invented box is. It is reported
+  once, as `poor_overlap` rather than as both a miss and an extra.
+
+* **Only frames the ground truth covers are scored.** A ground truth over frames 0-49 says
+  nothing about frame 300, and counting unchecked work as correct would inflate the score
+  in exactly the direction that makes a team trust bad data.
+* **Tracks and shapes are compared on equal terms.** A track is evaluated at its
+  interpolated position on every frame, so an annotator using tracks and a reviewer using
+  shapes score the same.
+* **Geometry is exact, not bounding-box.** Polygons are clipped against one another
+  (Sutherland–Hodgman) and measured by the shoelace formula; two triangles sharing a
+  bounding box score near zero, not one.
+* **Reading the ground truth's annotations takes reviewer rank**, or assignment to that
+  job. An annotator who can read the answer key makes the score meaningless.
+
+Computing a report is a `review` action; a ground-truth job cannot be scored against
+itself. The comparison runs inline rather than as a background job.
 
 ## Import and export
 

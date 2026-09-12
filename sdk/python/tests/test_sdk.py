@@ -207,6 +207,36 @@ class TestReviewAndPagination:
         progress = client.task_progress(task.id)
         assert progress["completion"] == 1.0
 
+    def test_scoring_a_job_against_ground_truth(
+        self, client: CurveVision, organization: Any, tmp_path: Path
+    ) -> None:
+        """The whole quality loop from a script: declare truth, annotate, score."""
+        project = client.create_project(
+            organization.id, slug="sdk-quality", name="Quality", labels=[{"name": "car"}]
+        )
+        task = client.create_task(project.id, name="Scored batch")
+        client.upload(task.id, [write_png(tmp_path / "a.png"), write_png(tmp_path / "b.png")])
+        job = client.jobs(task_id=task.id)[0]
+        label = str(project.label_id("car"))
+
+        truth = client.create_ground_truth_job(task.id)
+        box = {
+            "frame": 0,
+            "label_id": label,
+            "shape_type": "rectangle",
+            "points": [0, 0, 10, 10],
+        }
+        client.create_shapes(truth.id, [box, {**box, "points": [50, 50, 60, 60]}])
+        client.create_shapes(job.id, [box])
+
+        report = client.score_job(job.id)
+        assert report["precision"] == 1.0
+        assert report["recall"] == 0.5, "one of the two objects was missed"
+        assert [c["kind"] for c in report["details"]["conflicts"]] == ["missing"]
+
+        assert client.quality_report(job.id)["id"] == report["id"]
+        assert [item["id"] for item in client.task_quality(task.id)] == [report["id"]]
+
     def test_iter_pages_walks_every_result(self, client: CurveVision, organization: Any) -> None:
         project = client.create_project(organization.id, slug="sdk-pages", name="Pages", labels=[])
         for index in range(7):
