@@ -52,28 +52,50 @@ async def probe_task_media(payload: dict[str, Any]) -> dict[str, Any]:
 
 @job_handler("media.build_chunks")
 async def build_media_chunks(payload: dict[str, Any]) -> dict[str, Any]:
-    """Plan the frame chunks a task's media will be served in.
+    """Decode a task's video frames ahead of time, one pass per chunk.
 
-    **In Progress.** The chunk *plan* is computed and recorded; writing decoded frame
-    archives to object storage requires the optional media extras and lands with video
-    support. Image tasks are served directly and need no chunks, so this is a no-op for
-    them today.
+    Idempotent: `build_chunk` returns the existing row rather than rebuilding, so a retry
+    after a partial run costs only the chunks that are still missing. Each chunk is
+    committed as it is built, which is what makes an interrupted run useful rather than
+    wasted -- and what lets the editor start using the early chunks while the rest are
+    still decoding.
+
+    An image task produces no chunks at all: `build_chunk` returns ``None`` for a range
+    with no video in it, because images already serve in constant time.
+
+    A frame is *never* blocked on this job. `GET .../frames/{n}/data` falls back to
+    decoding that one frame whenever its chunk is not built yet, so this only ever makes
+    things faster, never makes them unavailable.
     """
     task_id = uuid.UUID(payload["task_id"])
     settings = get_settings()
     factory = get_sessionmaker()
+    row_id = payload.get("_task_row_id")
+
+    built = 0
     async with factory() as session:
         task = await session.get(Task, task_id)
         if task is None:
             return {"skipped": "task no longer exists"}
         planned = media_service.chunk_count(task.frame_count, settings.frames_per_chunk)
-    if row_id := payload.get("_task_row_id"):
-        await report_progress(str(row_id), 1.0, "chunk plan computed")
+        storage = get_storage(settings)
+
+        for index in range(planned):
+            chunk = await media_service.build_chunk(session, settings, storage, task, index)
+            await session.commit()
+            if chunk is not None:
+                built += 1
+            if row_id:
+                await report_progress(
+                    str(row_id), (index + 1) / planned, f"chunk {index + 1} of {planned}"
+                )
+
     return {
         "task_id": str(task_id),
         "chunks_planned": planned,
+        "chunks_built": built,
         "frames_per_chunk": settings.frames_per_chunk,
-        "status": "planned",
+        "status": "built",
     }
 
 

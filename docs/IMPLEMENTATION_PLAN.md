@@ -359,16 +359,29 @@ frame navigation, label sidebar, object list, autosave to the API.
   omit a stream duration, and rotation metadata, without which phone video is annotated
   sideways.
 
-  **Still missing: chunked delivery.** Serving frame *n* decodes from the start of the
-  file, so it is O(n) and scrubbing deep into a long video is slow. That is the next piece
-  (below), and it is the difference between "works" and "comfortable".
-* **Chunked media delivery** — *In Progress*. The design: frames grouped into chunks of N
-  (default 36) served as one object, with a client-side LRU and ±1 prefetch. This is the
-  single most important media decision for annotation throughput. Today the `MediaChunk`
-  model and the chunk *plan* exist, and the client still fetches one frame per request.
-  With per-frame video decode now working, this is no longer the blocker for *usable* video
-  annotation — it is the blocker for *comfortable* video annotation, and the fix for the
-  O(n) seek cost described above.
+* **Chunked media delivery** — **Done** on the server. Frames are grouped into chunks of N
+  (default 36), decoded in one pass and stored as one ZIP of JPEGs, recorded as a
+  `MediaChunk`. `GET /tasks/{id}/chunks/{n}` serves the archive; the frame endpoint takes
+  its frame out of a built chunk and builds the chunk when it misses, because reaching
+  frame *n* costs *n* decodes either way and finishing the pass is nearly free.
+
+  Measured on a 600-frame 640×480 clip, counting every picture the decoder produced:
+
+  | Access pattern | Frames decoded, before | after | Wall clock |
+  | --- | --- | --- | --- |
+  | Step through frames 0–35 | 666 | **36** | 0.84s → **0.53s** |
+  | Step through frames 400–435 | 15,066 | **900** | 3.62s → **0.78s** |
+  | Scrub: every 100th frame | 1,506 | 1,620 | 0.40s → **0.99s** |
+
+  The third row is the honest cost and is not a rounding error: a *sparse* scrub pays to
+  build a chunk it mostly does not use, and each build JPEG-encodes 36 frames rather than
+  one. It is the right trade because annotation is overwhelmingly sequential — that is what
+  the next-frame key and the timeline do — and because those chunks make the work that
+  follows the scrub free. Per-frame decoding remains the fallback for every case a chunk
+  cannot serve, so a video is never *unservable*, only slower.
+
+  **Still to do:** a client-side LRU and ±1 prefetch, so the editor fetches one chunk
+  instead of 36 frame requests. The server half is what this entry covers.
 * **Progressive loading** — *Planned*. A low-resolution proxy chunk served first so the
   annotator can start immediately, with the full-resolution chunk swapping in when decoded.
 * **Large-file handling** — a size limit expressed in config rather than code is **Done**.

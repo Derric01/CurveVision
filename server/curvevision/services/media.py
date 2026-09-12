@@ -4,21 +4,24 @@ from __future__ import annotations
 
 import asyncio
 import hashlib
+import io
 import uuid
+import zipfile
 from collections.abc import AsyncIterator
 from pathlib import Path
 from typing import IO
 
 from sqlalchemy import func, select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from curvevision.core.config import Settings
 from curvevision.core.errors import NotFoundError, ValidationError
 from curvevision.domain.enums import MediaKind
-from curvevision.domain.media import Asset, MediaBlob
+from curvevision.domain.media import Asset, MediaBlob, MediaChunk
 from curvevision.domain.task import Task
 from curvevision.media import probe as media_probe
-from curvevision.storage import Storage
+from curvevision.storage import ObjectNotFoundError, Storage
 
 
 def blob_key(sha256: str, filename: str) -> str:
@@ -237,29 +240,41 @@ async def render_video_frame(blob: MediaBlob, storage: Storage, index: int) -> b
     straight from its path so a large video is not loaded into memory to reach one frame;
     a stored blob has to be fetched first.
 
-    **This is O(n) in the frame index.** Frames are decoded from the start of the file
-    because a frame number has to identify the same picture every time (see
-    `media.video.VideoReader.iterate_frames`), and scrubbing deep into a long video is
-    therefore slow. The fix is the chunked delivery the media pipeline is designed around
-    -- `MediaChunk` and the chunk plan exist, the extraction does not -- and it is tracked
-    as *In Progress* rather than hidden behind a cache that would only mask it.
+    **This is O(n) in the frame index**, and remains so on purpose. Frames are decoded from
+    the start of the file because a frame number has to identify the same picture every
+    time (see `media.video.VideoReader.iterate_frames`). Chunked delivery is what makes
+    scrubbing fast -- see `build_chunk` -- and this stays as the fallback for any frame
+    whose chunk has not been built yet, so a video is never *unservable*, only slower.
     """
-    from curvevision.media.video import VideoReader, VideoUnavailableError
+    from curvevision.media.video import VideoUnavailableError
 
-    source: bytes | Path
+    source = await _video_source(blob, storage)
+    try:
+        return await asyncio.to_thread(_decode_one, source, index)
+    except VideoUnavailableError as exc:
+        raise NotFoundError(str(exc)) from exc
+
+
+def _decode_one(source: bytes | Path, index: int) -> bytes:
+    from curvevision.media.video import VideoReader
+
+    return VideoReader(source).frame_jpeg(index)
+
+
+async def _video_source(blob: MediaBlob, storage: Storage) -> bytes | Path:
+    """What to hand a ``VideoReader``: a path when we have one, bytes otherwise.
+
+    A blob annotated in place is read straight from its path so a large video is not loaded
+    into memory to reach one frame; a stored blob has to be fetched first.
+    """
     if blob.source_path is not None:
-        source = Path(blob.source_path)
-        if not await asyncio.to_thread(source.is_file):
+        path = Path(blob.source_path)
+        if not await asyncio.to_thread(path.is_file):
             raise NotFoundError(
                 f"The file for this media has moved or cannot be read: {blob.source_path}"
             )
-    else:
-        source = await read_blob(blob, storage)
-
-    try:
-        return await asyncio.to_thread(VideoReader(source).frame_jpeg, index)
-    except VideoUnavailableError as exc:
-        raise NotFoundError(str(exc)) from exc
+        return path
+    return await read_blob(blob, storage)
 
 
 async def _read_handle(handle: IO[bytes], chunk_size: int) -> AsyncIterator[bytes]:
@@ -357,6 +372,244 @@ def chunk_range(chunk_index: int, frames_per_chunk: int, frame_count: int) -> tu
     start = chunk_index * frames_per_chunk
     stop = min(start + frames_per_chunk - 1, frame_count - 1)
     return start, stop
+
+
+# ------------------------------------------------------------------------------ chunks
+#
+# A chunk is a contiguous run of a task's video frames, decoded once and stored as one ZIP
+# of JPEGs named by task-global frame number. It exists for a single reason: decoding is
+# sequential from the start of the file (a frame number has to identify the same picture
+# every time -- see `media.video.VideoReader.iterate_frames`), so serving frame *n* on its
+# own costs *n* decodes, and serving the 36 frames around it costs 36 x that. Building the
+# chunk costs one pass and then those 36 frames are free.
+#
+# Chunks hold **video frames only**. An image asset already serves in constant time, and
+# packing it into a chunk would mean re-encoding somebody's PNG as a JPEG to no benefit. A
+# mixed task therefore has chunks with gaps in them, which is why every read falls back to
+# decoding rather than assuming a hit.
+
+
+def chunk_key(task_id: uuid.UUID, chunk_index: int, quality: str = "original") -> str:
+    return f"chunks/{task_id}/{quality}/{chunk_index:06d}.zip"
+
+
+def chunk_of(frame: int, settings: Settings) -> int:
+    """Which chunk holds ``frame``. ``-1`` when chunking is switched off."""
+    return frame // settings.frames_per_chunk if settings.frames_per_chunk > 0 else -1
+
+
+def frame_entry_name(frame: int) -> str:
+    """The name a frame has inside a chunk archive. Task-global, so it needs no context."""
+    return f"{frame:06d}.jpg"
+
+
+async def find_chunk(
+    session: AsyncSession, task_id: uuid.UUID, chunk_index: int, quality: str = "original"
+) -> MediaChunk | None:
+    return (
+        await session.execute(
+            select(MediaChunk).where(
+                MediaChunk.task_id == task_id,
+                MediaChunk.index == chunk_index,
+                MediaChunk.quality == quality,
+            )
+        )
+    ).scalar_one_or_none()
+
+
+async def _assets_in_range(
+    session: AsyncSession, task_id: uuid.UUID, start: int, stop: int
+) -> list[Asset]:
+    """Every asset contributing at least one frame to the inclusive range."""
+    result = await session.execute(
+        select(Asset)
+        .where(
+            Asset.task_id == task_id,
+            Asset.start_frame <= stop,
+            Asset.start_frame + Asset.frame_count > start,
+        )
+        .order_by(Asset.start_frame)
+    )
+    return list(result.scalars())
+
+
+def _build_archive(frames: list[tuple[int, bytes]]) -> bytes:
+    """Pack JPEGs into a ZIP, uncompressed.
+
+    `ZIP_STORED`, not `ZIP_DEFLATED`: JPEG is already compressed, so deflating it spends
+    CPU to grow the file by a fraction of a percent. Stored entries also mean a reader can
+    take one frame out of the archive without inflating anything around it.
+    """
+    buffer = io.BytesIO()
+    with zipfile.ZipFile(buffer, mode="w", compression=zipfile.ZIP_STORED) as archive:
+        for frame, jpeg in frames:
+            archive.writestr(frame_entry_name(frame), jpeg)
+    return buffer.getvalue()
+
+
+def _decode_chunk_frames(
+    source: bytes | Path, offsets: list[int], start_frame: int
+) -> list[tuple[int, bytes]]:
+    """One decode pass over `source`, returning `(task frame, jpeg)` for each offset."""
+    from curvevision.media.video import VideoReader
+
+    reader = VideoReader(source)
+    return [
+        (start_frame + offset, jpeg) for offset, jpeg in reader.frames_jpeg(iter(sorted(offsets)))
+    ]
+
+
+async def build_chunk(
+    session: AsyncSession,
+    settings: Settings,
+    storage: Storage,
+    task: Task,
+    chunk_index: int,
+    *,
+    quality: str = "original",
+) -> MediaChunk | None:
+    """Decode one chunk's video frames in a single pass and store them as one archive.
+
+    Returns the existing row when the chunk is already built, so this is safe to call from
+    a request handler that just missed the cache and from the background job at the same
+    time. Returns ``None`` when the range holds no video frames at all -- an image-only
+    task has nothing to gain here and gets no empty archives written for it.
+    """
+    total = chunk_count(task.frame_count, settings.frames_per_chunk)
+    if chunk_index < 0 or chunk_index >= total:
+        raise NotFoundError(f"This task has no chunk {chunk_index}")
+
+    existing = await find_chunk(session, task.id, chunk_index, quality)
+    if existing is not None:
+        return existing
+
+    start, stop = chunk_range(chunk_index, settings.frames_per_chunk, task.frame_count)
+    frames: list[tuple[int, bytes]] = []
+
+    for asset in await _assets_in_range(session, task.id, start, stop):
+        blob = await session.get(MediaBlob, asset.blob_id)
+        if blob is None or blob.kind is not MediaKind.VIDEO:
+            continue  # Images are already served in constant time; see the note above.
+
+        first = max(start, asset.start_frame)
+        last = min(stop, asset.start_frame + asset.frame_count - 1)
+        offsets = list(range(first - asset.start_frame, last - asset.start_frame + 1))
+        if not offsets:  # pragma: no cover - defensive
+            continue
+
+        source = await _video_source(blob, storage)
+        # Decoding is CPU-bound and must not hold the event loop for the length of a clip.
+        frames.extend(
+            await asyncio.to_thread(_decode_chunk_frames, source, offsets, asset.start_frame)
+        )
+
+    if not frames:
+        return None
+
+    frames.sort(key=lambda pair: pair[0])
+    archive = _build_archive(frames)
+    key = chunk_key(task.id, chunk_index, quality)
+    await storage.put(key, archive, content_type="application/zip")
+
+    chunk = MediaChunk(
+        task_id=task.id,
+        index=chunk_index,
+        quality=quality,
+        start_frame=start,
+        frame_count=len(frames),
+        storage_key=key,
+        size_bytes=len(archive),
+        content_type="application/zip",
+    )
+    try:
+        # A SAVEPOINT, not the whole transaction: losing this race must not discard
+        # whatever else the caller had pending.
+        async with session.begin_nested():
+            session.add(chunk)
+            await session.flush()
+    except IntegrityError:
+        # Another request built the same chunk first. Its archive is at the same key and
+        # holds the same frames, so the loser simply uses the winner's row.
+        return await find_chunk(session, task.id, chunk_index, quality)
+    return chunk
+
+
+async def video_frame_jpeg(
+    session: AsyncSession,
+    settings: Settings,
+    storage: Storage,
+    task: Task,
+    blob: MediaBlob,
+    frame: int,
+    offset: int,
+) -> bytes:
+    """One video frame, from a chunk when possible and by decoding when not.
+
+    Three steps, in cost order:
+
+    1. **A built chunk** -- unzip one entry. Constant time, and the case that matters:
+       an annotator stepping through frames hits it for 35 of every 36 frames.
+    2. **Build the chunk, then take the frame out of it.** Reaching frame *n* means
+       decoding *n* frames either way, so finishing the pass to the end of the chunk is
+       nearly free and makes the next 35 frames constant-time. Stepping through frames
+       0-35 costs 630 frame-decodes without this and 36 with it.
+    3. **Decode the single frame.** Chunking disabled, no video in the range, or storage
+       that lost the archive. Slower, always correct, and the reason a video is never
+       *unservable* -- only slower.
+
+    The caller commits: a chunk built here is worth keeping even though the request that
+    paid for it is a read.
+    """
+    index = chunk_of(frame, settings)
+    if index >= 0:
+        jpeg = await frame_from_chunk(session, settings, storage, task.id, frame)
+        if jpeg is not None:
+            return jpeg
+
+        built = await build_chunk(session, settings, storage, task, index)
+        if built is not None:
+            jpeg = await frame_from_chunk(session, settings, storage, task.id, frame)
+            if jpeg is not None:
+                return jpeg
+
+    return await render_video_frame(blob, storage, offset)
+
+
+async def frame_from_chunk(
+    session: AsyncSession,
+    settings: Settings,
+    storage: Storage,
+    task_id: uuid.UUID,
+    frame: int,
+    *,
+    quality: str = "original",
+) -> bytes | None:
+    """One frame's JPEG out of an already-built chunk, or ``None`` if there isn't one.
+
+    Deliberately never builds. A missing chunk means the caller falls back to decoding that
+    one frame, which is slower but always correct; making a frame request wait on a whole
+    chunk build would turn a slow scrub into a stalled one.
+    """
+    if settings.frames_per_chunk <= 0:
+        return None
+    chunk = await find_chunk(session, task_id, frame // settings.frames_per_chunk, quality)
+    if chunk is None:
+        return None
+    try:
+        archive = await storage.get(chunk.storage_key)
+    except ObjectNotFoundError:
+        # The row outlived its bytes. Fall back rather than 500 -- the frame is still
+        # servable, and the next build will replace the archive.
+        return None
+    return await asyncio.to_thread(_extract_frame, archive, frame)
+
+
+def _extract_frame(archive: bytes, frame: int) -> bytes | None:
+    try:
+        with zipfile.ZipFile(io.BytesIO(archive)) as zipped:
+            return zipped.read(frame_entry_name(frame))
+    except (KeyError, zipfile.BadZipFile):
+        return None
 
 
 async def delete_asset(session: AsyncSession, asset: Asset) -> None:
