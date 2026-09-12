@@ -10,35 +10,24 @@ attribution is a licensing problem, not a documentation nit.
 **One file in this repository is adapted from another project's source code**, listed
 under [Adapted source](#adapted-source) below. Everything else is independently
 implemented: where CurveVision implements a published *format* (COCO, YOLO, Pascal VOC),
-that is written from the format's specification. See
-[ARCHITECTURE_COMPARISON.md](./ARCHITECTURE_COMPARISON.md#1-licensing-position) for the
-full licensing position.
-
-### Adapting CVAT code
-
-[ADR 0007](./adr/0007-cvat-reuse-policy.md) establishes that we *will* adapt specific
-MIT-licensed code from [CVAT](https://github.com/cvat-ai/cvat) — starting with video frame
-extraction, where re-deriving years of decoder edge cases would be indefensible. A license
-audit of `cvat-ai/cvat` at commit `1d0c395` (2026-09-11) found a single MIT `LICENSE` and
-`SPDX-License-Identifier: MIT` on all 1,473 source headers, with no exceptions.
-
-Three things happen together whenever such a file lands, and a change that does fewer is
-incomplete:
-
-1. The file keeps CVAT's copyright line and MIT notice at the top, with a note saying what
-   we changed and why.
-2. A row is added to the **Adapted source** table below, naming the upstream file and commit.
-3. `licenses/MIT-cvat.txt` carries CVAT's full license text.
+that is written from the format's specification.
 
 ### Adapted source
 
+[ADR 0007](./adr/0007-reusing-third-party-code.md) sets out when source may be adapted and
+what that obliges. The obligation under MIT is the whole point of this section: **the
+copyright notice and licence text travel with the code, and removing either while keeping
+the code is not something this project does.**
+
 | CurveVision file | Adapted from | Upstream commit | License | What was taken |
 | --- | --- | --- | --- | --- |
-| `server/curvevision/media/video.py` | [`cvat/apps/engine/media_extractors.py`](https://github.com/cvat-ai/cvat/blob/1d0c39576c3239dcaf8ba7baee71a1b8de496c0e/cvat/apps/engine/media_extractors.py) | `1d0c395` (2026-09-11) | MIT — © 2019–2022 Intel Corporation, © CVAT.ai Corporation | The decoding strategy (count frames by decoding rather than trusting container metadata; address frames in decode order rather than by seeking) and two edge cases real files require: the `DURATION` metadata fallback for containers that omit a stream duration, and honouring rotation metadata. Re-derived in CurveVision's own idiom — bytes or a filesystem path instead of CVAT's `Openable`, no 3D dimension, no manifest, no Django or DRF. |
+| `server/curvevision/media/video.py` | [`cvat/apps/engine/media_extractors.py`](https://github.com/cvat-ai/cvat/blob/1d0c39576c3239dcaf8ba7baee71a1b8de496c0e/cvat/apps/engine/media_extractors.py) | `1d0c395` (2026-09-11) | MIT — © 2019–2022 Intel Corporation, © CVAT.ai Corporation | The decoding strategy (count frames by decoding rather than trusting container metadata; address frames in decode order rather than by seeking) and two edge cases real files require: the `DURATION` metadata fallback for containers that omit a stream duration, and honouring rotation metadata. Re-derived in CurveVision's own idiom — bytes or a filesystem path instead of the upstream `Openable`, no 3D dimension, no manifest, no Django or DRF. |
 
-The audit behind this row was re-run immediately before the adaptation: `cvat-ai/cvat` at
-`1d0c395` carries one MIT `LICENSE` and `SPDX-License-Identifier: MIT` on all 505 Python
-source headers, with no exceptions.
+The licence audit behind that row was performed against the upstream repository at the named
+commit, which carries one MIT `LICENSE` and `SPDX-License-Identifier: MIT` on all 1,473
+source headers (505 of them Python), with no exceptions. The adapted file keeps the upstream
+copyright header in place, and `licenses/MIT-video-decoding.txt` carries the full licence
+text.
 
 Full license texts for permissive licenses used here are reproduced under
 [`licenses/`](../licenses/).
@@ -141,8 +130,11 @@ These run as unmodified services; CurveVision links to none of them.
 
 | Project | License | Relationship |
 | --- | --- | --- |
-| [CVAT](https://github.com/cvat-ai/cvat) | MIT — © 2018-2022 Intel Corporation, © 2022-2025 CVAT.ai Corporation | Studied as an architectural and product reference; see [ARCHITECTURE_COMPARISON.md](./ARCHITECTURE_COMPARISON.md). Where code is actually adapted rather than only studied, it is listed under [Adapting CVAT code](#adapting-cvat-code) above — that table, not this row, is the authoritative list. We claim no affiliation with, or endorsement by, CVAT.ai Corporation or Intel Corporation. |
-| [Datumaro](https://github.com/openvinotoolkit/datumaro) | MIT — © Intel Corporation | Evaluated for dataset format conversion and not adopted, for the streaming reasons documented in the architecture comparison. An optional bridge is planned. |
+| [Datumaro](https://github.com/openvinotoolkit/datumaro) | MIT — © Intel Corporation | Evaluated for dataset format conversion and not adopted, for the streaming reasons in [ADR 0004](./adr/0004-streaming-format-registry.md). An optional bridge is planned. |
+
+CurveVision claims no affiliation with, or endorsement by, any project listed in this file.
+Where source is adapted, the copyright holders are named in [Adapted source](#adapted-source)
+above, which is the authoritative record.
 
 ## Sample photographs
 

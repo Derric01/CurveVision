@@ -5,7 +5,7 @@
 ## Context
 
 AI-assisted annotation needs to run models over frames and turn predictions into editable
-annotations. CVAT does this with Nuclio, a serverless platform, plus a catalogue of
+annotations. The established answer is Nuclio, a serverless platform, plus a catalogue of
 pre-built model wrappers.
 
 ## Options

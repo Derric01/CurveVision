@@ -9,8 +9,8 @@ CurveVision's authorization is not trivial. Six roles, a resource hierarchy
 annotations on a job assigned to them, or on an unassigned job when the project allows open
 assignment, but never on someone else's — and nobody reviews their own work.
 
-CVAT solves this with Open Policy Agent: a separate service, policies in Rego, consulted
-per authorization check.
+The established answer is Open Policy Agent: a separate service, policies in Rego,
+consulted per authorization check.
 
 ## Options
 

@@ -80,9 +80,9 @@ AI-assisted     upload → run your model → accept or correct → review → e
 > **Status: early, and honestly labelled.** The manual annotation path is complete and
 > tested end to end. Video, the track-editing timeline and quality reports are partly
 > built. **Every feature below carries its real state** — nothing is marked Done unless it
-> works and has tests. If you need a mature platform for critical work today, use
-> [CVAT](https://github.com/cvat-ai/cvat); we say so plainly in our
-> [architecture comparison](docs/ARCHITECTURE_COMPARISON.md).
+> works and has tests. If you need a platform with years of production mileage behind it
+> for critical work today, this is not yet that — and we would rather say so here than have
+> you find out later.
 
 ---
 
@@ -336,9 +336,6 @@ the entire desktop application changed 1,460 lines and removed 42; nothing was r
 * [ARCHITECTURE.md](docs/ARCHITECTURE.md) — the design, and an
   [OSS build-vs-extend table](docs/ARCHITECTURE.md#open-source-building-blocks--build-vs-extend-decisions)
   giving the reasoning for every dependency choice.
-* [ARCHITECTURE_COMPARISON.md](docs/ARCHITECTURE_COMPARISON.md) — an honest comparison with
-  CVAT: what we learned, where we differ, what it still does better, and the licensing
-  position.
 * [docs/adr/](docs/adr/) — the decisions, with the evidence behind them.
 
 ---
@@ -405,16 +402,15 @@ worked, and more usefully, what did not.
 
 ## Acknowledgements
 
-CurveVision exists in a landscape that [CVAT](https://github.com/cvat-ai/cvat) largely
-defined, and we studied it deliberately rather than rediscovering its lessons the expensive
-way.
+CurveVision stands on a decade of open-source work in this space, and we studied it
+deliberately rather than rediscovering its lessons the expensive way.
 
-**One file is adapted from CVAT's MIT-licensed source**: `server/curvevision/media/video.py`
-carries CVAT's copyright header and is recorded in
+**One file is adapted from another project's MIT-licensed source**:
+`server/curvevision/media/video.py` carries its upstream copyright header and is recorded in
 [THIRD_PARTY_NOTICES](docs/THIRD_PARTY_NOTICES.md#adapted-source), with the reasoning in
-[ADR 0007](docs/adr/0007-cvat-reuse-policy.md). Everything else is independently
-implemented. We claim no affiliation with, or endorsement by, CVAT.ai Corporation or Intel
-Corporation.
+[ADR 0007](docs/adr/0007-reusing-third-party-code.md). Everything else is independently
+implemented. We claim no affiliation with, or endorsement by, any project we depend on or
+adapt from.
 
 CurveVision is built on other people's well-maintained code, and that is the point. See
 [THIRD_PARTY_NOTICES.md](docs/THIRD_PARTY_NOTICES.md) for every dependency, its license and

@@ -29,8 +29,8 @@ src/
 The engine is framework-agnostic on purpose: it is the most performance-sensitive surface
 in the product, it must be testable in Node, and keeping React out of it is what stops it
 becoming an unmaintainable component. See
-[`../docs/ARCHITECTURE_COMPARISON.md`](../docs/ARCHITECTURE_COMPARISON.md#4-the-annotation-canvas-the-most-important-difference)
-for why it uses Canvas2D and a spatial index rather than an SVG DOM.
+[ADR 0003](../docs/adr/0003-canvas2d-with-spatial-index.md) for why it uses Canvas2D and a
+spatial index rather than an SVG DOM.
 
 ## License
 

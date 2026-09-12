@@ -8,7 +8,7 @@ The annotation canvas is the most performance-sensitive surface in the product. 
 job can hold 100,000 objects, and annotators pan and zoom constantly through sessions
 lasting hours.
 
-CVAT's `cvat-canvas` renders annotations as SVG DOM nodes. That buys browser-native hit
+The established approach renders annotations as SVG DOM nodes. That buys browser-native hit
 testing, CSS styling and accessibility — a completely reasonable choice whose ceiling is the
 DOM: each shape is one or more elements, and browsers degrade noticeably in the low
 thousands, particularly during pan/zoom when transforms invalidate large parts of a layer.

@@ -8,7 +8,8 @@ CurveVision needs to import and export the standard computer-vision dataset form
 accept new ones without rewriting the dataset system each time.
 
 [Datumaro](https://github.com/openvinotoolkit/datumaro) (MIT, Intel/OpenVINO) supports 20+
-formats, is actively maintained, and is what CVAT uses. Using it would be the obvious
+formats and is actively maintained; it is what most of this space uses. Adopting it would
+be the obvious
 "don't reinvent the ecosystem" answer.
 
 ## Options

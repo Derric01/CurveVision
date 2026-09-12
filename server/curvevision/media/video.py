@@ -13,9 +13,9 @@
 # the `DURATION` metadata fallback for containers that omit a stream duration, and
 # honouring rotation metadata while preserving presentation timestamps.
 #
-# What is different: CurveVision decodes from bytes or a filesystem path rather than
-# CVAT's `Openable` abstraction, has no 3D/point-cloud dimension, no manifest, and no
-# Django or DRF coupling. See docs/adr/0007-cvat-reuse-policy.md for why this file is
+# What is different: CurveVision decodes from bytes or a filesystem path rather than the
+# upstream `Openable` abstraction, has no 3D/point-cloud dimension, no manifest, and no
+# Django or DRF coupling. See docs/adr/0007-reusing-third-party-code.md for why this file is
 # adapted rather than re-derived.
 """Reading frames out of a video.
 

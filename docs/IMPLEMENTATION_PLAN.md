@@ -81,8 +81,8 @@ What each shape must be allowed to be good at:
    workers against managed Postgres/Redis/S3.
 4. **No artificial capability paywalls.** Everything needed to produce a high-quality dataset
    is in the open-source core.
-5. **Leverage the ecosystem, and CVAT specifically.** Prefer mature OSS over bespoke code,
-   and prefer adapting CVAT's MIT-licensed engineering over re-deriving it. See
+5. **Leverage the ecosystem.** Prefer mature OSS over bespoke code, and prefer adapting
+   permissively licensed engineering over re-deriving it. See
    [ARCHITECTURE.md § Open-Source Building Blocks](./ARCHITECTURE.md#open-source-building-blocks--build-vs-extend-decisions)
    for the decision table and the license audit behind it.
 6. **Incremental over clean-slate.** Working code is not rewritten because a newer shape
@@ -128,8 +128,9 @@ curvevision/
 └─ scripts/                  # dev scripts
 ```
 
-**Rationale for a modular monolith.** CVAT's production compose file runs 18 services. That
-is a *deployment* answer to what is mostly a *module boundary* problem. CurveVision keeps
+**Rationale for a modular monolith.** Splitting an annotation platform into a dozen or more
+deployed services is a *deployment* answer to what is mostly a *module boundary* problem.
+CurveVision keeps
 one deployable API image and one worker image; the module boundaries live in Python packages
 with explicit interfaces (`storage.Storage`, `ml.ModelProvider`, `formats.DatasetFormat`,
 `jobs.JobQueue`). If a boundary ever needs to become a network boundary, the interface is
@@ -254,9 +255,9 @@ Key decisions:
 
 * **Task vs Job.** A *Task* owns media and configuration. A *Job* is a contiguous slice of a
   task's frame range assigned to one annotator, with its own state and review status. This
-  split (which CVAT also makes, and which is the correct decomposition) is what makes
-  parallel annotation, review, and progress tracking tractable. CurveVision simplifies it by
-  dropping CVAT's intermediate `Segment` entity: a Job *is* the segment
+  split is the correct decomposition and what makes parallel annotation, review and progress
+  tracking tractable. CurveVision simplifies the usual shape by dropping the intermediate
+  `Segment` entity that platforms in this space tend to carry: a Job *is* the segment
   (`start_frame`/`stop_frame` live on the job), which removes a join from every hot path.
 * **Labels live on the project** by default and are inherited by tasks, so a schema change
   propagates. A task may be created label-standalone for one-off datasets.
@@ -348,8 +349,9 @@ frame navigation, label sidebar, object list, autosave to the API.
   probing, thumbnail generation, ordered frame indexing.
 * **Video datasets** — **In Progress.** A video task is annotatable end to end: upload a
   video, get a task with many frames, and the editor is served each frame as an image.
-  `curvevision/media/video.py` is **adapted from CVAT** under
-  [ADR 0007](./adr/0007-cvat-reuse-policy.md), keeping its copyright header and recorded in
+  `curvevision/media/video.py` is **adapted from another project's MIT-licensed source**
+  under [ADR 0007](./adr/0007-reusing-third-party-code.md), keeping its upstream copyright
+  header and recorded in
   [THIRD_PARTY_NOTICES](./THIRD_PARTY_NOTICES.md#adapted-source). What that bought, and why
   it was not worth re-deriving: frames are addressed in **decode order rather than by
   seeking**, because seeking lands on the nearest keyframe and a frame number must identify

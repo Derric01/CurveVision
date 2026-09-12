@@ -13,7 +13,6 @@
 | Document | What it covers |
 | --- | --- |
 | [ARCHITECTURE.md](./ARCHITECTURE.md) | System design, layering rules, and the OSS build-vs-extend table |
-| [ARCHITECTURE_COMPARISON.md](./ARCHITECTURE_COMPARISON.md) | An honest comparison with CVAT, including licensing |
 | [IMPLEMENTATION_PLAN.md](./IMPLEMENTATION_PLAN.md) | The engineering plan of record, phase by phase |
 | [ROADMAP.md](./ROADMAP.md) | What is done, what is next, and what we decided against |
 | [adr/](./adr/) | Architecture decision records |

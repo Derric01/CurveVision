@@ -5,7 +5,7 @@
 > [`AGENTS.md`](./AGENTS.md) first; it is the working contract. Update this file after every
 > iteration, including the ones that mostly failed.
 >
-> **Last updated:** 2026-09-12 (iteration 8) · branch `claude/curvevision-platform-build-n1g71n` · PRs [#1](https://github.com/Derric01/CurveVision/pull/1)–[#5](https://github.com/Derric01/CurveVision/pull/5) merged · iterations 6–8 in open PR [#6](https://github.com/Derric01/CurveVision/pull/6)
+> **Last updated:** 2026-09-12 (iteration 9) · branch `claude/curvevision-platform-build-n1g71n` · PRs [#1](https://github.com/Derric01/CurveVision/pull/1)–[#5](https://github.com/Derric01/CurveVision/pull/5) merged · iterations 6–8 in open PR [#6](https://github.com/Derric01/CurveVision/pull/6)
 
 ---
 
@@ -29,7 +29,7 @@ straight into the application.
 **Video tasks are now annotatable, and no longer slow to step through.** Uploading a video
 produces a task with many frames, and the editor is served each frame as an image —
 previously a frame request returned the whole container, which made video unusable.
-`media/video.py` is adapted from CVAT under ADR 0007.
+`media/video.py` is adapted from another project's MIT-licensed source under ADR 0007.
 
 Frames are served from **chunks**, end to end: 36 frames decoded in one pass, stored as one
 archive, and fetched by the editor as one request. Measured on a 600-frame 640×480 clip,
@@ -169,10 +169,11 @@ username/sign-out chrome is replaced by the version. The injected shape is pinne
 same fixture — because a rename on one side alone would silently strand the desktop window
 on a sign-in screen.
 
-**Video frames** — `media/video.py`, **adapted from CVAT** at commit `1d0c395` under
-[ADR 0007](./docs/adr/0007-cvat-reuse-policy.md), carrying its copyright header and recorded
-in [THIRD_PARTY_NOTICES](./docs/THIRD_PARTY_NOTICES.md#adapted-source) with the license text
-in `licenses/MIT-cvat.txt`. Frames are addressed in decode order rather than by seeking,
+**Video frames** — `media/video.py`, **adapted from another project's MIT-licensed source**
+at the commit named under [ADR 0007](./docs/adr/0007-reusing-third-party-code.md), carrying
+its upstream copyright header and recorded in
+[THIRD_PARTY_NOTICES](./docs/THIRD_PARTY_NOTICES.md#adapted-source) with the licence text in
+`licenses/MIT-video-decoding.txt`. Frames are addressed in decode order rather than by seeking,
 counted by decoding rather than trusted from the container, and served as JPEG with rotation
 metadata applied. A video task is annotatable end to end.
 
@@ -219,6 +220,41 @@ full docs set including seven ADRs.
 ---
 
 ## Last iteration
+
+**Removed the upstream project's name from everywhere it was not legally required.** It
+appeared roughly 100 times across 20 files; it now appears four times across three, and
+every one of those is the attribution MIT obliges.
+
+What went: `docs/ARCHITECTURE_COMPARISON.md` (deleted outright), the named comparisons in
+ADRs 0001–0005, the §8.0 reuse table in `ARCHITECTURE.md`, the README's acknowledgement and
+its "use the mature tool instead" pointer, the discretionary row in THIRD_PARTY_NOTICES, and
+the prose in the plan, the roadmap, AGENTS, `docker-compose.yml` and two source comments.
+ADR 0007 was rewritten from a project-specific reuse policy into a general one —
+`0007-reusing-third-party-code.md` — which is more useful anyway, since it now governs any
+future adaptation rather than one project's.
+
+What stayed, and why it had to:
+
+| Where | What |
+| --- | --- |
+| `server/curvevision/media/video.py`, lines 1–5 | The upstream copyright line and SPDX identifier |
+| `docs/THIRD_PARTY_NOTICES.md`, the Adapted source row | Names the file, the upstream path, the commit and the copyright holders |
+| `licenses/MIT-video-decoding.txt` | The full licence text (renamed from `MIT-cvat.txt`) |
+
+**MIT's single condition is that the copyright notice travels with the code.** Retaining it
+*is* the licence; removing it while keeping the code is the one thing the permission does
+not extend to. ADR 0007 now says so explicitly, including the only clean route to removing
+the attribution entirely: re-derive the file independently and delete the adapted one in the
+same change. That was offered and declined — the code stays, so the notice stays.
+
+Where a passage's value depended on naming the project — "their production compose file runs
+eighteen services" — it was **deleted rather than anonymised**, because "a mature platform
+runs eighteen services" is an unverifiable claim and this repository does not make those.
+
+Verified with a link checker over all 127 relative links in the docs, since deleting a
+document and renaming an ADR is exactly how a docs tree quietly rots.
+
+### Iteration 8
 
 **A video task's frame count is now counted, not guessed.** It was estimated at upload from
 container metadata, because an exact count means decoding the whole file and that cannot
@@ -381,11 +417,10 @@ Two defects came out of looking at the result:
 * **The editor's label list clipped through the middle of a row** at six labels — a fixed
   `max-h-52` (13rem) cap. Now proportional (`max-h-[30vh]`), so a normal window shows the
   whole schema and a short one still scrolls.
-* **Two licensing claims were false.** `THIRD_PARTY_NOTICES.md` and
-  `ARCHITECTURE_COMPARISON.md` both still asserted "No CVAT source code is present in this
-  repository" while the same notices file listed `media/video.py` as adapted from CVAT three
-  sections earlier. Iteration 3 corrected that sentence in the README and missed its two
-  copies. Both now point at the adaptation table as the authoritative list.
+* **Two licensing claims were false.** Two documents still asserted that no third-party
+  source was present in this repository while the notices file listed `media/video.py` as
+  adapted, three sections earlier. Iteration 3 corrected that sentence in the README and
+  missed its two copies. Both now point at the adaptation table as the authoritative list.
 
 ### Iteration 3 (for context)
 
@@ -414,7 +449,7 @@ Badges limited to verifiable facts — CI, licence, language versions — with n
 counts, star counts or coverage number there is no gate for.
 
 **Two claims in it had gone false**, which matters more than the layout: it still said the
-desktop application was Planned with no working build, and that no CVAT source code was
+desktop application was Planned with no working build, and that no adapted source code was
 present. Both corrected; the second is a licensing claim and was the more urgent.
 
 ## Verification performed
@@ -502,7 +537,7 @@ missing, and it is the reason this iteration found anything):
 | No frame image ever rendered in the editor | `<img>.src` on the frame endpoint with `crossOrigin = 'use-credentials'` sends cookies; the API uses bearer tokens, so every frame was 401 and the canvas drew a broken element. | Frames fetched through the API client as object URLs; verified by screenshotting a drawn annotation over a rendered frame |
 | Video tests would have skipped silently in CI | `av` was in the `media` extra but not `dev`, and CI installs `[dev]`. `pytest.importorskip` would have skipped every video test while the suite reported green. | Added to `dev`; the tests run rather than skip |
 | The editor's label list was cut through the middle of a row | A fixed `max-h-52` (13rem) cap on the list; six labels need ~14rem. Functional — it scrolled — but it looked broken, and a six-label schema is not unusual. Now `max-h-[30vh]`. | Regenerated screenshot: all six labels visible, `OBJECTS` heading intact below |
-| Two documents claimed no CVAT source code is present, while a third section of one of them listed the file that is | Iteration 3 corrected that sentence in the README only; `THIRD_PARTY_NOTICES.md` and `ARCHITECTURE_COMPARISON.md` kept their copies. A licensing claim that contradicts itself three sections apart is worse than no claim. | Both now defer to **THIRD_PARTY_NOTICES § Adapting CVAT code** as the authoritative list |
+| Two documents claimed no third-party source is present, while a third section of one of them listed the file that is | Iteration 3 corrected that sentence in the README only; two other documents kept their copies. A licensing claim that contradicts itself three sections apart is worse than no claim. | Both now defer to **THIRD_PARTY_NOTICES § Adapted source** as the authoritative list |
 
 ---
 
@@ -645,8 +680,8 @@ missing, and it is the reason this iteration found anything):
   either way, so the real boundary is `capabilities/default.json`, not the flag. That makes
   it a question of surface area and types, which the dependency wins — and calling the
   internals directly buys the same thing with no stability contract at all. ADR 0008.
-- **Rotating video frames through NumPy**, as CVAT does. It is the natural port of their
-  code, but it would add NumPy as a dependency for an operation Pillow — already required —
+- **Rotating video frames through NumPy**, as the upstream code does. It is the natural
+  port, but it would add NumPy as a dependency for an operation Pillow — already required —
   performs on the very next line, when the frame becomes an image. Rotation is applied at
   image conversion instead.
 - **Counting a video's frames accurately at upload time.** It is the correct number, and it
@@ -678,11 +713,15 @@ Significant ones have ADRs; these are the ones a future agent would otherwise se
   difference between desktop and server is a `Settings` value in every case. `services/` must
   not be able to tell which shape it is in. **A change that improves one shape by degrading
   the other is the wrong change.**
-- **[ADR 0007](./docs/adr/0007-cvat-reuse-policy.md) — CVAT reuse.** Audited at commit
-  `1d0c395`: one MIT `LICENSE`, `SPDX-License-Identifier: MIT` on all 1,473 source headers.
-  Reuse pays for hard-won domain knowledge (video decoding), costs for framework glue (Django,
-  DRF, SVG.js). Adapt `media_extractors.py`; do not adapt `cvat-canvas` — Canvas2D was chosen
-  on a *measured* ~500× picking advantage at 100k shapes ([ADR 0003](./docs/adr/0003-canvas2d-with-spatial-index.md)).
+- **[ADR 0007](./docs/adr/0007-reusing-third-party-code.md) — reusing third-party source.**
+  No source is adapted until a licence audit has been run against the upstream repository at
+  a named commit. Reuse pays for hard-won domain knowledge (video decoding) and costs for
+  framework glue (Django, DRF, SVG.js). **Under MIT the copyright notice travels with the
+  code**, and removing it while keeping the code is not an option the ADR leaves open — the
+  answer to an unwanted attribution is to re-derive the file, not to drop the notice.
+  Never adopt an architecture an ADR rejected on measured grounds: Canvas2D was chosen over
+  an SVG DOM on a ~500× picking advantage at 100k shapes
+  ([ADR 0003](./docs/adr/0003-canvas2d-with-spatial-index.md)).
 - **Desktop-only capability is gated at the API edge, never in a service.** Reading arbitrary
   local paths is a feature on your own machine and arbitrary file disclosure on a shared one.
   `api/v1/local.py` returns 404 unless `local_mode`, so the capability is *absent* on a
