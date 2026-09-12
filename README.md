@@ -80,9 +80,9 @@ AI-assisted     upload → run your model → accept or correct → review → e
 > **Status: early, and honestly labelled.** The manual annotation path is complete and
 > tested end to end. Video, the track-editing timeline and quality reports are partly
 > built. **Every feature below carries its real state** — nothing is marked Done unless it
-> works and has tests. If you need a mature platform for critical work today, use
-> [CVAT](https://github.com/cvat-ai/cvat); we say so plainly in our
-> [architecture comparison](docs/ARCHITECTURE_COMPARISON.md).
+> works and has tests. If you need a platform with years of production mileage behind it
+> for critical work today, this is not yet that — and we would rather say so here than have
+> you find out later.
 
 ---
 
@@ -182,9 +182,15 @@ represent, *before* you rely on it.
 | Skeletons / keypoints — model and COCO export exist; the UI does not | *Planned* |
 
 **It stays fast.** The canvas is a Canvas2D engine with an R-tree spatial index, so
-rendering costs what is *on screen* rather than what is in the dataset. Measured on this
-machine: picking from 100,000 shapes takes ~1 µs; a linear scan of 10,000 takes ~550 µs.
-Run `npm run bench` in `web/` and check for yourself.
+rendering costs what is *on screen* rather than what is in the dataset.
+
+| Shapes in the dataset | Pick, with the R-tree | Pick, by linear scan | Gap |
+| --- | --- | --- | --- |
+| 10,000 | ~0.3 µs | ~450 µs | ~1,500× |
+| 100,000 | ~0.7 µs | ~5,000 µs | ~7,000× |
+
+One developer machine, and your numbers will differ — the shape will not, and the gap widens
+with size. Run `npm run bench` in `web/` and check for yourself.
 
 Autosave keeps a local write-ahead buffer in IndexedDB, so a browser crash does not cost
 you an afternoon — and a stale write is rejected with a conflict rather than silently
@@ -252,8 +258,8 @@ actually need before training — **how many frames have no annotations at all**
 | Annotating local folders in place, without copying | **Done** |
 | Video: frames decoded and served individually, so a video task is annotatable | **Done** |
 | Client-side track interpolation (scrubbing costs no round trip) | **Done** |
-| Chunked frame delivery — deep scrubbing is slow without it | **In Progress** |
-| Track-editing timeline UI — the model and interpolation exist on both sides | **In Progress** |
+| Chunked frame delivery — 36 frames decoded in one pass and fetched in one request, so stepping costs 17× fewer decodes and 12× fewer requests | **Done** |
+| Track timeline — every track's keyframes and where it is present, with `,`/`.` to step between them. Editing keyframes from it is not built | **In Progress** |
 | Resumable uploads — storage model only; no endpoints yet | *Planned* |
 
 Interpolation between keyframes resamples polygons to a common arc-length parameterisation
@@ -336,9 +342,6 @@ the entire desktop application changed 1,460 lines and removed 42; nothing was r
 * [ARCHITECTURE.md](docs/ARCHITECTURE.md) — the design, and an
   [OSS build-vs-extend table](docs/ARCHITECTURE.md#open-source-building-blocks--build-vs-extend-decisions)
   giving the reasoning for every dependency choice.
-* [ARCHITECTURE_COMPARISON.md](docs/ARCHITECTURE_COMPARISON.md) — an honest comparison with
-  CVAT: what we learned, where we differ, what it still does better, and the licensing
-  position.
 * [docs/adr/](docs/adr/) — the decisions, with the evidence behind them.
 
 ---
@@ -405,16 +408,15 @@ worked, and more usefully, what did not.
 
 ## Acknowledgements
 
-CurveVision exists in a landscape that [CVAT](https://github.com/cvat-ai/cvat) largely
-defined, and we studied it deliberately rather than rediscovering its lessons the expensive
-way.
+CurveVision stands on a decade of open-source work in this space, and we studied it
+deliberately rather than rediscovering its lessons the expensive way.
 
-**One file is adapted from CVAT's MIT-licensed source**: `server/curvevision/media/video.py`
-carries CVAT's copyright header and is recorded in
-[THIRD_PARTY_NOTICES](docs/THIRD_PARTY_NOTICES.md#adapted-source), with the reasoning in
-[ADR 0007](docs/adr/0007-cvat-reuse-policy.md). Everything else is independently
-implemented. We claim no affiliation with, or endorsement by, CVAT.ai Corporation or Intel
-Corporation.
+**One file adapts MIT-licensed source from [CVAT](https://github.com/cvat-ai/cvat)**:
+`server/curvevision/media/video.py`, for video frame decoding. It carries CVAT's copyright
+header and is recorded in
+[THIRD_PARTY_NOTICES](docs/THIRD_PARTY_NOTICES.md#adapted-source). Everything else here is
+independently implemented, and we claim no affiliation with or endorsement by CVAT.ai
+Corporation or Intel Corporation.
 
 CurveVision is built on other people's well-maintained code, and that is the point. See
 [THIRD_PARTY_NOTICES.md](docs/THIRD_PARTY_NOTICES.md) for every dependency, its license and

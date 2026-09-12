@@ -38,6 +38,8 @@ import { Badge, Button, ErrorNotice, Kbd, Spinner, jobStateTone } from '@/ui/pri
 import { AnnotationCanvas, type CanvasHandle } from './AnnotationCanvas';
 import { frameAnnotations, toLabelStyles } from './adapters';
 import { useFrameObjectUrl } from './useFrameObjectUrl';
+import { TrackTimeline } from './TrackTimeline';
+import { adjacentKeyframe, trackRows } from './timeline';
 import { useAutosave } from './useAutosave';
 
 const TOOLS: { name: ToolName; icon: typeof Square; label: string; key: string }[] = [
@@ -119,6 +121,20 @@ export function EditorPage() {
     onSuccess: () => void queryClient.invalidateQueries({ queryKey: ['job', jobId] }),
   });
 
+  const tracks = useMemo(
+    () => trackRows(annotations.data, job.data?.start_frame ?? 0, job.data?.stop_frame ?? 0),
+    [annotations.data, job.data?.start_frame, job.data?.stop_frame],
+  );
+
+  // Every keyframe in the job, deduplicated — what `,` and `.` step between. Stepping
+  // between keyframes rather than frames is how you move through a track that was
+  // annotated every thirtieth frame without pressing an arrow thirty times.
+  const keyframes = useMemo(() => {
+    const all = new Set<number>();
+    for (const track of tracks) for (const frame of track.keyframes) all.add(frame);
+    return [...all].sort((a, b) => a - b);
+  }, [tracks]);
+
   // Frame navigation. Arrow keys are the highest-traffic shortcut in the whole editor.
   useEffect(() => {
     function onKey(event: KeyboardEvent) {
@@ -130,11 +146,18 @@ export function EditorPage() {
         setFrame((current) => Math.min(job.data!.stop_frame, (current ?? 0) + 1));
       } else if (event.key === 'ArrowLeft' || event.key === 'a') {
         setFrame((current) => Math.max(job.data!.start_frame, (current ?? 0) - 1));
+      } else if (event.key === '.' || event.key === ',') {
+        const next = adjacentKeyframe(
+          keyframes,
+          frame ?? job.data.start_frame,
+          event.key === '.' ? 1 : -1,
+        );
+        if (next !== null) setFrame(next);
       }
     }
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [job.data]);
+  }, [job.data, keyframes, frame]);
 
   // Flush pending work before leaving the frame, so changes are never stranded.
   useEffect(() => {
@@ -291,6 +314,15 @@ export function EditorPage() {
           <ShortcutHelp />
         </aside>
       </div>
+
+      <TrackTimeline
+        rows={tracks}
+        labels={labelStyles}
+        startFrame={job.data?.start_frame ?? 0}
+        stopFrame={job.data?.stop_frame ?? 0}
+        currentFrame={currentFrame}
+        onSeek={setFrame}
+      />
 
       {/* Frame navigation */}
       <footer className="flex h-12 shrink-0 items-center gap-3 border-t border-ink-800 px-3">
@@ -503,6 +535,7 @@ function ShortcutHelp() {
           ['V / R / P / L / E', 'Select, rectangle, polygon, polyline, ellipse'],
           ['Space (hold)', 'Pan'],
           ['← / →', 'Previous / next frame'],
+          [', / .', 'Previous / next keyframe'],
           ['Enter', 'Finish polygon'],
           ['Backspace', 'Remove last vertex'],
           ['Ctrl+Z / Ctrl+Shift+Z', 'Undo / redo'],

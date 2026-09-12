@@ -13,9 +13,9 @@
 # the `DURATION` metadata fallback for containers that omit a stream duration, and
 # honouring rotation metadata while preserving presentation timestamps.
 #
-# What is different: CurveVision decodes from bytes or a filesystem path rather than
-# CVAT's `Openable` abstraction, has no 3D/point-cloud dimension, no manifest, and no
-# Django or DRF coupling. See docs/adr/0007-cvat-reuse-policy.md for why this file is
+# What is different: CurveVision decodes from bytes or a filesystem path rather than the
+# upstream `Openable` abstraction, has no 3D/point-cloud dimension, no manifest, and no
+# Django or DRF coupling. See docs/adr/0007-reusing-third-party-code.md for why this file is
 # adapted rather than re-derived.
 """Reading frames out of a video.
 
@@ -191,9 +191,8 @@ class VideoReader:
                 return frame
         raise ValidationError(f"This video has no frame {index}")
 
-    def frame_image(self, index: int) -> Any:
-        """One frame as a Pillow image, the right way up."""
-        frame = self.frame(index)
+    def _to_image(self, frame: Any) -> Any:
+        """A decoded frame as a Pillow image, the right way up."""
         image = frame.to_image()
         rotation = self._rotation(frame)
         if rotation:
@@ -201,13 +200,37 @@ class VideoReader:
             image = image.rotate(-rotation, expand=True)
         return image
 
+    def frame_image(self, index: int) -> Any:
+        """One frame as a Pillow image, the right way up."""
+        return self._to_image(self.frame(index))
+
+    @staticmethod
+    def _encode(image: Any, quality: int) -> bytes:
+        buffer = io.BytesIO()
+        image.convert("RGB").save(buffer, format="JPEG", quality=quality, optimize=True)
+        return buffer.getvalue()
+
     def frame_jpeg(self, index: int, quality: int = FRAME_JPEG_QUALITY) -> bytes:
         """One frame, encoded as a JPEG the editor can display."""
-        buffer = io.BytesIO()
-        self.frame_image(index).convert("RGB").save(
-            buffer, format="JPEG", quality=quality, optimize=True
-        )
-        return buffer.getvalue()
+        return self._encode(self.frame_image(index), quality)
+
+    def frames_jpeg(
+        self, wanted: Iterator[int], quality: int = FRAME_JPEG_QUALITY
+    ) -> Iterator[tuple[int, bytes]]:
+        """`(index, jpeg)` for each requested frame, in **one** decode pass.
+
+        `frame_jpeg` in a loop decodes from the start of the file once per frame, so
+        fetching 36 consecutive frames near the middle of a clip costs 36 partial decodes
+        of the same picture data. This costs one. That difference is the entire reason
+        chunks exist; everything else about them is bookkeeping.
+
+        `wanted` must be ascending, as `iterate_frames` requires. Frames that do not exist
+        are simply absent from the output rather than raising — a caller building a chunk
+        at the end of a video asks for a range that may overhang it, and one short chunk is
+        the correct answer, not an error.
+        """
+        for index, frame in self.iterate_frames(wanted):
+            yield index, self._encode(self._to_image(frame), quality)
 
     # ---------------------------------------------------------------- metadata
 

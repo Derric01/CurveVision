@@ -21,7 +21,7 @@ Constraints that hold for *everyone* regardless of role -- a locked job, a relea
 dataset version -- are not permissions and are not here. Services enforce those and
 return 409 with a message that says what is actually wrong.
 
-Rationale for not using Open Policy Agent (which CVAT uses): the decision is a pure
+Rationale for not using Open Policy Agent: the decision is a pure
 function of rows already loaded to serve the request. A network hop and a second policy
 language per authorization check is a poor trade for self-hosters, and a real barrier for
 contributors. We keep the good idea -- centralised, declarative, table-driven policy,

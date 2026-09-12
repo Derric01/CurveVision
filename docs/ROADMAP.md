@@ -55,8 +55,8 @@ application — and produce a real dataset with it.
 | Dataset versions with immutable releases | **Done** |
 | REST API and API tokens | **Done** |
 | Webhooks with HMAC signing | **In Progress** — delivery works; retry/backoff is not wired to the queue |
-| Video annotation | **In Progress** — a video task is annotatable: frames are decoded and served individually, adapted from CVAT's MIT-licensed `media_extractors`. Chunked delivery is not built, so scrubbing deep into a long video is slow |
-| Track editing UI (keyframe timeline) | **In Progress** — the model and interpolation are done on both sides; the UI is not |
+| Video annotation | **In Progress** — a video task is annotatable, and frames are served from chunks decoded one pass at a time (17× fewer decodes when stepping through frames; see the implementation plan for the measurements). The editor fetches a chunk rather than 36 frames. The track-editing timeline is not built |
+| Track editing UI (keyframe timeline) | **In Progress** — the timeline shows every track's keyframes and where it is present, and `,`/`.` step between keyframes; adding, moving and removing keyframes from it is not built |
 | Mask brush tool | **Planned** — RLE storage and export exist; the drawing tool does not |
 | Skeleton / keypoint editing UI | **Planned** — the model and COCO keypoint export exist |
 | Ground-truth quality reports | *Planned* — the storage model exists; nothing computes a report |
@@ -142,6 +142,30 @@ and the exporters are the same code the server runs. See
 Two numbers to keep honest: **1,460 lines added and 42 removed** across the four commits
 that turned the server into a desktop application. Nothing was rewritten to get here,
 because storage, jobs, the database dialect and the formats were already interfaces.
+
+## What it does not do
+
+Limitations belong in the same document as the plans, stated plainly, because a reader
+deciding whether to adopt this needs them more than they need the roadmap.
+
+* **No 3D or point-cloud annotation.** No LiDAR, no cuboids in 3D. Not close, and not
+  planned for 1.0.
+* **Four dataset formats**, not twenty. COCO, YOLO, Pascal VOC and the lossless native
+  format, each declaring honestly what it can represent. The registry takes plugins through
+  entry points, so a fifth is an add-on rather than a fork — but four is what ships.
+* **S3-compatible object storage only.** MinIO, Ceph, Backblaze B2, AWS S3 and anything else
+  speaking that API. **Azure Blob Storage and Google Cloud Storage are not supported**, and
+  adding them means a new `Storage` implementation — a contained piece of work nobody has
+  done yet.
+* **No consensus or honeypot quality workflows.** The quality module is *In Progress* and
+  starts with ground-truth comparison; consensus scoring and honeypot frames are under
+  *Later*.
+* **No signed installers.** The desktop app builds and runs from source; `.dmg`, `.msi` and
+  `.AppImage` need one CI runner per platform and are not built yet.
+* **Young.** This has not been through years of production use across many organisations.
+  Anyone choosing an annotation platform for critical work today should weigh that
+  seriously — the README says so too, and it is the honest reason to prefer something older
+  for that job.
 
 ## What we have decided against
 

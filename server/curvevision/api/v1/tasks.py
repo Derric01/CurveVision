@@ -38,6 +38,7 @@ from curvevision.schemas.task import (
     TaskProgress,
     TaskUpdate,
 )
+from curvevision.services import background as background_service
 from curvevision.services import media as media_service
 from curvevision.services import tasks as task_service
 from curvevision.storage import ObjectNotFoundError, get_storage
@@ -178,6 +179,19 @@ async def upload_assets(
     if scope.task.status is TaskStatus.DRAFT and scope.task.frame_count:
         scope.task.status = TaskStatus.READY
     await session.commit()
+
+    # A video task's frame count is an estimate until something decodes the file. Correct
+    # it in the background rather than making the upload wait for a two-hour clip; the task
+    # is usable with the estimate meanwhile, and the job fixes it in place.
+    if await media_service.needs_exact_count(session, scope.task.id):
+        await background_service.enqueue(
+            session,
+            kind="media.probe_task",
+            payload={"task_id": str(scope.task.id)},
+            resource_type="task",
+            resource_id=scope.task.id,
+        )
+
     return [AssetOut.model_validate(asset) for asset in created]
 
 
@@ -248,9 +262,14 @@ async def frame_data(
     storage = get_storage(settings)
 
     # A video blob is one file holding thousands of frames, so the bytes of the blob are
-    # not the bytes of the frame. Decode the one that was asked for.
+    # not the bytes of the frame. The service decides how to get it -- from a chunk, by
+    # building one, or by decoding the single frame; see `media_service.video_frame_jpeg`.
     if blob.kind is MediaKind.VIDEO:
-        jpeg = await media_service.render_video_frame(blob, storage, offset)
+        jpeg = await media_service.video_frame_jpeg(
+            session, settings, storage, scope.task, blob, frame, offset
+        )
+        # A chunk built while serving a read is worth keeping.
+        await session.commit()
         return Response(
             content=jpeg,
             media_type="image/jpeg",
@@ -272,6 +291,42 @@ async def frame_data(
         body,
         media_type=blob.content_type,
         headers={"Cache-Control": "private, max-age=3600"},
+    )
+
+
+@router.get("/tasks/{task_id}/chunks/{chunk}")
+async def chunk_data(
+    chunk: int, scope: TaskScopeDep, session: SessionDep, settings: SettingsDep
+) -> Response:
+    """A run of decoded video frames, as one ZIP of JPEGs named by frame number.
+
+    Built on first request and reused afterwards, because the decode it replaces is the
+    slowest thing this server does. Fetching one chunk instead of 36 frame requests is the
+    difference between scrubbing a video and waiting for it.
+
+    404 for a task with no video in that range: an image task serves frames directly in
+    constant time and gains nothing from an archive of its own pictures.
+    """
+    storage = get_storage(settings)
+    built = await media_service.build_chunk(session, settings, storage, scope.task, chunk)
+    if built is None:
+        raise NotFoundError("This task has no video frames in that range")
+    await session.commit()
+
+    last = built.start_frame + built.frame_count - 1
+    try:
+        body = storage.stream(built.storage_key)
+    except ObjectNotFoundError as exc:  # pragma: no cover - defensive
+        raise NotFoundError("Chunk data is missing from storage") from exc
+    return StreamingResponse(
+        body,
+        media_type=built.content_type,
+        headers={
+            "Cache-Control": "private, max-age=86400",
+            # A chunk's contents are fixed by its frame range, so a client that has one
+            # never needs to ask for it again.
+            "X-CurveVision-Frames": f"{built.start_frame}-{last}",
+        },
     )
 
 

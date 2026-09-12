@@ -9,8 +9,8 @@ inference orchestration, annotation storage, and the API itself. They have genui
 different resource profiles — media work is CPU-bound, annotation writes are database-bound,
 inference is network-bound.
 
-The obvious modern reflex is to split them into services. CVAT's production compose file
-runs eighteen.
+The obvious modern reflex is to split them into services, and mature platforms in this
+space do.
 
 ## Options
 

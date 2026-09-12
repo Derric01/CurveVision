@@ -28,6 +28,7 @@ import type {
   Project,
   ProjectStatistics,
   Task,
+  TaskMediaMeta,
   TaskProgress,
   TokenPair,
   User,
@@ -297,6 +298,21 @@ export const api = {
    */
   frameBlob: (taskId: string, frame: number, signal?: AbortSignal) =>
     request<Blob>(`/tasks/${taskId}/frames/${frame}/data`, { signal }),
+
+  /** How this task's frames are grouped into chunks, and how many there are. */
+  taskMedia: (taskId: string) => request<TaskMediaMeta>(`/tasks/${taskId}/media`),
+
+  /**
+   * A run of decoded video frames, as one archive.
+   *
+   * The server decodes a chunk in a single pass, so asking for 36 frames this way costs
+   * one decode rather than 36 partial ones — and one request rather than 36. See
+   * `features/editor/chunks.ts` for what the editor does with it.
+   */
+  chunkArchive: async (taskId: string, chunk: number, signal?: AbortSignal) => {
+    const blob = await request<Blob>(`/tasks/${taskId}/chunks/${chunk}`, { signal });
+    return blob.arrayBuffer();
+  },
 
   // ------------------------------------------------------------------------- jobs
   jobs: (params?: { mine?: boolean; state?: string; limit?: number }) =>

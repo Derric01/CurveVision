@@ -97,7 +97,14 @@ def frame_size(name: str) -> tuple[int, int]:
 # ------------------------------------------------------------------------------- server
 
 
-def start_server(data_dir: Path) -> tuple[subprocess.Popen[str], dict[str, str]]:
+def start_server(
+    data_dir: Path, env: dict[str, str] | None = None
+) -> tuple[subprocess.Popen[str], dict[str, str]]:
+    """Launch the packaged server and wait for its handshake.
+
+    `env` adds to this process's environment, for the settings a harness needs to vary —
+    `CURVEVISION_FRAMES_PER_CHUNK=0` to check a fallback path, say.
+    """
     if not SIDECAR.is_file():
         raise SystemExit(
             f"the packaged server is missing at {SIDECAR}\n"
@@ -109,6 +116,7 @@ def start_server(data_dir: Path) -> tuple[subprocess.Popen[str], dict[str, str]]
     process = subprocess.Popen(
         [str(SIDECAR), "--data-dir", str(data_dir)],
         stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, bufsize=1,
+        env={**os.environ, **(env or {})},
     )
     assert process.stdout is not None
     deadline = time.time() + 120
@@ -122,14 +130,23 @@ def start_server(data_dir: Path) -> tuple[subprocess.Popen[str], dict[str, str]]
     raise SystemExit("the server never announced itself")
 
 
-def api(base: str, token: str, path: str, payload: object = None, files: bytes | None = None):
+def api(
+    base: str,
+    token: str,
+    path: str,
+    payload: object = None,
+    files: bytes | None = None,
+    filename: str = "frame.jpg",
+    content_type: str = "image/jpeg",
+    method: str | None = None,
+):
     url = f"{base}/api/v1{path}"
     if files is not None:
         boundary = "----curvevision-screenshot"
         body = b"".join([
             f"--{boundary}\r\n".encode(),
-            b'Content-Disposition: form-data; name="files"; filename="frame.jpg"\r\n',
-            b"Content-Type: image/jpeg\r\n\r\n",
+            f'Content-Disposition: form-data; name="files"; filename="{filename}"\r\n'.encode(),
+            f"Content-Type: {content_type}\r\n\r\n".encode(),
             files,
             f"\r\n--{boundary}--\r\n".encode(),
         ])
@@ -137,7 +154,9 @@ def api(base: str, token: str, path: str, payload: object = None, files: bytes |
         request.add_header("Content-Type", f"multipart/form-data; boundary={boundary}")
     else:
         data = json.dumps(payload).encode() if payload is not None else None
-        request = urllib.request.Request(url, data=data, method="POST" if data else "GET")
+        request = urllib.request.Request(
+            url, data=data, method=method or ("POST" if data else "GET")
+        )
         if data:
             request.add_header("Content-Type", "application/json")
     request.add_header("Authorization", f"Bearer {token}")

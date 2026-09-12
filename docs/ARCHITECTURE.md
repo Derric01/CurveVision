@@ -236,10 +236,21 @@ upload (resumable, chunked) → sha256 → dedupe → Asset row
                          client: LRU chunk cache + ±1 chunk prefetch
 ```
 
-**Status:** the chunk model and planning exist; extraction and chunked delivery are *In
-Progress*, and the client currently fetches one frame per request. That is fine for images
-and is the blocker for usable video annotation — one request per frame is the difference
-between a video annotator that is pleasant and one that is unusable.
+**Status: built, end to end.** A chunk is 36 frames decoded in one pass and stored as one
+uncompressed ZIP of JPEGs named by task-global frame number; the editor fetches the archive,
+keeps a three-chunk LRU and prefetches its neighbours. Stepping through 36 frames costs 3
+requests and 36 frame-decodes, against 36 requests and 630 decodes per-frame. The numbers,
+and the one case this costs rather than saves — a sparse scrub, which builds chunks it
+mostly does not use — are in
+[IMPLEMENTATION_PLAN § Phase 3](./IMPLEMENTATION_PLAN.md).
+
+Per-frame decoding remains the fallback for every case a chunk cannot serve: chunking
+switched off, an image asset in the range, an archive storage lost, one the client cannot
+read. A video is never *unservable*, only slower.
+
+**Chunks go to object storage rather than a dedicated cache service.** That keeps them
+durable and shareable across API replicas for free, and it is one fewer stateful thing to
+operate — the same reasoning that keeps the deployment at six services.
 
 Image handling uses **Pillow**; video uses **PyAV** (FFmpeg bindings). Both are optional
 imports: the server starts and the full test suite passes without them, degrading to
@@ -270,46 +281,48 @@ See [SECURITY.md](./SECURITY.md) for the threat model and reporting process.
 The rule: **use existing OSS → extend existing OSS → build**, and only build when there is a
 concrete technical reason. Below is every decision that materially shaped the architecture.
 
-### 8.0 CVAT: what we reuse, what we do not, and why
+### 8.0 When we adapt source rather than depend on it
 
-CVAT is the most mature open-source annotation platform in existence and the reference this
-project was asked to stand on. Reusing its engineering is a goal, not a fallback.
+Most reuse is a dependency: add the package, record the licence, move on. Occasionally what
+we want is a few hundred lines of *source* from inside a much larger application, in our own
+idiom rather than as a dependency. That is a different act and it is governed by
+[ADR 0007](./adr/0007-reusing-third-party-code.md), which sets out both halves of the
+question.
 
-**License audit** — performed against `cvat-ai/cvat` at commit `1d0c395` (2026-09-11), and
-to be re-run before adapting any further code:
+**May we?** Not until a licence audit has been run against the upstream repository *at a
+named commit* — the top-level `LICENSE` verbatim, any other `LICENSE` in the tree, every
+distinct `SPDX-License-Identifier` across the source headers, and whatever caveats the
+project documents about itself. A permissive licence is permission with conditions. Under
+MIT the condition is that the copyright notice and licence text travel with the code; that
+obligation is the price of the reuse, and it is what
+[THIRD_PARTY_NOTICES.md](./THIRD_PARTY_NOTICES.md) exists to discharge.
 
-| Finding | Result |
+**Should we?** Reuse pays for **hard-won domain knowledge** and costs for **framework glue**.
+Glue does not survive the trip: moving a Django/DRF idiom into an async FastAPI codebase is a
+rewrite wearing reuse's clothes, and it leaves foreign idioms to maintain forever. Domain
+knowledge moves almost free, because the knowledge is in the algorithm rather than the
+framework around it.
+
+| Nature of the code | Decision |
 | --- | --- |
-| Top-level `LICENSE` | MIT — © 2018–2022 Intel Corporation, © 2022–2025 CVAT.ai Corporation |
-| Other `LICENSE` files in the tree | None |
-| Distinct `SPDX-License-Identifier` values across 1,473 source headers | `MIT` — **all of them**, no exceptions |
-| Caveats CVAT itself documents | `/serverless` may reference third-party model assets under separate (sometimes non-commercial) licenses; FFmpeg is LGPL/GPL and reached through PyAV |
+| Algorithms, decoders, format edge cases | **Adapt** — with the obligations above |
+| Domain knowledge in another library's shape | **Reference**; port the quirks, not the structure |
+| A separable library | **Depend on it** |
+| Behaviour that must match exactly | **Share test vectors, not code** |
+| ORM models, serialisers, viewsets, permissions | **Do not adapt** |
+| An architecture an ADR already rejected on measured grounds | **Do not adapt** |
 
-So MIT-licensed CVAT code **may** be adapted, provided the copyright notice and MIT text
-travel with it. Any file we adapt keeps its CVAT copyright line, adds ours for the changes,
-and is listed in [THIRD_PARTY_NOTICES.md](./THIRD_PARTY_NOTICES.md). We do not adapt
-anything from `/serverless`, and we do not ship FFmpeg binaries.
+In practice the reuse budget has gone almost entirely into **media handling**. Video
+decoding is years of accumulated edge cases — variable frame rates, broken keyframe indices,
+rotation metadata, containers that lie about their duration — and re-deriving it would be
+the least defensible code we could write. `server/curvevision/media/video.py` is the one
+adapted file, and it carries its upstream copyright header in place.
 
-**The decision that governs the rest:** reuse is worth it when the code encodes *hard-won
-domain knowledge* (video decoding quirks, format edge cases) and cheap when the code is
-mostly *framework glue*. CVAT is Django + DRF + SVG.js; CurveVision is FastAPI +
-SQLAlchemy + Canvas2D. Porting glue across that gap is not reuse — it is a rewrite wearing
-reuse's clothes, and it would leave us maintaining Django idioms in an async codebase
-forever.
-
-| CVAT component | Nature | Decision | Reasoning |
-| --- | --- | --- | --- |
-| `cvat/apps/engine/media_extractors.py` (1,649 lines) | **Domain knowledge.** PyAV/Pillow/NumPy; only 3 CVAT imports plus one DRF exception. Frame-accurate seeking, keyframe indexing, EXIF orientation, chunk writing. | **Adapt** — *In Progress* | This is years of video-decoding edge cases. Our `media/` is 182 lines of probing, and "chunked frame extraction" is our single biggest gap. Re-deriving this would be the least defensible code we could write. |
-| Format edge cases in `cvat/apps/dataset_manager/formats/` (20+ formats) | Domain knowledge, but Datumaro-shaped | **Reference, port selectively** | The converters are thin wrappers over Datumaro. The value is the *quirks* they encode; the structure does not transfer. |
-| Datumaro itself | A library | **Depend on it, eventually** (*Planned* bridge) | Notably, CVAT depends on its **own fork**, pinned to a commit hash — evidence for [ADR 0004](./adr/0004-streaming-format-registry.md): upstream Datumaro did not fit their needs either. Ours is a streaming registry for a different reason (memory), and the bridge stays Planned. |
-| Interpolation / track semantics | Domain knowledge | **Reference for behaviour parity** | Already independently implemented with arc-length resampling. Value in cross-checking test vectors so imported CVAT projects interpolate identically. |
-| `cvat-canvas` (SVG.js, `svg.draw.js`, `svg.resize.js`) | Architecture | **Do not adapt** | [ADR 0003](./adr/0003-canvas2d-with-spatial-index.md) chose Canvas2D + R-tree over SVG DOM on a *measured* ~500x picking advantage at 100k shapes. Adopting an SVG scene graph would undo a benchmarked decision. |
-| Django models, DRF serializers, viewsets, permissions | Framework glue | **Do not adapt** | No path from a Django ORM model to a typed async SQLAlchemy one that is cheaper than the code we already have and test. |
-| `cvat-core`, `cvat-ui` | Framework glue + product | **Do not adapt** | Ties to CVAT's API shape and Ant Design; our brief is an independent product with its own UX. |
-
-**What this means in practice:** the reuse budget goes almost entirely into media handling,
-because that is where CVAT's advantage is real and transferable. Everywhere else, the honest
-answer is that the architectures diverge by design and copying would cost more than it saves.
+Everywhere else the architectures diverge by design: [ADR 0003](./adr/0003-canvas2d-with-spatial-index.md)
+chose Canvas2D plus an R-tree over an SVG DOM on a measured picking advantage of roughly
+7,000× at 100k shapes, and [ADR 0004](./adr/0004-streaming-format-registry.md) chose a streaming format
+registry because a memory-resident one cannot export 500k images. Adopting the alternatives
+to gain code would undo benchmarked decisions.
 
 ### Backend
 
@@ -383,7 +396,7 @@ See [THIRD_PARTY_NOTICES.md](./THIRD_PARTY_NOTICES.md) for attribution.
 | --- | --- |
 | Listing millions of assets | rows + object keys; always paginated; covering indexes on `(task_id, index)` |
 | 100k annotations in a job | server streams per-job with optional frame-range filter; client culls via R-tree |
-| Long video | chunked frames + client LRU + prefetch — *In Progress*; the client currently fetches one frame per request |
+| Long video | chunked frames (36/chunk, one decode pass) + client LRU + ±1 prefetch — **Done**; 36 frames cost 3 requests and 36 decodes rather than 36 and 630 |
 | Concurrent editors | optimistic versioning on `job.annotation_version`; a stale write is rejected with 409 rather than merged |
 | Slow operations | all async background jobs with idempotency keys and progress rows |
 | Frontend frame time | layered canvases, dirty rects, rAF-throttled input, viewport culling |

@@ -10,4 +10,4 @@ satisfy the source-availability and relinking obligations described in the notic
 
 | File | Covers |
 | --- | --- |
-| `MIT-cvat.txt` | [CVAT](https://github.com/cvat-ai/cvat). Not a dependency — CurveVision *adapts source* from it, in `server/curvevision/media/video.py`. The obligation is the same and the file carries CVAT's copyright header in place. See [ADR 0007](../docs/adr/0007-cvat-reuse-policy.md). |
+| `MIT-video-decoding.txt` | Not a dependency — CurveVision *adapts source* from this project, in `server/curvevision/media/video.py`. The obligation is the same, and the file carries the upstream copyright header in place. See [ADR 0007](../docs/adr/0007-reusing-third-party-code.md) and [THIRD_PARTY_NOTICES](../docs/THIRD_PARTY_NOTICES.md#adapted-source). |

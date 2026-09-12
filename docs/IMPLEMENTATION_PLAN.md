@@ -81,8 +81,8 @@ What each shape must be allowed to be good at:
    workers against managed Postgres/Redis/S3.
 4. **No artificial capability paywalls.** Everything needed to produce a high-quality dataset
    is in the open-source core.
-5. **Leverage the ecosystem, and CVAT specifically.** Prefer mature OSS over bespoke code,
-   and prefer adapting CVAT's MIT-licensed engineering over re-deriving it. See
+5. **Leverage the ecosystem.** Prefer mature OSS over bespoke code, and prefer adapting
+   permissively licensed engineering over re-deriving it. See
    [ARCHITECTURE.md § Open-Source Building Blocks](./ARCHITECTURE.md#open-source-building-blocks--build-vs-extend-decisions)
    for the decision table and the license audit behind it.
 6. **Incremental over clean-slate.** Working code is not rewritten because a newer shape
@@ -128,8 +128,9 @@ curvevision/
 └─ scripts/                  # dev scripts
 ```
 
-**Rationale for a modular monolith.** CVAT's production compose file runs 18 services. That
-is a *deployment* answer to what is mostly a *module boundary* problem. CurveVision keeps
+**Rationale for a modular monolith.** Splitting an annotation platform into a dozen or more
+deployed services is a *deployment* answer to what is mostly a *module boundary* problem.
+CurveVision keeps
 one deployable API image and one worker image; the module boundaries live in Python packages
 with explicit interfaces (`storage.Storage`, `ml.ModelProvider`, `formats.DatasetFormat`,
 `jobs.JobQueue`). If a boundary ever needs to become a network boundary, the interface is
@@ -254,9 +255,9 @@ Key decisions:
 
 * **Task vs Job.** A *Task* owns media and configuration. A *Job* is a contiguous slice of a
   task's frame range assigned to one annotator, with its own state and review status. This
-  split (which CVAT also makes, and which is the correct decomposition) is what makes
-  parallel annotation, review, and progress tracking tractable. CurveVision simplifies it by
-  dropping CVAT's intermediate `Segment` entity: a Job *is* the segment
+  split is the correct decomposition and what makes parallel annotation, review and progress
+  tracking tractable. CurveVision simplifies the usual shape by dropping the intermediate
+  `Segment` entity that platforms in this space tend to carry: a Job *is* the segment
   (`start_frame`/`stop_frame` live on the job), which removes a join from every hot path.
 * **Labels live on the project** by default and are inherited by tasks, so a schema change
   propagates. A task may be created label-standalone for one-off datasets.
@@ -337,7 +338,7 @@ filtering, frame navigation with prefetch, and snapping to nearby vertices.
 **Done:** engine core (scene, R-tree index, renderer, command stack, tools for rectangle,
 polygon, polyline, point, ellipse; select/transform; zoom/pan; undo/redo; keyboard map),
 frame navigation, label sidebar, object list, autosave to the API.
-**In Progress:** mask brush tool, skeleton editing UI, track keyframe timeline UI.
+**In Progress:** mask brush tool, skeleton editing UI, track keyframe *editing* (the timeline shows keyframes and presence; adding and removing them is not built).
 **Planned:** cuboid, magnetic lasso, multi-user presence cursors.
 
 ---
@@ -348,8 +349,9 @@ frame navigation, label sidebar, object list, autosave to the API.
   probing, thumbnail generation, ordered frame indexing.
 * **Video datasets** — **In Progress.** A video task is annotatable end to end: upload a
   video, get a task with many frames, and the editor is served each frame as an image.
-  `curvevision/media/video.py` is **adapted from CVAT** under
-  [ADR 0007](./adr/0007-cvat-reuse-policy.md), keeping its copyright header and recorded in
+  `curvevision/media/video.py` is **adapted from another project's MIT-licensed source**
+  under [ADR 0007](./adr/0007-reusing-third-party-code.md), keeping its upstream copyright
+  header and recorded in
   [THIRD_PARTY_NOTICES](./THIRD_PARTY_NOTICES.md#adapted-source). What that bought, and why
   it was not worth re-deriving: frames are addressed in **decode order rather than by
   seeking**, because seeking lands on the nearest keyframe and a frame number must identify
@@ -359,16 +361,56 @@ frame navigation, label sidebar, object list, autosave to the API.
   omit a stream duration, and rotation metadata, without which phone video is annotated
   sideways.
 
-  **Still missing: chunked delivery.** Serving frame *n* decodes from the start of the
-  file, so it is O(n) and scrubbing deep into a long video is slow. That is the next piece
-  (below), and it is the difference between "works" and "comfortable".
-* **Chunked media delivery** — *In Progress*. The design: frames grouped into chunks of N
-  (default 36) served as one object, with a client-side LRU and ±1 prefetch. This is the
-  single most important media decision for annotation throughput. Today the `MediaChunk`
-  model and the chunk *plan* exist, and the client still fetches one frame per request.
-  With per-frame video decode now working, this is no longer the blocker for *usable* video
-  annotation — it is the blocker for *comfortable* video annotation, and the fix for the
-  O(n) seek cost described above.
+  **Frame counts are corrected after upload.** A task is created with an estimate, because
+  counting means decoding the whole file and that cannot happen inside an HTTP request.
+  Where the container declares a count the estimate is exact; where it does not — Matroska,
+  routinely — it becomes `int(duration × rate)`, and truncation loses a frame: 7 frames at
+  3 fps gives `int(2.333 × 3) = 6`, and the last frame is then never offered, never
+  labelled and never exported. `media.probe_task`, enqueued after any upload or import that
+  added video, decodes to count, corrects the task and its jobs, and discards the chunks the
+  renumbering invalidated. It declines entirely — rather than applying half of itself — on a
+  task that already carries annotations, because repartitioning frames under an annotator
+  would orphan their work.
+
+* **Chunked media delivery** — **Done** on the server. Frames are grouped into chunks of N
+  (default 36), decoded in one pass and stored as one ZIP of JPEGs, recorded as a
+  `MediaChunk`. `GET /tasks/{id}/chunks/{n}` serves the archive; the frame endpoint takes
+  its frame out of a built chunk and builds the chunk when it misses, because reaching
+  frame *n* costs *n* decodes either way and finishing the pass is nearly free.
+
+  Measured on a 600-frame 640×480 clip, counting every picture the decoder produced:
+
+  | Access pattern | Frames decoded, before | after | Wall clock |
+  | --- | --- | --- | --- |
+  | Step through frames 0–35 | 666 | **36** | 0.84s → **0.53s** |
+  | Step through frames 400–435 | 15,066 | **900** | 3.62s → **0.78s** |
+  | Scrub: every 100th frame | 1,506 | 1,620 | 0.40s → **0.99s** |
+
+  The third row is the honest cost and is not a rounding error: a *sparse* scrub pays to
+  build a chunk it mostly does not use, and each build JPEG-encodes 36 frames rather than
+  one. It is the right trade because annotation is overwhelmingly sequential — that is what
+  the next-frame key and the timeline do — and because those chunks make the work that
+  follows the scrub free. Per-frame decoding remains the fallback for every case a chunk
+  cannot serve, so a video is never *unservable*, only slower.
+
+  **The editor fetches chunks too.** `ChunkCache` keeps a three-archive LRU, shares one
+  request between frames of the same chunk, and prefetches the neighbouring chunks so
+  crossing a boundary does not stall. Reading the archive needs no dependency: the server
+  writes `ZIP_STORED`, so `web/src/media/storedZip.ts` is container parsing and nothing is
+  compressed — and it refuses anything it does not understand rather than guessing, which
+  puts the caller back on the single-frame endpoint.
+
+  Measured in Chromium against the packaged server, stepping through 36 frames:
+
+  | | Chunk requests | Per-frame requests |
+  | --- | --- | --- |
+  | Chunked | 2 | 1 |
+  | Chunking off (`frames_per_chunk = 0`) | 0 | 36 |
+
+  The one remaining per-frame request is the first frame, asked for before
+  `/tasks/{id}/media` has answered. That is wanted: the first picture appears without
+  waiting for 36, and it costs a round trip rather than a decode, because the server builds
+  the chunk to answer it. `scripts/verify_chunked_frames.py` drives both rows.
 * **Progressive loading** — *Planned*. A low-resolution proxy chunk served first so the
   annotator can start immediately, with the full-resolution chunk swapping in when decoded.
 * **Large-file handling** — a size limit expressed in config rather than code is **Done**.

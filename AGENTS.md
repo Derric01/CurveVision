@@ -44,7 +44,7 @@ minutes.
      honest status markers. The **Purpose and constraints** section at the top states what
      the product is; that part is not negotiable without the maintainer.
    - [`docs/ARCHITECTURE.md`](./docs/ARCHITECTURE.md) — especially §1.1 (two shapes),
-     §2 (layering rules) and §8 (build-vs-extend, including the CVAT reuse policy).
+     §2 (layering rules) and §8 (build-vs-extend, including the source-reuse policy).
    - [`docs/ROADMAP.md`](./docs/ROADMAP.md) — what is Done / In Progress / Planned.
    - [`docs/adr/`](./docs/adr/) — decisions already made. **Do not relitigate an ADR**
      without a new fact that its author did not have.
@@ -234,8 +234,8 @@ Break these and you have broken the product, even if the tests pass.
 7. **New dependency → `docs/THIRD_PARTY_NOTICES.md` entry**, with the license read from the
    package metadata rather than memory. CI fails otherwise.
 
-8. **Adapting third-party code** (e.g. CVAT) follows
-   [ADR 0007](./docs/adr/0007-cvat-reuse-policy.md): keep the upstream copyright and license
+8. **Adapting third-party source** follows
+   [ADR 0007](./docs/adr/0007-reusing-third-party-code.md): keep the upstream copyright and license
    header, add a notices row naming the file and commit, and re-run the license audit first.
 
 ---

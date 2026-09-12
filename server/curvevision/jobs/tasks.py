@@ -14,6 +14,7 @@ from sqlalchemy import select
 
 from curvevision.core.config import get_settings
 from curvevision.core.db import get_sessionmaker
+from curvevision.core.errors import ConflictError
 from curvevision.core.logging import get_logger
 from curvevision.core.observability import BACKGROUND_TASKS
 from curvevision.domain.enums import WebhookEvent
@@ -33,47 +34,116 @@ logger = get_logger(__name__)
 
 @job_handler("media.probe_task")
 async def probe_task_media(payload: dict[str, Any]) -> dict[str, Any]:
-    """Recompute a task's frame index after media changed.
+    """Recompute a task's frame index after media changed, counting video frames exactly.
 
-    Idempotent by construction: it recomputes from the assets rather than incrementing
-    anything, so running it twice produces the same state.
+    A video task is created with an *estimated* frame count, because counting means
+    decoding the whole file and that cannot happen inside an upload request. The estimate
+    is wrong for any variable-frame-rate video, and wrong in the damaging direction when it
+    is too high: the task offers frames that do not exist, and an annotator who steps onto
+    one meets what looks like missing media.
+
+    Idempotent by construction: it recounts from the assets rather than incrementing
+    anything, so a second run finds the counts already correct and changes nothing.
+
+    **It will not reshuffle work that exists.** `rebuild_jobs` refuses once a job carries
+    annotations, and this does not argue with it: such a task keeps its estimate and the
+    result says so, because silently repartitioning frames under an annotator would orphan
+    what they drew. Rare by construction -- this runs immediately after upload, before
+    anyone has opened the task.
     """
     task_id = uuid.UUID(payload["task_id"])
+    settings = get_settings()
+    storage = get_storage(settings)
     factory = get_sessionmaker()
+
     async with factory() as session:
         task = await session.get(Task, task_id)
         if task is None:
             return {"skipped": "task no longer exists"}
+
+        estimated = task.frame_count
+        corrected = await media_service.correct_frame_counts(session, storage, task)
         frame_count = await task_service.recount_frames(session, task)
+
+        result: dict[str, Any] = {
+            "task_id": str(task_id),
+            "frame_count": frame_count,
+            "corrected": [{"asset": name, "was": was, "now": now} for name, was, now in corrected],
+        }
+
+        if corrected:
+            result["estimated_frame_count"] = estimated
+            try:
+                await task_service.rebuild_jobs(session, task)
+            except ConflictError:
+                # Annotations exist, so the frame ranges are not ours to move. Abandon the
+                # correction entirely rather than leave a task whose jobs and frame count
+                # disagree -- half-applied is worse than not applied.
+                await session.rollback()
+                BACKGROUND_TASKS.labels("media.probe_task", "succeeded").inc()
+                return {
+                    "task_id": str(task_id),
+                    "frame_count": estimated,
+                    "skipped": "this task already has annotation work; its frame count is "
+                    "still the upload-time estimate",
+                }
+            # The frame numbering moved, so every chunk addressed by it is stale.
+            result["chunks_discarded"] = await media_service.discard_chunks(
+                session, storage, task.id
+            )
+
         await session.commit()
+
     BACKGROUND_TASKS.labels("media.probe_task", "succeeded").inc()
-    return {"task_id": str(task_id), "frame_count": frame_count}
+    return result
 
 
 @job_handler("media.build_chunks")
 async def build_media_chunks(payload: dict[str, Any]) -> dict[str, Any]:
-    """Plan the frame chunks a task's media will be served in.
+    """Decode a task's video frames ahead of time, one pass per chunk.
 
-    **In Progress.** The chunk *plan* is computed and recorded; writing decoded frame
-    archives to object storage requires the optional media extras and lands with video
-    support. Image tasks are served directly and need no chunks, so this is a no-op for
-    them today.
+    Idempotent: `build_chunk` returns the existing row rather than rebuilding, so a retry
+    after a partial run costs only the chunks that are still missing. Each chunk is
+    committed as it is built, which is what makes an interrupted run useful rather than
+    wasted -- and what lets the editor start using the early chunks while the rest are
+    still decoding.
+
+    An image task produces no chunks at all: `build_chunk` returns ``None`` for a range
+    with no video in it, because images already serve in constant time.
+
+    A frame is *never* blocked on this job. `GET .../frames/{n}/data` falls back to
+    decoding that one frame whenever its chunk is not built yet, so this only ever makes
+    things faster, never makes them unavailable.
     """
     task_id = uuid.UUID(payload["task_id"])
     settings = get_settings()
     factory = get_sessionmaker()
+    row_id = payload.get("_task_row_id")
+
+    built = 0
     async with factory() as session:
         task = await session.get(Task, task_id)
         if task is None:
             return {"skipped": "task no longer exists"}
         planned = media_service.chunk_count(task.frame_count, settings.frames_per_chunk)
-    if row_id := payload.get("_task_row_id"):
-        await report_progress(str(row_id), 1.0, "chunk plan computed")
+        storage = get_storage(settings)
+
+        for index in range(planned):
+            chunk = await media_service.build_chunk(session, settings, storage, task, index)
+            await session.commit()
+            if chunk is not None:
+                built += 1
+            if row_id:
+                await report_progress(
+                    str(row_id), (index + 1) / planned, f"chunk {index + 1} of {planned}"
+                )
+
     return {
         "task_id": str(task_id),
         "chunks_planned": planned,
+        "chunks_built": built,
         "frames_per_chunk": settings.frames_per_chunk,
-        "status": "planned",
+        "status": "built",
     }
 
 

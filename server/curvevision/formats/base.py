@@ -5,7 +5,8 @@ Two properties drive this design:
 **Streaming.** ``DatasetView`` is an *iterator* over frames, not a materialised list. A
 server exporting a 500k-image dataset must never hold it in memory. This is the main reason
 CurveVision implements its own registry rather than delegating to Datumaro, which is
-excellent but loads datasets into memory by design (see docs/ARCHITECTURE_COMPARISON.md).
+excellent but loads datasets into memory by design (see
+docs/adr/0004-streaming-format-registry.md).
 
 **Honest capabilities.** Every format declares what survives a round trip, so the API can
 warn *before* an export silently drops polylines that COCO cannot represent.

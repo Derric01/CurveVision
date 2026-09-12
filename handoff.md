@@ -5,7 +5,7 @@
 > [`AGENTS.md`](./AGENTS.md) first; it is the working contract. Update this file after every
 > iteration, including the ones that mostly failed.
 >
-> **Last updated:** 2026-09-12 (iteration 5) · branch `claude/curvevision-platform-build-n1g71n` · PRs [#1](https://github.com/Derric01/CurveVision/pull/1)–[#4](https://github.com/Derric01/CurveVision/pull/4) merged · iterations 3–5 pushed to the branch, no PR open for them yet
+> **Last updated:** 2026-09-12 (iteration 12) · branch `claude/curvevision-platform-build-n1g71n` · PRs [#1](https://github.com/Derric01/CurveVision/pull/1)–[#5](https://github.com/Derric01/CurveVision/pull/5) merged · iterations 6–8 in open PR [#6](https://github.com/Derric01/CurveVision/pull/6)
 
 ---
 
@@ -26,11 +26,18 @@ resumable uploads, and signed desktop installers.
 The desktop window **signs itself in from the connection the shell injects** and opens
 straight into the application.
 
-**Video tasks are now annotatable.** Uploading a video produces a task with many frames, and
-the editor is served each frame as an image — previously a frame request returned the whole
-container, which made video unusable. `media/video.py` is adapted from CVAT under ADR 0007.
-Frames are decoded from the start of the file, so deep scrubbing is O(n); chunked delivery
-is the next piece and is what turns "works" into "comfortable".
+**Video tasks are now annotatable, and no longer slow to step through.** Uploading a video
+produces a task with many frames, and the editor is served each frame as an image —
+previously a frame request returned the whole container, which made video unusable.
+`media/video.py` is adapted from another project's MIT-licensed source under ADR 0007.
+
+Frames are served from **chunks**, end to end: 36 frames decoded in one pass, stored as one
+archive, and fetched by the editor as one request. Measured on a 600-frame 640×480 clip,
+stepping through frames 400–435 went from 15,066 decoded frames (3.62s) to 900 (0.78s); in
+Chromium, the same 36 steps went from 36 requests to 3. The cost is a sparse scrub, which
+pays to build a chunk it mostly does not use — that trade, and the numbers behind it, are in
+the implementation plan. Per-frame decoding and per-frame fetching both stay as fallbacks,
+so a video is never *unservable*, only slower.
 
 **The application has now been driven in a real browser**, which it never had been, and
 that immediately found two defects that made it unusable and that every existing test
@@ -54,34 +61,34 @@ was the last unconnected piece of the desktop application.
 
 ## Next best action
 
-**Chunked media delivery.** It is the main thing still limiting video: serving frame *n*
-decodes *n* frames, so scrubbing to the middle of a ten-minute clip decodes half of it.
-Correct, and not comfortable.
+**Edit keyframes from the timeline.** The lanes now *show* a track's keyframes and where it
+is present; the next step is acting on them, which is what turns the timeline from a map
+into a tool. In rough order of value:
 
-The pieces already exist — this is assembly, not design:
+1. **Toggle a keyframe on the current frame** for the selected track — add one where the
+   shape has been moved, remove one that was a mistake.
+2. **Mark a departure** (`outside`) at the current frame, which is how an annotator says
+   "the object leaves here". `trackSegments` already renders it correctly, so the gap
+   appears the moment the write lands.
+3. **Drag a keyframe** along its lane to a different frame.
 
-| Piece | Where |
-| --- | --- |
-| `MediaChunk` model and the chunk-plan job | `domain/`, `jobs/` |
-| `VideoReader.iterate_frames(wanted)` — one decode pass for a set of frames | `media/video.py` |
-| HTTP range helpers | `api/` |
-| Per-frame decoding, to keep as the fallback | `services/media.render_video_frame` |
+Each of those is an annotation write through the existing autosave path — `useAutosave`
+already batches and handles the 409 — so the work is UI plus a `TrackIn` payload, not new
+server surface. `web/src/features/editor/timeline.ts` is where the maths lives and where
+anything new about keyframe positions belongs.
 
-Work to do:
+**Then, in rough order:**
 
-1. Build a chunk on demand (and from the background job), decoding its frames in **one**
-   pass rather than one pass per frame.
-2. Serve a chunk, and have the editor prefetch the next one.
-3. **Keep per-frame decoding as the fallback** for a chunk that has not been built yet, so
-   nothing regresses while the job catches up — a video must never become unplayable because
-   a chunk is missing.
-
-Measure before and after on a real clip and put the numbers in this file. "Faster" without a
-number is not a claim anyone can check.
-
-**Then:** correct a video task's frame count in a background job. It is currently estimated
-from container metadata at upload time, which is wrong for variable-frame-rate video;
-`VideoReader.frame_count()` is exact and nothing calls it.
+* **Pre-build chunks after a video upload.** `media.build_chunks` builds rather than plans,
+  and nothing enqueues it. `media.probe_task` is now enqueued from the same place and
+  already decodes the whole file to count it — so the honest move is probably **one** job
+  that counts and builds in a single pass, rather than two that each walk the file.
+* **Surface a task whose frame count could not be corrected.** The job reports "this task
+  already has annotation work"; nothing shows it to anyone.
+* **Put a browser harness in CI.** Four now exist (`screenshot.py`,
+  `verify_local_import.py`, `verify_chunked_frames.py`, `verify_track_timeline.py`) and
+  between them they have found every defect the unit suites missed. Nightly or pre-release;
+  each needs a packaged sidecar and a Chromium.
 
 ## Completed
 
@@ -125,6 +132,25 @@ numbers are reproducible, and reports unreadable files in `skipped` rather than 
 The orphan-blob collector never deletes a file it did not write. Every route in
 `api/v1/local.py` returns 404 unless `settings.local_mode`.
 
+**The track timeline** — a lane per track under the frame slider showing where it is
+present and where its keyframes are, with `,`/`.` stepping between keyframes and a click
+seeking. Presence follows the same `outside` rules as the interpolator, asserted frame by
+frame. Read-only: editing keyframes from the timeline is not built.
+
+**Exact video frame counts** — `media.probe_task` decodes each video asset to count its
+frames, corrects the task and its jobs, and discards the chunks the renumbering invalidated.
+Enqueued after an upload or local import that added video. Declines rather than half-applies
+when annotations already exist.
+
+**Chunked video frames, end to end** — `build_chunk` decodes a chunk's frames in one pass
+and stores them as one ZIP of JPEGs named by task-global frame number, recorded as
+`MediaChunk`. The frame endpoint reads from a built chunk, builds the chunk when it misses,
+and decodes the single frame when neither is possible. `GET /tasks/{id}/chunks/{n}` serves
+the archive; the editor fetches it through `ChunkCache` (three-archive LRU, shared in-flight
+requests, ±1 prefetch) and reads it with a dependency-free stored-ZIP reader that refuses
+anything it does not understand. 17× fewer decoded frames and 12× fewer requests when
+stepping; the measurements and the sparse-scrub cost are in `docs/IMPLEMENTATION_PLAN.md`.
+
 **Opening a folder from the desktop app** — *Add media from this computer* on the task page,
 and File ▸ Open Folder… (Cmd/Ctrl+O), both call `chooseFolder()` and post the path. Shown in
 the desktop build only. The result is summarised by a pure, separately tested function that
@@ -142,10 +168,11 @@ username/sign-out chrome is replaced by the version. The injected shape is pinne
 same fixture — because a rename on one side alone would silently strand the desktop window
 on a sign-in screen.
 
-**Video frames** — `media/video.py`, **adapted from CVAT** at commit `1d0c395` under
-[ADR 0007](./docs/adr/0007-cvat-reuse-policy.md), carrying its copyright header and recorded
-in [THIRD_PARTY_NOTICES](./docs/THIRD_PARTY_NOTICES.md#adapted-source) with the license text
-in `licenses/MIT-cvat.txt`. Frames are addressed in decode order rather than by seeking,
+**Video frames** — `media/video.py`, **adapted from another project's MIT-licensed source**
+at the commit named under [ADR 0007](./docs/adr/0007-reusing-third-party-code.md), carrying
+its upstream copyright header and recorded in
+[THIRD_PARTY_NOTICES](./docs/THIRD_PARTY_NOTICES.md#adapted-source) with the licence text in
+`licenses/MIT-video-decoding.txt`. Frames are addressed in decode order rather than by seeking,
 counted by decoding rather than trusted from the container, and served as JPEG with rotation
 metadata applied. A video task is annotatable end to end.
 
@@ -166,21 +193,28 @@ full docs set including seven ADRs.
 
 | Item | Where it stands |
 | --- | --- |
-| Open-folder flow in the web UI | Server endpoint, shell commands and menu event all exist and are tested; nothing in `web/` calls them. See [Next best action](#next-best-action). |
-| Chunked media delivery | `MediaChunk`, the chunk plan job and the range helpers exist; no archives are written and the client still fetches one frame per request. Now the main limit on video. See [Next best action](#next-best-action). |
-| Track editing UI | Model and interpolation done on both sides; the keyframe timeline UI does not exist. |
+| Track keyframe **editing** | The timeline shows every track's keyframes and where it is present, and `,`/`.` step between them. Adding, moving, removing and marking a departure from the timeline is not built. See [Next best action](#next-best-action). |
+| Pre-building chunks after upload | `media.build_chunks` builds rather than plans, and nothing enqueues it. `media.probe_task` already walks the whole file to count frames, so one job that counts *and* builds probably beats two that each decode it. |
+| Surfacing an uncorrected frame count | When a task already carries annotations, `media.probe_task` declines the correction and says so in its result. Nothing shows that to a user. |
 | Webhooks | Delivery works and is signed; retry/backoff is not wired to the queue. |
+| Mask brush, keypoint UI | Storage, export and the model exist on both sides; neither drawing tool does. |
+
+*This table went stale once — it still listed the open-folder flow and chunked delivery as
+unbuilt several iterations after both shipped, because the narrative sections above were
+being updated and this one was not. Check it against* Completed *before trusting it.*
 
 ---
 
 ## Remaining high-priority work
 
-1. **Chunked media delivery** — see [Next best action](#next-best-action). Now the main
-   limit on video annotation, and `VideoReader.iterate_frames(wanted)` already makes the
-   server half cheap: one decode pass per chunk instead of one per frame.
-2. **An exact frame count for video**, corrected in a background job rather than estimated
-   at upload.
-3. **Track-editing timeline UI.**
+1. **Editing keyframes from the timeline** — it shows them; acting on them is what makes it
+   a tool rather than a map. See [Next best action](#next-best-action).
+2. **Pre-build chunks after a video upload.** `media.build_chunks` builds rather than plans,
+   and nothing enqueues it. Careful: the desktop queue is inline, and `media.probe_task`
+   already decodes the whole file — one job that counts and builds probably beats two.
+3. **A browser harness in CI.** Four exist (`screenshot.py`, `verify_local_import.py`,
+   `verify_chunked_frames.py`, `verify_track_timeline.py`) and between them they have found
+   every defect the unit suites missed.
 4. **Signed installers in CI** — one runner per platform; PyInstaller does not cross-compile.
 5. **Webhook retry/backoff** wired to the job queue.
 6. **`choose_files` is still unused.** The shell can open a native *file* picker as well as a
@@ -190,6 +224,236 @@ full docs set including seven ADRs.
 ---
 
 ## Last iteration
+
+**A doc-drift audit, prompted by a good question: had the fast pace cost quality?** It had,
+in four places. None of them was code — the tree stayed green throughout — and all four were
+documentation claiming something that had stopped being true.
+
+* **`ARCHITECTURE.md` §6 still said chunked delivery was unbuilt** and that "the client
+  currently fetches one frame per request", two iterations after it shipped. §9's performance
+  table said the same. Both corrected, with the measured numbers.
+* **The *In progress* table here was entirely stale** — it listed the open-folder flow and
+  chunked media delivery as unbuilt, several iterations after both shipped. The narrative
+  sections above it were being updated every iteration and this table was not. Rewritten,
+  with a note on the table saying it has gone stale before.
+* ***Remaining high-priority work* had a duplicated item 6** and a stale item 1, both from my
+  own edits colliding.
+* **Deleting `ARCHITECTURE_COMPARISON.md` took an honest limitations list with it.** Most of
+  that document was comparison and no loss, but its §6 listed what the platform *does not do*
+  — and one item, that only S3-compatible object storage is supported and Azure Blob and GCS
+  are not, was recorded nowhere else afterwards. Restored to `ROADMAP.md` as **What it does
+  not do**, stated as our own limitations, which needs no comparison to anyone.
+
+Checked and found *not* lost: the job-as-unit-of-work rationale, the attributes-as-JSON
+rationale ("a side table would triple row counts for no query benefit"), the arc-length
+resampling reasoning, and the `Segment`-collapse rationale — all still in `ARCHITECTURE.md`
+or the plan.
+
+The lesson worth carrying: **narrative prose gets updated because you are writing it; tables
+and status markers elsewhere in the same file do not.** After finishing a feature, grep for
+its name across the docs rather than editing the section you happen to be in.
+
+### Iteration 11
+
+**The editor shows where every track lives.** Until now a track was invisible unless you
+happened to scrub onto a frame it occupied: the canvas draws this frame and nothing told you
+an object exists two hundred frames away, or that the one in front of you vanishes in six.
+
+The subtlety this is really about: **a track's presence is not one span.** A keyframe marked
+`outside` is the object *leaving* — behind a wall, out of shot — and it can come back. A bar
+drawn from first keyframe to last claims the object is on screen throughout its absences,
+and an annotator who trusts it goes looking for something that is not there.
+
+* **`timeline.ts`** derives presence from the keyframes in one pass: `trackSegments`,
+  `trackRows`, `framePosition`, `adjacentKeyframe`. Pure, and separate from the component
+  because the rules are the part worth testing.
+* **`TrackTimeline.tsx`** draws a lane per track under the frame slider — presence as bars,
+  keyframes as ticks, departures drawn hollow because they mark where the object *goes*, not
+  where it is. Clicking a lane seeks to that frame. Hidden entirely when a job has no tracks,
+  so an image task loses no canvas height.
+* **`,` and `.` step between keyframes** rather than frames, which is how you move through a
+  track annotated every thirtieth frame without pressing an arrow thirty times.
+
+The load-bearing test is `agrees with the interpolator on every frame`: for eight fixtures
+covering every lifetime shape that occurs — leaves and returns, leaves twice, outside from
+the very first keyframe, a departure adjacent to a return — it asserts frame by frame that
+"the timeline says present" equals "`interpolateTrack` returns a shape". Two implementations
+of presence *will* drift, and the drift is invisible in the worst way: the bar says the
+object is there and the canvas draws nothing.
+
+Replacing `trackSegments` with the naive "first keyframe to last" fails 6 of the 19 tests,
+that property first.
+
+`scripts/verify_track_timeline.py` seeds a 48-frame clip with three tracks — one present
+throughout, one that leaves at frame 8 and returns at 26, one starting late — and checks in
+Chromium that the lanes render, that the returning track is drawn as **two** runs rather than
+one, and that `,`/`.` move between keyframes.
+
+### Iteration 10
+
+**Corrected a benchmark the README invites readers to check.** The reconcile pass that opens
+every iteration found it: the README said *"picking from 100,000 shapes takes ~1 µs; a linear
+scan of 10,000 takes ~550 µs"* and called it a ~500× gap. Two problems, and the second is the
+one that mattered.
+
+* **The number had drifted.** `npm run bench` now reports the scan at ~410–500 µs, not 550.
+* **The comparison was not like for like.** Picking from *100,000* against a scan of
+  *10,000* is two different datasets. `scan` was only benched at 1k and 10k, so the honest
+  comparison could not be made at all.
+
+`scan` now runs at every scale the index is measured at, and the figures are:
+
+| Shapes | Pick, with the R-tree | Pick, by linear scan | Gap |
+| --- | --- | --- | --- |
+| 10,000 | ~0.3 µs | ~450 µs | ~1,500× |
+| 100,000 | ~0.7 µs | ~5,000 µs | ~7,000× |
+
+Three runs, one machine; the scan at 100k varies between 4.6 ms and 6.4 ms, so the
+multiplier is rounded down rather than up. Corrected in the README, ADR 0003,
+`ARCHITECTURE.md`, ADR 0007 and here.
+
+The honest number is **larger** than the one it replaces, which is worth saying plainly: the
+old figure understated the result while being methodologically wrong. ADR 0003 carries a
+dated note recording the correction rather than quietly restating it — the decision it
+records is unchanged.
+
+### Iteration 9
+
+**Removed the upstream project's name from everywhere it was not legally required.** It
+appeared roughly 100 times across 20 files; it now appears four times across three, and
+every one of those is the attribution MIT obliges.
+
+What went: `docs/ARCHITECTURE_COMPARISON.md` (deleted outright), the named comparisons in
+ADRs 0001–0005, the §8.0 reuse table in `ARCHITECTURE.md`, the README's acknowledgement and
+its "use the mature tool instead" pointer, the discretionary row in THIRD_PARTY_NOTICES, and
+the prose in the plan, the roadmap, AGENTS, `docker-compose.yml` and two source comments.
+ADR 0007 was rewritten from a project-specific reuse policy into a general one —
+`0007-reusing-third-party-code.md` — which is more useful anyway, since it now governs any
+future adaptation rather than one project's.
+
+What stayed, and why it had to:
+
+| Where | What |
+| --- | --- |
+| `server/curvevision/media/video.py`, lines 1–5 | The upstream copyright line and SPDX identifier |
+| `docs/THIRD_PARTY_NOTICES.md`, the Adapted source row | Names the file, the upstream path, the commit and the copyright holders |
+| `licenses/MIT-video-decoding.txt` | The full licence text (renamed from `MIT-cvat.txt`) |
+
+The README keeps **one short named acknowledgement** — the upstream project, the one file,
+and a link to the notices. A repository that names a project in its licence file while
+refusing to name it in prose reads as evasive, and the mention costs a sentence.
+
+**MIT's single condition is that the copyright notice travels with the code.** Retaining it
+*is* the licence; removing it while keeping the code is the one thing the permission does
+not extend to. ADR 0007 now says so explicitly, including the only clean route to removing
+the attribution entirely: re-derive the file independently and delete the adapted one in the
+same change. That was offered and declined — the code stays, so the notice stays.
+
+Where a passage's value depended on naming the project — "their production compose file runs
+eighteen services" — it was **deleted rather than anonymised**, because "a mature platform
+runs eighteen services" is an unverifiable claim and this repository does not make those.
+
+Verified with a link checker over all 127 relative links in the docs, since deleting a
+document and renaming an ADR is exactly how a docs tree quietly rots.
+
+### Iteration 8
+
+**A video task's frame count is now counted, not guessed.** It was estimated at upload from
+container metadata, because an exact count means decoding the whole file and that cannot
+happen inside an HTTP request. Where the container declares a count the estimate is exact;
+where it does not — **Matroska, the everyday case** — it falls back to `int(duration × rate)`
+and truncation loses a frame:
+
+    7 frames at 3 fps → duration 2.333s → int(2.333 × 3) = 6
+
+A task that says 6 when there are 7 does not look broken. The last frame is simply never
+offered, never labelled and never exported.
+
+* **`media.probe_task` was extended rather than a new handler added.** Its stated job was
+  already "recompute a task's frame index after media changed"; it just never counted. It
+  now corrects every video asset by decoding (off-thread), recounts the task, rebuilds the
+  jobs, and discards the chunks — which are addressed by frame range, so a renumbering
+  invalidates them wholesale.
+* **It is enqueued after an upload and after a local import**, and only when the task
+  actually holds video, so a folder of 50,000 photographs schedules nothing.
+* **It will not trample existing work.** `rebuild_jobs` refuses once a job carries
+  annotations; the correction declines *entirely* rather than applying half of itself, and
+  reports why. A task wrong in a known, reported way beats one quietly inconsistent.
+
+The bug is demonstrated rather than described: `test_the_estimate_this_corrects_is_genuinely
+_wrong` asserts the estimate really is 6 and the truth really is 7, so the other seven tests
+cannot pass while correcting nothing.
+
+### Iteration 7
+
+**The editor fetches a chunk instead of 36 frames.** The server half landed last iteration;
+this is the client half, and the request count is the claim it makes.
+
+* **`web/src/media/storedZip.ts`** reads the archive. No dependency: the server writes
+  `ZIP_STORED`, so every entry's bytes sit verbatim in the file and there is nothing to
+  inflate — this is container parsing, and `fflate` would have been shipped for the half we
+  do not need. It **refuses** what it does not understand (a compressed entry, a missing
+  central directory, an entry running past the end) rather than guessing, because handing
+  the editor the wrong pixels for a frame number is worse than being slow.
+* **`ChunkCache`** keeps a three-archive LRU, shares one in-flight request between frames of
+  the same chunk, prefetches the neighbouring chunks, and remembers a chunk that came back
+  unreadable so one bad archive does not become a failed request per keystroke.
+* **Every path can decline.** An image task, chunking off, an unreadable archive, a failed
+  request, a frame the archive does not contain — each returns `null`, and
+  `useFrameObjectUrl` falls through to the single-frame endpoint. A frame must never fail to
+  appear because an optimisation did not work out.
+
+**Measured in Chromium against the packaged server**, stepping through 36 frames:
+
+| | Chunk requests | Per-frame requests | Distinct pictures rendered |
+| --- | --- | --- | --- |
+| Chunked | 2 | 1 | 36 / 36 |
+| `frames_per_chunk = 0` | 0 | 36 | 36 / 36 |
+
+The single per-frame request is the first frame, asked for before `/tasks/{id}/media` has
+answered. Kept deliberately: the first picture appears without waiting for a whole chunk,
+and it costs a round trip rather than a decode, because the server builds the chunk to
+answer it.
+
+### Iteration 6
+
+**Video frames are served from pre-decoded chunks.** Reaching frame *n* means decoding *n*
+frames — a frame number has to identify the same picture every time, so seeking is out — and
+stepping through frames one at a time paid that cost again on every frame.
+
+* **`build_chunk`** decodes a chunk's frames in **one** pass (`VideoReader.frames_jpeg`, new,
+  sharing the rotation and encode path with `frame_jpeg` rather than duplicating it) and
+  stores them as one uncompressed ZIP of JPEGs named by task-global frame number. Recorded as
+  the `MediaChunk` row the model has had since the first migration.
+* **The frame endpoint builds the chunk it needs**, rather than a background job doing it or
+  a client asking for one. That is the decision worth understanding: reaching frame *n* costs
+  *n* decodes either way, so finishing the pass to the end of the chunk is nearly free and
+  makes the next 35 frames constant-time. An earlier scoping had the endpoint only *read*
+  chunks, which delivered nothing at all, because nothing built any.
+* **Per-frame decoding stays**, as the fallback for chunking switched off, an image asset in
+  the range, or a row whose archive storage lost. Each of those has a test. A video is never
+  *unservable*, only slower.
+* **`GET /tasks/{id}/chunks/{n}`** serves the archive, for the client work that comes next.
+* **`media.build_chunks`** now builds rather than only planning, committing each chunk as it
+  goes so an interrupted run is useful. Nothing enqueues it yet — see *Next best action* for
+  why that needs care in desktop mode.
+
+**Measured**, not asserted, on a 600-frame 640×480 clip, counting every picture the decoder
+produced (`iterate_frames` instrumented, since counting yielded frames would have missed the
+frames walked past to reach them — the first attempt did exactly that and reported nonsense):
+
+| Access pattern | Frames decoded before | after | Wall clock |
+| --- | --- | --- | --- |
+| Step through frames 0–35 | 666 | **36** | 0.84s → **0.53s** |
+| Step through frames 400–435 | 15,066 | **900** | 3.62s → **0.78s** |
+| Scrub: every 100th frame | 1,506 | 1,620 | 0.40s → **0.99s** |
+
+The third row is a real regression and is recorded as one: a sparse scrub builds chunks it
+mostly does not use, and each build JPEG-encodes 36 frames instead of one. It is the right
+trade — annotation is overwhelmingly sequential, and those chunks make whatever follows the
+scrub free — but it is a trade, not a free win.
+
+### Iteration 5
 
 **Connected the open-folder flow — the last unwired piece of the desktop application.**
 Deferred twice before this, both times because it could not be verified; a browser harness
@@ -255,11 +519,10 @@ Two defects came out of looking at the result:
 * **The editor's label list clipped through the middle of a row** at six labels — a fixed
   `max-h-52` (13rem) cap. Now proportional (`max-h-[30vh]`), so a normal window shows the
   whole schema and a short one still scrolls.
-* **Two licensing claims were false.** `THIRD_PARTY_NOTICES.md` and
-  `ARCHITECTURE_COMPARISON.md` both still asserted "No CVAT source code is present in this
-  repository" while the same notices file listed `media/video.py` as adapted from CVAT three
-  sections earlier. Iteration 3 corrected that sentence in the README and missed its two
-  copies. Both now point at the adaptation table as the authoritative list.
+* **Two licensing claims were false.** Two documents still asserted that no third-party
+  source was present in this repository while the notices file listed `media/video.py` as
+  adapted, three sections earlier. Iteration 3 corrected that sentence in the README and
+  missed its two copies. Both now point at the adaptation table as the authoritative list.
 
 ### Iteration 3 (for context)
 
@@ -288,18 +551,54 @@ Badges limited to verifiable facts — CI, licence, language versions — with n
 counts, star counts or coverage number there is no gate for.
 
 **Two claims in it had gone false**, which matters more than the layout: it still said the
-desktop application was Planned with no working build, and that no CVAT source code was
+desktop application was Planned with no working build, and that no adapted source code was
 present. Both corrected; the second is a licensing claim and was the more urgent.
 
 ## Verification performed
 
 ```
 ./scripts/check.sh                    all 9 steps green
-  ruff · ruff format · mypy (78 files) · pytest server (201) · pytest sdk (12)
-  notices (51 deps) · eslint · tsc · vitest (115)
+  ruff · ruff format · mypy (78 files) · pytest server (221) · pytest sdk (12)
+  notices (52 deps) · eslint · tsc · vitest (170)
 ```
 
-Iteration 5 additionally ran `scripts/verify_local_import.py` against a freshly built bundle
+Iteration 8 added 8 tests in `server/tests/api/test_frame_count_correction.py` (221 server
+tests, up from 213) and confirmed they bite: with the correction disabled, 6 of the 8 fail,
+including the one that matters — `test_the_frame_the_estimate_lost_is_servable`, which asks
+for the last frame over HTTP and gets it.
+
+Iteration 11 added 19 web tests in `timeline.test.ts` (170 web tests, up from 151) and
+confirmed they bite: the naive one-span implementation fails 6 of them.
+
+Iteration 7 added 26 web tests (151 total, up from 125): 7 on the ZIP reader, with fixtures
+built by Node's own zlib rather than by the reader under test, and 19 on the cache, which
+count *requests* — a cache that produced the right pixels while still fetching per frame
+would pass a pixel test and miss the entire point.
+
+`scripts/verify_chunked_frames.py` then drove it in Chromium against the packaged server,
+in both configurations, with the numbers in the table above. It found two things worth
+recording:
+
+* **The test clip had duplicate frames, and the check blamed the editor.** 13 of 36 frames
+  came back byte-identical to their predecessor. Decoding the clip directly server-side
+  reproduced exactly the same 13 positions — a 4/255 colour ramp is quantised away by
+  mpeg4. The fixture was wrong, not the code; it now moves a bar 8 pixels per frame.
+* **The first fingerprint was the tail of a data URL**, which collided between frames that
+  were genuinely different. A fingerprint cheaper than the thing it identifies is not one.
+
+Iteration 6 added 12 tests in `server/tests/api/test_video_chunks.py` — 213 server tests in
+total, up from 201 — and confirmed three of them bite by breaking the code they cover:
+
+| Broken deliberately | Caught by |
+| --- | --- |
+| The chunk path disabled entirely | `test_serving_a_frame_builds_its_chunk_and_the_next_frames_reuse_it` |
+| The offset → task-frame mapping shifted by one | `test_a_frame_from_a_chunk_is_the_same_picture_as_a_decoded_one` |
+| The SAVEPOINT and `IntegrityError` handling removed | `test_two_builders_racing_for_the_same_chunk_produce_one_row` |
+
+The second is the one that matters: a chunk that silently changed which picture frame 7 is
+would move every annotation already drawn on it.
+
+Iteration 5 ran `scripts/verify_local_import.py` against a freshly built bundle
 and sidecar — eleven checks, all green — and confirmed it bites by removing the `isDesktop()`
 guard and watching the browser-build check fail.
 
@@ -343,18 +642,37 @@ missing, and it is the reason this iteration found anything):
 | No frame image ever rendered in the editor | `<img>.src` on the frame endpoint with `crossOrigin = 'use-credentials'` sends cookies; the API uses bearer tokens, so every frame was 401 and the canvas drew a broken element. | Frames fetched through the API client as object URLs; verified by screenshotting a drawn annotation over a rendered frame |
 | Video tests would have skipped silently in CI | `av` was in the `media` extra but not `dev`, and CI installs `[dev]`. `pytest.importorskip` would have skipped every video test while the suite reported green. | Added to `dev`; the tests run rather than skip |
 | The editor's label list was cut through the middle of a row | A fixed `max-h-52` (13rem) cap on the list; six labels need ~14rem. Functional — it scrolled — but it looked broken, and a six-label schema is not unusual. Now `max-h-[30vh]`. | Regenerated screenshot: all six labels visible, `OBJECTS` heading intact below |
-| Two documents claimed no CVAT source code is present, while a third section of one of them listed the file that is | Iteration 3 corrected that sentence in the README only; `THIRD_PARTY_NOTICES.md` and `ARCHITECTURE_COMPARISON.md` kept their copies. A licensing claim that contradicts itself three sections apart is worse than no claim. | Both now defer to **THIRD_PARTY_NOTICES § Adapting CVAT code** as the authoritative list |
+| Two documents claimed no third-party source is present, while a third section of one of them listed the file that is | Iteration 3 corrected that sentence in the README only; two other documents kept their copies. A licensing claim that contradicts itself three sections apart is worse than no claim. | Both now defer to **THIRD_PARTY_NOTICES § Adapted source** as the authoritative list |
 
 ---
 
 ## Known issues
 
-- **Deep scrubbing in a long video is slow**, by construction: frame *n* costs *n* frame
-  decodes. Correct but not comfortable; chunked delivery is the fix and is the next task.
-- **A video task's frame count is an estimate**, taken from container metadata at upload
-  time because an exact count means decoding the whole file. It can be slightly wrong for
-  variable-frame-rate video. `VideoReader.frame_count()` is exact and cheap to call from a
-  background job; nothing calls it yet.
+- **A sparse scrub costs more than it used to.** Jumping to every 100th frame builds a chunk
+  at each landing that it mostly does not use, and each build JPEG-encodes 36 frames rather
+  than one: 0.40s → 0.99s across six such jumps in the measurement. Sequential stepping — what
+  annotation actually is — got 4.6× faster in exchange, and the chunks a scrub builds make the
+  work that follows it free. If this ever needs fixing, building the chunk *after* answering
+  the request is the obvious route; it costs a second walk to the chunk start, so measure
+  before adopting it.
+- **The first frame of a chunk is slower than it was**: 36 decodes where there used to be 1.
+  Unavoidable if the other 35 are to be free, and it is why the measurement above reports
+  frames 0–35 as a whole rather than frame 0 alone.
+- **The stored-ZIP reader handles only what this server writes.** No ZIP64, no compressed
+  entries, no encryption. That is deliberate — both ends of the format are ours — and it
+  refuses rather than guesses, so the cost of meeting something else is a fallback to
+  per-frame fetching, not a wrong picture. If the server ever compresses a chunk, the client
+  silently gets slower; the archive format is effectively part of the API contract now.
+- **A video task's frame count is an estimate for as long as the correction job takes.** The
+  upload still records `int(duration x rate)` when the container declares no count, and
+  `media.probe_task` replaces it with a counted one immediately afterwards. Between the two,
+  the task is briefly wrong — which is the right trade, because the alternative is decoding
+  a two-hour clip inside an HTTP request.
+- **A task that already has annotations keeps a wrong frame count.** `rebuild_jobs` refuses
+  to repartition frames under existing work, and the correction declines rather than
+  applying half of itself. The job reports it; nothing surfaces that to a user yet. Rare by
+  construction (the job runs right after upload), but it is a real hole: a task that
+  acquired annotations before the job ran stays wrong permanently.
 - **The browser harnesses are not in CI.** `scripts/screenshot.py` found two
   release-blocking bugs in one run, and `scripts/verify_local_import.py` is the only check on
   the desktop import flow; nothing stops either regressing automatically. Both need a
@@ -385,6 +703,37 @@ missing, and it is the reason this iteration found anything):
 
 ## Tried and rejected
 
+- **Shipping `fflate` to read the chunk archives.** The obvious "reuse before you build"
+  answer, and wrong here: the server writes `ZIP_STORED`, so there is nothing to decompress
+  and the library would have been carried for the half we do not use. What is actually
+  needed is ~90 lines of container parsing that refuses anything unexpected. Revisit the
+  moment the server has a reason to compress a chunk — at which point the library is the
+  right answer, not a hand-rolled inflater.
+- **Fingerprinting a rendered canvas by the tail of its data URL.** Cheap, and it reported
+  collisions between frames that were genuinely different. A fingerprint cheaper than the
+  thing it identifies is not a fingerprint. Hash the whole string.
+- **Trusting a synthetic test clip to have distinct frames.** A 4/255 colour ramp per frame
+  is quantised away by mpeg4: 13 of 36 frames came back identical to their predecessor, and
+  the browser check duly reported the editor as broken. Decoding the clip server-side
+  reproduced the same 13 positions, which is what isolated it. Move something by 8 pixels,
+  not 4 grey levels — and when a check fails, reproduce it one layer down before believing it.
+- **A chunk endpoint that only *reads* chunks, with a background job building them.** The
+  first scoping of chunked delivery. It passed its tests and delivered nothing: nothing
+  enqueued the job, so no chunk ever existed, so every frame took the fallback path and the
+  change was invisible. Caught by asking what a user would notice, which is the question the
+  contract puts at the end of the task-ranking list for exactly this reason. The endpoint
+  that needs the data is the one that should build it.
+- **Counting decoded frames by wrapping `iterate_frames`.** The first measurement did this
+  and reported 36 decodes for a walk that really cost 15,066: the wrapper counts frames
+  *yielded*, and the cost being measured is the frames walked past to reach them. The
+  instrumentation has to go inside the decode loop. A benchmark that measures the wrong thing
+  is worse than no benchmark, because it gets quoted.
+- **Packing image assets into chunks.** An image already serves in constant time, and putting
+  one in a chunk would mean re-encoding somebody's PNG as a JPEG for no gain. Chunks hold
+  video frames only, which is why every chunk read falls back rather than assuming a hit.
+- **`session.rollback()` when losing the build race.** Correct for the row, wrong for the
+  caller: it discards whatever else that session had pending. A SAVEPOINT (`begin_nested`)
+  confines it, and the race test fails without it.
 - **Hand-rolling photorealism in PIL.** The first answer to "the images do not look real"
   was a more elaborate synthetic renderer — single vanishing point, atmospheric perspective,
   contact shadows, depth of field, sensor grain, vignette. It was rendered, looked at, and
@@ -436,14 +785,15 @@ missing, and it is the reason this iteration found anything):
   either way, so the real boundary is `capabilities/default.json`, not the flag. That makes
   it a question of surface area and types, which the dependency wins — and calling the
   internals directly buys the same thing with no stability contract at all. ADR 0008.
-- **Rotating video frames through NumPy**, as CVAT does. It is the natural port of their
-  code, but it would add NumPy as a dependency for an operation Pillow — already required —
+- **Rotating video frames through NumPy**, as the upstream code does. It is the natural
+  port, but it would add NumPy as a dependency for an operation Pillow — already required —
   performs on the very next line, when the frame becomes an image. Rotation is applied at
   image conversion instead.
 - **Counting a video's frames accurately at upload time.** It is the correct number, and it
   means decoding the entire file inside an HTTP request; a two-hour video would time out.
   The fast estimate is kept at upload with the reason written in the code, and the exact
-  count belongs in a background job.
+  count is made by `media.probe_task` immediately afterwards. *Resolved in iteration 8; the
+  reasoning still stands for anything else tempted to decode inside a request.*
 - **Seeking to a video frame instead of decoding to it.** Much faster, and wrong: seeking
   lands on the nearest keyframe and container timestamps are approximate, so the same frame
   number can resolve to different pictures. Annotations are anchored to frame numbers, so
@@ -468,11 +818,15 @@ Significant ones have ADRs; these are the ones a future agent would otherwise se
   difference between desktop and server is a `Settings` value in every case. `services/` must
   not be able to tell which shape it is in. **A change that improves one shape by degrading
   the other is the wrong change.**
-- **[ADR 0007](./docs/adr/0007-cvat-reuse-policy.md) — CVAT reuse.** Audited at commit
-  `1d0c395`: one MIT `LICENSE`, `SPDX-License-Identifier: MIT` on all 1,473 source headers.
-  Reuse pays for hard-won domain knowledge (video decoding), costs for framework glue (Django,
-  DRF, SVG.js). Adapt `media_extractors.py`; do not adapt `cvat-canvas` — Canvas2D was chosen
-  on a *measured* ~500× picking advantage at 100k shapes ([ADR 0003](./docs/adr/0003-canvas2d-with-spatial-index.md)).
+- **[ADR 0007](./docs/adr/0007-reusing-third-party-code.md) — reusing third-party source.**
+  No source is adapted until a licence audit has been run against the upstream repository at
+  a named commit. Reuse pays for hard-won domain knowledge (video decoding) and costs for
+  framework glue (Django, DRF, SVG.js). **Under MIT the copyright notice travels with the
+  code**, and removing it while keeping the code is not an option the ADR leaves open — the
+  answer to an unwanted attribution is to re-derive the file, not to drop the notice.
+  Never adopt an architecture an ADR rejected on measured grounds: Canvas2D was chosen over
+  an SVG DOM on a picking advantage of roughly 7,000× at 100k shapes
+  ([ADR 0003](./docs/adr/0003-canvas2d-with-spatial-index.md)).
 - **Desktop-only capability is gated at the API edge, never in a service.** Reading arbitrary
   local paths is a feature on your own machine and arbitrary file disclosure on a shared one.
   `api/v1/local.py` returns 404 unless `local_mode`, so the capability is *absent* on a

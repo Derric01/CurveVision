@@ -4,9 +4,9 @@
 #   docker compose up -d
 #   open http://localhost:8080
 #
-# Six services. CVAT's production compose file runs eighteen; the difference is deliberate
-# and explained in docs/ARCHITECTURE_COMPARISON.md — fewer moving parts to operate, back up
-# and reason about.
+# Six services, deliberately: fewer moving parts to operate, back up and reason about.
+# The module boundaries live in Python packages behind explicit interfaces rather than in
+# separate deployments — see docs/ARCHITECTURE.md.
 
 name: curvevision
 
