@@ -38,6 +38,7 @@ from curvevision.schemas.task import (
     TaskProgress,
     TaskUpdate,
 )
+from curvevision.services import background as background_service
 from curvevision.services import media as media_service
 from curvevision.services import tasks as task_service
 from curvevision.storage import ObjectNotFoundError, get_storage
@@ -178,6 +179,19 @@ async def upload_assets(
     if scope.task.status is TaskStatus.DRAFT and scope.task.frame_count:
         scope.task.status = TaskStatus.READY
     await session.commit()
+
+    # A video task's frame count is an estimate until something decodes the file. Correct
+    # it in the background rather than making the upload wait for a two-hour clip; the task
+    # is usable with the estimate meanwhile, and the job fixes it in place.
+    if await media_service.needs_exact_count(session, scope.task.id):
+        await background_service.enqueue(
+            session,
+            kind="media.probe_task",
+            payload={"task_id": str(scope.task.id)},
+            resource_type="task",
+            resource_id=scope.task.id,
+        )
+
     return [AssetOut.model_validate(asset) for asset in created]
 
 

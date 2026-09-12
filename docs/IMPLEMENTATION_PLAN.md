@@ -359,6 +359,17 @@ frame navigation, label sidebar, object list, autosave to the API.
   omit a stream duration, and rotation metadata, without which phone video is annotated
   sideways.
 
+  **Frame counts are corrected after upload.** A task is created with an estimate, because
+  counting means decoding the whole file and that cannot happen inside an HTTP request.
+  Where the container declares a count the estimate is exact; where it does not — Matroska,
+  routinely — it becomes `int(duration × rate)`, and truncation loses a frame: 7 frames at
+  3 fps gives `int(2.333 × 3) = 6`, and the last frame is then never offered, never
+  labelled and never exported. `media.probe_task`, enqueued after any upload or import that
+  added video, decodes to count, corrects the task and its jobs, and discards the chunks the
+  renumbering invalidated. It declines entirely — rather than applying half of itself — on a
+  task that already carries annotations, because repartitioning frames under an annotator
+  would orphan their work.
+
 * **Chunked media delivery** — **Done** on the server. Frames are grouped into chunks of N
   (default 36), decoded in one pass and stored as one ZIP of JPEGs, recorded as a
   `MediaChunk`. `GET /tasks/{id}/chunks/{n}` serves the archive; the frame endpoint takes

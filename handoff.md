@@ -5,7 +5,7 @@
 > [`AGENTS.md`](./AGENTS.md) first; it is the working contract. Update this file after every
 > iteration, including the ones that mostly failed.
 >
-> **Last updated:** 2026-09-12 (iteration 7) · branch `claude/curvevision-platform-build-n1g71n` · PRs [#1](https://github.com/Derric01/CurveVision/pull/1)–[#4](https://github.com/Derric01/CurveVision/pull/4) merged · iterations 3–5 in open PR [#5](https://github.com/Derric01/CurveVision/pull/5) · iteration 6 on the same branch
+> **Last updated:** 2026-09-12 (iteration 8) · branch `claude/curvevision-platform-build-n1g71n` · PRs [#1](https://github.com/Derric01/CurveVision/pull/1)–[#4](https://github.com/Derric01/CurveVision/pull/4) merged · iterations 3–5 in open PR [#5](https://github.com/Derric01/CurveVision/pull/5) · iteration 6 on the same branch
 
 ---
 
@@ -61,33 +61,40 @@ was the last unconnected piece of the desktop application.
 
 ## Next best action
 
-**An exact frame count for video.** A video task's frame count is taken from container
-metadata at upload time, because an exact count means decoding the whole file. That is
-wrong for variable-frame-rate video, and a task whose frame count is too high sends
-annotators to frames that do not exist — the worst kind of wrong, because it looks like a
-missing file rather than a bad number.
+**The track-editing timeline.** It is the largest remaining gap between "you can annotate
+video" and "you would want to". The interpolation engine exists and is held to the same test
+vectors on both sides, `Track` / `TrackShape` keyframes are modelled and stored, and the
+editor already interpolates for display — what is missing is the UI for *editing* a track:
+seeing its keyframes on the timeline, adding and removing them, and seeing where a track
+starts and ends.
 
-`VideoReader.frame_count()` is exact, cached, and called by nothing. The work is to call it
-from a background job after upload and correct `Asset.frame_count`, then
-`task_service.recount_frames` and `rebuild_jobs`. Watch two things:
+Where the pieces are:
 
-* **Jobs are built from frame ranges.** Changing a task's frame count after jobs exist has
-  to rebuild them, and must not orphan annotations that were drawn on frames that survive.
-* **Chunks are keyed by frame range.** A corrected count changes which frames fall in the
-  last chunk, so that chunk has to be invalidated — `MediaChunk` rows for the tail, and the
-  archives behind them.
+| Piece | Where |
+| --- | --- |
+| `Track` + `TrackShape` keyframes, outline/visibility per keyframe | `domain/annotation.py` |
+| Server-side interpolation, arc-length resampling | `services/annotations.py` |
+| Client-side interpolation, same test vectors | `web/src/features/editor/interpolate.ts` |
+| The frame strip the timeline would extend | `EditorPage.tsx`, the footer |
+
+Start by rendering a track's keyframes on the existing frame strip — read-only, no editing.
+That is small, visible, and it forces the data plumbing (which tracks exist in this job,
+which frames are keyframes) that everything else needs.
 
 **Then, in rough order:**
 
 * **Pre-build chunks after a video upload.** `media.build_chunks` builds rather than plans,
   and nothing enqueues it. The care needed: the desktop queue is inline, so enqueueing at
-  upload would decode a whole clip while the user waits. Either dispatch it properly
-  off-thread or only pre-build where a real worker exists.
-* **Track-editing timeline UI** — the model and interpolation exist on both sides.
+  upload would decode a whole clip while the user waits. `media.probe_task` is now enqueued
+  from the same place and already decodes the whole file to count it — so the honest move is
+  probably to have *one* job that counts and builds in a single pass, rather than two that
+  each walk the file.
+* **Surface a task whose frame count could not be corrected.** The job reports "this task
+  already has annotation work"; nothing shows it to anyone.
 * **Put a browser harness in CI.** Three now exist (`screenshot.py`,
   `verify_local_import.py`, `verify_chunked_frames.py`) and between them they have found
-  every defect the unit suites missed. Nightly or pre-release; each needs a packaged
-  sidecar and a Chromium, so none is a cheap per-PR job.
+  every defect the unit suites missed. Nightly or pre-release; each needs a packaged sidecar
+  and a Chromium.
 
 ## Completed
 
@@ -130,6 +137,11 @@ injects the token, and provides native dialogs and menus.
 numbers are reproducible, and reports unreadable files in `skipped` rather than failing.
 The orphan-blob collector never deletes a file it did not write. Every route in
 `api/v1/local.py` returns 404 unless `settings.local_mode`.
+
+**Exact video frame counts** — `media.probe_task` decodes each video asset to count its
+frames, corrects the task and its jobs, and discards the chunks the renumbering invalidated.
+Enqueued after an upload or local import that added video. Declines rather than half-applies
+when annotations already exist.
 
 **Chunked video frames, end to end** — `build_chunk` decodes a chunk's frames in one pass
 and stores them as one ZIP of JPEGs named by task-global frame number, recorded as
@@ -190,14 +202,16 @@ full docs set including seven ADRs.
 
 ## Remaining high-priority work
 
-1. **Chunked media delivery** — see [Next best action](#next-best-action). Now the main
-   limit on video annotation, and `VideoReader.iterate_frames(wanted)` already makes the
-   server half cheap: one decode pass per chunk instead of one per frame.
-2. **An exact frame count for video**, corrected in a background job rather than estimated
-   at upload.
-3. **Track-editing timeline UI.**
+1. **Track-editing timeline UI** — the model and interpolation exist on both sides; the UI
+   does not.
+2. **Pre-build chunks after a video upload.** `media.build_chunks` builds rather than plans,
+   and nothing enqueues it. Careful: the desktop queue is inline.
+3. **A browser harness in CI.** Three exist and between them they have found every defect the
+   unit suites missed.
 4. **Signed installers in CI** — one runner per platform; PyInstaller does not cross-compile.
 5. **Webhook retry/backoff** wired to the job queue.
+6. **`choose_files` is still unused** — the shell can open a native *file* picker as well as
+   a folder one.
 6. **`choose_files` is still unused.** The shell can open a native *file* picker as well as a
    folder one, and `/tasks/{id}/local-import` accepts a file path. Connecting it is small, and
    deliberately left until someone wants it — the folder case is the one that matters.
@@ -205,6 +219,34 @@ full docs set including seven ADRs.
 ---
 
 ## Last iteration
+
+**A video task's frame count is now counted, not guessed.** It was estimated at upload from
+container metadata, because an exact count means decoding the whole file and that cannot
+happen inside an HTTP request. Where the container declares a count the estimate is exact;
+where it does not — **Matroska, the everyday case** — it falls back to `int(duration × rate)`
+and truncation loses a frame:
+
+    7 frames at 3 fps → duration 2.333s → int(2.333 × 3) = 6
+
+A task that says 6 when there are 7 does not look broken. The last frame is simply never
+offered, never labelled and never exported.
+
+* **`media.probe_task` was extended rather than a new handler added.** Its stated job was
+  already "recompute a task's frame index after media changed"; it just never counted. It
+  now corrects every video asset by decoding (off-thread), recounts the task, rebuilds the
+  jobs, and discards the chunks — which are addressed by frame range, so a renumbering
+  invalidates them wholesale.
+* **It is enqueued after an upload and after a local import**, and only when the task
+  actually holds video, so a folder of 50,000 photographs schedules nothing.
+* **It will not trample existing work.** `rebuild_jobs` refuses once a job carries
+  annotations; the correction declines *entirely* rather than applying half of itself, and
+  reports why. A task wrong in a known, reported way beats one quietly inconsistent.
+
+The bug is demonstrated rather than described: `test_the_estimate_this_corrects_is_genuinely
+_wrong` asserts the estimate really is 6 and the truth really is 7, so the other seven tests
+cannot pass while correcting nothing.
+
+### Iteration 7
 
 **The editor fetches a chunk instead of 36 frames.** The server half landed last iteration;
 this is the client half, and the request count is the claim it makes.
@@ -379,9 +421,14 @@ present. Both corrected; the second is a licensing claim and was the more urgent
 
 ```
 ./scripts/check.sh                    all 9 steps green
-  ruff · ruff format · mypy (78 files) · pytest server (213) · pytest sdk (12)
+  ruff · ruff format · mypy (78 files) · pytest server (221) · pytest sdk (12)
   notices (52 deps) · eslint · tsc · vitest (151)
 ```
+
+Iteration 8 added 8 tests in `server/tests/api/test_frame_count_correction.py` (221 server
+tests, up from 213) and confirmed they bite: with the correction disabled, 6 of the 8 fail,
+including the one that matters — `test_the_frame_the_estimate_lost_is_servable`, which asks
+for the last frame over HTTP and gets it.
 
 Iteration 7 added 26 web tests (151 total, up from 125): 7 on the ZIP reader, with fixtures
 built by Node's own zlib rather than by the reader under test, and 19 on the cache, which
@@ -476,10 +523,16 @@ missing, and it is the reason this iteration found anything):
   refuses rather than guesses, so the cost of meeting something else is a fallback to
   per-frame fetching, not a wrong picture. If the server ever compresses a chunk, the client
   silently gets slower; the archive format is effectively part of the API contract now.
-- **A video task's frame count is an estimate**, taken from container metadata at upload
-  time because an exact count means decoding the whole file. It can be slightly wrong for
-  variable-frame-rate video. `VideoReader.frame_count()` is exact and cheap to call from a
-  background job; nothing calls it yet.
+- **A video task's frame count is an estimate for as long as the correction job takes.** The
+  upload still records `int(duration x rate)` when the container declares no count, and
+  `media.probe_task` replaces it with a counted one immediately afterwards. Between the two,
+  the task is briefly wrong — which is the right trade, because the alternative is decoding
+  a two-hour clip inside an HTTP request.
+- **A task that already has annotations keeps a wrong frame count.** `rebuild_jobs` refuses
+  to repartition frames under existing work, and the correction declines rather than
+  applying half of itself. The job reports it; nothing surfaces that to a user yet. Rare by
+  construction (the job runs right after upload), but it is a real hole: a task that
+  acquired annotations before the job ran stays wrong permanently.
 - **The browser harnesses are not in CI.** `scripts/screenshot.py` found two
   release-blocking bugs in one run, and `scripts/verify_local_import.py` is the only check on
   the desktop import flow; nothing stops either regressing automatically. Both need a
@@ -599,7 +652,8 @@ missing, and it is the reason this iteration found anything):
 - **Counting a video's frames accurately at upload time.** It is the correct number, and it
   means decoding the entire file inside an HTTP request; a two-hour video would time out.
   The fast estimate is kept at upload with the reason written in the code, and the exact
-  count belongs in a background job.
+  count is made by `media.probe_task` immediately afterwards. *Resolved in iteration 8; the
+  reasoning still stands for anything else tempted to decode inside a request.*
 - **Seeking to a video frame instead of decoding to it.** Much faster, and wrong: seeking
   lands on the nearest keyframe and container timestamps are approximate, so the same frame
   number can resolve to different pictures. Annotations are anchored to frame numbers, so

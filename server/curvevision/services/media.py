@@ -534,6 +534,107 @@ async def build_chunk(
     return chunk
 
 
+# --------------------------------------------------------------- exact frame counts
+#
+# A video task is created with an *estimated* frame count, because an exact one means
+# decoding the whole file and that cannot happen inside an upload request. The estimate
+# comes from container metadata or duration x frame rate, and both drift -- `stream.frames`
+# is zero in many containers and wrong in others, and the product is wrong for any
+# variable-frame-rate video, which is most phone footage.
+#
+# An overestimate is the damaging direction: the task offers frames that do not exist, and
+# an annotator who steps onto one sees a failure that looks like missing media. Correcting
+# it is what these do.
+
+
+def _count_frames(source: bytes | Path) -> int:
+    from curvevision.media.video import VideoReader
+
+    return VideoReader(source).frame_count()
+
+
+async def needs_exact_count(session: AsyncSession, task_id: uuid.UUID) -> bool:
+    """Whether this task holds any video, and so any estimated frame count to correct.
+
+    Asked before enqueueing the job rather than inside it, so a folder of 50,000
+    photographs does not schedule background work that would find nothing to do.
+    """
+    found = await session.execute(
+        select(Asset.id)
+        .join(MediaBlob, MediaBlob.id == Asset.blob_id)
+        .where(Asset.task_id == task_id, MediaBlob.kind == MediaKind.VIDEO)
+        .limit(1)
+    )
+    return found.first() is not None
+
+
+async def exact_frame_count(blob: MediaBlob, storage: Storage) -> int:
+    """How many frames this video really has, by decoding all of them."""
+    source = await _video_source(blob, storage)
+    return await asyncio.to_thread(_count_frames, source)
+
+
+async def correct_frame_counts(
+    session: AsyncSession, storage: Storage, task: Task
+) -> list[tuple[str, int, int]]:
+    """Replace every video asset's estimated frame count with a counted one.
+
+    Returns `(asset name, before, after)` for each one that actually changed, so a caller
+    can report what it did rather than claiming to have done something.
+
+    The blob's own count is corrected too: it is content-addressed, so the same video
+    attached to a second task starts with the right number instead of re-earning the
+    estimate.
+    """
+    assets = (
+        await session.execute(
+            select(Asset).where(Asset.task_id == task.id).order_by(Asset.position)
+        )
+    ).scalars()
+
+    changed: list[tuple[str, int, int]] = []
+    for asset in assets:
+        blob = await session.get(MediaBlob, asset.blob_id)
+        if blob is None or blob.kind is not MediaKind.VIDEO:
+            continue
+        try:
+            counted = await exact_frame_count(blob, storage)
+        except (NotFoundError, ValidationError):
+            # A file that moved, or one this build cannot decode. The estimate stands --
+            # it is wrong, but replacing it with zero would be worse.
+            continue
+        if counted <= 0 or counted == asset.frame_count:
+            continue
+        changed.append((asset.name, asset.frame_count, counted))
+        asset.frame_count = counted
+        blob.frame_count = counted
+
+    if changed:
+        await session.flush()
+    return changed
+
+
+async def discard_chunks(session: AsyncSession, storage: Storage, task_id: uuid.UUID) -> int:
+    """Delete a task's chunks, rows and stored archives alike. Returns how many.
+
+    Chunks are addressed by frame range, so any change to a task's frame numbering
+    invalidates them wholesale -- an earlier asset gaining a frame shifts every later
+    asset's offset, and reasoning about which chunks survive that costs more than
+    rebuilding them. They are a cache; the next request rebuilds what is wanted.
+    """
+    chunks = list(
+        (await session.execute(select(MediaChunk).where(MediaChunk.task_id == task_id))).scalars()
+    )
+    for chunk in chunks:
+        # Storage first: a row without bytes falls back to decoding, but bytes without a
+        # row are a leak nothing will ever collect.
+        await storage.delete(chunk.storage_key)
+        await session.delete(chunk)
+    if chunks:
+        await session.flush()
+    return len(chunks)
+
+
 async def video_frame_jpeg(
     session: AsyncSession,
     settings: Settings,
