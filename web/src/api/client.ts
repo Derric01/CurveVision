@@ -10,6 +10,7 @@
  *    document, so a form can show a field-level message instead of "something went wrong".
  */
 
+import { desktopToken } from '@/desktop';
 import type {
   AnnotationDocument,
   AnnotationWriteResult,
@@ -145,7 +146,10 @@ export async function request<T>(path: string, options: RequestOptions = {}): Pr
   }
 
   const headers: Record<string, string> = {};
-  const access = tokenStore.access;
+  // The desktop shell's token wins when there is one: it is the credential for this
+  // launch, and there is no stored session to prefer over it. In a browser this is null
+  // and nothing about the existing path changes.
+  const access = desktopToken() ?? tokenStore.access;
   if (access) headers.authorization = `Bearer ${access}`;
   if (options.body !== undefined) headers['content-type'] = 'application/json';
 

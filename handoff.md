@@ -5,7 +5,7 @@
 > [`AGENTS.md`](./AGENTS.md) first; it is the working contract. Update this file after every
 > iteration, including the ones that mostly failed.
 >
-> **Last updated:** 2026-09-11 · branch `claude/curvevision-platform-build-n1g71n` · PR [#2](https://github.com/Derric01/CurveVision/pull/2)
+> **Last updated:** 2026-09-12 (iteration 2) · branch `claude/curvevision-platform-build-n1g71n` · PRs [#1](https://github.com/Derric01/CurveVision/pull/1)–[#3](https://github.com/Derric01/CurveVision/pull/3) merged · [#4](https://github.com/Derric01/CurveVision/pull/4) open (desktop sign-in + video frames)
 
 ---
 
@@ -23,42 +23,53 @@ Honestly incomplete, and marked as such everywhere: video annotation (chunked fr
 extraction), the track-editing timeline, the mask brush, the keypoint UI, quality reports,
 resumable uploads, and signed desktop installers.
 
-The immediate gap is that the **frontend does not yet read the connection the desktop shell
-injects**, so the desktop window still shows a sign-in screen it should not. That is the next
-task and it is small.
+The desktop window **signs itself in from the connection the shell injects** and opens
+straight into the application.
+
+**Video tasks are now annotatable.** Uploading a video produces a task with many frames, and
+the editor is served each frame as an image — previously a frame request returned the whole
+container, which made video unusable. `media/video.py` is adapted from CVAT under ADR 0007.
+Frames are decoded from the start of the file, so deep scrubbing is O(n); chunked delivery
+is the next piece and is what turns "works" into "comfortable".
+
+The remaining desktop gap is the open-folder flow: the server endpoint and the shell's
+native picker both exist and are tested, but the web UI does not call them yet, so importing
+a folder still goes through the ordinary upload path.
 
 ---
 
 ## Next best action
 
-**Make the frontend desktop-aware** (`web/src`).
+**Chunked media delivery**, which is now the single thing most limiting video annotation.
 
-The shell already injects, before any page script runs:
+Serving frame *n* decodes from the start of the file (`services/media.render_video_frame`),
+so scrubbing to frame 4,000 of a long video decodes 4,000 frames. That is correct — a frame
+number must identify the same picture every time, which seeking cannot guarantee — but it
+is slow, and it is slow in exactly the interaction annotators do most.
 
-```js
-window.__CURVEVISION__ = { url, token, data_dir, version, desktop: true }
-```
+The design already exists and is half-built:
 
-Nothing in `web/` reads it yet. Needed:
+| Piece | State |
+| --- | --- |
+| `MediaChunk` model (task, index, quality, start_frame, frame_count, storage_key) | exists |
+| `media.chunk_count` / `chunk_range` helpers | exist, tested |
+| `media.build_chunks` job computing the chunk *plan* | exists; writes no archives |
+| `frames_per_chunk` setting (default 36) | exists |
+| `VideoReader.iterate_frames(wanted)` — decode many frames in one pass | **exists, and is what makes this cheap now** |
 
-1. Read it at startup; when `desktop === true`, seed the API client with the token and skip
-   the sign-in screen entirely (do not render a signed-out state first — the value is
-   available before React mounts).
-2. Hide multi-user chrome in desktop mode: organization switching, member management,
-   invitations. There is one person here.
-3. Wire an **Open folder…** action to `POST /tasks/{id}/local-import`, using the shell's
-   native picker via `invoke("choose_folder")`. The shell also emits a `menu:open-folder`
-   event from its File menu — listen for it.
-4. Keep the browser path unchanged. The same bundle serves a real server with real accounts;
-   `desktop` simply is not set there.
+The shape: `build_chunks` decodes each run of N frames in a single sequential pass and
+stores them as one zip per chunk; the frame endpoint serves from the chunk; the client keeps
+an LRU and prefetches ±1. One pass per chunk instead of one pass per frame is the whole win.
 
-Why this one: it is the last thing between the current state and a desktop app that opens
-straight into the editor, and every piece it depends on already exists and is verified.
+Start with the server half (build and serve chunks) and keep per-frame decoding as the
+fallback for a chunk that has not been built yet — that way nothing regresses while the
+background job catches up.
 
-After that: **adapt CVAT's `media_extractors.py`** for video frame extraction — see
-[Remaining high-priority work](#remaining-high-priority-work).
-
----
+**Also worth doing, smaller:** `_estimate_frame_count` in `media/probe.py` still uses
+container metadata at upload time, so a task's frame count can be slightly wrong for
+variable-frame-rate video. `VideoReader.frame_count()` is exact. The right fix is to correct
+the count in the background job (where paying for a full decode is fine) rather than in the
+upload request — the `media.probe_task` job is the natural place.
 
 ## Completed
 
@@ -102,6 +113,23 @@ numbers are reproducible, and reports unreadable files in `skipped` rather than 
 The orphan-blob collector never deletes a file it did not write. Every route in
 `api/v1/local.py` returns 404 unless `settings.local_mode`.
 
+**Desktop sign-in** — `web/src/desktop.ts` validates the `window.__CURVEVISION__` object the
+shell injects before any page script runs. The API client prefers that token over any stored
+session; it is never written to `localStorage`, because the shell mints a fresh one each
+launch and revokes the previous one. In desktop mode a failed restore becomes a recoverable
+`unavailable` screen with a retry, not a sign-in form the user has no password for, and the
+username/sign-out chrome is replaced by the version. The injected shape is pinned from
+**both** sides — a Rust test asserts the exact JSON keys, and the TypeScript tests parse the
+same fixture — because a rename on one side alone would silently strand the desktop window
+on a sign-in screen.
+
+**Video frames** — `media/video.py`, **adapted from CVAT** at commit `1d0c395` under
+[ADR 0007](./docs/adr/0007-cvat-reuse-policy.md), carrying its copyright header and recorded
+in [THIRD_PARTY_NOTICES](./docs/THIRD_PARTY_NOTICES.md#adapted-source) with the license text
+in `licenses/MIT-cvat.txt`. Frames are addressed in decode order rather than by seeking,
+counted by decoding rather than trusted from the container, and served as JPEG with rotation
+metadata applied. A video task is annotatable end to end.
+
 **Also** — Python SDK and CLI, Docker Compose deployment, CI, issue/PR templates, and the
 full docs set including seven ADRs.
 
@@ -111,8 +139,8 @@ full docs set including seven ADRs.
 
 | Item | Where it stands |
 | --- | --- |
-| Desktop-aware frontend | Nothing started in `web/`. The shell side is done and verified. See [Next best action](#next-best-action). |
-| Video annotation | Probing, the data model and frame addressing are done. Chunked extraction is not. `MediaChunk` and the chunk *plan* exist; the client still fetches one frame per request. |
+| Open-folder flow in the web UI | Server endpoint, shell commands and menu event all exist and are tested; nothing in `web/` calls them. See [Next best action](#next-best-action). |
+| Chunked media delivery | `MediaChunk`, the chunk plan job and the range helpers exist; no archives are written and the client still fetches one frame per request. Now the main limit on video. See [Next best action](#next-best-action). |
 | Track editing UI | Model and interpolation done on both sides; the keyframe timeline UI does not exist. |
 | Webhooks | Delivery works and is signed; retry/backoff is not wired to the queue. |
 
@@ -120,15 +148,14 @@ full docs set including seven ADRs.
 
 ## Remaining high-priority work
 
-1. **Desktop-aware frontend** — above.
-2. **Video frame extraction, by adapting CVAT rather than re-deriving it.** Governed by
-   [ADR 0007](./docs/adr/0007-cvat-reuse-policy.md). CVAT's `media_extractors.py` is 1,649
-   lines of MIT-licensed frame-accurate seeking, keyframe indexing, EXIF orientation and
-   chunk writing, with only three CVAT imports and one DRF exception standing between it and
-   portability. Our `server/curvevision/media/` is 182 lines of probing. **When it lands it
-   must keep CVAT's copyright header, gain a `THIRD_PARTY_NOTICES.md` "Adapted source" row
-   naming file and commit, and the license audit must be re-run first.**
-3. **Chunked media delivery client-side** — the blocker for usable video annotation.
+1. **The open-folder flow in the web UI** — the last unconnected piece of the desktop
+   story. Deferred this iteration because verifying Tauri IPC from the page needs a rendered
+   webview, which this environment cannot provide; see *Tried and rejected*.
+2. **Chunked media delivery** — see [Next best action](#next-best-action). Now the main
+   limit on video annotation, and `VideoReader.iterate_frames(wanted)` already makes the
+   server half cheap: one decode pass per chunk instead of one per frame.
+3. **An exact frame count for video**, corrected in a background job rather than estimated
+   at upload.
 4. **Track-editing timeline UI.**
 5. **Signed installers in CI** — one runner per platform; PyInstaller does not cross-compile.
 6. **Webhook retry/backoff** wired to the job queue.
@@ -137,52 +164,58 @@ full docs set including seven ADRs.
 
 ## Last iteration
 
-Built the desktop shape and then re-grounded the documentation.
+**Made video tasks annotatable**, by adapting CVAT's decoding strategy rather than
+re-deriving it.
 
-- **Desktop mode, in place annotation, packaging, and the Tauri shell** (commits `e0ffedc`,
-  `d25f0e9`, `3e6be4c`, `4f283aa`). Notably this changed **1,460 lines added and 42 removed**
-  in pre-existing code — nothing was rewritten, because the four seams and the portable
-  column types were already there.
-- **Docs realigned to the truth** (`c54b8ff`). The docs had described the desktop app as
-  *Planned* while it worked, and had no written policy on CVAT reuse. Added ADR 0006 (one
-  codebase, two shapes) and ADR 0007 (CVAT reuse, with a license audit performed rather than
-  recalled), rewrote the plan's purpose section around the two shapes, and corrected Phase 9.
-- **Hardened `scripts/check.sh`** — it silently skipped the notices gate that CI runs, and
-  hard-coded `server/.venv/bin`, so it would fail for an agent whose environment lives
-  elsewhere. Now nine steps, with a PATH fallback.
-- **Added the agent protocol**: `AGENTS.md`, `CLAUDE.md`, `.claude/skills/start-work/`, and
-  this file.
+The bug: `GET /tasks/{id}/frames/{n}/data` streamed the *blob*. For an image that is the
+frame; for a video it is the entire container. Every frame of a video task returned the same
+multi-megabyte file, so video annotation did not work at all.
 
----
+- `server/curvevision/media/video.py` (new, adapted from CVAT `media_extractors.py` at
+  `1d0c395`). Three things were worth taking and would have been painful to rediscover:
+  frames are addressed **in decode order rather than by seeking**, because seeking lands on
+  the nearest keyframe and a frame number must identify the same picture every time an
+  annotation refers to it; frame counts are **measured by decoding**, because
+  `stream.frames` is zero in many containers and wrong in others; and two real-file edge
+  cases — the `DURATION` metadata fallback (Matroska routinely omits a stream duration) and
+  rotation metadata, without which phone video is annotated sideways.
+- `services/media.render_video_frame` decodes off the event loop, reading a blob annotated
+  in place straight from its path so a large video is not loaded into memory for one frame.
+- `api/v1/tasks.frame_data` serves that for video blobs.
+- `media/probe.py` now delegates metadata to the reader, gaining the duration fallback, and
+  keeps a *fast* frame-count estimate at upload time with the reason written down — an exact
+  count means decoding the whole video, and that cannot happen inside an upload request.
+
+**Departures from CVAT's version, deliberately:** rotation is applied when a frame becomes
+an image (Pillow, already a dependency) rather than to the decoded frame (NumPy, which would
+be a new one); there is no 3D/point-cloud dimension, no manifest, and no Django or DRF.
+
+**A gap this turned up:** `av` was not in the `dev` extra, so every video test would have
+**silently skipped in CI** — the hardest code in the repository shipping untested while the
+suite showed green. Added, for the same reason Pillow already was.
 
 ## Verification performed
 
+This iteration:
+
 ```
 ./scripts/check.sh                    all 9 steps green
-  ruff · ruff format · mypy (77 files) · pytest server (160) · pytest sdk (12)
-  notices (51 deps) · eslint · tsc · vitest (107)
-
-cargo test --lib (desktop/shell)      3 passed
-cargo clippy --all-targets -D warnings clean
+  ruff · ruff format · mypy (78 files) · pytest server (188) · pytest sdk (12)
+  notices (51 deps) · eslint · tsc · vitest (115)
 ```
 
-Beyond the suite, measured rather than assumed:
+28 of those server tests are new: 21 unit tests that encode a real video with PyAV and
+decode it back (a mocked decoder would test the mock), and 7 API tests driving upload →
+task → frame.
 
-- **The packaged binary driven end to end**: spawn → handshake parsed from stdout → import a
-  nested folder of five photographs in place → **0 files written to the app data directory**
-  → frame bytes byte-identical to the originals → annotations saved → COCO export *with
-  images* read back off disk.
-- **Loopback-only**: connecting to the host's non-loopback address is refused
-  (`ConnectionRefusedError`).
-- **Path traversal**: raw un-normalised sockets (`/../../../../etc/passwd`, `/..%2f..%2f`,
-  `/%2e%2e/`, `/....//`) against the SPA route — none escaped the bundle.
-- **Orphan prevention**: `kill -9` on the shell; the server was gone within 0.5 s.
-- **Migration** run up, down, and up again.
-- **Start-up cost**: ~1.5–2.1 s spawn to handshake; 38 MB sidecar, 6.2 MB shell (Linux
-  x86-64, release).
-- **All 91 relative links in the docs resolve.**
+**The regression tests were proved to bite.** The frame-serving fix was disabled and the
+suite re-run: three tests failed, including `PIL.UnidentifiedImageError` when the editor
+received a container where it expected a picture. Restored, all pass. A fix never seen to
+fail is a guess.
 
----
+Carried forward from earlier iterations (still true, not re-run this time): the packaged
+desktop binary authenticating from the injected connection, loopback-only refusal,
+path-traversal probes, `kill -9` orphan prevention, and the migration up/down/up.
 
 ## Bugs fixed
 
@@ -196,10 +229,25 @@ Beyond the suite, measured rather than assumed:
 | Two ADR links pointed at filenames that do not exist | Guessed names. | Link checker over 91 links |
 | Two doc sections both numbered 0.2 | New section collided with Phase 0's numbering. | Manual |
 
+| A video frame request returned the entire video | `frame_data` streamed the blob. For an image the blob *is* the frame; for a video it is a container holding thousands. Video annotation did not work at all. | `tests/api/test_video_media.py` — proved to fail with the fix disabled |
+| Video tests would have skipped silently in CI | `av` was in the `media` extra but not `dev`, and CI installs `[dev]`. `pytest.importorskip` would have skipped every video test while the suite reported green. | Added to `dev`; the tests run rather than skip |
+
 ---
 
 ## Known issues
 
+- **Deep scrubbing in a long video is slow**, by construction: frame *n* costs *n* frame
+  decodes. Correct but not comfortable; chunked delivery is the fix and is the next task.
+- **A video task's frame count is an estimate**, taken from container metadata at upload
+  time because an exact count means decoding the whole file. It can be slightly wrong for
+  variable-frame-rate video. `VideoReader.frame_count()` is exact and cheap to call from a
+  background job; nothing calls it yet.
+- **The desktop UI has been verified through the API, not through a rendered window.**
+  The chain is covered — the shipped bundle reads the injection, the token authenticates,
+  both sides pin the JSON keys — but no test renders `App.tsx` and asserts that the sign-in
+  screen is skipped. The web test setup is `environment: node` with no DOM, so adding React
+  rendering tests would mean jsdom plus `@testing-library/react`. Worth doing when the UI
+  surface grows; not worth it for one conditional.
 - **The window-close path is code-reviewed, not exercised.** Graceful shutdown is covered by
   a Rust test that boots the real packaged server and proves shutdown reaps it, and the crash
   path is verified by `kill -9` — but *a human clicking the close button* could not be tested
@@ -229,6 +277,35 @@ Beyond the suite, measured rather than assumed:
   Alembic owns its own event loop. `bootstrap` is a synchronous entry point by design; tests
   call it through `asyncio.to_thread`, exactly as the packaged sidecar does before uvicorn
   starts.
+- **Building the open-folder flow this iteration**, which the previous handoff named as the
+  next action. Investigated and deferred, not forgotten. The page runs with
+  `withGlobalTauri: false`, so calling the shell needs either `@tauri-apps/api`
+  (dynamic-imported behind `isDesktop()`) or flipping that flag. Reading the Tauri source
+  settled the security question — `withGlobalTauri` only controls whether the convenience
+  object is attached to `window`; the IPC bootstrap (`__TAURI_INTERNALS__`) is injected
+  either way, so the real boundary is `capabilities/default.json`, not the flag. **The
+  blocker is verification, not the decision:** proving IPC works from the page's remote
+  origin needs a rendered webview, which this environment has no way to drive. Video
+  extraction was fully verifiable and higher value, so it went first. Whoever picks this up
+  should either have a desktop to test on, or add a webview-driving harness before starting.
+- **Rotating video frames through NumPy**, as CVAT does. It is the natural port of their
+  code, but it would add NumPy as a dependency for an operation Pillow — already required —
+  performs on the very next line, when the frame becomes an image. Rotation is applied at
+  image conversion instead.
+- **Counting a video's frames accurately at upload time.** It is the correct number, and it
+  means decoding the entire file inside an HTTP request; a two-hour video would time out.
+  The fast estimate is kept at upload with the reason written in the code, and the exact
+  count belongs in a background job.
+- **Seeking to a video frame instead of decoding to it.** Much faster, and wrong: seeking
+  lands on the nearest keyframe and container timestamps are approximate, so the same frame
+  number can resolve to different pictures. Annotations are anchored to frame numbers, so
+  that trade is not available. Chunked delivery recovers the speed without giving up the
+  guarantee.
+- **Storing the injected desktop token in `localStorage`** alongside ordinary sessions.
+  Tempting because it needs no change to the client, but wrong: the shell mints a fresh
+  token each launch and revokes the previous one, so a stored copy is a stale credential
+  that outlives the session that owned it. The token now lives only in memory, read from
+  the injected object.
 - **Loading the desktop window from a `tauri://` asset URL.** Would have created a second
   origin, a CORS boundary and a desktop-only auth path. The window loads the editor from the
   local server instead — same-origin by construction.
@@ -257,3 +334,10 @@ Significant ones have ADRs; these are the ones a future agent would otherwise se
   leaves it unset and keeps nginx in front.
 - **A fresh desktop token per launch, previous revoked**, so a token leaked into a log or a
   crash report stops working on restart.
+- **A frame number identifies a picture, permanently.** This is the constraint behind the
+  video design: it rules out seeking, forces decode-order addressing, and makes chunking
+  (rather than caching or approximation) the correct way to get speed back. An annotation
+  that drifts to a different frame is worse than a slow one.
+- **Optional dependencies are installed in `dev`.** Pillow and PyAV are optional at runtime
+  and the server degrades honestly without them — but a test that skips is not a test that
+  passes, so CI installs both.

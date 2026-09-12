@@ -346,22 +346,29 @@ frame navigation, label sidebar, object list, autosave to the API.
 
 * **Image datasets** — **Done.** Upload (multipart + resumable), SHA-256 dedupe, dimension
   probing, thumbnail generation, ordered frame indexing.
-* **Video datasets** — **In Progress.** Videos are probed for duration/fps/dimensions; frame
-  addressing is by index. Decode uses PyAV.
+* **Video datasets** — **In Progress.** A video task is annotatable end to end: upload a
+  video, get a task with many frames, and the editor is served each frame as an image.
+  `curvevision/media/video.py` is **adapted from CVAT** under
+  [ADR 0007](./adr/0007-cvat-reuse-policy.md), keeping its copyright header and recorded in
+  [THIRD_PARTY_NOTICES](./THIRD_PARTY_NOTICES.md#adapted-source). What that bought, and why
+  it was not worth re-deriving: frames are addressed in **decode order rather than by
+  seeking**, because seeking lands on the nearest keyframe and a frame number must identify
+  the same picture every time an annotation refers to it; frame counts are **measured by
+  decoding** because `stream.frames` is zero in many containers and wrong in others; and
+  two edge cases real files need — the `DURATION` metadata fallback for containers that
+  omit a stream duration, and rotation metadata, without which phone video is annotated
+  sideways.
 
-  **The next step is adaptation, not invention.** CVAT's `media_extractors.py` is 1,649
-  lines of MIT-licensed, battle-tested frame extraction — frame-accurate seeking, keyframe
-  indexing, EXIF orientation, chunk writers — with only three CVAT imports and one DRF
-  exception standing between it and portability. Our `media/` package is 182 lines of
-  probing. Video decoding is years of accumulated edge cases (variable frame rates, broken
-  keyframe indices, rotation metadata, containers that lie about duration), and re-deriving
-  it would be the least defensible code in this repository. See
-  [ADR 0007](./adr/0007-cvat-reuse-policy.md) for the license audit and the reuse test.
+  **Still missing: chunked delivery.** Serving frame *n* decodes from the start of the
+  file, so it is O(n) and scrubbing deep into a long video is slow. That is the next piece
+  (below), and it is the difference between "works" and "comfortable".
 * **Chunked media delivery** — *In Progress*. The design: frames grouped into chunks of N
   (default 36) served as one object, with a client-side LRU and ±1 prefetch. This is the
   single most important media decision for annotation throughput. Today the `MediaChunk`
-  model and the chunk *plan* exist, but the client still fetches one frame per request —
-  acceptable for images, and the blocker for usable video annotation.
+  model and the chunk *plan* exist, and the client still fetches one frame per request.
+  With per-frame video decode now working, this is no longer the blocker for *usable* video
+  annotation — it is the blocker for *comfortable* video annotation, and the fix for the
+  O(n) seek cost described above.
 * **Progressive loading** — *Planned*. A low-resolution proxy chunk served first so the
   annotator can start immediately, with the full-resolution chunk swapping in when decoded.
 * **Large-file handling** — a size limit expressed in config rather than code is **Done**.
@@ -488,8 +495,15 @@ Not an add-on: one of the two shapes the product ships in ([Two deployment shape
   before page load, native dialogs, menus. Killed on every exit path, and
   `--exit-with-parent` makes the server stop on end-of-file when the shell cannot run its
   own handler (crash, force quit, `kill -9`) — verified.
-* **Desktop-aware frontend** — *In Progress*. Read the injected `window.__CURVEVISION__`,
-  skip the sign-in screen, offer the folder picker, hide multi-user chrome.
+* **Desktop-aware frontend** — **Done** for authentication. `web/src/desktop.ts` validates
+  the injected `window.__CURVEVISION__`, the API client prefers that token over any
+  stored session, and a failed restore in desktop mode shows a recoverable error rather
+  than a sign-in form nobody can use. Multi-user chrome is hidden. The shape is pinned
+  from both sides: a Rust test asserts the injected JSON keys, and the TypeScript tests
+  parse the same fixture.
+* **Open-folder flow** — *In Progress*. The server endpoint (`/tasks/{id}/local-import`)
+  and the shell commands (`choose_folder`, `choose_files`, the `menu:open-folder` event)
+  both exist and are tested; the web UI does not call them yet.
 * **Signed installers** — *Planned*. `.dmg`, `.msi`, `.AppImage` built per platform in CI;
   PyInstaller does not cross-compile, so this needs one runner per OS.
 * **Auto-update** — *Planned*.

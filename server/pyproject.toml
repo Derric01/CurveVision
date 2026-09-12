@@ -42,9 +42,13 @@ dev = [
     "ruff>=0.5",
     "mypy>=1.10",
     "types-boto3",
-    # Installed in dev so the media path is exercised with real dimensions. The server
-    # itself treats Pillow as optional and degrades gracefully without it.
+    # Installed in dev so the media path is exercised against real files rather than
+    # skipped. The server itself treats both as optional and degrades gracefully: without
+    # Pillow, dimensions are unknown; without PyAV, video support raises a clear error.
+    # Without them *in CI*, though, the video tests silently skip and the hardest code in
+    # the repository ships untested — which is the failure this line prevents.
     "pillow>=10.3",
+    "av>=12.0",
 ]
 
 [project.scripts]

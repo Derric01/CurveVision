@@ -7,9 +7,10 @@ This file is checked by CI (`scripts/check_notices.py`): a declared dependency w
 entry here fails the build. That is deliberate — software reaching users without
 attribution is a licensing problem, not a documentation nit.
 
-**As of this commit, no file in this repository is copied or adapted from another project's
-source code.** Where CurveVision implements a published *format* (COCO, YOLO, Pascal VOC),
-that is an independent implementation written from the format's specification. See
+**One file in this repository is adapted from another project's source code**, listed
+under [Adapted source](#adapted-source) below. Everything else is independently
+implemented: where CurveVision implements a published *format* (COCO, YOLO, Pascal VOC),
+that is written from the format's specification. See
 [ARCHITECTURE_COMPARISON.md](./ARCHITECTURE_COMPARISON.md#1-licensing-position) for the
 full licensing position.
 
@@ -21,7 +22,7 @@ extraction, where re-deriving years of decoder edge cases would be indefensible.
 audit of `cvat-ai/cvat` at commit `1d0c395` (2026-09-11) found a single MIT `LICENSE` and
 `SPDX-License-Identifier: MIT` on all 1,473 source headers, with no exceptions.
 
-When such a file lands, three things happen together, and a change that does fewer is
+Three things happen together whenever such a file lands, and a change that does fewer is
 incomplete:
 
 1. The file keeps CVAT's copyright line and MIT notice at the top, with a note saying what
@@ -29,11 +30,15 @@ incomplete:
 2. A row is added to the **Adapted source** table below, naming the upstream file and commit.
 3. `licenses/MIT-cvat.txt` carries CVAT's full license text.
 
-Until then, this section describes a policy, and the sentence above it is the current fact.
-
 ### Adapted source
 
-*None yet.* Rows here will name the upstream project, file, commit and license.
+| CurveVision file | Adapted from | Upstream commit | License | What was taken |
+| --- | --- | --- | --- | --- |
+| `server/curvevision/media/video.py` | [`cvat/apps/engine/media_extractors.py`](https://github.com/cvat-ai/cvat/blob/1d0c39576c3239dcaf8ba7baee71a1b8de496c0e/cvat/apps/engine/media_extractors.py) | `1d0c395` (2026-09-11) | MIT — © 2019–2022 Intel Corporation, © CVAT.ai Corporation | The decoding strategy (count frames by decoding rather than trusting container metadata; address frames in decode order rather than by seeking) and two edge cases real files require: the `DURATION` metadata fallback for containers that omit a stream duration, and honouring rotation metadata. Re-derived in CurveVision's own idiom — bytes or a filesystem path instead of CVAT's `Openable`, no 3D dimension, no manifest, no Django or DRF. |
+
+The audit behind this row was re-run immediately before the adaptation: `cvat-ai/cvat` at
+`1d0c395` carries one MIT `LICENSE` and `SPDX-License-Identifier: MIT` on all 505 Python
+source headers, with no exceptions.
 
 Full license texts for permissive licenses used here are reproduced under
 [`licenses/`](../licenses/).

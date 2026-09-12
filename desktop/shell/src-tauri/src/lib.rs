@@ -276,3 +276,53 @@ pub fn run() {
             }
         });
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn sample() -> Handshake {
+        Handshake {
+            url: "http://127.0.0.1:49312".into(),
+            token: "cv_abc123_secret".into(),
+            data_dir: "/home/someone/.local/share/CurveVision".into(),
+            version: "0.1.0".into(),
+        }
+    }
+
+    /// The shape injected into the page is a cross-language contract: the web application
+    /// parses exactly these keys in `web/src/desktop.ts`, and its own tests use the same
+    /// fixture. Renaming a field on either side alone would silently leave the desktop
+    /// window showing a sign-in screen nobody can get past, so both sides pin it.
+    #[test]
+    fn the_injected_connection_keeps_the_keys_the_web_application_reads() {
+        let value: serde_json::Value =
+            serde_json::to_value(Connection::from(&sample())).expect("serialisable");
+        let object = value.as_object().expect("an object");
+
+        let mut keys: Vec<&str> = object.keys().map(String::as_str).collect();
+        keys.sort_unstable();
+        assert_eq!(keys, ["data_dir", "desktop", "token", "url", "version"]);
+
+        // `desktop` must be a real boolean `true`: the web side rejects anything merely
+        // truthy so a stray global cannot switch off authentication.
+        assert_eq!(object["desktop"], serde_json::Value::Bool(true));
+        assert_eq!(object["token"], "cv_abc123_secret");
+        assert_eq!(object["url"], "http://127.0.0.1:49312");
+    }
+
+    /// The script is evaluated before any of the page's own code, so it has to be a single
+    /// valid statement with the payload embedded — not a template the page completes.
+    #[test]
+    fn the_initialization_script_is_one_valid_statement() {
+        let injected = serde_json::to_string(&Connection::from(&sample())).expect("serialisable");
+        let script = format!("window.__CURVEVISION__ = {injected};");
+
+        assert!(script.starts_with("window.__CURVEVISION__ = {"));
+        assert!(script.ends_with("};"));
+        assert!(!script.contains('\n'));
+        // Round-trips, so the page receives what the shell meant to send.
+        let parsed: serde_json::Value = serde_json::from_str(&injected).expect("valid JSON");
+        assert_eq!(parsed["token"], "cv_abc123_secret");
+    }
+}

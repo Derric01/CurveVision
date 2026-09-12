@@ -2,11 +2,17 @@
 
 import { create } from 'zustand';
 import { api, tokenStore } from '@/api/client';
+import { isDesktop } from '@/desktop';
 import type { User } from '@/api/types';
 
 interface SessionState {
   user: User | null;
-  status: 'unknown' | 'authenticated' | 'anonymous';
+  /**
+   * `unavailable` exists for the desktop application only. There, a failed restore is not
+   * a signed-out user — it is a local server that did not answer, and offering a sign-in
+   * form would be a dead end because the person has no password to type.
+   */
+  status: 'unknown' | 'authenticated' | 'anonymous' | 'unavailable';
   error: string | null;
   restore: () => Promise<void>;
   login: (identifier: string, password: string) => Promise<void>;
@@ -24,15 +30,27 @@ export const useSession = create<SessionState>((set) => ({
   status: 'unknown',
   error: null,
 
-  /** Resolve the stored token into a user, or fall back to anonymous. */
+  /** Resolve the available credential into a user.
+   *
+   * In the desktop application the credential was injected by the shell before this
+   * script ran, so there is nothing stored to look for and nothing to clear on failure.
+   */
   async restore() {
-    if (!tokenStore.access) {
+    if (!isDesktop() && !tokenStore.access) {
       set({ status: 'anonymous', user: null });
       return;
     }
     try {
       set({ user: await api.me(), status: 'authenticated', error: null });
-    } catch {
+    } catch (error) {
+      if (isDesktop()) {
+        set({
+          status: 'unavailable',
+          user: null,
+          error: error instanceof Error ? error.message : 'The local server did not respond',
+        });
+        return;
+      }
       tokenStore.clear();
       set({ status: 'anonymous', user: null });
     }
