@@ -4,7 +4,17 @@ Importing this package registers the built-in formats. Third-party formats regis
 themselves through the ``curvevision.formats`` entry-point group.
 """
 
-from curvevision.formats import coco, native, registry, voc, yolo  # noqa: F401
+from curvevision.formats import (  # noqa: F401
+    coco,
+    cvat_xml,
+    kitti,
+    mot,
+    native,
+    registry,
+    segmentation,
+    voc,
+    yolo,
+)
 from curvevision.formats.base import (
     AttributeSpec,
     DatasetFormat,

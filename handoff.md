@@ -5,7 +5,7 @@
 > [`AGENTS.md`](./AGENTS.md) first; it is the working contract. Update this file after every
 > iteration, including the ones that mostly failed.
 >
-> **Last updated:** 2026-09-12 (iteration 15) · branch `claude/curvevision-platform-build-n1g71n` · PRs [#1](https://github.com/Derric01/CurveVision/pull/1)–[#8](https://github.com/Derric01/CurveVision/pull/8) merged (iterations 1–14) · iteration 15 is the open PR on this branch
+> **Last updated:** 2026-09-13 (iteration 16) · branch `claude/curvevision-platform-build-n1g71n` · PRs [#1](https://github.com/Derric01/CurveVision/pull/1)–[#9](https://github.com/Derric01/CurveVision/pull/9) merged (iterations 1–15) · iteration 16 is the open PR on this branch
 
 ---
 
@@ -169,6 +169,13 @@ milliseconds. Bindings match `PathTool`. Output is simplified to an editable pol
 Verified in Chromium against a disc: every vertex within 1.5 px of the rim.
 [ADR 0009](./docs/adr/0009-intelligent-scissors.md).
 
+**Eight dataset formats** — COCO, YOLO, Pascal VOC, KITTI, MOTChallenge, CVAT XML,
+segmentation masks and the lossless native one. Each declares what it can represent and
+warns before an export drops anything. **CVAT XML round-trips in both directions**, which is
+what stops work done elsewhere being stranded here. KITTI and MOT are the robotics-facing
+pair: the driving convention, and object identity across frames. All are round-tripped
+through their own readers in `tests/unit/test_formats_robotics.py`.
+
 **Merging overlapping jobs** — export reconciles the frames two jobs share instead of
 concatenating them. Two shapes are one object when label, shape type and geometry all agree
 (≥ 0.75 IoU, exact rather than bounding-box), and the earlier job's copy is kept. Pairing is
@@ -271,6 +278,45 @@ being updated and this one was not. Check it against* Completed *before trusting
 ---
 
 ## Last iteration
+
+**Four new dataset formats, and a red CI check on main fixed.**
+
+The ask was CVAT parity on export, plus something for robotics. The measured gap: their 33
+exporters against our 4. Most of the remainder are single-dataset conventions (LFW,
+VGGFace2, Market-1501, ICDAR, WiderFace) that matter enormously to whoever needs them and
+not at all to anyone else. Four were worth having now, and they are the four that cover
+*shapes of annotation* the existing formats could not carry:
+
+* **KITTI** — what robotics and driving work reaches for first. Boxes with truncation
+  computed from the frame edge and occlusion carried through. **The 3D columns are written
+  as the devkit's "unknown" values rather than invented**: zeros and a rotation of −10,
+  outside the valid range, so a reader can tell. Plausible numbers there would be fiction
+  somebody trains on.
+* **MOTChallenge** — the first format here that carries **object identity across frames**.
+  A detection format says a car is in frame 40; a tracking format says it is the *same* car
+  as frame 39. Frames are 1-based where we are 0-based, and untracked shapes get ids above
+  1,000,000 so a consumer can tell they were synthesised.
+* **CVAT XML** — the migration bridge, both directions. The most expressive format here:
+  boxes, polygons, polylines, points, ellipses, masks, tags, attributes **and** tracks with
+  keyframes. A tool that can only be entered is a trap; this is what makes leaving possible.
+* **Segmentation masks** — indexed PNG, one class per pixel, VOC palette. Overlaps resolved
+  by z-order, so the shape in front wins. **Export only, deliberately**: a mask does not
+  record the polygons it was painted from, and tracing contours back would replace someone's
+  work with a machine's approximation of it.
+
+**The Docker CI check had been failing on main**, and it was a real bug rather than the
+environment. `npm run build` runs `tsc -b --noEmit`, which typechecks `vite.config.ts`. That
+file carried a `test:` block — vitest's, not vite's — and Vite's own `defineConfig` does not
+declare that key. It *appeared* to work because test files import vitest and pull in its type
+augmentation, and `.dockerignore` excludes every `__tests__` directory. So the config
+typechecked on every developer machine and failed in every container.
+
+Reproduced by copying the web tree without its test directories and running the same command,
+then fixed by importing `defineConfig` from `vitest/config`, which declares the key on its own
+terms. `src/__tests__/buildConfig.test.ts` guards it, because the import looks redundant and
+is exactly the kind of thing a tidy-up would "fix" straight back into a broken build.
+
+### Iteration 15
 
 **Intelligent scissors: click once, and the boundary snaps to the edge under your cursor.**
 The most-requested tool in this space, and the one that makes tracing a curved object — a
@@ -761,9 +807,21 @@ present. Both corrected; the second is a licensing claim and was the more urgent
 
 ```
 ./scripts/check.sh                    all 9 steps green
-  ruff · ruff format · mypy · pytest server (326) · pytest sdk (13)
-  notices (52 deps) · eslint · tsc · vitest (205)
+  ruff · ruff format · mypy · pytest server (361) · pytest sdk (13)
+  notices (52 deps) · eslint · tsc · vitest (207)
 ```
+
+Iteration 16 added 35 server tests (361, up from 326) and 2 web tests (207). Every new
+format is round-tripped through its own reader: an exporter that writes something its own
+importer cannot read is the failure that file exists to catch, and it is invisible from
+reading either half alone. Two bugs the tests caught while writing them — `ShapeRecord` is a
+slots dataclass with no `__dict__`, and my first fixtures passed `str` where `ImportSource`
+returns `bytes` by contract.
+
+The Docker failure was **reproduced before it was fixed**: the web tree copied without its
+`__tests__` directories, then `npx tsc -b --noEmit`, which failed with the same
+`'test' does not exist in type 'UserConfigExport'` CI reported. The same command passes after
+the fix.
 
 Iteration 15 added 35 web tests (205, up from 170): 22 on the live-wire algorithm and 13 on
 the tool. The load-bearing ones use images whose correct answer is known and is visibly *not*

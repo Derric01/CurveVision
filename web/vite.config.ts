@@ -1,4 +1,10 @@
-import { defineConfig } from 'vite';
+// `defineConfig` comes from vitest, not vite, because the `test` block below is vitest's.
+// Vite's own `defineConfig` does not know that key; it only appears to accept it when some
+// other file in the project has imported vitest and pulled in its type augmentation. Test
+// files do that locally — and `.dockerignore` excludes them, so the container build failed
+// on a config that typechecks fine on a developer's machine. Importing it from here makes
+// the type correct on its own terms rather than by accident.
+import { defineConfig } from 'vitest/config';
 import react from '@vitejs/plugin-react';
 import path from 'node:path';
 
