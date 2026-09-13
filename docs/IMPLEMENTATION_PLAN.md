@@ -81,10 +81,35 @@ What each shape must be allowed to be good at:
    workers against managed Postgres/Redis/S3.
 4. **No artificial capability paywalls.** Everything needed to produce a high-quality dataset
    is in the open-source core.
-5. **Leverage the ecosystem.** Prefer mature OSS over bespoke code, and prefer adapting
-   permissively licensed engineering over re-deriving it. See
+5. **Reuse battle-tested open source in preference to writing our own.** This is a
+   first-order rule, not a fallback. Where a mature permissively licensed project has solved
+   something, adapt it; write from scratch only when adapting would produce worse code.
+
+   The reason is not effort saved. It is that **years of contributors have already hit the
+   edge cases we have not thought of yet** — the container that omits a stream duration, the
+   annotator who traces everything loosely, the two objects close enough that a greedy match
+   strands a real correspondence. Those are not things a fresh implementation gets right; they
+   are things a fresh implementation discovers in production, on somebody's dataset. CVAT in
+   particular has had many hands on it, and its answers to those questions are better than
+   ours would be. Every item in
+   [THIRD_PARTY_NOTICES § Adapted source](./THIRD_PARTY_NOTICES.md#adapted-source) is there
+   because of this rule, and the list should keep growing.
+
+   Two conditions, both from [ADR 0007](./adr/0007-reusing-third-party-code.md):
+
+   * **The licence obligation is the price, and we pay it in full.** Under MIT the condition
+     is that the copyright notice and licence text travel with the code. Meeting it is what
+     makes the reuse lawful — it is not optional, not negotiable, and not something to be
+     quiet about. We name what we took, where it came from, and at which commit.
+   * **Domain knowledge ports; framework glue does not.** Algorithms, format quirks and
+     decoder edge cases move almost free. Django models, serialisers and viewsets moved into
+     an async FastAPI codebase are a rewrite wearing reuse's clothes, and leave foreign idioms
+     to maintain forever. When the upstream answer is wrapped in another framework's shape,
+     take the answer and leave the shape.
+
+   See also
    [ARCHITECTURE.md § Open-Source Building Blocks](./ARCHITECTURE.md#open-source-building-blocks--build-vs-extend-decisions)
-   for the decision table and the license audit behind it.
+   for the decision table and the licence audit behind it.
 6. **Incremental over clean-slate.** Working code is not rewritten because a newer shape
    would be tidier. A rewrite needs a stated technical reason, and the reason goes in an
    ADR.
