@@ -162,8 +162,9 @@ Point it at any inference endpoint. Predictions arrive as suggestions you accept
 reject. No bundled weights, no vendor SDK.
 
 **Export**
-COCO, YOLO, Pascal VOC and a lossless native format — each declaring honestly what it can
-represent, *before* you rely on it.
+Eight formats — COCO, YOLO, Pascal VOC, KITTI, MOTChallenge, CVAT XML, segmentation masks
+and a lossless native one — each declaring honestly what it can represent, *before* you rely
+on it. **CVAT XML imports and exports**, so work done there is not stranded here.
 
 </td></tr>
 </table>

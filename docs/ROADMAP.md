@@ -29,6 +29,8 @@ means designed, not built.
 | Undo/redo, zoom/pan, keyboard-first workflow | **Done** |
 | Autosave with crash recovery | **Done** |
 | Export: COCO, YOLO, Pascal VOC, CurveVision JSON | **Done** |
+| Export/import: KITTI, MOTChallenge, CVAT XML | **Done** — the robotics/driving convention, multi-object tracking with identity, and a two-way bridge to CVAT |
+| Export: segmentation masks (indexed PNG) | **Done** — export only; a mask cannot be turned back into the polygons it came from |
 | Import with append/replace conflict policy | **Done** |
 | Docker Compose deployment | **Done** |
 | Desktop application: zero-config local mode, packaged server, Tauri shell | **Done** |
@@ -82,7 +84,7 @@ timeline, and webhook retries.
 | Kubernetes Helm chart | **Planned** |
 | Backup and restore tooling | **Planned** |
 | Published TypeScript client package | **Planned** |
-| Additional formats: KITTI, LabelMe, Open Images, TFRecord | **Planned** |
+| Additional formats: LabelMe, Open Images, TFRecord, Cityscapes | **Planned** — KITTI, MOTChallenge, CVAT XML and segmentation masks shipped ahead of this list |
 | Datumaro bridge for the long tail of formats | **Planned** |
 | An external security review | **Planned** |
 
@@ -152,9 +154,12 @@ deciding whether to adopt this needs them more than they need the roadmap.
 
 * **No 3D or point-cloud annotation.** No LiDAR, no cuboids in 3D. Not close, and not
   planned for 1.0.
-* **Four dataset formats**, not twenty. COCO, YOLO, Pascal VOC and the lossless native
-  format, each declaring honestly what it can represent. The registry takes plugins through
-  entry points, so a fifth is an add-on rather than a fork — but four is what ships.
+* **Eight dataset formats**, not thirty-three. COCO, YOLO, Pascal VOC, KITTI, MOTChallenge,
+  CVAT XML, segmentation masks and the lossless native format, each declaring honestly what
+  it can represent. The mature tool in this space ships 33 exporters; most of the remainder
+  are single-dataset conventions (LFW, VGGFace2, Market-1501, ICDAR, WiderFace) that matter
+  to whoever needs them and to nobody else. The registry takes plugins through entry points,
+  so a ninth is an add-on rather than a fork.
 * **S3-compatible object storage only.** MinIO, Ceph, Backblaze B2, AWS S3 and anything else
   speaking that API. **Azure Blob Storage and Google Cloud Storage are not supported**, and
   adding them means a new `Storage` implementation — a contained piece of work nobody has

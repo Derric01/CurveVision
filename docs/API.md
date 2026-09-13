@@ -256,8 +256,26 @@ X-CurveVision-Warnings: COCO 1.0 cannot represent polyline; those annotations we
 Silently dropping annotations is how people discover a broken dataset during training,
 which is far too late.
 
-Shipped formats: **COCO**, **YOLO**, **Pascal VOC**, and **CurveVision JSON** (lossless —
-use it for backups and instance-to-instance moves).
+### Shipped formats
+
+| Format | Import | Export | Carries | Use it for |
+| --- | :-: | :-: | --- | --- |
+| **COCO** | ✓ | ✓ | boxes, polygons, keypoints | the default for detection and segmentation |
+| **YOLO** | ✓ | ✓ | boxes | training a YOLO model directly |
+| **Pascal VOC** | ✓ | ✓ | boxes | older toolchains that expect it |
+| **KITTI** | ✓ | ✓ | boxes, truncation, occlusion | robotics and autonomous driving |
+| **MOTChallenge** | ✓ | ✓ | boxes **with object identity across frames** | tracking; anything where "the same object" matters |
+| **CVAT XML** | ✓ | ✓ | boxes, polygons, polylines, points, ellipses, masks, tags, attributes, **tracks** | moving a project in or out of CVAT; the most expressive format here |
+| **Segmentation mask** | — | ✓ | indexed PNG, one class per pixel | semantic segmentation; perception layers |
+| **CurveVision JSON** | ✓ | ✓ | everything | backups and instance-to-instance moves |
+
+**KITTI's 3D columns are written as the devkit's "unknown" values, not invented.**
+CurveVision annotates 2D images and has no 3D extent to report; zeros and a rotation of −10
+(outside the valid range) let a reader tell, where plausible-looking numbers would not.
+
+**Segmentation masks are export-only on purpose.** A mask does not record the polygons it
+was painted from, and tracing contours back out would produce shapes with hundreds of
+vertices that no annotator drew. Import COCO or CVAT XML instead.
 
 ## AI-assisted annotation
 
