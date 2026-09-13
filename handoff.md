@@ -5,7 +5,7 @@
 > [`AGENTS.md`](./AGENTS.md) first; it is the working contract. Update this file after every
 > iteration, including the ones that mostly failed.
 >
-> **Last updated:** 2026-09-13 (iteration 23) · branch `claude/curvevision-platform-build-n1g71n` · PRs [#1](https://github.com/Derric01/CurveVision/pull/1)–[#10](https://github.com/Derric01/CurveVision/pull/10) merged (iterations 1–16) · PRs [#11](https://github.com/Derric01/CurveVision/pull/11)–[#12](https://github.com/Derric01/CurveVision/pull/12) merged (iterations 17–21) · iterations 22–23 in open PR [#13](https://github.com/Derric01/CurveVision/pull/13)
+> **Last updated:** 2026-09-13 (iteration 24) · branch `claude/curvevision-platform-build-n1g71n` · PRs [#1](https://github.com/Derric01/CurveVision/pull/1)–[#10](https://github.com/Derric01/CurveVision/pull/10) merged (iterations 1–16) · PRs [#11](https://github.com/Derric01/CurveVision/pull/11)–[#12](https://github.com/Derric01/CurveVision/pull/12) merged (iterations 17–21) · iterations 22–23 in open PR [#13](https://github.com/Derric01/CurveVision/pull/13)
 
 ---
 
@@ -69,13 +69,7 @@ was the last unconnected piece of the desktop application.
 
 ## Next best action
 
-**Pre-build chunks after a video upload.** `media.build_chunks` builds rather than plans, and
-nothing enqueues it. `media.probe_task` is enqueued from the same place and already decodes
-the whole file to count frames — so the honest move is probably **one** job that counts *and*
-builds in a single pass, rather than two that each walk the file. Careful: the desktop queue
-is inline, so a job that takes a minute blocks the request that queued it.
-
-**Then: a browser harness in CI.** Nine exist and between them they have found every defect
+**A browser harness in CI.** Nine exist and between them they have found every defect
 the unit suites missed, including a ref-timing bug that had disconnected seven controls. They
 need a packaged sidecar and a Chromium, so nightly or pre-release rather than per-push. Note
 the sidecar embeds `web/dist`: a run needs `npm --prefix web run build` **and** a sidecar
@@ -118,10 +112,6 @@ a mutation that flushes the shape buffer, re-reads `annotation_version`, then wr
 
 **Then, in rough order:**
 
-* **Pre-build chunks after a video upload.** `media.build_chunks` builds rather than plans,
-  and nothing enqueues it. `media.probe_task` is now enqueued from the same place and
-  already decodes the whole file to count it — so the honest move is probably **one** job
-  that counts and builds in a single pass, rather than two that each walk the file.
 * **Surface a task whose frame count could not be corrected.** The job reports "this task
   already has annotation work"; nothing shows it to anyone.
 * **Put a browser harness in CI.** Nine now exist (`screenshot.py`, `verify_local_import.py`,
@@ -290,7 +280,7 @@ full docs set including seven ADRs.
 | Item | Where it stands |
 | --- | --- |
 | Track keyframe **editing** | Complete: `K` adds or removes a keyframe, `O` marks a departure, and a marker can be dragged along its lane. Verified in a browser, not only in unit tests. |
-| Pre-building chunks after upload | `media.build_chunks` builds rather than plans, and nothing enqueues it. `media.probe_task` already walks the whole file to count frames, so one job that counts *and* builds probably beats two that each decode it. |
+| Pre-building chunks after upload | Done: probing chains the build once the frame numbering is settled, so the first annotator no longer pays the decode. Not fused into one pass — see the iteration note for why that is not available in general. |
 | Surfacing an uncorrected frame count | When a task already carries annotations, `media.probe_task` declines the correction and says so in its result. Nothing shows that to a user. |
 | Webhooks | Delivery works and is signed; retry/backoff is not wired to the queue. |
 | Mask brush, keypoint UI | Storage, export and the model exist on both sides; neither drawing tool does. |
@@ -304,22 +294,61 @@ being updated and this one was not. Check it against* Completed *before trusting
 
 ## Remaining high-priority work
 
-1. **Pre-build chunks after a video upload.** `media.build_chunks` builds rather than plans,
-   and nothing enqueues it. Careful: the desktop queue is inline, and `media.probe_task`
-   already decodes the whole file — one job that counts and builds probably beats two.
-2. **A browser harness in CI.** Nine exist and between them they have found every defect
+1. **A browser harness in CI.** Nine exist and between them they have found every defect
    the unit suites missed, this iteration's included. Note the sidecar embeds `web/dist`, so
    a run needs `npm --prefix web run build` **and** a sidecar rebuild, or it silently tests
    the previous frontend.
-3. **Signed installers in CI** — one runner per platform; PyInstaller does not cross-compile.
-4. **Webhook retry/backoff** wired to the job queue.
-5. **`choose_files` is still unused.** The shell can open a native *file* picker as well as a
+2. **Signed installers in CI** — one runner per platform; PyInstaller does not cross-compile.
+3. **Webhook retry/backoff** wired to the job queue.
+4. **`choose_files` is still unused.** The shell can open a native *file* picker as well as a
    folder one, and `/tasks/{id}/local-import` accepts a file path. Connecting it is small, and
    deliberately left until someone wants it — the folder case is the one that matters.
 
 ---
 
 ## Last iteration
+
+**A video's chunks are built at upload, not by the first person to open it.**
+`media.build_chunks` had existed with nothing enqueueing it, so a chunk was only ever built
+by the request that first asked for one — which is a request somebody is waiting on.
+`media.probe_task` now chains it.
+
+**Why it is chained rather than fused into the count, which is what this file previously
+proposed.** Counting and building both walk the video, so one pass looks like the obvious
+saving. It is not available in general: a chunk is addressed by the *task's* frame numbering,
+and that numbering is only final once **every** asset has been counted — an earlier asset
+gaining a frame shifts every later asset's offset, which is exactly why `discard_chunks`
+throws them all away wholesale. A fused pass is therefore correct only for a single-asset
+task and would need a second implementation for every other shape, to save one decode that is
+already off the request path.
+
+**Two corrections to what this file used to say:**
+
+* *"The desktop queue is inline, so a job that takes a minute blocks the request that queued
+  it."* **Not true.** `InlineJobQueue` defaults to `wait=False` and schedules through
+  `asyncio.create_task`; only the test configuration uses `wait=True`. Nothing blocks.
+* The single-pass proposal above, which the ordering constraint rules out.
+
+**A bug I introduced and the tests caught.** The build was first enqueued with an idempotency
+key of task + frame count, to stop repeated probes stacking decodes. That key is wrong in the
+direction that loses data: a probe which *discards* the chunks and re-enqueues dedupes against
+the earlier, already-succeeded job for the same numbering — so the build never runs and the
+task is left with **no chunks at all**, while every job row reads "succeeded". A key cannot
+express "the chunks from that build still exist". The key is gone; the cost of not
+deduplicating is one job row and a no-op pass over chunk indices, because `build_chunk`
+returns an existing chunk rather than rebuilding it.
+
+**Two existing tests changed meaning and were rewritten rather than relaxed.**
+`test_serving_a_frame_builds_its_chunk_and_the_next_frames_reuse_it` asserted "nothing is
+decoded until a frame is asked for", which is precisely what this iteration changes; it now
+discards the pre-built chunks first, so it still tests the lazy fallback — the path that
+guarantees a frame is never *unavailable*, only slower. The race test counted every chunk on
+the task to prove no duplicate; it now counts chunk 0 specifically, which is what the race was
+actually over.
+
+---
+
+## Iteration 23
 
 **An issue can be pinned to a point on the image.** `Issue.position` had been stored and
 accepted by the API with nothing placing one, so an issue said "frame 40, this object" rather
@@ -1127,9 +1156,20 @@ present. Both corrected; the second is a licensing claim and was the more urgent
 
 ```
 ./scripts/check.sh                    all 9 steps green
-  ruff · ruff format · mypy · pytest server (394) · pytest sdk (13)
+  ruff · ruff format · mypy · pytest server (399) · pytest sdk (13)
   notices (52 deps) · eslint · tsc · vitest (317)
 ```
+
+Iteration 24 added 5 server tests (399, up from 394) and no web tests — the change is
+entirely server-side. All five were confirmed to fail with the chaining reverted, and the one
+that matters most was confirmed to fail with the idempotency key restored:
+
+```
+FAILED test_a_probe_that_discards_chunks_rebuilds_them   -   assert []
+```
+
+That is the bug the key caused, reproduced exactly: chunks discarded, build deduplicated
+against a job that had already succeeded, nothing rebuilt.
 
 Iteration 23 added 8 web tests (317, up from 309) and no server tests — `position` has been
 in the schema since the first iteration; what was missing was anything that wrote to it.

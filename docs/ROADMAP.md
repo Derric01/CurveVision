@@ -59,7 +59,7 @@ application — and produce a real dataset with it.
 | Dataset versions with immutable releases | **Done** |
 | REST API and API tokens | **Done** |
 | Webhooks with HMAC signing | **In Progress** — delivery works; retry/backoff is not wired to the queue |
-| Video annotation | **In Progress** — a video task is annotatable, and frames are served from chunks decoded one pass at a time (17× fewer decodes when stepping through frames; see the implementation plan for the measurements). The editor fetches a chunk rather than 36 frames. The track-editing timeline is not built |
+| Video annotation | **Done** — a video task is annotatable; frames are served from chunks decoded one pass at a time (17× fewer decodes when stepping through frames; see the implementation plan for the measurements), the editor fetches a chunk rather than 36 frames, and **chunks are built when the video is uploaded** rather than by whoever opens the task first. A missing chunk still falls back to decoding one frame, so a frame is never unavailable, only slower |
 | Track editing UI (keyframe timeline) | **Done** — the timeline shows every track's keyframes and where it is present, `,`/`.` step between them, `K` adds or removes a keyframe, `O` marks where the object leaves, and a keyframe can be **dragged along its lane** to another frame, keeping its geometry. A drop onto an occupied frame is refused rather than merged |
 | Intelligent scissors (edge-snapping boundaries) | **Done** — live-wire, implemented directly rather than by loading a ~10 MB OpenCV build; see [ADR 0009](./adr/0009-intelligent-scissors.md) |
 | Mask brush tool | **Planned** — RLE storage and export exist; the drawing tool does not |
@@ -67,8 +67,9 @@ application — and produce a real dataset with it.
 | Ground-truth quality reports | **Done** — a task can hold a ground-truth job; scoring an annotation job against it gives precision/recall/F1 per label plus classified conflicts (missing, extra, wrong label, poor overlap), and the editor shows the report beside the frames, where clicking a conflict seeks to it. A report records which version of the job it scored, so a stale one is marked stale rather than read as current. The comparison still runs inline rather than as a background job, and a ground-truth job is created from the task page, which also shows each job's latest F1 and marks a stale one |
 | Resumable uploads | *Planned* — the storage model exists; there are no endpoints yet |
 
-**What "Beta" needs before we call it that:** video annotation end to end, the track
-timeline, and webhook retries.
+**What "Beta" needs before we call it that:** webhook retries. Video annotation and the
+track timeline are both Done as of this iteration; retry/backoff is the one item left, and
+it is deliberately not being called Done until delivery survives a failing endpoint.
 
 ---
 
