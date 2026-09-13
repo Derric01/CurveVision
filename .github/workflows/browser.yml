@@ -1,0 +1,146 @@
+# Browser harnesses.
+#
+# Eight scripts in `scripts/` drive the packaged desktop application in a real Chromium and
+# assert against the API rather than the DOM. Between them they have found every defect the
+# unit suites missed: a Content-Security-Policy that blocked the app's own scripts, frame
+# images that never rendered, a swallowed decode error that threw on fast scrubbing, a
+# ref-timing bug that had disconnected seven editor controls, and an issue anchor pointing at
+# a row in the wrong table.
+#
+# They are not in `ci.yml` because they cost a PyInstaller build plus a browser download --
+# minutes, not seconds -- and CI that takes half an hour per push stops being run. Nightly and
+# on demand keeps the signal without the tax.
+#
+# `scripts/screenshot.py` is deliberately not here: it is the README screenshot generator
+# rather than a check, and it writes into `docs/images/`.
+name: Browser harnesses
+
+on:
+  push:
+    # On main as well as nightly, deliberately. These take twenty minutes and cost real
+    # Actions time, so running them per-PR would be a tax on every push. Running them at
+    # merge is the compromise: a regression is caught minutes after it lands rather than up
+    # to a day later, and `main` is pushed to far less often than a branch is.
+    branches: [main]
+  schedule:
+    # 03:20 UTC, offset off the hour so it does not queue behind everybody else's nightly.
+    - cron: '20 3 * * *'
+  workflow_dispatch:
+    inputs:
+      harness:
+        description: 'One harness to run (filename without .py), or blank for all'
+        required: false
+        default: ''
+
+concurrency:
+  group: browser-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  harnesses:
+    name: Drive the packaged app in Chromium
+    runs-on: ubuntu-latest
+    # A PyInstaller build plus eight end-to-end runs. Generous, but bounded: a hang should
+    # fail the run rather than burn an hour of somebody's minutes.
+    timeout-minutes: 45
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: pip
+          cache-dependency-path: server/pyproject.toml
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+
+      - name: Install the server, with media and packaging extras
+        working-directory: server
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[dev,media,desktop]"
+          pip install playwright
+
+      - name: Install Chromium
+        run: python -m playwright install --with-deps chromium
+
+      # The next two steps are ordered, and the order is the whole point. The packaged
+      # sidecar *embeds* `web/dist`, so building the frontend after the sidecar -- or not at
+      # all -- leaves the harnesses driving whichever frontend was bundled last. That failure
+      # is silent: the app runs, and the tests exercise code that is not the code under
+      # review. It has already cost one confusing debugging session locally.
+      - name: Build the web application
+        working-directory: web
+        run: |
+          npm ci --no-audit --no-fund
+          npm run build
+
+      - name: Package the server (embeds the web build above)
+        run: python desktop/sidecar/build.py --skip-tests
+
+      - name: Run the harnesses
+        run: |
+          set -uo pipefail
+
+          # `screenshot.py` searches a list of well-known locations for a browser, and
+          # Playwright's own download is not on it.
+          CURVEVISION_CHROMIUM="$(python -c 'from playwright.sync_api import sync_playwright; pw = sync_playwright().start(); print(pw.chromium.executable_path); pw.stop()')"
+          export CURVEVISION_CHROMIUM
+          echo "chromium: $CURVEVISION_CHROMIUM"
+
+          requested="${{ inputs.harness }}"
+          if [ -n "$requested" ]; then
+            scripts=("scripts/${requested}.py")
+          else
+            scripts=(
+              scripts/verify_local_import.py
+              scripts/verify_chunked_frames.py
+              scripts/verify_track_timeline.py
+              scripts/verify_keyframe_editing.py
+              scripts/verify_scissors.py
+              scripts/verify_quality_panel.py
+              scripts/verify_ground_truth_setup.py
+              scripts/verify_issues_panel.py
+            )
+          fi
+
+          failed=()
+          for script in "${scripts[@]}"; do
+            echo ""
+            echo "=========================================================="
+            echo "  $script"
+            echo "=========================================================="
+            # Every harness runs even after one fails: a run that stops at the first failure
+            # reports one broken thing per night, which is the slowest possible way to fix
+            # several.
+            if ! python "$script"; then
+              failed+=("$script")
+            fi
+          done
+
+          echo ""
+          if [ ${#failed[@]} -ne 0 ]; then
+            echo "${#failed[@]} harness(es) failed:"
+            printf '  - %s\n' "${failed[@]}"
+            exit 1
+          fi
+          echo "every harness passed"
+
+      - name: Upload the screenshots
+        # Each harness photographs what it drove. On a failure these are the fastest way to
+        # see what the page actually looked like, which no assertion message can convey.
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: harness-screenshots
+          path: /tmp/curvevision-*.png
+          if-no-files-found: ignore
+          retention-days: 7

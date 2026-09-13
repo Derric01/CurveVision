@@ -5,7 +5,7 @@
 > [`AGENTS.md`](./AGENTS.md) first; it is the working contract. Update this file after every
 > iteration, including the ones that mostly failed.
 >
-> **Last updated:** 2026-09-13 (iteration 21) · branch `claude/curvevision-platform-build-n1g71n` · PRs [#1](https://github.com/Derric01/CurveVision/pull/1)–[#10](https://github.com/Derric01/CurveVision/pull/10) merged (iterations 1–16) · PR [#11](https://github.com/Derric01/CurveVision/pull/11) merged (iterations 17–20) · iteration 21 on the branch, restarted from `origin/main` at `87a25b6`
+> **Last updated:** 2026-09-13 (iteration 26) · branch `claude/curvevision-platform-build-n1g71n` · PRs [#1](https://github.com/Derric01/CurveVision/pull/1)–[#10](https://github.com/Derric01/CurveVision/pull/10) merged (iterations 1–16) · PRs [#11](https://github.com/Derric01/CurveVision/pull/11)–[#12](https://github.com/Derric01/CurveVision/pull/12) merged (iterations 17–21) · iterations 22–23 in open PR [#13](https://github.com/Derric01/CurveVision/pull/13)
 
 ---
 
@@ -19,8 +19,8 @@ supervises it, and folders annotated in place without copying a byte.
 
 **The tree is green.** `./scripts/check.sh` passes all nine steps.
 
-Honestly incomplete, and marked as such everywhere: the mask brush, the keypoint UI, an
-in-editor view of issues, resumable uploads, and signed desktop installers.
+Honestly incomplete, and marked as such everywhere: the mask brush, the keypoint UI,
+resumable uploads, and signed desktop installers.
 
 **Annotation quality is measured rather than declared, and a reviewer can now see it.** A
 task holds a ground-truth job; scoring an annotation job against it produces per-label
@@ -69,7 +69,20 @@ was the last unconnected piece of the desktop application.
 
 ## Next best action
 
-**Show issues in the editor.** `api.issues` / `createIssue` / `resolveIssue` have been
+**Signed installers for macOS and Windows.** The desktop app builds and runs from source;
+`.dmg`, `.msi` and `.AppImage` are not built. It needs one CI runner per platform, because
+PyInstaller does not cross-compile, and signing needs credentials the project does not have —
+so this is the first item in a while that is **blocked on something outside the repository**
+rather than on work. Worth confirming what certificates are available before starting.
+
+**Then: `choose_files` is still unused.** The desktop shell can open a native *file* picker as
+well as a folder one, and `/tasks/{id}/local-import` accepts a file path. Connecting it is
+small and was deliberately left until somebody wanted it — the folder case is the one that
+matters. Nine exist and between them they have found every defect
+the unit suites missed, including a ref-timing bug that had disconnected seven controls. They
+need a packaged sidecar and a Chromium, so nightly or pre-release rather than per-push. Note
+the sidecar embeds `web/dist`: a run needs `npm --prefix web run build` **and** a sidecar
+rebuild, or it silently tests the previous frontend. `api.issues` / `createIssue` / `resolveIssue` have been
 on the client since the first web iteration with nothing calling them. The quality panel is
 the pattern to copy — both are frame-anchored lists a reviewer clicks through — and an issue
 additionally carries a `position`, so it can be drawn on the canvas rather than only listed.
@@ -108,13 +121,9 @@ a mutation that flushes the shape buffer, re-reads `annotation_version`, then wr
 
 **Then, in rough order:**
 
-* **Pre-build chunks after a video upload.** `media.build_chunks` builds rather than plans,
-  and nothing enqueues it. `media.probe_task` is now enqueued from the same place and
-  already decodes the whole file to count it — so the honest move is probably **one** job
-  that counts and builds in a single pass, rather than two that each walk the file.
 * **Surface a task whose frame count could not be corrected.** The job reports "this task
   already has annotation work"; nothing shows it to anyone.
-* **Put a browser harness in CI.** Eight now exist (`screenshot.py`, `verify_local_import.py`,
+* **Put a browser harness in CI.** Nine now exist (`screenshot.py`, `verify_local_import.py`,
   `verify_chunked_frames.py`, `verify_track_timeline.py`, `verify_scissors.py`,
   `verify_keyframe_editing.py`, `verify_quality_panel.py`) and between them they have found
   every defect the unit suites missed — including this iteration's. Nightly or pre-release;
@@ -280,9 +289,9 @@ full docs set including seven ADRs.
 | Item | Where it stands |
 | --- | --- |
 | Track keyframe **editing** | Complete: `K` adds or removes a keyframe, `O` marks a departure, and a marker can be dragged along its lane. Verified in a browser, not only in unit tests. |
-| Pre-building chunks after upload | `media.build_chunks` builds rather than plans, and nothing enqueues it. `media.probe_task` already walks the whole file to count frames, so one job that counts *and* builds probably beats two that each decode it. |
+| Pre-building chunks after upload | Done: probing chains the build once the frame numbering is settled, so the first annotator no longer pays the decode. Not fused into one pass — see the iteration note for why that is not available in general. |
 | Surfacing an uncorrected frame count | When a task already carries annotations, `media.probe_task` declines the correction and says so in its result. Nothing shows that to a user. |
-| Webhooks | Delivery works and is signed; retry/backoff is not wired to the queue. |
+| Webhooks | Complete: signed delivery, capped exponential backoff with jitter, and a retry policy that distinguishes "the receiver is struggling" from "the receiver said no". |
 | Mask brush, keypoint UI | Storage, export and the model exist on both sides; neither drawing tool does. |
 | Quality reports | Complete end to end and driven in a browser: the task page creates the answer key and shows each job's latest F1, the editor shows the report and seeks to a conflict on click, and a stale report is marked stale. What is left: the comparison runs inline rather than on the `quality` queue, which a very large ground truth would change. |
 
@@ -294,24 +303,204 @@ being updated and this one was not. Check it against* Completed *before trusting
 
 ## Remaining high-priority work
 
-1. **Issues in the editor.** `api.issues` / `createIssue` / `resolveIssue` have had no UI
-   since the first web iteration. The quality panel is the pattern to copy.
-2. **Pre-build chunks after a video upload.** `media.build_chunks` builds rather than plans,
-   and nothing enqueues it. Careful: the desktop queue is inline, and `media.probe_task`
-   already decodes the whole file — one job that counts and builds probably beats two.
-3. **A browser harness in CI.** Eight exist and between them they have found every defect
-   the unit suites missed, this iteration's included. Note the sidecar embeds `web/dist`, so
-   a run needs `npm --prefix web run build` **and** a sidecar rebuild, or it silently tests
-   the previous frontend.
-4. **Signed installers in CI** — one runner per platform; PyInstaller does not cross-compile.
-5. **Webhook retry/backoff** wired to the job queue.
-6. **`choose_files` is still unused.** The shell can open a native *file* picker as well as a
+1. **Signed installers in CI** — one runner per platform; PyInstaller does not cross-compile.
+2. **`choose_files` is still unused.** The shell can open a native *file* picker as well as a
    folder one, and `/tasks/{id}/local-import` accepts a file path. Connecting it is small, and
    deliberately left until someone wants it — the folder case is the one that matters.
 
 ---
 
 ## Last iteration
+
+**The browser harnesses run automatically.** Eight of them existed and had found every defect
+the unit suites missed; none ran without somebody remembering to. `.github/workflows/browser.yml`
+runs them **nightly and on every push to `main`**.
+
+**Not on pull requests, deliberately.** A PyInstaller build plus eight end-to-end runs is
+roughly twenty minutes. Per-PR that is a tax on every push, and CI that slow stops being run
+at all. Running at merge catches a regression minutes after it lands rather than up to a day
+later, which is the useful half of the tradeoff at a fraction of the cost.
+
+**The step order is the whole point, and the workflow says so in a comment.** The packaged
+sidecar *embeds* `web/dist`, so building the frontend after the sidecar — or not at all —
+leaves the harnesses driving whichever frontend was bundled last. Nothing fails; the run just
+exercises code that is not the code under review. That has already cost one confusing session
+locally, which is why it is written down in the workflow, in `CONTRIBUTING.md`, and here.
+
+**One failure does not stop the rest.** The loop collects failures and reports them together,
+because a run that stops at the first one reports a single broken thing per night — the
+slowest possible way to fix several. The shell was tested against stub scripts rather than
+assumed: all-pass exits 0, a mid-list failure still runs everything after it and exits 1, and
+single-harness selection works.
+
+Screenshots are uploaded as an artifact on failure. On a red run they are the fastest way to
+see what the page actually looked like, which no assertion message conveys.
+
+`scripts/screenshot.py` is excluded: it is the README screenshot generator rather than a
+check, and it writes into `docs/images/`.
+
+---
+
+## Iteration 25
+
+**Webhook delivery survives a failing receiver — the last item Beta named.**
+Delivery was signed and recorded; nothing retried it, so a receiver that was restarting when
+an event fired lost it permanently. `webhook.retry` now re-attempts with capped exponential
+backoff (10s, 20s, 40s, 80s, capped at 10 minutes) and ±20% jitter.
+
+**The policy decision worth knowing: who is wrong decides whether to retry.** A 5xx, a
+timeout or a refused connection says the receiver is struggling and the same request may work
+later. A 4xx says the receiver understood and rejected it — a rotated secret, a decommissioned
+path — and repeating it cannot change the answer. Retrying those is not resilience; it is a
+slow burst of identical failing requests against somebody's endpoint, which looks like an
+attack and fills their logs. Two exceptions, because both mean *later* rather than *never*:
+**408** and **429**.
+
+**A pre-existing bug this uncovered, and it was load-bearing.** `dispatch` stamped
+`delivered_at` for **any** response, a 500 included — so a failed delivery was
+indistinguishable from a good one in the table, and would have made every retry a no-op, since
+a delivery that looks delivered is never re-attempted. `delivered_at` is now set only by a
+2xx. Restoring the old line fails four tests, which is how it was confirmed rather than
+assumed.
+
+**A retry is the same event again**: identical bytes, identical `delivery_id`, freshly signed.
+A receiver that processed an attempt and then failed to reply can deduplicate on that id
+rather than doing the work twice. Delivery is **at-least-once**, and `docs/API.md` now says so.
+
+**No new column.** "Gave up" is derivable — no success, and `should_retry` says no — so
+`exhausted()` computes it rather than a column duplicating what `attempts`, `status_code` and
+`delivered_at` already say and eventually disagreeing with them.
+
+The queue grew `delay_seconds`: Dramatiq takes it as `delay` in milliseconds, the inline queue
+sleeps before running, and the test queue ignores it deliberately so the suite does not sleep
+out an 80-second backoff for real.
+
+**Webhooks had no tests at all** before this. There are 35 now.
+
+---
+
+## Iteration 24
+
+**A video's chunks are built at upload, not by the first person to open it.**
+`media.build_chunks` had existed with nothing enqueueing it, so a chunk was only ever built
+by the request that first asked for one — which is a request somebody is waiting on.
+`media.probe_task` now chains it.
+
+**Why it is chained rather than fused into the count, which is what this file previously
+proposed.** Counting and building both walk the video, so one pass looks like the obvious
+saving. It is not available in general: a chunk is addressed by the *task's* frame numbering,
+and that numbering is only final once **every** asset has been counted — an earlier asset
+gaining a frame shifts every later asset's offset, which is exactly why `discard_chunks`
+throws them all away wholesale. A fused pass is therefore correct only for a single-asset
+task and would need a second implementation for every other shape, to save one decode that is
+already off the request path.
+
+**Two corrections to what this file used to say:**
+
+* *"The desktop queue is inline, so a job that takes a minute blocks the request that queued
+  it."* **Not true.** `InlineJobQueue` defaults to `wait=False` and schedules through
+  `asyncio.create_task`; only the test configuration uses `wait=True`. Nothing blocks.
+* The single-pass proposal above, which the ordering constraint rules out.
+
+**A bug I introduced and the tests caught.** The build was first enqueued with an idempotency
+key of task + frame count, to stop repeated probes stacking decodes. That key is wrong in the
+direction that loses data: a probe which *discards* the chunks and re-enqueues dedupes against
+the earlier, already-succeeded job for the same numbering — so the build never runs and the
+task is left with **no chunks at all**, while every job row reads "succeeded". A key cannot
+express "the chunks from that build still exist". The key is gone; the cost of not
+deduplicating is one job row and a no-op pass over chunk indices, because `build_chunk`
+returns an existing chunk rather than rebuilding it.
+
+**Two existing tests changed meaning and were rewritten rather than relaxed.**
+`test_serving_a_frame_builds_its_chunk_and_the_next_frames_reuse_it` asserted "nothing is
+decoded until a frame is asked for", which is precisely what this iteration changes; it now
+discards the pre-built chunks first, so it still tests the lazy fallback — the path that
+guarantees a frame is never *unavailable*, only slower. The race test counted every chunk on
+the task to prove no duplicate; it now counts chunk 0 specifically, which is what the race was
+actually over.
+
+---
+
+## Iteration 23
+
+**An issue can be pinned to a point on the image.** `Issue.position` had been stored and
+accepted by the API with nothing placing one, so an issue said "frame 40, this object" rather
+than "here". *Pin* arms the canvas, one click places the point, and the pin draws on the
+overlay — amber while open, dimmed once resolved, brighter for the thread being read.
+
+**A pin is overlay state, not a scene object.** Keeping it out of the scene is what
+guarantees it cannot be selected, dragged, deleted by a marquee, or exported — four
+properties that would otherwise each need remembering as a special case. It is drawn at a
+**fixed screen size**: a marker that shrinks with the image stops doing the one job it has.
+
+**Picking is armed and spent in one click.** The engine disarms itself on the click, so the
+canvas never sits in a mode the annotator has to find their way out of. Panning still works
+while armed, because a reviewer needs to reach the part of the frame they mean first.
+
+**`hasPin` is stricter than "the field exists".** `position` is free-form JSON server-side
+and defaults to `[]`, so a partial pair or a `null` that survived a round trip would place a
+marker at `NaN` — which paints nothing and leaves the annotator hunting for a pin that was
+never drawn. Only two finite numbers count.
+
+*A note on the harness, because it was wrong first.* The pin check originally asserted the
+stored point was near the centre of the **image**, on the reasoning that clicking the centre
+of the canvas hits the centre of the frame. It does not: an earlier step in the same harness
+focuses the selected object, so the viewport is centred on that box at 479%. The assertion
+now expects the focused box's centre — `[20, 40, 90, 110]` → `(55, 75)` — which the
+implementation hits **exactly, off by 0.0 px**. That is a stronger check than the tolerance it
+replaced, and it fails for either mistake worth catching: a screen coordinate passed straight
+through, and a conversion that ignores pan or scale.
+
+---
+
+## Iteration 22
+
+**Issues are reachable from the editor — and building the panel found a bug that had
+disconnected seven controls.**
+
+Issues are how a reviewer sends work back. The model, the API and the permissions have
+existed since the first iteration and the roadmap said **Done**; nothing called them, so
+receiving review feedback meant reading it out of the database. That row was a false Done and
+is now a true one: the editor lists issues, opens one on the current frame, replies on a
+thread, and resolves or reopens.
+
+**The bug the harness found is much larger than the panel.** `AnnotationCanvas` exposed its
+engine with
+
+```ts
+useImperativeHandle(ref, () => ({ engine: engineRef.current }), []);
+```
+
+`useImperativeHandle` runs as a layout effect and is declared *above* the effect that
+constructs the engine, so it captured `null` — and with an empty dependency list it stayed
+null for the life of the component. **Every control the editor drives through that handle did
+nothing**: undo, redo, delete selection, fit to frame, the label visibility and lock toggles,
+and focusing an object from the object list. No error, no console warning, just seven buttons
+wired to nothing. The handle is now a getter that reads the live ref, and the harness asserts
+it by clicking an object row and watching the zoom move (335% → 479%).
+
+**The anchoring rule worth keeping in mind.** A track materialised onto a frame is not a
+shape: it has no row in the shapes table, and the editor gives it the *track's* id. Sending
+that as `shape_id` sets a foreign key to nothing — the issue saves, lists, and silently stops
+pointing at the object it was about. `anchorFor` picks the column from `annotation.trackId`,
+and the harness asserts against the API which column was actually filled in.
+
+Only a single selection anchors: "these three boxes are wrong" is a different comment from
+"this one is", and an issue points at one object.
+
+**Not built, and stated rather than implied:** issues carry a frame and an object, not a
+**point**. `position` is stored and the API accepts it, but placing a pin needs a
+click-to-place interaction on the canvas that does not exist.
+
+*Note for whoever adds the next React component:* the test environment is `node` with no
+jsdom, so a ref-timing bug like this one is invisible to `vitest` by construction. The
+browser harnesses are the layer that catches it, and they did. Adding jsdom plus a React
+testing library would catch this class earlier at the cost of two dependencies — a real
+option, not taken here.
+
+---
+
+## Iteration 21
 
 **The quality feature is complete end to end, and has been driven that way in a browser.**
 Creating a ground-truth job was the last part only the API and the CLI could reach — and it
@@ -1040,9 +1229,62 @@ present. Both corrected; the second is a licensing claim and was the more urgent
 
 ```
 ./scripts/check.sh                    all 9 steps green
-  ruff · ruff format · mypy · pytest server (394) · pytest sdk (13)
-  notices (52 deps) · eslint · tsc · vitest (293)
+  ruff · ruff format · mypy · pytest server (434) · pytest sdk (13)
+  notices (52 deps) · eslint · tsc · vitest (317)
 ```
+
+Iteration 26 added no tests: it is a CI workflow, and the thing it runs is the test. The shell
+logic was exercised against stub harnesses (pass, fail, pass) to confirm the loop continues
+past a failure and still exits non-zero, and the YAML was parsed rather than eyeballed.
+
+Iteration 25 added 35 server tests (434, up from 399) — webhooks had none at all, which is
+its own finding for a feature the roadmap called partly built. The `delivered_at` fix was
+confirmed by restoring the old line and watching four tests fail.
+
+Iteration 24 added 5 server tests (399, up from 394) and no web tests — the change is
+entirely server-side. All five were confirmed to fail with the chaining reverted, and the one
+that matters most was confirmed to fail with the idempotency key restored:
+
+```
+FAILED test_a_probe_that_discards_chunks_rebuilds_them   -   assert []
+```
+
+That is the bug the key caused, reproduced exactly: chunks discarded, build deduplicated
+against a job that had already succeeded, nothing rebuilt.
+
+Iteration 23 added 8 web tests (317, up from 309) and no server tests — `position` has been
+in the schema since the first iteration; what was missing was anything that wrote to it.
+
+```
+ok   clicking the image places a pin and the panel says where
+     pinned at 55, 75
+     position stored: [55.0, 75.0]
+ok   the issue carries a two-number point
+     expected the focused box's centre (55.0, 75.0); off by 0.0, 0.0 px
+ok   the stored point is in image space, through the live viewport
+```
+
+Iteration 22 added 16 web tests (309, up from 293) and no server tests — the issues API was
+covered from the first iteration; what was missing was a caller.
+
+```
+     zoom: 335% -> 479%
+ok   clicking an object reaches the engine and focuses it
+ok   the panel says it will attach the issue to the selected object
+     anchor: shape_id=None track_id=45ae1a7b-…
+ok   an issue on a track anchors by track_id, not as a phantom shape
+     thread: ['this box is too loose on the left', 'tightened it']
+ok   the reply landed on the same thread, after the first comment
+ok   resolving records who closed it and when
+ok   a resolved issue leaves the open list
+ok   but is still reachable, rather than hidden
+```
+
+The zoom line is the discriminating one: it is what fails when the canvas handle is dead, and
+it failed twice before the fix — the first time for a different reason, because the harness
+located object rows as `aside li button` and the *label* list matches that selector too.
+Clicking a label row selects the active label and leaves the selection empty, which looks
+exactly like a broken anchor. `data-object-id` now tells them apart.
 
 Iteration 21 added 21 web tests (293, up from 272) and no server tests — the ground-truth
 endpoint was already covered by `tests/api/test_quality.py`; what was missing was a caller.
@@ -1272,6 +1514,8 @@ missing, and it is the reason this iteration found anything):
 | A **rotated rectangle exported as its unrotated box** in YOLO | A rotated rectangle is stored as the unrotated box plus an angle; the exporter used `points[:4]` directly, so a 100×20 bar turned 90° (occupying 20×100) was written as 100×20 — a box that does not contain its object. `capabilities` also omitted `ROTATED_RECTANGLE`, so the warning said such shapes were *dropped* while they were being written wrong. | `test_a_rotated_box_exports_its_real_extent` and `test_the_capabilities_no_longer_claim_it_is_dropped`; the first confirmed to fail with the fix reverted |
 | A quality report **did not record what it measured** | `QualityReport` stored a score and a timestamp and nothing about the annotations behind it, so a report read as current however much work had landed since. The failure ran the wrong way: the annotator fixes everything, the old F1 stays on screen, and a reviewer rejects the job on a measurement of work that no longer exists. | `test_a_report_records_the_version_of_the_job_it_scored`, confirmed to fail with the fix reverted (`assert None == 1`) |
 | A conflict's two label fields **swapped meaning depending on the kind** | `label_id` carried the ground truth's label on `missing` and `poor_overlap` and the annotator's on `extra` and `wrong_label`; `expected_label_id` was set on `wrong_label` alone. The panel showed `Missed: unlabelled` where the ground truth said *car*. Worse: candidates are paired by **geometry, not label**, so a `poor_overlap` reported the reference's label while `shape_id` named the annotator's shape — "Loose geometry: car" clicking through to a box labelled *person*. | `TestConflictLabelsMeanOneThing` (4 tests) and `scripts/verify_quality_panel.py`, which is what caught it: the unit fixture happened to be built the way the client read it, so both agreed and both were wrong |
+| **Seven editor controls were wired to nothing** | `AnnotationCanvas` built its imperative handle as `{ engine: engineRef.current }` with an empty dependency list. `useImperativeHandle` runs as a layout effect and was declared above the effect that constructs the engine, so it captured `null` and never updated. Undo, redo, delete selection, fit to frame, both label toggles and focus-an-object all silently did nothing — no error, no warning. | `scripts/verify_issues_panel.py`, which clicks an object row and asserts the zoom changes (335% → 479%); it failed before the fix and passes after |
+| Issues were marked **Done** with no UI at all | The model, API and permissions shipped in the first iteration and the roadmap row was never qualified. A reviewer could not see or open one from the application. | The row now says what exists, and `verify_issues_panel.py` drives open → reply → resolve → reopen |
 | Every object on a job seam was **exported twice** | A task with `overlap > 0` shares frames between two jobs by design; export appended each job's shapes instead of reconciling them. The archive is well-formed and nothing errors, so a model simply trains on doubled boxes. `overlap` is API-settable and had no test coverage at all. | `test_one_object_annotated_in_both_jobs_is_exported_once`, written to fail first |
 | Two unrelated tracks in different jobs shared one `track_id` | The id fell back to a job-local `enumerate` index, so job 1's first object and job 2's first object were both `0`. Any consumer grouping by track id welds them into one. No overlap needed — a plain segmented task was enough. | `test_two_unrelated_tracks_in_different_jobs_get_different_ids`, written to fail first |
 | A track crossing a job seam was exported as two objects | Even once the duplicate was removed, the two halves kept different ids, so the export said the car vanished and a stranger appeared — the precise discontinuity the overlap exists to prevent. | `test_a_track_crossing_the_seam_keeps_one_identity`; confirmed to fail with unification disabled |

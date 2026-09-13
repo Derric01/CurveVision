@@ -11,18 +11,21 @@ import uuid
 from typing import Any
 
 from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
 
-from curvevision.core.config import get_settings
+from curvevision.core.config import Settings, get_settings
 from curvevision.core.db import get_sessionmaker
 from curvevision.core.errors import ConflictError
 from curvevision.core.logging import get_logger
 from curvevision.core.observability import BACKGROUND_TASKS
-from curvevision.domain.enums import WebhookEvent
+from curvevision.domain.enums import MediaKind, WebhookEvent
 from curvevision.domain.media import Asset, MediaBlob
 from curvevision.domain.project import Project
+from curvevision.domain.system import WebhookDelivery
 from curvevision.domain.task import Task
 from curvevision.jobs.base import job_handler
 from curvevision.jobs.runner import report_progress
+from curvevision.services import background as background_service
 from curvevision.services import datasets as dataset_service
 from curvevision.services import media as media_service
 from curvevision.services import tasks as task_service
@@ -30,6 +33,55 @@ from curvevision.services import webhooks as webhook_service
 from curvevision.storage import get_storage
 
 logger = get_logger(__name__)
+
+
+async def _schedule_chunk_build(
+    session: AsyncSession, settings: Settings, task: Task
+) -> str | None:
+    """Queue the chunk build for a task whose frame numbering is now settled.
+
+    **Why this is chained rather than fused into the count.** Counting and building both
+    walk the video, so doing them in one pass looks like the obvious saving. It is not
+    available in general: a chunk is addressed by the *task's* frame numbering, and that
+    numbering is only known once **every** asset has been counted — an earlier asset gaining
+    a frame shifts every later asset's offset, which is exactly why `discard_chunks` throws
+    them all away wholesale. Emitting chunk 0 while asset 3 is still being counted would
+    build chunks against numbering that is not final yet.
+
+    A fused pass would therefore be correct only for a single-asset task and would need a
+    second implementation for every other shape — two ways to do one thing, to save one
+    decode pass that is already off the request path. Chaining keeps one implementation and
+    gets the whole user-visible win: the first annotator to open the task no longer pays for
+    the decode.
+
+    **Deliberately not deduplicated by an idempotency key.** The obvious key — this task at
+    this frame count — is wrong, and wrong in the direction that loses data rather than
+    duplicating it: a later probe that *discards* the chunks (because the numbering moved and
+    moved back, say) would enqueue a build that dedupes against the earlier, already-succeeded
+    job, so it never runs and the task is left with no chunks at all. A key cannot express
+    "the chunks from that build still exist", because that is not a property of the request.
+
+    The cost of not deduplicating is one extra job row and a no-op pass over the chunk
+    indices, since `build_chunk` returns an existing chunk rather than rebuilding it. The cost
+    of deduplicating wrongly is a video task that silently serves no chunks. The invariant
+    worth protecting is *the chunks exist after the probe*, so this enqueues every time.
+    """
+    if task.media_kind is not MediaKind.VIDEO:
+        # Images already serve in constant time; `build_chunk` would return None for every
+        # range and the job would be a no-op loop over every chunk index.
+        return None
+    if media_service.chunk_count(task.frame_count, settings.frames_per_chunk) <= 0:
+        # No frames, or chunking disabled by configuration.
+        return None
+
+    queued = await background_service.enqueue(
+        session,
+        kind="media.build_chunks",
+        payload={"task_id": str(task.id)},
+        resource_type="task",
+        resource_id=task.id,
+    )
+    return str(queued.id)
 
 
 @job_handler("media.probe_task")
@@ -80,12 +132,17 @@ async def probe_task_media(payload: dict[str, Any]) -> dict[str, Any]:
                 # correction entirely rather than leave a task whose jobs and frame count
                 # disagree -- half-applied is worse than not applied.
                 await session.rollback()
+                # The numbering did not move, so any chunks already built are still
+                # addressed correctly and the ones that are missing are still worth having.
+                await session.refresh(task)
+                chunk_job = await _schedule_chunk_build(session, settings, task)
                 BACKGROUND_TASKS.labels("media.probe_task", "succeeded").inc()
                 return {
                     "task_id": str(task_id),
                     "frame_count": estimated,
                     "skipped": "this task already has annotation work; its frame count is "
                     "still the upload-time estimate",
+                    "chunk_build_task_id": chunk_job,
                 }
             # The frame numbering moved, so every chunk addressed by it is stale.
             result["chunks_discarded"] = await media_service.discard_chunks(
@@ -93,6 +150,12 @@ async def probe_task_media(payload: dict[str, Any]) -> dict[str, Any]:
             )
 
         await session.commit()
+
+        # Only now: `correct_frame_counts` may have moved every chunk boundary, and
+        # `discard_chunks` above has already thrown away anything addressed by the old
+        # numbering. Queueing the build before this point would decode frames into chunks
+        # that the same job then deletes.
+        result["chunk_build_task_id"] = await _schedule_chunk_build(session, settings, task)
 
     BACKGROUND_TASKS.labels("media.probe_task", "succeeded").inc()
     return result
@@ -181,9 +244,43 @@ async def export_dataset_job(payload: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+async def _schedule_retries(session: AsyncSession, deliveries: list[WebhookDelivery]) -> list[str]:
+    """Queue a delayed re-attempt for each delivery that is worth retrying.
+
+    The backoff is expressed to the queue rather than slept inside this handler: a worker
+    holding a coroutine open for eighty seconds to wait out one failing receiver is a worker
+    not delivering anybody else's events.
+    """
+    queued: list[str] = []
+    for delivery in deliveries:
+        if delivery.delivered_at is not None:
+            continue
+        if not webhook_service.should_retry(delivery.status_code, attempts=delivery.attempts):
+            logger.info(
+                "webhook delivery given up",
+                extra={
+                    "delivery_id": str(delivery.id),
+                    "event": delivery.event,
+                    "attempts": delivery.attempts,
+                    "status_code": delivery.status_code,
+                },
+            )
+            continue
+        task = await background_service.enqueue(
+            session,
+            kind="webhook.retry",
+            payload={"delivery_id": str(delivery.id)},
+            resource_type="webhook_delivery",
+            resource_id=delivery.id,
+            delay_seconds=webhook_service.retry_delay(delivery.attempts),
+        )
+        queued.append(str(task.id))
+    return queued
+
+
 @job_handler("webhook.dispatch")
 async def dispatch_webhook(payload: dict[str, Any]) -> dict[str, Any]:
-    """Deliver one event to every subscribed webhook."""
+    """Deliver one event to every subscribed webhook, retrying the ones worth retrying."""
     event = WebhookEvent(payload["event"])
     factory = get_sessionmaker()
     async with factory() as session:
@@ -197,12 +294,37 @@ async def dispatch_webhook(payload: dict[str, Any]) -> dict[str, Any]:
             project_id=(uuid.UUID(payload["project_id"]) if payload.get("project_id") else None),
         )
         await session.commit()
-        succeeded = sum(
-            1
-            for delivery in deliveries
-            if delivery.status_code is not None and delivery.status_code < 400
-        )
-    return {"attempted": len(deliveries), "succeeded": succeeded}
+        succeeded = sum(1 for delivery in deliveries if delivery.delivered_at is not None)
+        retries = await _schedule_retries(session, deliveries)
+    return {"attempted": len(deliveries), "succeeded": succeeded, "retries_queued": len(retries)}
+
+
+@job_handler("webhook.retry")
+async def retry_webhook_delivery(payload: dict[str, Any]) -> dict[str, Any]:
+    """Re-attempt one delivery, and queue the next attempt if it fails again.
+
+    The chain terminates on its own: `should_retry` refuses once `attempts` reaches
+    `MAX_ATTEMPTS`, and refuses immediately for a 4xx that will never become a 2xx. There is
+    no separate "give up" state to write — a delivery nobody will try again is exactly one
+    with no success and no retry queued, which `webhook_service.exhausted` derives.
+    """
+    delivery_id = uuid.UUID(payload["delivery_id"])
+    factory = get_sessionmaker()
+    async with factory() as session:
+        delivery = await webhook_service.redeliver(session, delivery_id)
+        if delivery is None:
+            return {"skipped": "delivery no longer exists"}
+        await session.commit()
+
+        delivered = delivery.delivered_at is not None
+        retries = [] if delivered else await _schedule_retries(session, [delivery])
+        return {
+            "delivery_id": str(delivery_id),
+            "attempts": delivery.attempts,
+            "status_code": delivery.status_code,
+            "delivered": delivered,
+            "retry_queued": bool(retries),
+        }
 
 
 @job_handler("media.reclaim_blobs")

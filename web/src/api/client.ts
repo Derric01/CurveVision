@@ -339,13 +339,37 @@ export const api = {
   // ----------------------------------------------------------------------- review
   issues: (jobId: string) => request<Issue[]>(`/jobs/${jobId}/issues`),
 
-  createIssue: (jobId: string, input: { frame: number; position?: number[]; body: string }) =>
-    request<Issue>(`/jobs/${jobId}/issues`, { method: 'POST', body: input }),
+  /**
+   * Open an issue on a frame, optionally anchored to the object it is about.
+   *
+   * `body` is required by the API rather than optional: an issue with no explanation is not
+   * actionable, so there is no way to create an empty one.
+   */
+  createIssue: (
+    jobId: string,
+    input: {
+      frame: number;
+      body: string;
+      position?: number[];
+      shape_id?: string;
+      track_id?: string;
+    },
+  ) => request<Issue>(`/jobs/${jobId}/issues`, { method: 'POST', body: input }),
 
-  resolveIssue: (jobId: string, issueId: string) =>
-    request<Issue>(`/jobs/${jobId}/issues/${issueId}`, {
-      method: 'PATCH',
-      body: { state: 'resolved' },
+  /**
+   * Resolve or reopen an issue.
+   *
+   * One call rather than a `resolveIssue`/`reopenIssue` pair: they are the same PATCH with a
+   * different value, and two functions for one endpoint is two places to keep correct.
+   */
+  setIssueState: (jobId: string, issueId: string, state: 'open' | 'resolved') =>
+    request<Issue>(`/jobs/${jobId}/issues/${issueId}`, { method: 'PATCH', body: { state } }),
+
+  /** Reply on an issue's thread. */
+  addComment: (jobId: string, issueId: string, body: string) =>
+    request<Issue['comments'][number]>(`/jobs/${jobId}/issues/${issueId}/comments`, {
+      method: 'POST',
+      body: { body },
     }),
 
   // ---------------------------------------------------------------------- quality

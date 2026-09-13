@@ -34,8 +34,15 @@ class JobQueue(Protocol):
         *,
         task_id: str,
         queue: str = ...,
+        delay_seconds: float = ...,
     ) -> JobSubmission:
-        """Schedule ``kind`` for execution against the ``BackgroundTask`` row ``task_id``."""
+        """Schedule ``kind`` for execution against the ``BackgroundTask`` row ``task_id``.
+
+        ``delay_seconds`` holds the job back for at least that long. It exists for retry
+        backoff: a webhook whose receiver is down must be tried again later rather than
+        immediately, and "later" has to be expressed to the queue rather than by sleeping
+        inside a handler and holding a worker.
+        """
 
 
 _HANDLERS: dict[str, JobHandler] = {}

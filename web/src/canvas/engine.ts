@@ -8,7 +8,13 @@
 
 import { CommandStack, createAddCommand, createDeleteCommand, createUpdateCommand } from './commands';
 import { annotationBounds } from './geometry';
-import { EMPTY_OVERLAY, Renderer, type OverlayState, type RendererLayers } from './renderer';
+import {
+  EMPTY_OVERLAY,
+  Renderer,
+  type OverlayPin,
+  type OverlayState,
+  type RendererLayers,
+} from './renderer';
 import { Scene } from './scene';
 import { createTool, PathTool, TOOL_SHORTCUTS, type Tool, type ToolContext } from './tools';
 import {
@@ -51,6 +57,7 @@ export class AnnotationEngine {
   private cachedImageDataSource: CanvasImageSource | null = null;
   private tool: Tool = createTool('select');
   private overlay: OverlayState = { ...EMPTY_OVERLAY };
+  private pickingPoint = false;
 
   private dirty: DirtyFlags = { shapes: true, media: true, overlay: true };
   private frameHandle: number | null = null;
@@ -200,8 +207,45 @@ export class AnnotationEngine {
 
   // ------------------------------------------------------------------ pointer input
 
+  /**
+   * Issue pins to draw on the frame currently on screen.
+   *
+   * Overlay state rather than scene objects: a pin is not an annotation. It must not be
+   * selectable, draggable, deletable with a marquee, or exportable, and keeping it out of
+   * the scene is what guarantees all four rather than remembering to special-case them.
+   */
+  setPins(pins: readonly OverlayPin[]): void {
+    this.overlay = { ...this.overlay, pins: [...pins] };
+    this.invalidate('overlay');
+  }
+
+  /**
+   * Take the next click as a point rather than as a drawing action.
+   *
+   * Armed from the issues panel: the click reports an image-space point and disarms itself,
+   * so picking is always exactly one click and never leaves the canvas in a mode the
+   * annotator has to find their way out of.
+   */
+  setPointPicking(enabled: boolean): void {
+    this.pickingPoint = enabled;
+    this.invalidate('overlay');
+  }
+
+  get isPickingPoint(): boolean {
+    return this.pickingPoint;
+  }
+
   pointerDown(screen: Point, modifiers: Partial<PointerInput> = {}): void {
     const input = this.toInput(screen, modifiers);
+
+    // Picking wins over the active tool, and over nothing else: panning still works, so a
+    // reviewer can reach the part of the frame they mean before placing the pin.
+    if (this.pickingPoint && input.button === 0 && !this.spacePan) {
+      this.pickingPoint = false;
+      this.listeners.pointPicked?.(input.image);
+      this.invalidate('overlay');
+      return;
+    }
 
     // Middle button or space always pans, whatever tool is active. Losing an in-progress
     // polygon because you needed to scroll is a genuinely infuriating failure.

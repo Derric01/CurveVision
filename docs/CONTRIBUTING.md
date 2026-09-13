@@ -82,6 +82,38 @@ typo at the point it was made.
 * `src/canvas/` imports nothing from React. It is a plain-TypeScript engine.
 * Anything on a 60fps path avoids allocation in the loop.
 
+## Browser harnesses
+
+`./scripts/check.sh` covers everything CI runs on a push, and it does not open a browser.
+Eight scripts in `scripts/` do — they launch the **packaged desktop application**, drive it in
+Chromium, and assert against the **API** rather than the DOM, because the question is not "did
+the page look right" but "is the data now what the user asked for".
+
+They earn their keep. Between them they have found every defect the unit suites missed: a
+Content-Security-Policy that blocked the app's own scripts, frame images that never rendered,
+a swallowed decode error that threw on fast scrubbing, a `useImperativeHandle` that captured
+`null` and left seven editor controls wired to nothing, and an issue anchored to a row in the
+wrong table.
+
+They run **nightly and on every push to `main`** (`.github/workflows/browser.yml`), not on
+pull requests: a PyInstaller build plus eight end-to-end runs is twenty minutes, and CI that
+slow stops being run. Trigger one by hand from the Actions tab — the workflow takes a single
+harness name — or run one locally:
+
+```bash
+npm --prefix web run build          # 1. the frontend
+python desktop/sidecar/build.py     # 2. the sidecar, which EMBEDS web/dist
+python scripts/verify_issues_panel.py
+```
+
+**Both build steps, in that order, every time.** The packaged sidecar embeds `web/dist`, so a
+harness run after a frontend change without a sidecar rebuild silently exercises the
+*previous* frontend. Nothing fails; the test just is not testing your code. That has already
+cost one confusing debugging session.
+
+If you add a harness, add it to the workflow's list — and prefer asserting against the API
+over the DOM, so the check survives a redesign.
+
 ## Performance-sensitive areas
 
 Two places where a change needs a benchmark, not an opinion:

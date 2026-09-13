@@ -146,11 +146,22 @@ async def test_the_chunk_entry_and_the_frame_endpoint_agree(
 
 
 async def test_serving_a_frame_builds_its_chunk_and_the_next_frames_reuse_it(
-    owner: ApiActor, project: dict[str, Any], session: Any
+    owner: ApiActor, project: dict[str, Any], session: Any, settings: Settings
 ) -> None:
+    """The lazy path: when a chunk is absent, asking for a frame builds it, once.
+
+    Uploading now pre-builds chunks, so this starts by discarding them to reach the state
+    the test is about. That state is not hypothetical — it is what a task looks like when
+    chunking was disabled at upload, when the build job failed, and in the window after a
+    frame-count correction discards every chunk. The fallback is what guarantees a frame is
+    never *unavailable*, only slower, so it keeps its own test.
+    """
     from sqlalchemy import func, select
 
     from curvevision.domain.media import MediaChunk
+    from curvevision.domain.task import Task as TaskRow
+    from curvevision.services import media as media_service
+    from curvevision.storage import get_storage
 
     task = await video_task(owner, project, make_video(frames=10))
 
@@ -165,7 +176,10 @@ async def test_serving_a_frame_builds_its_chunk_and_the_next_frames_reuse_it(
             ).scalar_one()
         )
 
-    assert await chunks() == 0, "nothing is decoded until a frame is asked for"
+    row = await session.get(TaskRow, task["id"])
+    await media_service.discard_chunks(session, get_storage(settings), row.id)
+    await session.commit()
+    assert await chunks() == 0, "the precondition this test is about"
 
     await owner.get(f"/api/v1/tasks/{task['id']}/frames/0/data")
     assert await chunks() == 1, "the first frame of a chunk builds the whole chunk"
@@ -272,9 +286,15 @@ async def test_two_builders_racing_for_the_same_chunk_produce_one_row(
 
     assert loser is not None, "the loser must end up with the winner's chunk"
     assert loser.index == 0
+    # Counted for chunk 0 specifically, which is what the race was over. Counting every
+    # chunk on the task used to mean the same thing only because nothing else had been
+    # built; uploading now pre-builds them all, and the claim was never about how many
+    # chunks a task has.
     count = (
         await session.execute(
-            select(func.count()).select_from(MediaChunk).where(MediaChunk.task_id == task["id"])
+            select(func.count())
+            .select_from(MediaChunk)
+            .where(MediaChunk.task_id == task["id"], MediaChunk.index == 0)
         )
     ).scalar_one()
     assert count == 1, "the race must not leave a duplicate behind"

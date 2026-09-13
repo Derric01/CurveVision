@@ -419,6 +419,27 @@ X-CurveVision-Signature: sha256=<hex>
 The signature is `HMAC-SHA256(secret, raw_body)`. **Verify it with a constant-time
 comparison** before trusting the payload.
 
+### Retries
+
+A delivery that fails is retried up to **5 attempts in total**, with exponential backoff
+(10s, 20s, 40s, 80s) capped at 10 minutes and spread by ±20% jitter — a receiver that falls
+over drops every delivery in flight at once, and retrying them on the same schedule would
+reproduce the spike exactly when it can least take it.
+
+**What is retried is decided by who is wrong.** A 5xx, a timeout or a refused connection says
+the receiver is struggling and the same request may work later. A 4xx says the receiver
+understood the request and rejected it, and repeating it cannot change the answer — so a 401,
+404 or 410 is **not** retried. Two exceptions, because both mean *later* rather than *never*:
+**408 Request Timeout** and **429 Too Many Requests**.
+
+**A retry is the same event again.** It resends the identical body and the same
+`X-CurveVision-Delivery` id, so a receiver that already processed an attempt and then failed
+to reply can deduplicate on that id rather than doing the work twice. Treat delivery as
+**at-least-once**.
+
+`delivered_at` on a delivery is set only by a 2xx. A delivery with attempts recorded, no
+`delivered_at`, and a 4xx or an exhausted attempt count is one nobody will try again.
+
 ## Rate limiting
 
 Default 600 requests per minute, keyed by API token or client address. Exceeding it returns

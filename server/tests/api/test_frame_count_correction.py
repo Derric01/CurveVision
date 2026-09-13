@@ -230,8 +230,211 @@ async def test_correcting_the_count_discards_the_stale_chunks(
     row.frame_count = FRAMES - 1
     await session.commit()
 
+    stale = {
+        (chunk.id, chunk.start_frame, chunk.frame_count)
+        for chunk in (
+            await session.execute(select(MediaChunk).where(MediaChunk.task_id == task["id"]))
+        ).scalars()
+    }
+    assert stale
+
     result = await probe_task_media({"task_id": task["id"]})
 
     assert result["corrected"], "the job should have found something to correct"
     assert result["chunks_discarded"] >= 1
-    assert await chunks() == 0, "a stale chunk must not survive a renumbering"
+
+    # Every chunk addressed by the old numbering is gone. This used to assert the count
+    # reached zero, which was only true while nothing rebuilt them; the probe now chains a
+    # build, so the claim has to be about identity rather than absence -- otherwise the
+    # rebuild would make the test pass for the wrong reason.
+    surviving = {
+        (chunk.id, chunk.start_frame, chunk.frame_count)
+        for chunk in (
+            await session.execute(select(MediaChunk).where(MediaChunk.task_id == task["id"]))
+        ).scalars()
+    }
+    assert stale & surviving == set(), "a stale chunk survived a renumbering"
+
+
+# --------------------------------------------------- chunks are built ahead of the reader
+
+
+async def test_uploading_a_video_builds_its_chunks_without_anybody_opening_it(
+    owner: ApiActor, project: dict[str, Any], session: Any, settings: Settings
+) -> None:
+    """The first annotator should not be the one who pays for the decode.
+
+    `media.build_chunks` existed and nothing enqueued it, so a chunk was only ever built by
+    the request that first asked for one — which is the request a person is waiting on.
+    Probing now chains the build once the frame numbering is settled.
+    """
+    from sqlalchemy import func, select
+
+    from curvevision.domain.media import MediaChunk
+
+    settings.frames_per_chunk = 4
+    task = await video_task(owner, project, make_matroska())
+
+    built = int(
+        (
+            await session.execute(
+                select(func.count()).select_from(MediaChunk).where(MediaChunk.task_id == task["id"])
+            )
+        ).scalar_one()
+    )
+    # 7 frames at 4 per chunk is two chunks, and nothing in this test has requested a frame.
+    assert built == 2, f"expected the upload to leave 2 chunks built, found {built}"
+
+
+async def test_the_build_is_queued_after_the_count_is_settled_not_before(
+    owner: ApiActor, project: dict[str, Any], session: Any, settings: Settings
+) -> None:
+    """Ordering is the whole correctness argument, so it is asserted rather than assumed.
+
+    A chunk is addressed by the task's frame numbering. Queueing the build before
+    `correct_frame_counts` has run would decode frames into chunks that the same job then
+    discards — wasted work, and briefly a task whose chunks and frame count disagree.
+    """
+    from sqlalchemy import func, select
+
+    from curvevision.domain.media import Asset, MediaChunk
+    from curvevision.domain.task import Task
+    from curvevision.jobs.tasks import probe_task_media
+
+    settings.frames_per_chunk = 4
+    task = await video_task(owner, project, make_matroska())
+
+    # Put the task back to its pre-correction state, so probing has something to correct.
+    row = await session.get(Task, task["id"])
+    asset = (await session.execute(select(Asset).where(Asset.task_id == row.id))).scalar_one()
+    asset.frame_count = FRAMES - 1
+    row.frame_count = FRAMES - 1
+    await session.commit()
+
+    result = await probe_task_media({"task_id": task["id"]})
+
+    assert result["corrected"], "the job should have found something to correct"
+    assert result["chunk_build_task_id"], "the corrected task should have a build queued"
+
+    # The surviving chunks cover the corrected range: the last frame the estimate lost is
+    # inside a chunk, which is only true if the build ran against the final numbering.
+    chunks = list(
+        (
+            await session.execute(select(MediaChunk).where(MediaChunk.task_id == task["id"]))
+        ).scalars()
+    )
+    assert chunks, "the chained build produced nothing"
+    last = max(chunk.start_frame + chunk.frame_count - 1 for chunk in chunks)
+    assert last == FRAMES - 1, (
+        f"the chunks stop at frame {last}, short of the corrected count, so they were "
+        "built against the old numbering"
+    )
+
+    counted = int(
+        (
+            await session.execute(
+                select(func.count()).select_from(MediaChunk).where(MediaChunk.task_id == task["id"])
+            )
+        ).scalar_one()
+    )
+    assert counted == 2
+
+
+async def test_an_image_task_queues_no_chunk_build(
+    owner: ApiActor, project: dict[str, Any]
+) -> None:
+    """Images already serve in constant time; the job would be a no-op loop over every index."""
+    from curvevision.jobs.tasks import probe_task_media
+    from tests.api.test_workflow import png_bytes
+
+    created = await owner.post(
+        "/api/v1/tasks",
+        json={"project_id": project["id"], "name": "Stills", "media_kind": "image"},
+    )
+    task = created.json()
+    await owner.post(
+        f"/api/v1/tasks/{task['id']}/assets",
+        files=[("files", ("a.png", png_bytes(), "image/png"))],
+    )
+
+    result = await probe_task_media({"task_id": task["id"]})
+
+    assert result.get("chunk_build_task_id") is None
+
+
+async def test_probing_twice_still_leaves_the_chunks_built(
+    owner: ApiActor, project: dict[str, Any], session: Any, settings: Settings
+) -> None:
+    """The invariant is *the chunks exist afterwards*, not *only one build was queued*.
+
+    This test was originally written the other way round — asserting that a second probe
+    reused the first build's job row, deduplicated on task and frame count. That key is
+    wrong, and wrong in the direction that loses data: a probe which **discards** the chunks
+    and then re-enqueues would dedupe against the earlier, already-succeeded job, so the
+    build would never run and the task would be left serving no chunks at all. The key is
+    gone, and this asserts what a user would notice instead.
+    """
+    from sqlalchemy import func, select
+
+    from curvevision.domain.media import MediaChunk
+
+    settings.frames_per_chunk = 4
+    task = await video_task(owner, project, make_matroska())
+
+    await probe_task_media_twice(task["id"])
+
+    counted = int(
+        (
+            await session.execute(
+                select(func.count()).select_from(MediaChunk).where(MediaChunk.task_id == task["id"])
+            )
+        ).scalar_one()
+    )
+    assert counted == 2, f"two probes should leave exactly two chunks, found {counted}"
+
+
+async def probe_task_media_twice(task_id: str) -> None:
+    from curvevision.jobs.tasks import probe_task_media
+
+    await probe_task_media({"task_id": task_id})
+    await probe_task_media({"task_id": task_id})
+
+
+async def test_a_probe_that_discards_chunks_rebuilds_them(
+    owner: ApiActor, project: dict[str, Any], session: Any, settings: Settings
+) -> None:
+    """The case the idempotency key got wrong, pinned so it cannot come back.
+
+    Correcting a frame count discards every chunk, because they are addressed by the old
+    numbering. The build chained afterwards must actually run — with a key on task and frame
+    count it aliased the earlier build for the same numbering, which had already succeeded,
+    so nothing re-ran and the task ended with zero chunks while every job row said
+    "succeeded".
+    """
+    from sqlalchemy import select
+
+    from curvevision.domain.media import Asset, MediaChunk
+    from curvevision.domain.task import Task
+    from curvevision.jobs.tasks import probe_task_media
+
+    settings.frames_per_chunk = 4
+    task = await video_task(owner, project, make_matroska())
+
+    # Put the count back to the estimate so the next probe corrects it again — and so the
+    # chunks built by the upload's probe are discarded and must be rebuilt.
+    row = await session.get(Task, task["id"])
+    asset = (await session.execute(select(Asset).where(Asset.task_id == row.id))).scalar_one()
+    asset.frame_count = FRAMES - 1
+    row.frame_count = FRAMES - 1
+    await session.commit()
+
+    result = await probe_task_media({"task_id": task["id"]})
+    assert result["chunks_discarded"] >= 1, "this test needs the probe to discard something"
+
+    chunks = list(
+        (
+            await session.execute(select(MediaChunk).where(MediaChunk.task_id == task["id"]))
+        ).scalars()
+    )
+    assert chunks, "the chunks were discarded and never rebuilt"
+    assert max(chunk.start_frame + chunk.frame_count - 1 for chunk in chunks) == FRAMES - 1

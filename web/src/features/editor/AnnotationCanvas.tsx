@@ -9,7 +9,8 @@
 
 import { useEffect, useImperativeHandle, useRef, forwardRef, useCallback } from 'react';
 import { AnnotationEngine } from '@/canvas/engine';
-import type { Annotation, AnnotationChange, LabelStyle, ToolName } from '@/canvas/types';
+import type { Annotation, AnnotationChange, LabelStyle, Point, ToolName } from '@/canvas/types';
+import type { OverlayPin } from '@/canvas/renderer';
 
 export interface CanvasHandle {
   engine: AnnotationEngine | null;
@@ -24,10 +25,27 @@ interface Props {
   onChange: (change: AnnotationChange) => void;
   onSelectionChange: (ids: string[]) => void;
   onViewportChange?: (scale: number) => void;
+  /** Review issue pins for the frame on screen. */
+  pins?: OverlayPin[];
+  /** When true, the next click reports a point instead of drawing. */
+  picking?: boolean;
+  onPointPicked?: (point: Point) => void;
 }
 
 export const AnnotationCanvas = forwardRef<CanvasHandle, Props>(function AnnotationCanvas(
-  { annotations, labels, imageUrl, activeLabelId, tool, onChange, onSelectionChange, onViewportChange },
+  {
+    annotations,
+    labels,
+    imageUrl,
+    activeLabelId,
+    tool,
+    onChange,
+    onSelectionChange,
+    onViewportChange,
+    pins,
+    picking = false,
+    onPointPicked,
+  },
   ref,
 ) {
   const container = useRef<HTMLDivElement>(null);
@@ -38,10 +56,25 @@ export const AnnotationCanvas = forwardRef<CanvasHandle, Props>(function Annotat
 
   // Callbacks are read through a ref so the engine is built once, not rebuilt whenever a
   // parent re-render produces new function identities.
-  const callbacks = useRef({ onChange, onSelectionChange, onViewportChange });
-  callbacks.current = { onChange, onSelectionChange, onViewportChange };
+  const callbacks = useRef({ onChange, onSelectionChange, onViewportChange, onPointPicked });
+  callbacks.current = { onChange, onSelectionChange, onViewportChange, onPointPicked };
 
-  useImperativeHandle(ref, () => ({ engine: engineRef.current }), []);
+  // A getter, not a snapshot. `useImperativeHandle` runs as a layout effect and is declared
+  // above the effect that constructs the engine, so a plain `{ engine: engineRef.current }`
+  // captures `null` — and with an empty dependency list it stays null for the life of the
+  // component. Every control the parent drives through this handle (undo, redo, delete, fit
+  // to frame, the label visibility and lock toggles, and focusing an object from the object
+  // list) then silently does nothing: no error, no console warning, just a button that is
+  // not connected to anything.
+  useImperativeHandle(
+    ref,
+    () => ({
+      get engine() {
+        return engineRef.current;
+      },
+    }),
+    [],
+  );
 
   useEffect(() => {
     const media = mediaCanvas.current?.getContext('2d');
@@ -55,6 +88,7 @@ export const AnnotationCanvas = forwardRef<CanvasHandle, Props>(function Annotat
         annotationsChanged: (change) => callbacks.current.onChange(change),
         selectionChanged: (ids) => callbacks.current.onSelectionChange(ids),
         viewportChanged: (viewport) => callbacks.current.onViewportChange?.(viewport.scale),
+        pointPicked: (point) => callbacks.current.onPointPicked?.(point),
       },
     });
     engineRef.current = engine;
@@ -130,6 +164,14 @@ export const AnnotationCanvas = forwardRef<CanvasHandle, Props>(function Annotat
   }, [activeLabelId]);
 
   useEffect(() => {
+    engineRef.current?.setPins(pins ?? []);
+  }, [pins]);
+
+  useEffect(() => {
+    engineRef.current?.setPointPicking(picking);
+  }, [picking]);
+
+  useEffect(() => {
     engineRef.current?.setTool(tool);
   }, [tool]);
 
@@ -171,7 +213,9 @@ export const AnnotationCanvas = forwardRef<CanvasHandle, Props>(function Annotat
     <div
       ref={container}
       className="relative h-full w-full overflow-hidden bg-ink-950"
-      style={{ cursor: engineRef.current?.cursor ?? 'default' }}
+      // Picking overrides the tool's cursor: the click is about to mean something other
+      // than what the active tool says it means, and a crosshair is the only warning.
+      style={{ cursor: picking ? 'crosshair' : (engineRef.current?.cursor ?? 'default') }}
       onPointerDown={(event) => {
         (event.target as HTMLElement).setPointerCapture?.(event.pointerId);
         engineRef.current?.pointerDown(localPoint(event), {

@@ -28,6 +28,7 @@ QUEUE_ROUTING: dict[str, str] = {
     "dataset.import": "import",
     "inference.run": "inference",
     "webhook.dispatch": "webhooks",
+    "webhook.retry": "webhooks",
     "quality.report": "quality",
 }
 
@@ -42,6 +43,7 @@ async def enqueue(
     resource_id: uuid.UUID | None = None,
     idempotency_key: str | None = None,
     queue: JobQueue | None = None,
+    delay_seconds: float = 0.0,
 ) -> BackgroundTask:
     """Create a ``BackgroundTask`` row and schedule it.
 
@@ -83,5 +85,6 @@ async def enqueue(
         task.payload,
         task_id=str(task.id),
         queue=QUEUE_ROUTING.get(kind, "default"),
+        delay_seconds=delay_seconds,
     )
     return task

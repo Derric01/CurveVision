@@ -44,6 +44,8 @@ import { TrackTimeline } from './TrackTimeline';
 import { adjacentKeyframe, trackRows } from './timeline';
 import { markDeparture, moveKeyframe, toggleKeyframe, type EditResult } from './keyframes';
 import { QualityPanel } from './QualityPanel';
+import { IssuesPanel } from './IssuesPanel';
+import { issuePins } from './issues';
 import { useAutosave } from './useAutosave';
 
 const TOOLS: { name: ToolName; icon: typeof Square; label: string; key: string }[] = [
@@ -67,6 +69,11 @@ export function EditorPage() {
   const [selection, setSelection] = useState<string[]>([]);
   const [labelStyles, setLabelStyles] = useState<LabelStyle[]>([]);
   const [zoom, setZoom] = useState(1);
+  // Placing an issue pin: armed from the panel, spent by one canvas click.
+  const [picking, setPicking] = useState(false);
+  const [pickedPoint, setPickedPoint] = useState<{ x: number; y: number } | null>(null);
+  const [openIssueId, setOpenIssueId] = useState<string | null>(null);
+
 
   const job = useQuery({ queryKey: ['job', jobId], queryFn: () => api.job(jobId) });
   const task = useQuery({
@@ -112,6 +119,24 @@ export function EditorPage() {
   );
 
   const imageUrl = useFrameObjectUrl(task.data?.id, currentFrame);
+
+  // The same query key the issues panel uses, so react-query serves both from one fetch
+  // rather than this becoming a second request or a prop drilled through the sidebar.
+  const issues = useQuery({
+    queryKey: ['issues', jobId],
+    queryFn: () => api.issues(jobId),
+    enabled: Boolean(jobId),
+    retry: false,
+  });
+
+  const pins = useMemo(() => {
+    const placed = issuePins(issues.data, currentFrame, openIssueId);
+    // The pin being placed right now is drawn too, before the issue exists. Without it the
+    // reviewer clicks the image and nothing visibly happens, so they cannot tell whether
+    // they hit the thing they meant until after the issue is filed.
+    if (!pickedPoint) return placed;
+    return [...placed, { id: 'draft', x: pickedPoint.x, y: pickedPoint.y, resolved: false, active: true }];
+  }, [issues.data, currentFrame, openIssueId, pickedPoint]);
 
   const handleChange = useCallback(
     (change: AnnotationChange) => autosave.record(change),
@@ -361,6 +386,12 @@ export function EditorPage() {
             onChange={handleChange}
             onSelectionChange={setSelection}
             onViewportChange={setZoom}
+            pins={pins}
+            picking={picking}
+            onPointPicked={(point) => {
+              setPickedPoint(point);
+              setPicking(false);
+            }}
           />
 
           <div className="pointer-events-none absolute bottom-2 left-2 flex gap-2 text-[11px] text-ink-500">
@@ -396,6 +427,28 @@ export function EditorPage() {
             labels={labelStyles}
             selection={selection}
             onFocus={(id) => engine?.focusAnnotation(id)}
+          />
+
+          <IssuesPanel
+            jobId={jobId}
+            currentFrame={currentFrame}
+            picking={picking}
+            pickedPoint={pickedPoint}
+            onPickingChange={setPicking}
+            onClearPoint={() => {
+              setPickedPoint(null);
+              setPicking(false);
+            }}
+            onOpenThread={setOpenIssueId}
+            // The object an issue would be about. Only a single selection anchors: "these
+            // three boxes are wrong" is a different comment from "this one is", and the API
+            // anchors an issue to one object.
+            selected={
+              selection.length === 1
+                ? (visible.find((item) => item.id === selection[0]) ?? null)
+                : null
+            }
+            onSeek={setFrame}
           />
 
           <QualityPanel job={job.data} labels={labelStyles} onSeek={setFrame} />
@@ -600,6 +653,10 @@ function ObjectList({
               <button
                 type="button"
                 onClick={() => onFocus(annotation.id)}
+                // A stable hook for the browser harnesses, and the only thing that tells an
+                // object row apart from a label row: both are `aside li button` carrying the
+                // label's name, and selecting the wrong one silently selects nothing.
+                data-object-id={annotation.id}
                 className={clsx(
                   'flex w-full items-center gap-2 px-3 py-1.5 text-left text-xs',
                   selection.includes(annotation.id)
