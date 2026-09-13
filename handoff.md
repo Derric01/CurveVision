@@ -5,7 +5,7 @@
 > [`AGENTS.md`](./AGENTS.md) first; it is the working contract. Update this file after every
 > iteration, including the ones that mostly failed.
 >
-> **Last updated:** 2026-09-13 (iteration 25) · branch `claude/curvevision-platform-build-n1g71n` · PRs [#1](https://github.com/Derric01/CurveVision/pull/1)–[#10](https://github.com/Derric01/CurveVision/pull/10) merged (iterations 1–16) · PRs [#11](https://github.com/Derric01/CurveVision/pull/11)–[#12](https://github.com/Derric01/CurveVision/pull/12) merged (iterations 17–21) · iterations 22–23 in open PR [#13](https://github.com/Derric01/CurveVision/pull/13)
+> **Last updated:** 2026-09-13 (iteration 26) · branch `claude/curvevision-platform-build-n1g71n` · PRs [#1](https://github.com/Derric01/CurveVision/pull/1)–[#10](https://github.com/Derric01/CurveVision/pull/10) merged (iterations 1–16) · PRs [#11](https://github.com/Derric01/CurveVision/pull/11)–[#12](https://github.com/Derric01/CurveVision/pull/12) merged (iterations 17–21) · iterations 22–23 in open PR [#13](https://github.com/Derric01/CurveVision/pull/13)
 
 ---
 
@@ -69,13 +69,16 @@ was the last unconnected piece of the desktop application.
 
 ## Next best action
 
-**A browser harness in CI.** Nine exist and between them they have found every defect the unit
-suites missed — a CSP that blocked the app's own scripts, frames that never rendered, a
-swallowed decode error, a ref-timing bug that had disconnected seven controls. None of them
-runs automatically. They need a packaged sidecar and a Chromium, so nightly or pre-release
-rather than per-push. **Note the sidecar embeds `web/dist`:** a run needs
-`npm --prefix web run build` *and* a sidecar rebuild, or it silently tests the previous
-frontend — which has already cost one confusing debugging session. Nine exist and between them they have found every defect
+**Signed installers for macOS and Windows.** The desktop app builds and runs from source;
+`.dmg`, `.msi` and `.AppImage` are not built. It needs one CI runner per platform, because
+PyInstaller does not cross-compile, and signing needs credentials the project does not have —
+so this is the first item in a while that is **blocked on something outside the repository**
+rather than on work. Worth confirming what certificates are available before starting.
+
+**Then: `choose_files` is still unused.** The desktop shell can open a native *file* picker as
+well as a folder one, and `/tasks/{id}/local-import` accepts a file path. Connecting it is
+small and was deliberately left until somebody wanted it — the folder case is the one that
+matters. Nine exist and between them they have found every defect
 the unit suites missed, including a ref-timing bug that had disconnected seven controls. They
 need a packaged sidecar and a Chromium, so nightly or pre-release rather than per-push. Note
 the sidecar embeds `web/dist`: a run needs `npm --prefix web run build` **and** a sidecar
@@ -300,19 +303,45 @@ being updated and this one was not. Check it against* Completed *before trusting
 
 ## Remaining high-priority work
 
-1. **A browser harness in CI.** Nine exist and between them they have found every defect
-   the unit suites missed, this iteration's included. Note the sidecar embeds `web/dist`, so
-   a run needs `npm --prefix web run build` **and** a sidecar rebuild, or it silently tests
-   the previous frontend.
-2. **Signed installers in CI** — one runner per platform; PyInstaller does not cross-compile.
-3. **Webhook retry/backoff** wired to the job queue.
-4. **`choose_files` is still unused.** The shell can open a native *file* picker as well as a
+1. **Signed installers in CI** — one runner per platform; PyInstaller does not cross-compile.
+2. **`choose_files` is still unused.** The shell can open a native *file* picker as well as a
    folder one, and `/tasks/{id}/local-import` accepts a file path. Connecting it is small, and
    deliberately left until someone wants it — the folder case is the one that matters.
 
 ---
 
 ## Last iteration
+
+**The browser harnesses run automatically.** Eight of them existed and had found every defect
+the unit suites missed; none ran without somebody remembering to. `.github/workflows/browser.yml`
+runs them **nightly and on every push to `main`**.
+
+**Not on pull requests, deliberately.** A PyInstaller build plus eight end-to-end runs is
+roughly twenty minutes. Per-PR that is a tax on every push, and CI that slow stops being run
+at all. Running at merge catches a regression minutes after it lands rather than up to a day
+later, which is the useful half of the tradeoff at a fraction of the cost.
+
+**The step order is the whole point, and the workflow says so in a comment.** The packaged
+sidecar *embeds* `web/dist`, so building the frontend after the sidecar — or not at all —
+leaves the harnesses driving whichever frontend was bundled last. Nothing fails; the run just
+exercises code that is not the code under review. That has already cost one confusing session
+locally, which is why it is written down in the workflow, in `CONTRIBUTING.md`, and here.
+
+**One failure does not stop the rest.** The loop collects failures and reports them together,
+because a run that stops at the first one reports a single broken thing per night — the
+slowest possible way to fix several. The shell was tested against stub scripts rather than
+assumed: all-pass exits 0, a mid-list failure still runs everything after it and exits 1, and
+single-harness selection works.
+
+Screenshots are uploaded as an artifact on failure. On a red run they are the fastest way to
+see what the page actually looked like, which no assertion message conveys.
+
+`scripts/screenshot.py` is excluded: it is the README screenshot generator rather than a
+check, and it writes into `docs/images/`.
+
+---
+
+## Iteration 25
 
 **Webhook delivery survives a failing receiver — the last item Beta named.**
 Delivery was signed and recorded; nothing retried it, so a receiver that was restarting when
@@ -1203,6 +1232,10 @@ present. Both corrected; the second is a licensing claim and was the more urgent
   ruff · ruff format · mypy · pytest server (434) · pytest sdk (13)
   notices (52 deps) · eslint · tsc · vitest (317)
 ```
+
+Iteration 26 added no tests: it is a CI workflow, and the thing it runs is the test. The shell
+logic was exercised against stub harnesses (pass, fail, pass) to confirm the loop continues
+past a failure and still exits non-zero, and the YAML was parsed rather than eyeballed.
 
 Iteration 25 added 35 server tests (434, up from 399) — webhooks had none at all, which is
 its own finding for a feature the roadmap called partly built. The `delivered_at` fix was
