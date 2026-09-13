@@ -44,6 +44,7 @@ import { TrackTimeline } from './TrackTimeline';
 import { adjacentKeyframe, trackRows } from './timeline';
 import { markDeparture, moveKeyframe, toggleKeyframe, type EditResult } from './keyframes';
 import { QualityPanel } from './QualityPanel';
+import { IssuesPanel } from './IssuesPanel';
 import { useAutosave } from './useAutosave';
 
 const TOOLS: { name: ToolName; icon: typeof Square; label: string; key: string }[] = [
@@ -398,6 +399,20 @@ export function EditorPage() {
             onFocus={(id) => engine?.focusAnnotation(id)}
           />
 
+          <IssuesPanel
+            jobId={jobId}
+            currentFrame={currentFrame}
+            // The object an issue would be about. Only a single selection anchors: "these
+            // three boxes are wrong" is a different comment from "this one is", and the API
+            // anchors an issue to one object.
+            selected={
+              selection.length === 1
+                ? (visible.find((item) => item.id === selection[0]) ?? null)
+                : null
+            }
+            onSeek={setFrame}
+          />
+
           <QualityPanel job={job.data} labels={labelStyles} onSeek={setFrame} />
 
           <ShortcutHelp />
@@ -600,6 +615,10 @@ function ObjectList({
               <button
                 type="button"
                 onClick={() => onFocus(annotation.id)}
+                // A stable hook for the browser harnesses, and the only thing that tells an
+                // object row apart from a label row: both are `aside li button` carrying the
+                // label's name, and selecting the wrong one silently selects nothing.
+                data-object-id={annotation.id}
                 className={clsx(
                   'flex w-full items-center gap-2 px-3 py-1.5 text-left text-xs',
                   selection.includes(annotation.id)

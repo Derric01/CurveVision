@@ -41,7 +41,22 @@ export const AnnotationCanvas = forwardRef<CanvasHandle, Props>(function Annotat
   const callbacks = useRef({ onChange, onSelectionChange, onViewportChange });
   callbacks.current = { onChange, onSelectionChange, onViewportChange };
 
-  useImperativeHandle(ref, () => ({ engine: engineRef.current }), []);
+  // A getter, not a snapshot. `useImperativeHandle` runs as a layout effect and is declared
+  // above the effect that constructs the engine, so a plain `{ engine: engineRef.current }`
+  // captures `null` — and with an empty dependency list it stays null for the life of the
+  // component. Every control the parent drives through this handle (undo, redo, delete, fit
+  // to frame, the label visibility and lock toggles, and focusing an object from the object
+  // list) then silently does nothing: no error, no console warning, just a button that is
+  // not connected to anything.
+  useImperativeHandle(
+    ref,
+    () => ({
+      get engine() {
+        return engineRef.current;
+      },
+    }),
+    [],
+  );
 
   useEffect(() => {
     const media = mediaCanvas.current?.getContext('2d');
