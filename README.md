@@ -355,10 +355,11 @@ the entire desktop application changed 1,460 lines and removed 42; nothing was r
 **MVP is complete** — you can run CurveVision today, as a desktop application or a server,
 and produce a real dataset with it.
 
-**Beta** needs video annotation to be comfortable rather than merely working (chunked
-delivery), the track-editing timeline, and webhook retries. **1.0** needs distributed rate
-limiting, backup tooling and an external security review — we will not call a release 1.0
-before that, because it would be a claim we cannot back.
+**Beta's list is finished** — chunked video delivery, the track-editing timeline and webhook
+retries are all done and tested. Whether to *call* a release Beta is a judgement about
+maturity rather than a checklist, and nobody has run this in anger yet. **1.0** needs
+distributed rate limiting, backup tooling and an external security review — we will not call
+a release 1.0 before that, because it would be a claim we cannot back.
 
 Full detail, including what we have decided *against*, in [ROADMAP.md](docs/ROADMAP.md).
 For where the project stands right now, [handoff.md](handoff.md) is the fastest read.

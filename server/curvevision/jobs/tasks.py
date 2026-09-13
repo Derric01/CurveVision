@@ -21,6 +21,7 @@ from curvevision.core.observability import BACKGROUND_TASKS
 from curvevision.domain.enums import MediaKind, WebhookEvent
 from curvevision.domain.media import Asset, MediaBlob
 from curvevision.domain.project import Project
+from curvevision.domain.system import WebhookDelivery
 from curvevision.domain.task import Task
 from curvevision.jobs.base import job_handler
 from curvevision.jobs.runner import report_progress
@@ -243,9 +244,43 @@ async def export_dataset_job(payload: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+async def _schedule_retries(session: AsyncSession, deliveries: list[WebhookDelivery]) -> list[str]:
+    """Queue a delayed re-attempt for each delivery that is worth retrying.
+
+    The backoff is expressed to the queue rather than slept inside this handler: a worker
+    holding a coroutine open for eighty seconds to wait out one failing receiver is a worker
+    not delivering anybody else's events.
+    """
+    queued: list[str] = []
+    for delivery in deliveries:
+        if delivery.delivered_at is not None:
+            continue
+        if not webhook_service.should_retry(delivery.status_code, attempts=delivery.attempts):
+            logger.info(
+                "webhook delivery given up",
+                extra={
+                    "delivery_id": str(delivery.id),
+                    "event": delivery.event,
+                    "attempts": delivery.attempts,
+                    "status_code": delivery.status_code,
+                },
+            )
+            continue
+        task = await background_service.enqueue(
+            session,
+            kind="webhook.retry",
+            payload={"delivery_id": str(delivery.id)},
+            resource_type="webhook_delivery",
+            resource_id=delivery.id,
+            delay_seconds=webhook_service.retry_delay(delivery.attempts),
+        )
+        queued.append(str(task.id))
+    return queued
+
+
 @job_handler("webhook.dispatch")
 async def dispatch_webhook(payload: dict[str, Any]) -> dict[str, Any]:
-    """Deliver one event to every subscribed webhook."""
+    """Deliver one event to every subscribed webhook, retrying the ones worth retrying."""
     event = WebhookEvent(payload["event"])
     factory = get_sessionmaker()
     async with factory() as session:
@@ -259,12 +294,37 @@ async def dispatch_webhook(payload: dict[str, Any]) -> dict[str, Any]:
             project_id=(uuid.UUID(payload["project_id"]) if payload.get("project_id") else None),
         )
         await session.commit()
-        succeeded = sum(
-            1
-            for delivery in deliveries
-            if delivery.status_code is not None and delivery.status_code < 400
-        )
-    return {"attempted": len(deliveries), "succeeded": succeeded}
+        succeeded = sum(1 for delivery in deliveries if delivery.delivered_at is not None)
+        retries = await _schedule_retries(session, deliveries)
+    return {"attempted": len(deliveries), "succeeded": succeeded, "retries_queued": len(retries)}
+
+
+@job_handler("webhook.retry")
+async def retry_webhook_delivery(payload: dict[str, Any]) -> dict[str, Any]:
+    """Re-attempt one delivery, and queue the next attempt if it fails again.
+
+    The chain terminates on its own: `should_retry` refuses once `attempts` reaches
+    `MAX_ATTEMPTS`, and refuses immediately for a 4xx that will never become a 2xx. There is
+    no separate "give up" state to write — a delivery nobody will try again is exactly one
+    with no success and no retry queued, which `webhook_service.exhausted` derives.
+    """
+    delivery_id = uuid.UUID(payload["delivery_id"])
+    factory = get_sessionmaker()
+    async with factory() as session:
+        delivery = await webhook_service.redeliver(session, delivery_id)
+        if delivery is None:
+            return {"skipped": "delivery no longer exists"}
+        await session.commit()
+
+        delivered = delivery.delivered_at is not None
+        retries = [] if delivered else await _schedule_retries(session, [delivery])
+        return {
+            "delivery_id": str(delivery_id),
+            "attempts": delivery.attempts,
+            "status_code": delivery.status_code,
+            "delivered": delivered,
+            "retry_queued": bool(retries),
+        }
 
 
 @job_handler("media.reclaim_blobs")

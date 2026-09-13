@@ -58,12 +58,17 @@ class InlineJobQueue:
         *,
         task_id: str,
         queue: str = "default",
+        delay_seconds: float = 0.0,
     ) -> JobSubmission:
         get_handler(kind)  # fail fast on an unregistered kind, before the row is committed
         if self._wait:
+            # Deliberately ignores the delay. This mode exists so a test can drive a job to
+            # completion synchronously; honouring a webhook's 80-second backoff would make
+            # the suite sleep for real, and the thing under test is the retry happening, not
+            # the wall clock.
             await run_task(task_id)
         else:
-            task = asyncio.create_task(self._run_quietly(task_id))
+            task = asyncio.create_task(self._run_quietly(task_id, delay_seconds))
             self._pending.add(task)
             task.add_done_callback(self._pending.discard)
         return JobSubmission(task_id=task_id, queue=queue, kind=kind)
@@ -74,9 +79,15 @@ class InlineJobQueue:
             await asyncio.gather(*tuple(self._pending), return_exceptions=True)
 
     @staticmethod
-    async def _run_quietly(task_id: str) -> None:
+    async def _run_quietly(task_id: str, delay_seconds: float = 0.0) -> None:
         try:
+            if delay_seconds > 0:
+                await asyncio.sleep(delay_seconds)
             await run_task(task_id)
+        except asyncio.CancelledError:
+            # Shutdown while waiting out a backoff. The row stays pending rather than being
+            # marked failed, because nothing was attempted.
+            raise
         except Exception:
             logger.warning("inline job failed", extra={"task_id": task_id})
 
@@ -101,9 +112,14 @@ class DramatiqJobQueue:
         *,
         task_id: str,
         queue: str = "default",
+        delay_seconds: float = 0.0,
     ) -> JobSubmission:
         get_handler(kind)
-        await asyncio.to_thread(self._actor.send_with_options, args=(task_id,), queue_name=queue)
+        options: dict[str, Any] = {"args": (task_id,), "queue_name": queue}
+        if delay_seconds > 0:
+            # Dramatiq counts the delay in milliseconds.
+            options["delay"] = int(delay_seconds * 1000)
+        await asyncio.to_thread(self._actor.send_with_options, **options)
         return JobSubmission(task_id=task_id, queue=queue, kind=kind)
 
 

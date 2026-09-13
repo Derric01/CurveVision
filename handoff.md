@@ -5,7 +5,7 @@
 > [`AGENTS.md`](./AGENTS.md) first; it is the working contract. Update this file after every
 > iteration, including the ones that mostly failed.
 >
-> **Last updated:** 2026-09-13 (iteration 24) · branch `claude/curvevision-platform-build-n1g71n` · PRs [#1](https://github.com/Derric01/CurveVision/pull/1)–[#10](https://github.com/Derric01/CurveVision/pull/10) merged (iterations 1–16) · PRs [#11](https://github.com/Derric01/CurveVision/pull/11)–[#12](https://github.com/Derric01/CurveVision/pull/12) merged (iterations 17–21) · iterations 22–23 in open PR [#13](https://github.com/Derric01/CurveVision/pull/13)
+> **Last updated:** 2026-09-13 (iteration 25) · branch `claude/curvevision-platform-build-n1g71n` · PRs [#1](https://github.com/Derric01/CurveVision/pull/1)–[#10](https://github.com/Derric01/CurveVision/pull/10) merged (iterations 1–16) · PRs [#11](https://github.com/Derric01/CurveVision/pull/11)–[#12](https://github.com/Derric01/CurveVision/pull/12) merged (iterations 17–21) · iterations 22–23 in open PR [#13](https://github.com/Derric01/CurveVision/pull/13)
 
 ---
 
@@ -69,7 +69,13 @@ was the last unconnected piece of the desktop application.
 
 ## Next best action
 
-**A browser harness in CI.** Nine exist and between them they have found every defect
+**A browser harness in CI.** Nine exist and between them they have found every defect the unit
+suites missed — a CSP that blocked the app's own scripts, frames that never rendered, a
+swallowed decode error, a ref-timing bug that had disconnected seven controls. None of them
+runs automatically. They need a packaged sidecar and a Chromium, so nightly or pre-release
+rather than per-push. **Note the sidecar embeds `web/dist`:** a run needs
+`npm --prefix web run build` *and* a sidecar rebuild, or it silently tests the previous
+frontend — which has already cost one confusing debugging session. Nine exist and between them they have found every defect
 the unit suites missed, including a ref-timing bug that had disconnected seven controls. They
 need a packaged sidecar and a Chromium, so nightly or pre-release rather than per-push. Note
 the sidecar embeds `web/dist`: a run needs `npm --prefix web run build` **and** a sidecar
@@ -282,7 +288,7 @@ full docs set including seven ADRs.
 | Track keyframe **editing** | Complete: `K` adds or removes a keyframe, `O` marks a departure, and a marker can be dragged along its lane. Verified in a browser, not only in unit tests. |
 | Pre-building chunks after upload | Done: probing chains the build once the frame numbering is settled, so the first annotator no longer pays the decode. Not fused into one pass — see the iteration note for why that is not available in general. |
 | Surfacing an uncorrected frame count | When a task already carries annotations, `media.probe_task` declines the correction and says so in its result. Nothing shows that to a user. |
-| Webhooks | Delivery works and is signed; retry/backoff is not wired to the queue. |
+| Webhooks | Complete: signed delivery, capped exponential backoff with jitter, and a retry policy that distinguishes "the receiver is struggling" from "the receiver said no". |
 | Mask brush, keypoint UI | Storage, export and the model exist on both sides; neither drawing tool does. |
 | Quality reports | Complete end to end and driven in a browser: the task page creates the answer key and shows each job's latest F1, the editor shows the report and seeks to a conflict on click, and a stale report is marked stale. What is left: the comparison runs inline rather than on the `quality` queue, which a very large ground truth would change. |
 
@@ -307,6 +313,44 @@ being updated and this one was not. Check it against* Completed *before trusting
 ---
 
 ## Last iteration
+
+**Webhook delivery survives a failing receiver — the last item Beta named.**
+Delivery was signed and recorded; nothing retried it, so a receiver that was restarting when
+an event fired lost it permanently. `webhook.retry` now re-attempts with capped exponential
+backoff (10s, 20s, 40s, 80s, capped at 10 minutes) and ±20% jitter.
+
+**The policy decision worth knowing: who is wrong decides whether to retry.** A 5xx, a
+timeout or a refused connection says the receiver is struggling and the same request may work
+later. A 4xx says the receiver understood and rejected it — a rotated secret, a decommissioned
+path — and repeating it cannot change the answer. Retrying those is not resilience; it is a
+slow burst of identical failing requests against somebody's endpoint, which looks like an
+attack and fills their logs. Two exceptions, because both mean *later* rather than *never*:
+**408** and **429**.
+
+**A pre-existing bug this uncovered, and it was load-bearing.** `dispatch` stamped
+`delivered_at` for **any** response, a 500 included — so a failed delivery was
+indistinguishable from a good one in the table, and would have made every retry a no-op, since
+a delivery that looks delivered is never re-attempted. `delivered_at` is now set only by a
+2xx. Restoring the old line fails four tests, which is how it was confirmed rather than
+assumed.
+
+**A retry is the same event again**: identical bytes, identical `delivery_id`, freshly signed.
+A receiver that processed an attempt and then failed to reply can deduplicate on that id
+rather than doing the work twice. Delivery is **at-least-once**, and `docs/API.md` now says so.
+
+**No new column.** "Gave up" is derivable — no success, and `should_retry` says no — so
+`exhausted()` computes it rather than a column duplicating what `attempts`, `status_code` and
+`delivered_at` already say and eventually disagreeing with them.
+
+The queue grew `delay_seconds`: Dramatiq takes it as `delay` in milliseconds, the inline queue
+sleeps before running, and the test queue ignores it deliberately so the suite does not sleep
+out an 80-second backoff for real.
+
+**Webhooks had no tests at all** before this. There are 35 now.
+
+---
+
+## Iteration 24
 
 **A video's chunks are built at upload, not by the first person to open it.**
 `media.build_chunks` had existed with nothing enqueueing it, so a chunk was only ever built
@@ -1156,9 +1200,13 @@ present. Both corrected; the second is a licensing claim and was the more urgent
 
 ```
 ./scripts/check.sh                    all 9 steps green
-  ruff · ruff format · mypy · pytest server (399) · pytest sdk (13)
+  ruff · ruff format · mypy · pytest server (434) · pytest sdk (13)
   notices (52 deps) · eslint · tsc · vitest (317)
 ```
+
+Iteration 25 added 35 server tests (434, up from 399) — webhooks had none at all, which is
+its own finding for a feature the roadmap called partly built. The `delivered_at` fix was
+confirmed by restoring the old line and watching four tests fail.
 
 Iteration 24 added 5 server tests (399, up from 394) and no web tests — the change is
 entirely server-side. All five were confirmed to fail with the chaining reverted, and the one

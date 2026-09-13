@@ -58,7 +58,7 @@ application — and produce a real dataset with it.
 | Model predictions as accept/reject suggestions | **Done** |
 | Dataset versions with immutable releases | **Done** |
 | REST API and API tokens | **Done** |
-| Webhooks with HMAC signing | **In Progress** — delivery works; retry/backoff is not wired to the queue |
+| Webhooks with HMAC signing | **Done** — delivery is signed, and a failure that is worth retrying is retried with capped exponential backoff and jitter, up to 5 attempts. A 4xx is not retried: the receiver understood and said no, so repeating it cannot change the answer. A retry resends the same `delivery_id` and bytes, so a receiver can deduplicate |
 | Video annotation | **Done** — a video task is annotatable; frames are served from chunks decoded one pass at a time (17× fewer decodes when stepping through frames; see the implementation plan for the measurements), the editor fetches a chunk rather than 36 frames, and **chunks are built when the video is uploaded** rather than by whoever opens the task first. A missing chunk still falls back to decoding one frame, so a frame is never unavailable, only slower |
 | Track editing UI (keyframe timeline) | **Done** — the timeline shows every track's keyframes and where it is present, `,`/`.` step between them, `K` adds or removes a keyframe, `O` marks where the object leaves, and a keyframe can be **dragged along its lane** to another frame, keeping its geometry. A drop onto an occupied frame is refused rather than merged |
 | Intelligent scissors (edge-snapping boundaries) | **Done** — live-wire, implemented directly rather than by loading a ~10 MB OpenCV build; see [ADR 0009](./adr/0009-intelligent-scissors.md) |
@@ -67,9 +67,10 @@ application — and produce a real dataset with it.
 | Ground-truth quality reports | **Done** — a task can hold a ground-truth job; scoring an annotation job against it gives precision/recall/F1 per label plus classified conflicts (missing, extra, wrong label, poor overlap), and the editor shows the report beside the frames, where clicking a conflict seeks to it. A report records which version of the job it scored, so a stale one is marked stale rather than read as current. The comparison still runs inline rather than as a background job, and a ground-truth job is created from the task page, which also shows each job's latest F1 and marks a stale one |
 | Resumable uploads | *Planned* — the storage model exists; there are no endpoints yet |
 
-**What "Beta" needs before we call it that:** webhook retries. Video annotation and the
-track timeline are both Done as of this iteration; retry/backoff is the one item left, and
-it is deliberately not being called Done until delivery survives a failing endpoint.
+**Beta's criteria are met.** Video annotation, the track timeline and webhook retries are
+all Done and tested. Whether to *call* a release Beta is a judgement about maturity rather
+than a checklist, and nobody has run this in anger yet — the honest position is that the work
+Beta named is finished, and the label waits for use.
 
 ---
 
