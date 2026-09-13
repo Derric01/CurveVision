@@ -6,6 +6,8 @@ import { ArrowLeft, FolderOpen, PenLine } from 'lucide-react';
 import { api } from '@/api/client';
 import { chooseFolder, isDesktop, onOpenFolder } from '@/desktop';
 import { summariseImport, type ImportSummary } from './localImport';
+import { GroundTruthPanel } from './GroundTruthPanel';
+import { latestReportByJob, splitJobs } from './groundTruth';
 import {
   Badge,
   Button,
@@ -22,6 +24,14 @@ export function TaskPage() {
 
   const task = useQuery({ queryKey: ['task', taskId], queryFn: () => api.task(taskId) });
   const jobs = useQuery({ queryKey: ['jobs', taskId], queryFn: () => api.taskJobs(taskId) });
+  // Scores are a nice-to-have on this page, not a reason to fail it: a task with no
+  // ground-truth job has no reports, and a viewer without the permission gets a 403. Either
+  // way the job list must still render.
+  const quality = useQuery({
+    queryKey: ['task-quality', taskId],
+    queryFn: () => api.taskQuality(taskId),
+    retry: false,
+  });
 
   const queryClient = useQueryClient();
   const [importing, setImporting] = useState(false);
@@ -73,6 +83,8 @@ export function TaskPage() {
   if (task.error) return <ErrorNotice error={task.error} />;
 
   const progress = task.data?.progress;
+  const split = splitJobs(jobs.data);
+  const scores = latestReportByJob(quality.data);
 
   return (
     <div className="mx-auto max-w-4xl space-y-6 px-6 py-8">
@@ -166,12 +178,20 @@ export function TaskPage() {
         </Panel>
       )}
 
+      {task.data && (
+        <GroundTruthPanel
+          taskId={taskId}
+          frameCount={task.data.frame_count}
+          groundTruth={split.groundTruth}
+        />
+      )}
+
       <Panel title="Jobs">
         {jobs.isLoading ? (
           <Spinner />
-        ) : jobs.data && jobs.data.length > 0 ? (
+        ) : split.annotation.length > 0 ? (
           <ul className="divide-y divide-ink-800">
-            {jobs.data.map((job) => (
+            {split.annotation.map((job) => (
               <li key={job.id}>
                 <Link
                   to={`/jobs/${job.id}`}
@@ -191,6 +211,27 @@ export function TaskPage() {
                     </p>
                   </div>
                   <div className="flex items-center gap-3">
+                    {(() => {
+                      // The score, where there is one. Shown next to the state because the
+                      // two answer different questions — "has it been reviewed" and "was it
+                      // right" — and a job can be accepted with a poor score.
+                      const report = scores.get(job.id);
+                      if (!report) return null;
+                      return (
+                        <span
+                          className="font-mono text-xs tabular-nums text-ink-400"
+                          title={`Scored against ground truth at IoU ≥ ${report.iou_threshold}`}
+                        >
+                          F1 {Math.round(report.f1 * 100)}%
+                          {report.annotation_version !== null &&
+                            report.annotation_version !== job.annotation_version && (
+                              <span className="ml-1 text-amber-400" title="The job has changed since it was scored">
+                                stale
+                              </span>
+                            )}
+                        </span>
+                      );
+                    })()}
                     <Badge tone={jobStateTone(job.state)}>{job.state.replace('_', ' ')}</Badge>
                     <PenLine size={15} className="text-ink-500" />
                   </div>
