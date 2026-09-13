@@ -71,11 +71,29 @@ class TestRegistry:
             get_format("nonexistent")
         assert "coco" in str(excinfo.value)
 
-    def test_every_format_declares_its_capabilities_honestly(self) -> None:
+    def test_every_format_declares_it_can_carry_something(self) -> None:
+        """A format must be able to represent *something*, or it is a no-op with a name.
+
+        Shapes are the usual answer and were once the only one. A whole-image
+        classification format legitimately carries no geometry at all — its annotation is
+        which directory the image lands in — so the guard is "shapes or tags", not "shapes".
+        Widening it to accept a format that carries neither would let an empty exporter
+        through, which is what this test is for.
+        """
         for fmt in all_formats():
-            assert fmt.capabilities.shape_types, f"{fmt.id} declares no shape types"
+            capabilities = fmt.capabilities
+            assert capabilities.shape_types or capabilities.supports_tags, (
+                f"{fmt.id} declares neither shape types nor tag support"
+            )
             assert fmt.extension
             assert fmt.version
+
+    def test_a_format_that_carries_nothing_would_be_caught(self) -> None:
+        """The guard above only means something if it can fail."""
+        from curvevision.formats import FormatCapabilities
+
+        empty = FormatCapabilities(shape_types=(), supports_tags=False)
+        assert not (empty.shape_types or empty.supports_tags)
 
     def test_capabilities_report_what_would_be_dropped(self) -> None:
         coco = get_format("coco")

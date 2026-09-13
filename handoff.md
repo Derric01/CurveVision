@@ -5,7 +5,7 @@
 > [`AGENTS.md`](./AGENTS.md) first; it is the working contract. Update this file after every
 > iteration, including the ones that mostly failed.
 >
-> **Last updated:** 2026-09-13 (iteration 16) · branch `claude/curvevision-platform-build-n1g71n` · PRs [#1](https://github.com/Derric01/CurveVision/pull/1)–[#9](https://github.com/Derric01/CurveVision/pull/9) merged (iterations 1–15) · iteration 16 is the open PR on this branch
+> **Last updated:** 2026-09-13 (iteration 17) · branch `claude/curvevision-platform-build-n1g71n` · PRs [#1](https://github.com/Derric01/CurveVision/pull/1)–[#10](https://github.com/Derric01/CurveVision/pull/10) merged (iterations 1–16) · iteration 17 is the open PR on this branch
 
 ---
 
@@ -169,7 +169,14 @@ milliseconds. Bindings match `PathTool`. Output is simplified to an editable pol
 Verified in Chromium against a disc: every vertex within 1.5 px of the rim.
 [ADR 0009](./docs/adr/0009-intelligent-scissors.md).
 
-**Eight dataset formats** — COCO, YOLO, Pascal VOC, KITTI, MOTChallenge, CVAT XML,
+**Eleven dataset formats** — COCO, all five Ultralytics YOLO tasks (detection, segmentation,
+OBB, pose, classification), Pascal VOC, KITTI, MOTChallenge, CVAT XML, segmentation masks and
+the lossless native one. Each declares what it can represent and warns before an export drops
+anything. **CVAT XML round-trips both directions**; **YOLO OBB and CVAT XML are the only two
+that keep a rotated box's angle**. Round-tripped through their own readers in
+`tests/unit/test_formats_robotics.py` and `test_formats_yolo_variants.py`.
+
+**Superseded:** **Eight dataset formats** — COCO, YOLO, Pascal VOC, KITTI, MOTChallenge, CVAT XML,
 segmentation masks and the lossless native one. Each declares what it can represent and
 warns before an export drops anything. **CVAT XML round-trips in both directions**, which is
 what stops work done elsewhere being stranded here. KITTI and MOT are the robotics-facing
@@ -278,6 +285,44 @@ being updated and this one was not. Check it against* Completed *before trusting
 ---
 
 ## Last iteration
+
+**The other three Ultralytics YOLO tasks — and a shipped format that was quietly wrong.**
+
+Orienting for "we have YOLO export too, I hope all the types industry wants" turned up
+something better than a feature request: **plain YOLO was silently discarding rotation**.
+
+A rotated rectangle is stored as its *unrotated* box plus an angle. The exporter took
+`points[:4]` and normalised them, so a 100×20 bar turned 90° — which occupies 20×100 on
+screen — was written as **100×20**. A box that does not contain the object it names. Worse,
+`capabilities.shape_types` did *not* list `ROTATED_RECTANGLE`, so the pre-export warning told
+the user rotated shapes had been **dropped** while they were being written wrong. Silently
+bad data plus a warning saying the opposite.
+
+Fixed by taking the axis-aligned bounds of the *rotated corners*, which is the honest
+detection answer, and by declaring the shape type so the capability report stops lying.
+`rotated_corners()` is now a shared helper in `formats/base.py`, since three formats need it.
+
+**Three new formats**, each a task Ultralytics trains and somebody's industry depends on:
+
+* **YOLO OBB** — four corners per object, so a rotated box **keeps its angle**. The only
+  format here besides CVAT XML that does. Aerial imagery, industrial inspection, document
+  layout: wrap any of those in a straight box and most of the box is background. Imports too,
+  and a quadrilateral that is *not* rectangular comes back as a **polygon** rather than being
+  squared off into a box it does not fit.
+* **YOLO Pose** — skeletons as keypoints with 0/1/2 visibility. A missing joint is **padded**
+  rather than omitted, because a short line shifts every later value into the wrong joint.
+  `data.yaml` carries `kpt_shape`, which Ultralytics needs to size the pose head.
+* **YOLO Classification** — the odd one out: no label files, because the **directory tree is
+  the annotation**. That is also its limit, so a frame with two tags is reported rather than
+  filed under whichever came first.
+
+**An existing test had to be widened, carefully.** `test_every_format_declares_its_
+capabilities_honestly` asserted every format declares at least one shape type — true until a
+whole-image classification format, which legitimately carries none. Widened to "shapes **or**
+tags" rather than deleted, with a companion test proving the guard can still fail, because a
+guard that cannot fail is worse than no guard.
+
+### Iteration 16
 
 **Four new dataset formats, and a red CI check on main fixed.**
 
@@ -807,9 +852,15 @@ present. Both corrected; the second is a licensing claim and was the more urgent
 
 ```
 ./scripts/check.sh                    all 9 steps green
-  ruff · ruff format · mypy · pytest server (361) · pytest sdk (13)
+  ruff · ruff format · mypy · pytest server (389) · pytest sdk (13)
   notices (52 deps) · eslint · tsc · vitest (207)
 ```
+
+Iteration 17 added 28 server tests (389, up from 361). The rotation fix is pinned by
+`test_a_rotated_box_exports_its_real_extent`, confirmed to fail when the fix is reverted, and
+by `test_the_capabilities_no_longer_claim_it_is_dropped` for the second half of the bug. The
+Docker check fixed last iteration was **confirmed red→green on main**: run 25 (the PR #9
+merge) failed, run 27 (the PR #10 merge) succeeded.
 
 Iteration 16 added 35 server tests (361, up from 326) and 2 web tests (207). Every new
 format is round-tripped through its own reader: an exporter that writes something its own
@@ -953,6 +1004,7 @@ missing, and it is the reason this iteration found anything):
 | Video tests would have skipped silently in CI | `av` was in the `media` extra but not `dev`, and CI installs `[dev]`. `pytest.importorskip` would have skipped every video test while the suite reported green. | Added to `dev`; the tests run rather than skip |
 | The editor's label list was cut through the middle of a row | A fixed `max-h-52` (13rem) cap on the list; six labels need ~14rem. Functional — it scrolled — but it looked broken, and a six-label schema is not unusual. Now `max-h-[30vh]`. | Regenerated screenshot: all six labels visible, `OBJECTS` heading intact below |
 | Two documents claimed no third-party source is present, while a third section of one of them listed the file that is | Iteration 3 corrected that sentence in the README only; two other documents kept their copies. A licensing claim that contradicts itself three sections apart is worse than no claim. | Both now defer to **THIRD_PARTY_NOTICES § Adapted source** as the authoritative list |
+| A **rotated rectangle exported as its unrotated box** in YOLO | A rotated rectangle is stored as the unrotated box plus an angle; the exporter used `points[:4]` directly, so a 100×20 bar turned 90° (occupying 20×100) was written as 100×20 — a box that does not contain its object. `capabilities` also omitted `ROTATED_RECTANGLE`, so the warning said such shapes were *dropped* while they were being written wrong. | `test_a_rotated_box_exports_its_real_extent` and `test_the_capabilities_no_longer_claim_it_is_dropped`; the first confirmed to fail with the fix reverted |
 | Every object on a job seam was **exported twice** | A task with `overlap > 0` shares frames between two jobs by design; export appended each job's shapes instead of reconciling them. The archive is well-formed and nothing errors, so a model simply trains on doubled boxes. `overlap` is API-settable and had no test coverage at all. | `test_one_object_annotated_in_both_jobs_is_exported_once`, written to fail first |
 | Two unrelated tracks in different jobs shared one `track_id` | The id fell back to a job-local `enumerate` index, so job 1's first object and job 2's first object were both `0`. Any consumer grouping by track id welds them into one. No overlap needed — a plain segmented task was enough. | `test_two_unrelated_tracks_in_different_jobs_get_different_ids`, written to fail first |
 | A track crossing a job seam was exported as two objects | Even once the duplicate was removed, the two halves kept different ids, so the export said the car vanished and a stranger appeared — the precise discontinuity the overlap exists to prevent. | `test_a_track_crossing_the_seam_keeps_one_identity`; confirmed to fail with unification disabled |
@@ -997,6 +1049,15 @@ missing, and it is the reason this iteration found anything):
   annotators' boxes. Averaging is defensible and is what a consensus pass would do; picking
   one is predictable, which matters more when nobody is watching. `consensus/intersect_merge.py`
   upstream is the piece to adapt if averaging is ever wanted.
+- **YOLO Pose and Classification are export-only.** Pose because `data.yaml` records how
+  many keypoints there are but not what they are called, so an import would attach every
+  joint to the wrong name; classification because the directory tree *is* the annotation, so
+  importing means matching images to frames and a mismatch tags the wrong picture. Both
+  refuse with the reason rather than half-working.
+- **YOLO OBB writes a polygon as its axis-aligned bounding quadrilateral**, which is a real
+  approximation rather than a minimum-area fit. Polygons belong in `yolo` segmentation; the
+  capability note says so. A proper rotating-calipers minimum-area rectangle would be the fix
+  if anyone needs it.
 - **The scissors run on the main thread.** A cursor move that jumps across a large frame can
   cost ~100 ms in the worst case (full 1920 px width, 285k pixels settled). Typical use is
   single-digit milliseconds because the search is lazy, but a very long drag will stutter. A
@@ -1069,6 +1130,13 @@ missing, and it is the reason this iteration found anything):
   vectors, and that parity is what makes client-side scrubbing safe. Half of a matched pair
   cannot be swapped for a different algorithm. Revisit when the mask brush and keypoint UI
   exist and the parity can be re-established on both sides at once.
+- **Deleting the "every format declares shape types" assertion** when a whole-image
+  classification format made it fail. The format is right and the assertion was too narrow,
+  but removing it would have left nothing stopping an exporter that carries nothing at all.
+  Widened to "shapes **or** tags", with a companion test proving the guard can still fail.
+- **Forcing every four-corner OBB label back into a rotated rectangle on import.** The format
+  stores a quadrilateral, which is more general; squaring off one that is not rectangular
+  quietly moves somebody's annotation. Non-rectangular quads come back as polygons.
 - **Loading OpenCV.js for the scissors, as upstream does.** 9,991,739 bytes for one tool, in
   a web bundle that is ~320 kB today and a desktop app that ships as one executable. Their
   196 lines are state management; the algorithm is OpenCV's C++, so reusing their code would

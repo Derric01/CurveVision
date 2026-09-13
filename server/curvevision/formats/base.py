@@ -211,3 +211,29 @@ def normalise_rectangle(points: list[float]) -> list[float]:
     """
     x1, y1, x2, y2 = points[:4]
     return [min(x1, x2), min(y1, y2), max(x1, x2), max(y1, y2)]
+
+
+def rotated_corners(points: list[float], rotation: float) -> list[float]:
+    """The four corners of a rotated rectangle, in image pixels.
+
+    A rotated rectangle is stored as its *unrotated* box plus an angle in degrees about the
+    box centre — the editor draws it that way and the database records it that way. Every
+    consumer outside the editor needs the actual corners, and computing them from
+    ``points[:4]`` alone silently produces the unrotated box: for a 100x20 bar turned 90
+    degrees that is a 100x20 claim about something that occupies 20x100.
+
+    Returned clockwise from the top-left of the unrotated box, which is the winding
+    Ultralytics' oriented-bounding-box format expects.
+    """
+    import math
+
+    x1, y1, x2, y2 = normalise_rectangle(points)
+    cx, cy = (x1 + x2) / 2, (y1 + y2) / 2
+    radians = math.radians(rotation)
+    cos, sin = math.cos(radians), math.sin(radians)
+
+    corners: list[float] = []
+    for px, py in ((x1, y1), (x2, y1), (x2, y2), (x1, y2)):
+        dx, dy = px - cx, py - cy
+        corners.extend([cx + dx * cos - dy * sin, cy + dx * sin + dy * cos])
+    return corners

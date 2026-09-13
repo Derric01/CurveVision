@@ -261,7 +261,10 @@ which is far too late.
 | Format | Import | Export | Carries | Use it for |
 | --- | :-: | :-: | --- | --- |
 | **COCO** | ✓ | ✓ | boxes, polygons, keypoints | the default for detection and segmentation |
-| **YOLO** | ✓ | ✓ | boxes | training a YOLO model directly |
+| **YOLO** | ✓ | ✓ | boxes, segmentation polygons | training a YOLO model directly |
+| **YOLO OBB** | ✓ | ✓ | **oriented** boxes — the angle survives | aerial and satellite imagery, industrial inspection, document layout |
+| **YOLO Pose** | — | ✓ | skeletons as keypoints with visibility | human and animal pose models |
+| **YOLO Classification** | — | ✓ | one whole-image tag, as a directory tree | image classification |
 | **Pascal VOC** | ✓ | ✓ | boxes | older toolchains that expect it |
 | **KITTI** | ✓ | ✓ | boxes, truncation, occlusion | robotics and autonomous driving |
 | **MOTChallenge** | ✓ | ✓ | boxes **with object identity across frames** | tracking; anything where "the same object" matters |
@@ -276,6 +279,12 @@ CurveVision annotates 2D images and has no 3D extent to report; zeros and a rota
 **Segmentation masks are export-only on purpose.** A mask does not record the polygons it
 was painted from, and tracing contours back out would produce shapes with hundreds of
 vertices that no annotator drew. Import COCO or CVAT XML instead.
+
+**A rotated rectangle keeps its angle only in YOLO OBB and CVAT XML.** Plain YOLO, COCO,
+KITTI and MOT have no oriented-box primitive, so a rotated shape is written as the
+axis-aligned box around its *rotated corners* — the smallest straight box that actually
+contains the object. That is the right answer for a detection dataset and it is still a
+loss, so `GET /formats` says so before you rely on it.
 
 ## AI-assisted annotation
 
