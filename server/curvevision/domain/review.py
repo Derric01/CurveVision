@@ -119,5 +119,15 @@ class QualityReport(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     precision: Mapped[float] = mapped_column(Float, default=0.0, nullable=False)
     recall: Mapped[float] = mapped_column(Float, default=0.0, nullable=False)
     f1: Mapped[float] = mapped_column(Float, default=0.0, nullable=False)
+    #: The job's `annotation_version` at the moment it was scored.
+    #:
+    #: A quality report is a statement about annotations as they were, and the annotations
+    #: keep moving. Without this, a report reads as current however much work has landed
+    #: since — and it fails in the direction that matters: an annotator fixes everything,
+    #: the old F1 of 0.4 still shows, and a reviewer rejects the job on a number that no
+    #: longer describes it. Comparing this against the job's version now is the only way a
+    #: reader can tell. Nullable because reports written before this column existed
+    #: genuinely do not know, and guessing a version for them would be worse than saying so.
+    annotation_version: Mapped[int | None] = mapped_column(Integer)
     #: Per-label breakdown and the list of conflicting objects.
     details: Mapped[dict[str, Any]] = mapped_column(JSONDocument, default=dict, nullable=False)

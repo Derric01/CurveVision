@@ -167,6 +167,7 @@ breakdown and every conflict named:
 ```json
 {
   "iou_threshold": 0.5, "precision": 0.9, "recall": 0.75, "f1": 0.818,
+  "annotation_version": 14,
   "details": {
     "compared_frames": 50, "matched": 18, "missing": 6, "extra": 2, "mean_iou": 0.87,
     "per_label": {
@@ -174,20 +175,30 @@ breakdown and every conflict named:
                  "precision": 1.0, "recall": 0.923, "f1": 0.96, "mean_iou": 0.91 }
     },
     "conflicts": [
-      { "kind": "missing", "frame": 12, "ground_truth_shape_id": "…", "iou": null },
+      { "kind": "missing", "frame": 12, "label_id": null,
+        "expected_label_id": "3f2a…", "ground_truth_shape_id": "…", "iou": null },
       { "kind": "wrong_label", "frame": 30, "shape_id": "…",
-        "label_id": "…", "expected_label_id": "…", "iou": 0.88 },
-      { "kind": "poor_overlap", "frame": 31, "shape_id": "…", "iou": 0.41 }
+        "label_id": "9c17…", "expected_label_id": "3f2a…", "iou": 0.88 },
+      { "kind": "poor_overlap", "frame": 31, "shape_id": "…",
+        "label_id": "3f2a…", "expected_label_id": "3f2a…", "iou": 0.41 },
+      { "kind": "extra", "frame": 44, "shape_id": "…",
+        "label_id": "9c17…", "expected_label_id": null }
     ]
   }
 }
 ```
 
 `per_label` is keyed by label id, as everything else in this API is; resolve names from
-`GET /projects/{id}/labels`. `mean_iou` averages over matched pairs only — it answers "how
-tight were the boxes you got right", not "how right were you"; that is what `f1` is for.
+`GET /projects/{id}/labels`. A conflict's two label fields each mean exactly one thing on
+every kind: **`label_id` is the annotated shape's label** — `null` on `missing`, where
+nothing was annotated — and **`expected_label_id` is the ground truth's** — `null` on
+`extra`, where the ground truth has nothing there. They can differ on a `poor_overlap` as
+well as a `wrong_label`, because candidates are paired by geometry rather than by label.
 
-Five things worth knowing about what the number means:
+`mean_iou` averages over matched pairs only — it answers "how tight were the boxes you got
+right", not "how right were you"; that is what `f1` is for.
+
+Six things worth knowing about what the number means:
 
 * **A box drawn too loosely costs precision as well as recall.** Below the threshold it is
   not that object, so it is a false positive exactly as an invented box is. It is reported
@@ -205,8 +216,21 @@ Five things worth knowing about what the number means:
 * **Reading the ground truth's annotations takes reviewer rank**, or assignment to that
   job. An annotator who can read the answer key makes the score meaningless.
 
+* **A report says which version of the job it scored.** `annotation_version` is the job's
+  version at the moment of the comparison. Compare it against the job's `annotation_version`
+  now: if they differ, the annotations have moved on and the score describes work that no
+  longer exists. Without that, the failure runs the wrong way — an annotator fixes
+  everything, the old F1 still reads 0.5, and a reviewer rejects the job on a measurement of
+  something that is no longer there. It is `null` on reports written before the server
+  recorded it, which is an honest "cannot say" rather than a guess.
+
 Computing a report is a `review` action; a ground-truth job cannot be scored against
 itself. The comparison runs inline rather than as a background job.
+
+The editor shows all of this in its right-hand panel: the three scores, a per-label
+breakdown ordered worst-first, and the conflicts as a list where **clicking one seeks to its
+frame** — a conflict is a place, not a statistic. A report whose job has changed since is
+marked stale there rather than presented as current.
 
 ## Overlapping jobs, and what export does with them
 
@@ -261,7 +285,10 @@ which is far too late.
 | Format | Import | Export | Carries | Use it for |
 | --- | :-: | :-: | --- | --- |
 | **COCO** | ✓ | ✓ | boxes, polygons, keypoints | the default for detection and segmentation |
-| **YOLO** | ✓ | ✓ | boxes | training a YOLO model directly |
+| **YOLO** | ✓ | ✓ | boxes, segmentation polygons | training a YOLO model directly |
+| **YOLO OBB** | ✓ | ✓ | **oriented** boxes — the angle survives | aerial and satellite imagery, industrial inspection, document layout |
+| **YOLO Pose** | — | ✓ | skeletons as keypoints with visibility | human and animal pose models |
+| **YOLO Classification** | — | ✓ | one whole-image tag, as a directory tree | image classification |
 | **Pascal VOC** | ✓ | ✓ | boxes | older toolchains that expect it |
 | **KITTI** | ✓ | ✓ | boxes, truncation, occlusion | robotics and autonomous driving |
 | **MOTChallenge** | ✓ | ✓ | boxes **with object identity across frames** | tracking; anything where "the same object" matters |
@@ -276,6 +303,12 @@ CurveVision annotates 2D images and has no 3D extent to report; zeros and a rota
 **Segmentation masks are export-only on purpose.** A mask does not record the polygons it
 was painted from, and tracing contours back out would produce shapes with hundreds of
 vertices that no annotator drew. Import COCO or CVAT XML instead.
+
+**A rotated rectangle keeps its angle only in YOLO OBB and CVAT XML.** Plain YOLO, COCO,
+KITTI and MOT have no oriented-box primitive, so a rotated shape is written as the
+axis-aligned box around its *rotated corners* — the smallest straight box that actually
+contains the object. That is the right answer for a detection dataset and it is still a
+loss, so `GET /formats` says so before you rely on it.
 
 ## AI-assisted annotation
 

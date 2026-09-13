@@ -121,6 +121,27 @@ export function framePosition(frame: number, startFrame: number, stopFrame: numb
   return Math.min(1, Math.max(0, (frame - startFrame) / span));
 }
 
+/**
+ * The frame a 0–1 position along the lane refers to — the inverse of `framePosition`.
+ *
+ * Both the click-to-seek and the keyframe drag turn a pointer x into a frame, and they must
+ * agree: a marker that lands one frame away from where the lane says you clicked is the kind
+ * of thing an annotator stops trusting and works around. So the arithmetic lives here once,
+ * with `framePosition`, rather than twice in the component.
+ *
+ * Always inside `[startFrame, stopFrame]`, so a pointer dragged past the end of the lane
+ * pins to the last frame instead of naming one the job does not have.
+ */
+export function frameAtPosition(
+  fraction: number,
+  startFrame: number,
+  stopFrame: number,
+): number {
+  if (stopFrame <= startFrame) return startFrame;
+  const clamped = Math.min(1, Math.max(0, fraction));
+  return startFrame + Math.round(clamped * (stopFrame - startFrame));
+}
+
 /** The keyframe nearest `frame` in `direction`, or null when there is none that way. */
 export function adjacentKeyframe(
   keyframes: number[],

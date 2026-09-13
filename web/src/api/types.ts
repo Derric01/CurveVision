@@ -322,3 +322,66 @@ export interface ProblemDocument {
   errors?: { location: (string | number)[]; message: string; type: string }[];
   [key: string]: unknown;
 }
+
+// ---------------------------------------------------------------------------- quality
+
+/** What went wrong at one place, as `services/comparison.py` classifies it. */
+export type ConflictKind = 'missing' | 'extra' | 'wrong_label' | 'poor_overlap';
+
+export interface QualityConflict {
+  kind: ConflictKind;
+  frame: number;
+  /** The annotated shape's label. Null on a `missing` conflict: nothing was annotated. */
+  label_id: string | null;
+  /** The ground truth's label. Null on an `extra` conflict: the ground truth has nothing. */
+  expected_label_id: string | null;
+  shape_id: string | null;
+  ground_truth_shape_id: string | null;
+  iou: number | null;
+}
+
+export interface QualityLabelScore {
+  matched: number;
+  missing: number;
+  extra: number;
+  precision: number;
+  recall: number;
+  f1: number;
+  mean_iou: number;
+}
+
+/**
+ * The report's `details` blob.
+ *
+ * The server stores this as free-form JSON, so this interface describes what
+ * `ComparisonResult.as_details()` writes rather than anything the API enforces. Read it
+ * through `features/editor/quality.ts`, which tolerates a report missing any of it.
+ */
+export interface QualityDetails {
+  compared_frames?: number;
+  matched?: number;
+  missing?: number;
+  extra?: number;
+  mean_iou?: number;
+  per_label?: Record<string, QualityLabelScore>;
+  conflicts?: QualityConflict[];
+}
+
+export interface QualityReport {
+  id: string;
+  task_id: string;
+  job_id: string | null;
+  ground_truth_job_id: string | null;
+  iou_threshold: number;
+  precision: number;
+  recall: number;
+  f1: number;
+  /**
+   * The job's `annotation_version` when it was scored, or null on a report written before
+   * the server recorded it. Compare against the job's version now to tell whether the
+   * score still describes the work.
+   */
+  annotation_version: number | null;
+  details: QualityDetails;
+  created_at: string;
+}

@@ -28,7 +28,8 @@ means designed, not built.
 | Selection, move, vertex editing, marquee | **Done** |
 | Undo/redo, zoom/pan, keyboard-first workflow | **Done** |
 | Autosave with crash recovery | **Done** |
-| Export: COCO, YOLO, Pascal VOC, CurveVision JSON | **Done** |
+| Export: COCO, YOLO (detection + segmentation), Pascal VOC, CurveVision JSON | **Done** |
+| Export: YOLO OBB, Pose and Classification — the other three Ultralytics tasks | **Done** — OBB imports too, and is the only YOLO variant that keeps a rotated box's angle |
 | Export/import: KITTI, MOTChallenge, CVAT XML | **Done** — the robotics/driving convention, multi-object tracking with identity, and a two-way bridge to CVAT |
 | Export: segmentation masks (indexed PNG) | **Done** — export only; a mask cannot be turned back into the polygons it came from |
 | Import with append/replace conflict policy | **Done** |
@@ -59,11 +60,11 @@ application — and produce a real dataset with it.
 | REST API and API tokens | **Done** |
 | Webhooks with HMAC signing | **In Progress** — delivery works; retry/backoff is not wired to the queue |
 | Video annotation | **In Progress** — a video task is annotatable, and frames are served from chunks decoded one pass at a time (17× fewer decodes when stepping through frames; see the implementation plan for the measurements). The editor fetches a chunk rather than 36 frames. The track-editing timeline is not built |
-| Track editing UI (keyframe timeline) | **In Progress** — the timeline shows every track's keyframes and where it is present, and `,`/`.` step between keyframes; adding, moving and removing keyframes from it is not built |
+| Track editing UI (keyframe timeline) | **Done** — the timeline shows every track's keyframes and where it is present, `,`/`.` step between them, `K` adds or removes a keyframe, `O` marks where the object leaves, and a keyframe can be **dragged along its lane** to another frame, keeping its geometry. A drop onto an occupied frame is refused rather than merged |
 | Intelligent scissors (edge-snapping boundaries) | **Done** — live-wire, implemented directly rather than by loading a ~10 MB OpenCV build; see [ADR 0009](./adr/0009-intelligent-scissors.md) |
 | Mask brush tool | **Planned** — RLE storage and export exist; the drawing tool does not |
 | Skeleton / keypoint editing UI | **Planned** — the model and COCO keypoint export exist |
-| Ground-truth quality reports | **In Progress** — a task can hold a ground-truth job, and scoring an annotation job against it gives precision/recall/F1 per label plus classified conflicts (missing, extra, wrong label, poor overlap) over the API. No UI shows a report yet, and the comparison runs inline rather than as a background job |
+| Ground-truth quality reports | **Done** — a task can hold a ground-truth job; scoring an annotation job against it gives precision/recall/F1 per label plus classified conflicts (missing, extra, wrong label, poor overlap), and the editor shows the report beside the frames, where clicking a conflict seeks to it. A report records which version of the job it scored, so a stale one is marked stale rather than read as current. The comparison still runs inline rather than as a background job, and there is no UI for *creating* a ground-truth job — that is the API or the CLI |
 | Resumable uploads | *Planned* — the storage model exists; there are no endpoints yet |
 
 **What "Beta" needs before we call it that:** video annotation end to end, the track
@@ -154,9 +155,9 @@ deciding whether to adopt this needs them more than they need the roadmap.
 
 * **No 3D or point-cloud annotation.** No LiDAR, no cuboids in 3D. Not close, and not
   planned for 1.0.
-* **Eight dataset formats**, not thirty-three. COCO, YOLO, Pascal VOC, KITTI, MOTChallenge,
-  CVAT XML, segmentation masks and the lossless native format, each declaring honestly what
-  it can represent. The mature tool in this space ships 33 exporters; most of the remainder
+* **Eleven dataset formats**, not thirty-three. COCO, YOLO (detection, segmentation, OBB,
+  pose, classification), Pascal VOC, KITTI, MOTChallenge, CVAT XML, segmentation masks and
+  the lossless native format, each declaring honestly what it can represent. The mature tool in this space ships 33 exporters; most of the remainder
   are single-dataset conventions (LFW, VGGFace2, Market-1501, ICDAR, WiderFace) that matter
   to whoever needs them and to nobody else. The registry takes plugins through entry points,
   so a ninth is an add-on rather than a fork.
@@ -164,9 +165,10 @@ deciding whether to adopt this needs them more than they need the roadmap.
   speaking that API. **Azure Blob Storage and Google Cloud Storage are not supported**, and
   adding them means a new `Storage` implementation — a contained piece of work nobody has
   done yet.
-* **No consensus or honeypot quality workflows.** The quality module is *In Progress* and
-  starts with ground-truth comparison; consensus scoring and honeypot frames are under
-  *Later*.
+* **No consensus or honeypot quality workflows.** Quality starts and ends with ground-truth
+  comparison: one answer key per task, scored per job. Consensus scoring, honeypot frames and
+  automatic reviewer assignment are under *Future*, and creating the ground-truth job itself
+  is an API or CLI call rather than a button.
 * **No signed installers.** The desktop app builds and runs from source; `.dmg`, `.msi` and
   `.AppImage` need one CI runner per platform and are not built yet.
 * **Young.** This has not been through years of production use across many organisations.

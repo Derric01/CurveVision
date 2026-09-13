@@ -31,7 +31,9 @@ from curvevision.formats.base import (
     ImportSource,
     LabelSpec,
     ShapeRecord,
+    bounding_box,
     normalise_rectangle,
+    rotated_corners,
 )
 from curvevision.formats.registry import register
 
@@ -42,16 +44,18 @@ class YoloFormat:
     version = "1.1"
     extension = "zip"
     capabilities = FormatCapabilities(
-        shape_types=(ShapeType.RECTANGLE, ShapeType.POLYGON),
+        shape_types=(ShapeType.RECTANGLE, ShapeType.ROTATED_RECTANGLE, ShapeType.POLYGON),
         supports_import=True,
         supports_export=True,
         supports_tracks=False,
         supports_tags=False,
         supports_attributes=False,
         notes=(
-            "Bounding boxes and segmentation polygons only. YOLO has no attribute or "
-            "track representation, so those are dropped. Frames with unknown dimensions "
-            "cannot be normalised and are skipped."
+            "Bounding boxes and segmentation polygons. A rotated rectangle is written as "
+            "the axis-aligned box around its rotated corners -- correct for a detection "
+            "dataset, but the angle itself is lost; use `yolo_obb` to keep it. YOLO has no "
+            "attribute or track representation, so those are dropped. Frames with unknown "
+            "dimensions cannot be normalised and are skipped."
         ),
     )
 
@@ -120,7 +124,18 @@ class YoloFormat:
     def _shape_line(
         self, shape: ShapeRecord, class_index: int, width: int, height: int
     ) -> str | None:
-        if shape.shape_type in (ShapeType.RECTANGLE, ShapeType.ROTATED_RECTANGLE):
+        if shape.shape_type is ShapeType.ROTATED_RECTANGLE and shape.rotation:
+            # The stored points are the *unrotated* box. Using them directly claims a
+            # 100x20 extent for a bar that, turned 90 degrees, occupies 20x100 -- a box
+            # that does not contain the object it names. Take the rotated corners' bounds.
+            x, y, bw_px, bh_px = bounding_box(rotated_corners(shape.points, shape.rotation))
+            values = [
+                (x + bw_px / 2) / width,
+                (y + bh_px / 2) / height,
+                bw_px / width,
+                bh_px / height,
+            ]
+        elif shape.shape_type in (ShapeType.RECTANGLE, ShapeType.ROTATED_RECTANGLE):
             x1, y1, x2, y2 = normalise_rectangle(shape.points)
             cx = ((x1 + x2) / 2) / width
             cy = ((y1 + y2) / 2) / height

@@ -5,7 +5,7 @@
 > [`AGENTS.md`](./AGENTS.md) first; it is the working contract. Update this file after every
 > iteration, including the ones that mostly failed.
 >
-> **Last updated:** 2026-09-13 (iteration 16) · branch `claude/curvevision-platform-build-n1g71n` · PRs [#1](https://github.com/Derric01/CurveVision/pull/1)–[#9](https://github.com/Derric01/CurveVision/pull/9) merged (iterations 1–15) · iteration 16 is the open PR on this branch
+> **Last updated:** 2026-09-13 (iteration 20) · branch `claude/curvevision-platform-build-n1g71n` · PRs [#1](https://github.com/Derric01/CurveVision/pull/1)–[#10](https://github.com/Derric01/CurveVision/pull/10) merged (iterations 1–16) · iterations 17–20 in open PR [#11](https://github.com/Derric01/CurveVision/pull/11)
 
 ---
 
@@ -19,15 +19,18 @@ supervises it, and folders annotated in place without copying a byte.
 
 **The tree is green.** `./scripts/check.sh` passes all nine steps.
 
-Honestly incomplete, and marked as such everywhere: the track-editing timeline (read-only),
-the mask brush, the keypoint UI, quality reports (no UI), resumable uploads, and signed
+Honestly incomplete, and marked as such everywhere: the mask brush, the keypoint UI, an in-
+editor view of issues, a UI for creating a ground-truth job, resumable uploads, and signed
 desktop installers.
 
-**Annotation quality is now measured rather than declared.** `QualityReport` had been a
-table nothing wrote to — the clearest "toy" left in the codebase. A task can now hold a
-ground-truth job, and scoring an annotation job against it produces per-label
-precision/recall/F1 and a conflict list that names each mistake. Over the API and the SDK
-and the CLI; not yet in the editor.
+**Annotation quality is measured rather than declared, and a reviewer can now see it.** A
+task holds a ground-truth job; scoring an annotation job against it produces per-label
+precision/recall/F1 and a conflict list naming each mistake. The editor shows that report in
+its right-hand panel, and **clicking a conflict seeks to its frame** — a conflict is a place,
+not a statistic. Building the panel turned up a real gap in the model: a report recorded no
+version of the job it scored, so a score taken before the annotator fixed everything looked
+current. `QualityReport.annotation_version` closes that, and the panel marks a stale report
+stale. Still no UI for *creating* a ground-truth job; that stays an API or CLI call.
 
 The desktop window **signs itself in from the connection the shell injects** and opens
 straight into the application.
@@ -67,39 +70,58 @@ was the last unconnected piece of the desktop application.
 
 ## Next best action
 
-**Edit keyframes from the timeline.** The lanes now *show* a track's keyframes and where it
-is present; the next step is acting on them, which is what turns the timeline from a map
-into a tool. In rough order of value:
+**A UI for creating a ground-truth job.** Reading a quality report is a panel now; declaring
+what "correct" means for a task is still `POST /tasks/{id}/ground-truth` or the CLI. It
+belongs on the task page rather than in the editor — it is a task-level decision of the same
+weight as defining the label schema, which is why the endpoint takes `Action.UPDATE` on the
+task rather than a review permission.
 
-1. **Toggle a keyframe on the current frame** for the selected track — add one where the
-   shape has been moved, remove one that was a mistake.
-2. **Mark a departure** (`outside`) at the current frame, which is how an annotator says
-   "the object leaves here". `trackSegments` already renders it correctly, so the gap
-   appears the moment the write lands.
-3. **Drag a keyframe** along its lane to a different frame.
+**Then: show issues in the editor.** `api.issues` / `createIssue` / `resolveIssue` have been
+on the client since the first web iteration with nothing calling them. The quality panel is
+the pattern to copy — both are frame-anchored lists a reviewer clicks through — and an issue
+additionally carries a `position`, so it can be drawn on the canvas rather than only listed.
 
-Each of those is an annotation write through the existing autosave path — `useAutosave`
-already batches and handles the 409 — so the work is UI plus a `TrackIn` payload, not new
-server surface. `web/src/features/editor/timeline.ts` is where the maths lives and where
-anything new about keyframe positions belongs.
+*Superseded: "drag a keyframe along its lane", which is done.*
+
+<details><summary>What that took, for whoever wires the next pointer interaction</summary>
+
+Two traps, both found by reviewing the implementation rather than by a failing test:
+
+**A drag ends with a `click` on whatever is underneath.** The lane is a click-to-seek button,
+so the first version moved the keyframe *and* jumped the playhead to where it was dropped.
+The obvious fix — a flag the click handler consumes — is worse than it looks: when the click
+does not arrive, the flag stays set and swallows the next real seek instead. The markers are
+now **siblings of the seek button rather than children**, so there is no click to suppress.
+
+**Press versus drag is decided from the pointer positions, in `pointerup`,** not inferred in
+a click handler. `endDrag` knows whether the pointer moved; a click handler does not. The
+marker's `onClick` is keyboard-only, gated on `event.detail === 0`.
+
+Also: `setPointerCapture` is not optional. The lane is 18px tall and a drag leaves it
+immediately and constantly — the harness deliberately drags 30px off-lane mid-gesture.
+
+*Correcting an earlier note here: keyframe edits do **not** go through `useAutosave`. That
+path builds only `created_shapes`/`updated_shapes` and has no track surface. They go through
+a mutation that flushes the shape buffer, re-reads `annotation_version`, then writes
+`updated_tracks`.*
+
+</details>
 
 **Then, in rough order:**
 
-* **Show a quality report in the editor.** The arithmetic, the endpoints, the SDK and the
-  CLI all exist; a reviewer still has to run `curvevision job score` to see any of it. The
-  conflict list is already frame-addressed and shape-addressed, so the natural shape is a
-  panel that lists conflicts and seeks to one on click — the same move the issues panel
-  makes. Creating a ground-truth job has no UI either.
 * **Pre-build chunks after a video upload.** `media.build_chunks` builds rather than plans,
   and nothing enqueues it. `media.probe_task` is now enqueued from the same place and
   already decodes the whole file to count it — so the honest move is probably **one** job
   that counts and builds in a single pass, rather than two that each walk the file.
 * **Surface a task whose frame count could not be corrected.** The job reports "this task
   already has annotation work"; nothing shows it to anyone.
-* **Put a browser harness in CI.** Four now exist (`screenshot.py`,
-  `verify_local_import.py`, `verify_chunked_frames.py`, `verify_track_timeline.py`) and
-  between them they have found every defect the unit suites missed. Nightly or pre-release;
-  each needs a packaged sidecar and a Chromium.
+* **Put a browser harness in CI.** Seven now exist (`screenshot.py`, `verify_local_import.py`,
+  `verify_chunked_frames.py`, `verify_track_timeline.py`, `verify_scissors.py`,
+  `verify_keyframe_editing.py`, `verify_quality_panel.py`) and between them they have found
+  every defect the unit suites missed — including this iteration's. Nightly or pre-release;
+  each needs a packaged sidecar and a Chromium. Note the sidecar embeds `web/dist`, so a
+  harness run needs `npm --prefix web run build` **and** a sidecar rebuild, or it silently
+  tests the previous frontend.
 
 ## Completed
 
@@ -169,7 +191,21 @@ milliseconds. Bindings match `PathTool`. Output is simplified to an editable pol
 Verified in Chromium against a disc: every vertex within 1.5 px of the rim.
 [ADR 0009](./docs/adr/0009-intelligent-scissors.md).
 
-**Eight dataset formats** — COCO, YOLO, Pascal VOC, KITTI, MOTChallenge, CVAT XML,
+**Editing track keyframes from the timeline** — select a track, then `K` adds a keyframe at
+the current frame (carrying the interpolated position, so nothing moves) or removes the one
+already there, and `O` marks where the object leaves. `keyframes.ts` is pure and separately
+tested; `framesThatMoved` checks the no-movement rule frame by frame rather than asserting
+it. Removing the last keyframe deletes the track rather than leaving an empty one.
+`scripts/verify_keyframe_editing.py` drives it in Chromium and asserts against the API.
+
+**Eleven dataset formats** — COCO, all five Ultralytics YOLO tasks (detection, segmentation,
+OBB, pose, classification), Pascal VOC, KITTI, MOTChallenge, CVAT XML, segmentation masks and
+the lossless native one. Each declares what it can represent and warns before an export drops
+anything. **CVAT XML round-trips both directions**; **YOLO OBB and CVAT XML are the only two
+that keep a rotated box's angle**. Round-tripped through their own readers in
+`tests/unit/test_formats_robotics.py` and `test_formats_yolo_variants.py`.
+
+**Superseded:** **Eight dataset formats** — COCO, YOLO, Pascal VOC, KITTI, MOTChallenge, CVAT XML,
 segmentation masks and the lossless native one. Each declares what it can represent and
 warns before an export drops anything. **CVAT XML round-trips in both directions**, which is
 what stops work done elsewhere being stranded here. KITTI and MOT are the robotics-facing
@@ -244,12 +280,12 @@ full docs set including seven ADRs.
 
 | Item | Where it stands |
 | --- | --- |
-| Track keyframe **editing** | The timeline shows every track's keyframes and where it is present, and `,`/`.` step between them. Adding, moving, removing and marking a departure from the timeline is not built. See [Next best action](#next-best-action). |
+| Track keyframe **editing** | Complete: `K` adds or removes a keyframe, `O` marks a departure, and a marker can be dragged along its lane. Verified in a browser, not only in unit tests. |
 | Pre-building chunks after upload | `media.build_chunks` builds rather than plans, and nothing enqueues it. `media.probe_task` already walks the whole file to count frames, so one job that counts *and* builds probably beats two that each decode it. |
 | Surfacing an uncorrected frame count | When a task already carries annotations, `media.probe_task` declines the correction and says so in its result. Nothing shows that to a user. |
 | Webhooks | Delivery works and is signed; retry/backoff is not wired to the queue. |
 | Mask brush, keypoint UI | Storage, export and the model exist on both sides; neither drawing tool does. |
-| Quality reports | Scoring works end to end over the API, the SDK and the CLI, and is tested. **No UI**: nothing in the editor creates a ground-truth job or shows a report. The comparison also runs inline rather than on the `quality` queue, which a very large ground truth would change. |
+| Quality reports | Scoring works end to end, and the editor now shows a report: three scores, a per-label breakdown worst-first, and conflicts that seek to their frame on click. A stale report is marked stale. What is left: **no UI creates a ground-truth job** (API or CLI only), and the comparison runs inline rather than on the `quality` queue, which a very large ground truth would change. |
 
 *This table went stale once — it still listed the open-folder flow and chunked delivery as
 unbuilt several iterations after both shipped, because the narrative sections above were
@@ -259,16 +295,18 @@ being updated and this one was not. Check it against* Completed *before trusting
 
 ## Remaining high-priority work
 
-1. **Editing keyframes from the timeline** — it shows them; acting on them is what makes it
-   a tool rather than a map. See [Next best action](#next-best-action).
-2. **A quality report in the editor**, and a way to create a ground-truth job without the
-   CLI. The measuring is done and tested; none of it is visible to someone annotating.
+1. **A way to create a ground-truth job without the CLI.** Reading a report is a panel now;
+   declaring what "correct" means for a task is still an API call. It belongs on the task
+   page rather than the editor — same weight of decision as defining the label schema.
+2. **Issues in the editor.** `api.issues` / `createIssue` / `resolveIssue` have had no UI
+   since the first web iteration. The quality panel is the pattern to copy.
 3. **Pre-build chunks after a video upload.** `media.build_chunks` builds rather than plans,
    and nothing enqueues it. Careful: the desktop queue is inline, and `media.probe_task`
    already decodes the whole file — one job that counts and builds probably beats two.
-4. **A browser harness in CI.** Four exist (`screenshot.py`, `verify_local_import.py`,
-   `verify_chunked_frames.py`, `verify_track_timeline.py`) and between them they have found
-   every defect the unit suites missed.
+4. **A browser harness in CI.** Seven exist and between them they have found every defect
+   the unit suites missed, this iteration's included. Note the sidecar embeds `web/dist`, so
+   a run needs `npm --prefix web run build` **and** a sidecar rebuild, or it silently tests
+   the previous frontend.
 5. **Signed installers in CI** — one runner per platform; PyInstaller does not cross-compile.
 6. **Webhook retry/backoff** wired to the job queue.
 7. **`choose_files` is still unused.** The shell can open a native *file* picker as well as a
@@ -278,6 +316,173 @@ being updated and this one was not. Check it against* Completed *before trusting
 ---
 
 ## Last iteration
+
+**A keyframe can be dragged along its lane.** `moveKeyframe` had been written and tested for
+two iterations with nothing calling it; grabbing a marker and dropping it on another frame
+now moves it, keeping its geometry. A drop onto an occupied frame is refused rather than
+merged — the API rejects two shapes on one frame, and merging would silently discard one of
+the annotator's positions.
+
+The arithmetic that turns a pointer x into a frame is now `frameAtPosition` in `timeline.ts`,
+the inverse of the existing `framePosition`, tested against it across four frame ranges.
+Click-to-seek and drag-to-move both go through it, so they cannot drift a frame apart — a
+marker that lands next to where you dropped it is the kind of thing an annotator stops
+trusting and works around.
+
+**Two bugs were caught by reviewing the implementation, before any verification ran.** Both
+are recorded under [Next best action](#next-best-action) because they generalise to the next
+pointer interaction somebody wires: a drag ends with a `click` on whatever is underneath, and
+the flag that suppresses it gets stuck set whenever the click does not arrive. The markers
+are siblings of the seek button now, so there is nothing to suppress; press-versus-drag is
+decided in `pointerup` from the pointer positions themselves.
+
+`verify_keyframe_editing.py` was extended rather than joined by an eighth harness — same
+feature, same seeded clip. It drags the marker 30px off the 18px lane mid-gesture, which is
+what a drag without `setPointerCapture` cannot survive.
+
+---
+
+## Iteration 19
+
+**A reviewer can read a quality report in the editor — and building the panel exposed two
+defects in the data behind it.**
+
+The comparison engine has been correct and tested since it landed. The only way to see a
+report was `curvevision job score`, which means the reviewer who needs it was the one person
+not looking at a terminal. It is now a panel in the editor's right sidebar: precision,
+recall and F1; a per-label breakdown ordered **worst first**, because a schema of twelve
+labels sorted alphabetically buries the thing you opened the report to find; and the
+conflicts as a list where **clicking one seeks to its frame**.
+
+That last part is the design. **A conflict is a place, not a statistic.** The comparison
+already addresses every conflict by frame and by shape, so a reviewer reads "missed a car on
+frame 214", clicks, and is looking at frame 214. A report that only totals things tells you
+a job is bad without telling you where.
+
+Pure logic lives in `features/editor/quality.ts` and is tested without a DOM; `QualityPanel`
+renders it. Truncation is stated rather than silent — a capped list says "200 of 3,412"
+instead of implying the job has 200 problems — and a label the project schema no longer has
+still gets a row, because dropping it would quietly subtract its conflicts from what the
+reviewer sees.
+
+**Defect 1, found by reading the model: a report did not record what it measured.** A
+`QualityReport` stored a score and a timestamp and nothing about the annotations it scored.
+So a report read as current however much work had landed since — and it failed in the worst
+direction: the annotator fixes everything, the old F1 of 0.4 is still on screen, and a
+reviewer rejects the job on a measurement of work that no longer exists.
+`QualityReport.annotation_version` (migration `4b1c7de9a20f`) records the job's version at
+the moment of comparison, and the panel marks a report stale when the job has moved on.
+Nullable, because reports written before the column genuinely cannot say — and presenting
+*that* as "current" is the failure the column exists to prevent.
+
+**Defect 2, found by the browser harness, not the unit suite: a conflict's two label fields
+swapped meaning depending on the kind.** `label_id` carried the ground truth's label on
+`missing` and `poor_overlap` and the annotator's on `extra` and `wrong_label`; nothing said
+so, and `expected_label_id` was populated on `wrong_label` alone. The screenshot showed
+`Missed: unlabelled` where the ground truth plainly said *car* — the unit test had happened
+to construct its fixture the way the client read it, so both agreed and both were wrong.
+
+Worse than the miss: because candidates are paired by **geometry, not by label**, a
+`poor_overlap` conflict reported `reference.label_id` while `shape_id` named the annotator's
+shape. A reviewer shown "Loose geometry: car" clicked through to a box labelled *person*,
+having been told something false about their own work, authoritatively.
+
+Each field now means one thing on every kind: `label_id` is the annotated shape's label
+(null on a miss, where nothing was annotated), `expected_label_id` is the ground truth's
+(null on an extra, where the ground truth has nothing). Four server tests pin it,
+`docs/API.md` states it, and the panel shows the second label only where it differs — "car →
+car" is noise.
+
+**`scripts/verify_quality_panel.py`** is the seventh browser harness and the seventh to find
+something the unit suites could not. It seeds a job wrong in four different ways so all four
+conflict kinds are exercised, then checks the reviewer's actual path: the panel offers to
+score an unscored job, the score renders, **a conflict row moves the editor** (frame 1 → 5,
+the seeded target), and annotating afterwards marks the report stale.
+
+One trap worth recording: the packaged sidecar **embeds `web/dist`**, so a harness run needs
+`npm --prefix web run build` *and* a sidecar rebuild. Without both it silently exercises the
+previous frontend — which is what the first run of this harness did, timing out on a panel
+that existed in the source and not in the binary.
+
+---
+
+## Iteration 18
+
+**Keyframes can be edited from the timeline — and the browser check found a second bug.**
+
+The timeline showed a track's keyframes; now `K` adds or removes one and `O` marks where the
+object leaves, on whichever track is selected. The pure logic is `keyframes.ts`; the editor
+is the state machine around it.
+
+**The rule everything rests on: adding a keyframe must move the object on no other frame.**
+A track interpolates between stored positions, so a keyframe carrying the wrong geometry
+shifts every frame between it and its neighbours — the annotator sees a box they did not
+draw, on frames they were not looking at. `toggleKeyframe` inserts the *interpolated*
+position, which is by construction what was already on screen, and `framesThatMoved` checks
+that frame by frame rather than trusting the argument. Replacing it with the obvious wrong
+implementation (copy the previous keyframe's points) fails four tests.
+
+**`markDeparture` turned out to need more than it looks.** `interpolateTrack` deliberately
+*holds* the previous position when the next keyframe is a departure, rather than animating
+towards coordinates that are usually a stale copy. So dropping a departure at frame 6 onto a
+track with keyframes at 0 and 10 froze frames 1–5 at the frame-0 position — five frames
+nobody touched, silently stopped moving. A test caught it. The fix pins the already-displayed
+shape at frame 5 first, which changes nothing by itself and leaves every earlier frame exactly
+where it was.
+
+**`scripts/verify_keyframe_editing.py` then found a real defect the unit tests could not.**
+Scrubbing frames quickly made the editor throw: `AnnotationCanvas` called `image.decode()`,
+caught the rejection with `.catch(() => undefined)` — and then **carried on into the success
+path anyway**, handing a *broken* `HTMLImageElement` to the renderer, where `drawImage`
+threw. Now a failed decode clears the media instead. Clearing rather than keeping the previous
+frame is deliberate: a frame number identifies one picture, so leaving the old image under a
+new frame number would let somebody draw a box on the wrong one.
+
+**A claim in this file was wrong and is corrected.** It said keyframe editing would be "an
+annotation write through the existing autosave path — `useAutosave` already batches and
+handles the 409". `useAutosave` builds only `created_shapes`/`updated_shapes`; it has no track
+surface at all. Track edits go through a mutation that flushes the shape buffer first, re-reads
+`annotation_version`, then writes `updated_tracks`.
+
+### Iteration 17
+
+**The other three Ultralytics YOLO tasks — and a shipped format that was quietly wrong.**
+
+Orienting for "we have YOLO export too, I hope all the types industry wants" turned up
+something better than a feature request: **plain YOLO was silently discarding rotation**.
+
+A rotated rectangle is stored as its *unrotated* box plus an angle. The exporter took
+`points[:4]` and normalised them, so a 100×20 bar turned 90° — which occupies 20×100 on
+screen — was written as **100×20**. A box that does not contain the object it names. Worse,
+`capabilities.shape_types` did *not* list `ROTATED_RECTANGLE`, so the pre-export warning told
+the user rotated shapes had been **dropped** while they were being written wrong. Silently
+bad data plus a warning saying the opposite.
+
+Fixed by taking the axis-aligned bounds of the *rotated corners*, which is the honest
+detection answer, and by declaring the shape type so the capability report stops lying.
+`rotated_corners()` is now a shared helper in `formats/base.py`, since three formats need it.
+
+**Three new formats**, each a task Ultralytics trains and somebody's industry depends on:
+
+* **YOLO OBB** — four corners per object, so a rotated box **keeps its angle**. The only
+  format here besides CVAT XML that does. Aerial imagery, industrial inspection, document
+  layout: wrap any of those in a straight box and most of the box is background. Imports too,
+  and a quadrilateral that is *not* rectangular comes back as a **polygon** rather than being
+  squared off into a box it does not fit.
+* **YOLO Pose** — skeletons as keypoints with 0/1/2 visibility. A missing joint is **padded**
+  rather than omitted, because a short line shifts every later value into the wrong joint.
+  `data.yaml` carries `kpt_shape`, which Ultralytics needs to size the pose head.
+* **YOLO Classification** — the odd one out: no label files, because the **directory tree is
+  the annotation**. That is also its limit, so a frame with two tags is reported rather than
+  filed under whichever came first.
+
+**An existing test had to be widened, carefully.** `test_every_format_declares_its_
+capabilities_honestly` asserted every format declares at least one shape type — true until a
+whole-image classification format, which legitimately carries none. Widened to "shapes **or**
+tags" rather than deleted, with a companion test proving the guard can still fail, because a
+guard that cannot fail is worse than no guard.
+
+### Iteration 16
 
 **Four new dataset formats, and a red CI check on main fixed.**
 
@@ -807,9 +1012,73 @@ present. Both corrected; the second is a licensing claim and was the more urgent
 
 ```
 ./scripts/check.sh                    all 9 steps green
-  ruff · ruff format · mypy · pytest server (361) · pytest sdk (13)
-  notices (52 deps) · eslint · tsc · vitest (207)
+  ruff · ruff format · mypy · pytest server (394) · pytest sdk (13)
+  notices (52 deps) · eslint · tsc · vitest (272)
 ```
+
+Iteration 20 added 7 web tests (272, up from 265) and no server tests — the drag is entirely
+client-side, and `moveKeyframe` was already covered. The browser harness is what proves it:
+
+```
+ok   the keyframe at frame 10 is a grabbable marker
+     keyframes after dragging 10 -> 5: [0, 5, 14, 15, 20]
+ok   dragging moved the keyframe from 10 to 5
+     its x is 110.0 (the dragged keyframe's own x was 110)
+ok   the keyframe kept its geometry across the move
+     frame readout: '16 / 24' -> '16 / 24'
+ok   releasing a dragged keyframe does not also seek the editor
+ok   dragging raises nothing
+```
+
+The frame readout is the discriminating one: it is the assertion that fails if the lane's
+click-to-seek fires after a drop.
+
+Iteration 19 added 5 server tests (394, up from 389) and 30 web tests (265, up from 235).
+Both defects were confirmed to fail when reverted rather than assumed:
+
+* Removing `annotation_version=job.annotation_version` from `build_report` fails
+  `test_a_report_records_the_version_of_the_job_it_scored` with `assert None == 1`.
+* The conflict-label fix is pinned by four tests in `TestConflictLabelsMeanOneThing`,
+  including the one that would have caught it: a loose box whose label differs from the
+  ground truth's must report *its own* label, not the reference's.
+
+Migration `4b1c7de9a20f` was applied and rolled back against a real SQLite database rather
+than only generated — `quality_reports.annotation_version` present after `upgrade head`,
+gone after `downgrade -1`. The test suite builds its schema with `create_all`, so a
+migration is never exercised there.
+
+`scripts/verify_quality_panel.py` drives the whole path in Chromium against the packaged
+server:
+
+```
+ok   an unscored job offers to check itself against ground truth
+ok   and says plainly that it has not been scored
+     server-side score: P=0.25 R=0.25 F1=0.25;
+     conflicts ['extra', 'missing', 'poor_overlap', 'wrong_label']
+ok   all four conflict kinds are exercised
+ok   the panel shows the score
+ok   conflicts are listed as rows a reviewer can act on
+     frame readout: '1 / 6' -> '5 / 6'
+ok   clicking a conflict seeks the editor to the frame it is about
+ok   a report is marked stale once the job is annotated further
+```
+
+Iteration 18 added 28 web tests (235, up from 207). The no-movement rule is checked by
+`framesThatMoved` across every frame in the range, and replacing `toggleKeyframe` with the
+obvious wrong implementation — copy the previous keyframe's points — fails four of them.
+
+`scripts/verify_keyframe_editing.py` drives it in Chromium against the packaged server and
+asserts against the **API**, not the DOM: the question is whether the annotation is now what
+the annotator asked for. It reported the new keyframe's x as exactly **110.0**, the
+interpolated position, and confirmed frame 14 was pinned ahead of the departure at 15. It also
+found the broken-image bug above on its first run — the fifth harness, and the fifth time one
+has caught something the unit suites could not.
+
+Iteration 17 added 28 server tests (389, up from 361). The rotation fix is pinned by
+`test_a_rotated_box_exports_its_real_extent`, confirmed to fail when the fix is reverted, and
+by `test_the_capabilities_no_longer_claim_it_is_dropped` for the second half of the bug. The
+Docker check fixed last iteration was **confirmed red→green on main**: run 25 (the PR #9
+merge) failed, run 27 (the PR #10 merge) succeeded.
 
 Iteration 16 added 35 server tests (361, up from 326) and 2 web tests (207). Every new
 format is round-tripped through its own reader: an exporter that writes something its own
@@ -953,6 +1222,11 @@ missing, and it is the reason this iteration found anything):
 | Video tests would have skipped silently in CI | `av` was in the `media` extra but not `dev`, and CI installs `[dev]`. `pytest.importorskip` would have skipped every video test while the suite reported green. | Added to `dev`; the tests run rather than skip |
 | The editor's label list was cut through the middle of a row | A fixed `max-h-52` (13rem) cap on the list; six labels need ~14rem. Functional — it scrolled — but it looked broken, and a six-label schema is not unusual. Now `max-h-[30vh]`. | Regenerated screenshot: all six labels visible, `OBJECTS` heading intact below |
 | Two documents claimed no third-party source is present, while a third section of one of them listed the file that is | Iteration 3 corrected that sentence in the README only; two other documents kept their copies. A licensing claim that contradicts itself three sections apart is worse than no claim. | Both now defer to **THIRD_PARTY_NOTICES § Adapted source** as the authoritative list |
+| Scrubbing frames quickly **threw in the canvas** | `AnnotationCanvas` called `image.decode()`, caught the rejection with `.catch(() => undefined)`, and then carried on into the success path anyway — handing a *broken* `HTMLImageElement` to the renderer, where `drawImage` throws. A swallowed error that does not stop the code it was swallowed for. | `scripts/verify_keyframe_editing.py`, which steps frames fast enough to lose a decode; it now asserts the page raises nothing |
+| Marking a departure **froze the frames leading up to it** | `interpolateTrack` holds the previous position when the next keyframe is `outside`, so a departure at frame 6 on a track keyframed at 0 and 10 stopped the object moving on frames 1–5. | `pins the frame before, because a departure freezes what leads up to it` |
+| A **rotated rectangle exported as its unrotated box** in YOLO | A rotated rectangle is stored as the unrotated box plus an angle; the exporter used `points[:4]` directly, so a 100×20 bar turned 90° (occupying 20×100) was written as 100×20 — a box that does not contain its object. `capabilities` also omitted `ROTATED_RECTANGLE`, so the warning said such shapes were *dropped* while they were being written wrong. | `test_a_rotated_box_exports_its_real_extent` and `test_the_capabilities_no_longer_claim_it_is_dropped`; the first confirmed to fail with the fix reverted |
+| A quality report **did not record what it measured** | `QualityReport` stored a score and a timestamp and nothing about the annotations behind it, so a report read as current however much work had landed since. The failure ran the wrong way: the annotator fixes everything, the old F1 stays on screen, and a reviewer rejects the job on a measurement of work that no longer exists. | `test_a_report_records_the_version_of_the_job_it_scored`, confirmed to fail with the fix reverted (`assert None == 1`) |
+| A conflict's two label fields **swapped meaning depending on the kind** | `label_id` carried the ground truth's label on `missing` and `poor_overlap` and the annotator's on `extra` and `wrong_label`; `expected_label_id` was set on `wrong_label` alone. The panel showed `Missed: unlabelled` where the ground truth said *car*. Worse: candidates are paired by **geometry, not label**, so a `poor_overlap` reported the reference's label while `shape_id` named the annotator's shape — "Loose geometry: car" clicking through to a box labelled *person*. | `TestConflictLabelsMeanOneThing` (4 tests) and `scripts/verify_quality_panel.py`, which is what caught it: the unit fixture happened to be built the way the client read it, so both agreed and both were wrong |
 | Every object on a job seam was **exported twice** | A task with `overlap > 0` shares frames between two jobs by design; export appended each job's shapes instead of reconciling them. The archive is well-formed and nothing errors, so a model simply trains on doubled boxes. `overlap` is API-settable and had no test coverage at all. | `test_one_object_annotated_in_both_jobs_is_exported_once`, written to fail first |
 | Two unrelated tracks in different jobs shared one `track_id` | The id fell back to a job-local `enumerate` index, so job 1's first object and job 2's first object were both `0`. Any consumer grouping by track id welds them into one. No overlap needed — a plain segmented task was enough. | `test_two_unrelated_tracks_in_different_jobs_get_different_ids`, written to fail first |
 | A track crossing a job seam was exported as two objects | Even once the duplicate was removed, the two halves kept different ids, so the export said the car vanished and a stranger appeared — the precise discontinuity the overlap exists to prevent. | `test_a_track_crossing_the_seam_keeps_one_identity`; confirmed to fail with unification disabled |
@@ -997,6 +1271,20 @@ missing, and it is the reason this iteration found anything):
   annotators' boxes. Averaging is defensible and is what a consensus pass would do; picking
   one is predictable, which matters more when nobody is watching. `consensus/intersect_merge.py`
   upstream is the piece to adapt if averaging is ever wanted.
+- **A keyframe cannot be dragged along its lane yet.** `moveKeyframe` is written and tested
+  but nothing calls it; it needs a pointer-drag rather than a shortcut.
+- **Keyframe edits are one write each, not batched.** Each `K` or `O` flushes the shape
+  buffer, re-reads the version and PATCHes. That is right for deliberate discrete edits and
+  would be wrong for a drag, which is the other reason dragging is not wired yet.
+- **YOLO Pose and Classification are export-only.** Pose because `data.yaml` records how
+  many keypoints there are but not what they are called, so an import would attach every
+  joint to the wrong name; classification because the directory tree *is* the annotation, so
+  importing means matching images to frames and a mismatch tags the wrong picture. Both
+  refuse with the reason rather than half-working.
+- **YOLO OBB writes a polygon as its axis-aligned bounding quadrilateral**, which is a real
+  approximation rather than a minimum-area fit. Polygons belong in `yolo` segmentation; the
+  capability note says so. A proper rotating-calipers minimum-area rectangle would be the fix
+  if anyone needs it.
 - **The scissors run on the main thread.** A cursor move that jumps across a large frame can
   cost ~100 ms in the worst case (full 1920 px width, 285k pixels settled). Typical use is
   single-digit milliseconds because the search is lazy, but a very long drag will stutter. A
@@ -1069,6 +1357,13 @@ missing, and it is the reason this iteration found anything):
   vectors, and that parity is what makes client-side scrubbing safe. Half of a matched pair
   cannot be swapped for a different algorithm. Revisit when the mask brush and keypoint UI
   exist and the parity can be re-established on both sides at once.
+- **Deleting the "every format declares shape types" assertion** when a whole-image
+  classification format made it fail. The format is right and the assertion was too narrow,
+  but removing it would have left nothing stopping an exporter that carries nothing at all.
+  Widened to "shapes **or** tags", with a companion test proving the guard can still fail.
+- **Forcing every four-corner OBB label back into a rotated rectangle on import.** The format
+  stores a quadrilateral, which is more general; squaring off one that is not rectangular
+  quietly moves somebody's annotation. Non-rectangular quads come back as polygons.
 - **Loading OpenCV.js for the scissors, as upstream does.** 9,991,739 bytes for one tool, in
   a web bundle that is ~320 kB today and a desktop app that ships as one executable. Their
   196 lines are state management; the algorithm is OpenCV's C++, so reusing their code would

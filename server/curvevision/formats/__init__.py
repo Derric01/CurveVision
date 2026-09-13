@@ -14,6 +14,7 @@ from curvevision.formats import (  # noqa: F401
     segmentation,
     voc,
     yolo,
+    yolo_variants,
 )
 from curvevision.formats.base import (
     AttributeSpec,

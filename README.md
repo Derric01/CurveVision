@@ -78,11 +78,10 @@ AI-assisted     upload → run your model → accept or correct → review → e
 ```
 
 > **Status: early, and honestly labelled.** The manual annotation path is complete and
-> tested end to end. Video, the track-editing timeline and quality reports are partly
-> built. **Every feature below carries its real state** — nothing is marked Done unless it
-> works and has tests. If you need a platform with years of production mileage behind it
-> for critical work today, this is not yet that — and we would rather say so here than have
-> you find out later.
+> tested end to end. Video and the track-editing timeline are partly built. **Every feature
+> below carries its real state** — nothing is marked Done unless it works and has tests. If
+> you need a platform with years of production mileage behind it for critical work today,
+> this is not yet that — and we would rather say so here than have you find out later.
 
 ---
 
@@ -162,9 +161,10 @@ Point it at any inference endpoint. Predictions arrive as suggestions you accept
 reject. No bundled weights, no vendor SDK.
 
 **Export**
-Eight formats — COCO, YOLO, Pascal VOC, KITTI, MOTChallenge, CVAT XML, segmentation masks
-and a lossless native one — each declaring honestly what it can represent, *before* you rely
-on it. **CVAT XML imports and exports**, so work done there is not stranded here.
+Eleven formats — COCO, all five Ultralytics YOLO tasks (detection, segmentation, OBB, pose,
+classification), Pascal VOC, KITTI, MOTChallenge, CVAT XML, segmentation masks and a
+lossless native one — each declaring honestly what it can represent, *before* you rely on it.
+**CVAT XML imports and exports**, so work done there is not stranded here.
 
 </td></tr>
 </table>
@@ -180,6 +180,7 @@ on it. **CVAT XML imports and exports**, so work done there is not stranded here
 | Zoom, pan, vertex snapping | **Done** |
 | Per-label visibility and locking | **Done** |
 | Crash-resilient autosave | **Done** |
+| Track keyframes: add, remove and mark a departure from the timeline | **Done** |
 | Masks — RLE storage and export exist; the brush tool does not | *Planned* |
 | Skeletons / keypoints — model and COCO export exist; the UI does not | *Planned* |
 
@@ -251,7 +252,7 @@ actually need before training — **how many frames have no annotations at all**
 | Immutable dataset releases with content hashing | **Done** |
 | Content-addressed media (the same file across tasks is stored once) | **Done** |
 | Export jobs with downloadable artifacts | **In Progress** |
-| Ground-truth quality reports: precision/recall/F1 per label and classified conflicts, over the API — no UI yet | **In Progress** |
+| Ground-truth quality reports: precision/recall/F1 per label, classified conflicts, and a panel in the editor where clicking a conflict seeks to its frame | **Done** |
 
 ### Images and video
 
@@ -262,7 +263,7 @@ actually need before training — **how many frames have no annotations at all**
 | Video: frames decoded and served individually, so a video task is annotatable | **Done** |
 | Client-side track interpolation (scrubbing costs no round trip) | **Done** |
 | Chunked frame delivery — 36 frames decoded in one pass and fetched in one request, so stepping costs 17× fewer decodes and 12× fewer requests | **Done** |
-| Track timeline — every track's keyframes and where it is present, with `,`/`.` to step between them. Editing keyframes from it is not built | **In Progress** |
+| Track timeline — every track's keyframes and where it is present, `,`/`.` to step between them, `K`/`O` to add a keyframe or mark a departure, and drag a keyframe along its lane to move it | **Done** |
 | Resumable uploads — storage model only; no endpoints yet | *Planned* |
 
 Interpolation between keyframes resamples polygons to a common arc-length parameterisation

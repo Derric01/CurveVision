@@ -339,3 +339,58 @@ class TestComparison:
         details = compare_annotations(annotated, truth).as_details()
 
         assert json.loads(json.dumps(details))["conflicts"], "conflicts must survive storage"
+
+
+class TestConflictLabelsMeanOneThing:
+    """`label_id` is the annotation's side; `expected_label_id` is the ground truth's.
+
+    The fields used to swap roles depending on the kind — the ground truth's label landed in
+    `label_id` on `missing` and `poor_overlap`, and the annotator's on the other two. Every
+    reader then had to special-case the kind, and the one that did not was wrong in a way
+    that reads as authoritative: a reviewer shown "loose geometry: car" clicks through to a
+    box labelled `person`, having been told something false about their own work.
+    """
+
+    def test_a_miss_carries_the_ground_truths_label_and_no_annotated_one(self):
+        truth = [rect(0, CAR, 0, 0, 10, 10)]
+
+        conflict = compare_annotations([], truth).conflicts[0]
+
+        assert conflict.kind is ConflictKind.MISSING
+        assert conflict.expected_label_id == CAR
+        assert conflict.label_id is None, "nothing was annotated, so there is no label to name"
+
+    def test_an_extra_carries_the_annotated_label_and_no_expected_one(self):
+        annotated = [rect(0, PERSON, 0, 0, 10, 10)]
+
+        conflict = compare_annotations(annotated, []).conflicts[0]
+
+        assert conflict.kind is ConflictKind.EXTRA
+        assert conflict.label_id == PERSON
+        assert conflict.expected_label_id is None, "the ground truth has nothing there"
+
+    def test_a_loose_box_reports_its_own_label_not_the_ground_truths(self):
+        """Candidates are paired by geometry, so the two labels need not agree."""
+        truth = [rect(0, CAR, 0, 0, 10, 10)]
+        annotated = [rect(0, PERSON, 7, 0, 17, 10)]  # IoU 3/17 = 0.18, below threshold
+
+        conflict = compare_annotations(annotated, truth).conflicts[0]
+
+        assert conflict.kind is ConflictKind.POOR_OVERLAP
+        assert conflict.label_id == PERSON, "this names the shape the annotator drew"
+        assert conflict.expected_label_id == CAR, "and this what the ground truth says"
+
+    def test_every_kind_names_at_least_one_side(self):
+        """A conflict with neither label is unreadable whatever the reviewer clicks."""
+        truth = [rect(0, CAR, 0, 0, 10, 10), rect(0, CAR, 50, 50, 60, 60)]
+        annotated = [
+            rect(0, PERSON, 0, 0, 10, 10),  # wrong label
+            rect(0, CAR, 52, 50, 70, 60),  # poor overlap
+            rect(0, PERSON, 90, 90, 99, 99),  # extra
+        ]
+
+        result = compare_annotations(annotated, truth)
+
+        assert {conflict.kind for conflict in result.conflicts}
+        for conflict in result.conflicts:
+            assert conflict.label_id is not None or conflict.expected_label_id is not None

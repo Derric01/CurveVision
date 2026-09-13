@@ -413,3 +413,42 @@ async def test_the_ground_truth_annotator_can_see_their_own_job(
     assert (await annotator.get(f"/api/v1/jobs/{truth_id}/annotations")).status_code == 200
     label = project["labels"][0]["id"]
     await draw(annotator, truth_id, label, [(0, [0, 0, 10, 10])])
+
+
+async def test_a_report_records_the_version_of_the_job_it_scored(
+    owner: ApiActor, project: dict[str, Any]
+) -> None:
+    """Without this, a stale score is indistinguishable from a current one.
+
+    A report is a statement about annotations as they were. The annotator keeps working;
+    the number on screen does not change. The failure runs in the worst direction — an
+    annotator fixes everything, the old F1 still reads 0.5, and a reviewer rejects the job
+    on a measurement of work that no longer exists. Recording the version is what lets a
+    reader tell the two apart.
+    """
+    _task, job, truth = await task_with_ground_truth(owner, project)
+    label = project["labels"][0]["id"]
+
+    await draw(owner, truth["id"], label, [(0, [0, 0, 10, 10]), (1, [5, 5, 20, 20])])
+    await draw(owner, job["id"], label, [(0, [0, 0, 10, 10])])
+
+    scored_at = (await owner.get(f"/api/v1/jobs/{job['id']}")).json()["annotation_version"]
+    report = (await owner.post(f"/api/v1/jobs/{job['id']}/quality", json={})).json()
+    assert report["annotation_version"] == scored_at
+    assert report["recall"] == 0.5
+
+    # The annotator fixes the miss. The stored report still describes the old work, and now
+    # says so: its version no longer matches the job's.
+    await draw(owner, job["id"], label, [(1, [5, 5, 20, 20])])
+    after = (await owner.get(f"/api/v1/jobs/{job['id']}")).json()["annotation_version"]
+    assert after != scored_at
+
+    stale = (await owner.get(f"/api/v1/jobs/{job['id']}/quality")).json()
+    assert stale["annotation_version"] == scored_at != after, (
+        "a reader must be able to tell this report predates the current annotations"
+    )
+
+    # Re-checking catches it up, in both the score and the version.
+    fresh = (await owner.post(f"/api/v1/jobs/{job['id']}/quality", json={})).json()
+    assert fresh["annotation_version"] == after
+    assert fresh["recall"] == 1.0

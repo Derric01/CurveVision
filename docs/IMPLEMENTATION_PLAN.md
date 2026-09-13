@@ -461,11 +461,14 @@ Planned: KITTI, LabelMe, Open Images, TFRecord, Datumaro bridge.
   `open`/`resolved` states — the mechanism by which a reviewer sends work back.
 * **Annotation history**: every write records an `AnnotationEvent` (actor, action, before/after
   diff) enabling per-object blame and rollback.
-* **Quality metrics** (**In Progress**): `POST /tasks/{id}/ground-truth` adds the job that
+* **Quality metrics** (**Done**): `POST /tasks/{id}/ground-truth` adds the job that
   holds a task's answer key; `POST /jobs/{id}/quality` scores an annotation job against it
   and stores a `QualityReport` with per-label precision/recall/F1/mean IoU and a conflict
-  list classified into *missing*, *extra*, *wrong label* and *poor overlap*. Four things
-  the arithmetic gets right and a naive version would not:
+  list classified into *missing*, *extra*, *wrong label* and *poor overlap*. The editor
+  shows the report in its right-hand panel — three scores, a per-label breakdown ordered
+  worst-first, and the conflicts as a list where clicking one seeks to its frame, because
+  **a conflict is a place, not a statistic**. Five things it gets right and a naive version
+  would not:
 
   * **A box too loose to count as the object costs precision, not only recall.** Counting
     it against recall alone means an annotator who draws everything sloppily scores
@@ -478,12 +481,16 @@ Planned: KITTI, LabelMe, Open Images, TFRecord, Datumaro bridge.
     working with tracks and a reviewer working with shapes score the same.
   * **The ground truth's annotations need reviewer rank to read** (or assignment to that
     job). A score an annotator could have copied measures nothing.
+  * **A report records the job's `annotation_version`**, so a score taken before the
+    annotator fixed everything is shown as stale rather than as current. Without it the
+    failure runs the wrong way: the old F1 stays on screen and a reviewer rejects a job on
+    a measurement of work that no longer exists.
 
   Geometry is exact rather than bbox-approximate: polygons are clipped
   (Sutherland–Hodgman) and measured by the shoelace formula, and matching is greedy on
-  descending IoU, which is COCO's rule. What is not built: any UI for a report, and running
-  the comparison as a background job — it runs inline, which a very large ground truth
-  would change.
+  descending IoU, which is COCO's rule. What is not built: a UI for *creating* a
+  ground-truth job (it is an API or CLI call), and running the comparison as a background
+  job — it runs inline, which a very large ground truth would change.
 
 ---
 

@@ -90,7 +90,6 @@ export const AnnotationCanvas = forwardRef<CanvasHandle, Props>(function Annotat
     image.src = imageUrl;
     void image
       .decode()
-      .catch(() => undefined)
       .then(() => {
         if (cancelled) return;
         engine.setMedia({
@@ -98,6 +97,19 @@ export const AnnotationCanvas = forwardRef<CanvasHandle, Props>(function Annotat
           height: image.naturalHeight,
           image,
         });
+      })
+      .catch(() => {
+        if (cancelled) return;
+        // A failed decode leaves a *broken* HTMLImageElement, and handing that to the
+        // renderer makes `drawImage` throw. Catching the rejection and then carrying on
+        // into the success path -- which this did -- turns a load failure into a page
+        // error, which is how scrubbing quickly through a video used to break the editor.
+        //
+        // Clearing rather than keeping the previous frame is deliberate: a frame number
+        // identifies one picture, permanently. Leaving the old image under a new frame
+        // number would let an annotator draw a box on the wrong picture, and nothing
+        // downstream could tell.
+        engine.setMedia({ width: 0, height: 0, image: null }, { fit: false });
       });
 
     return () => {

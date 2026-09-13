@@ -35,12 +35,15 @@ import {
 import clsx from 'clsx';
 import { api } from '@/api/client';
 import type { AnnotationChange, LabelStyle, ToolName } from '@/canvas/types';
+import type { ApiTrack } from '@/api/types';
 import { Badge, Button, ErrorNotice, Kbd, Spinner, jobStateTone } from '@/ui/primitives';
 import { AnnotationCanvas, type CanvasHandle } from './AnnotationCanvas';
 import { frameAnnotations, toLabelStyles } from './adapters';
 import { useFrameObjectUrl } from './useFrameObjectUrl';
 import { TrackTimeline } from './TrackTimeline';
 import { adjacentKeyframe, trackRows } from './timeline';
+import { markDeparture, moveKeyframe, toggleKeyframe, type EditResult } from './keyframes';
+import { QualityPanel } from './QualityPanel';
 import { useAutosave } from './useAutosave';
 
 const TOOLS: { name: ToolName; icon: typeof Square; label: string; key: string }[] = [
@@ -128,6 +131,76 @@ export function EditorPage() {
     [annotations.data, job.data?.start_frame, job.data?.stop_frame],
   );
 
+  // The track whose keyframes `k` and `o` act on. A keyframe edit has to name one object,
+  // and a job can hold dozens; without a selection the shortcuts would have to guess.
+  const [selectedTrackId, setSelectedTrackId] = useState<string | null>(null);
+  const [trackNotice, setTrackNotice] = useState<string | null>(null);
+
+  const editTrack = useMutation({
+    // Takes the track explicitly rather than reading `selectedTrackId`: a drag names the
+    // lane it started on, and selection follows the drag rather than gating it.
+    mutationFn: async ({
+      trackId,
+      edit,
+    }: {
+      trackId: string | null;
+      edit: (track: ApiTrack) => EditResult;
+    }) => {
+      const track = annotations.data?.tracks.find((t) => t.id === trackId);
+      if (!track) return { refused: 'Select a track on the timeline first.' };
+
+      const result = edit(track);
+      if (!result.ok) return { refused: result.refusal.reason };
+
+      // Flush pending shape work first: both writes carry `annotation_version`, and sending
+      // this one while the buffer still holds shapes would make one of them a 409.
+      await autosave.flush();
+      const current = await api.annotations(jobId);
+
+      if (result.track === null) {
+        await api.writeAnnotations(jobId, {
+          annotation_version: current.annotation_version,
+          deleted_tracks: [track.id],
+        });
+        return { refused: null };
+      }
+      await api.writeAnnotations(jobId, {
+        annotation_version: current.annotation_version,
+        updated_tracks: [
+          {
+            id: result.track.id,
+            label_id: result.track.label_id,
+            shape_type: result.track.shape_type,
+            group: result.track.group,
+            object_id: result.track.object_id,
+            source: result.track.source,
+            attributes: result.track.attributes,
+            shapes: result.track.shapes.map((shape) => ({
+              frame: shape.frame,
+              shape_type: result.track!.shape_type,
+              points: shape.points,
+              rotation: shape.rotation,
+              occluded: shape.occluded,
+              outside: shape.outside,
+              keyframe: shape.keyframe,
+              z_order: 0,
+              attributes: shape.attributes ?? {},
+            })),
+          },
+        ],
+      });
+      return { refused: null };
+    },
+    onSuccess: (result) => {
+      setTrackNotice(result?.refused ?? null);
+      if (!result?.refused) {
+        void queryClient.invalidateQueries({ queryKey: ['annotations', jobId] });
+      }
+    },
+    onError: (error: unknown) =>
+      setTrackNotice(error instanceof Error ? error.message : 'The edit could not be saved.'),
+  });
+
   // Every keyframe in the job, deduplicated — what `,` and `.` step between. Stepping
   // between keyframes rather than frames is how you move through a track that was
   // annotated every thirtieth frame without pressing an arrow thirty times.
@@ -155,11 +228,23 @@ export function EditorPage() {
           event.key === '.' ? 1 : -1,
         );
         if (next !== null) setFrame(next);
+      } else if (event.key === 'k' && selectedTrackId) {
+        event.preventDefault();
+        editTrack.mutate({
+          trackId: selectedTrackId,
+          edit: (track) => toggleKeyframe(track, frame ?? job.data!.start_frame),
+        });
+      } else if (event.key === 'o' && selectedTrackId) {
+        event.preventDefault();
+        editTrack.mutate({
+          trackId: selectedTrackId,
+          edit: (track) => markDeparture(track, frame ?? job.data!.start_frame),
+        });
       }
     }
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [job.data, keyframes, frame]);
+  }, [job.data, keyframes, frame, selectedTrackId, editTrack]);
 
   // Flush pending work before leaving the frame, so changes are never stranded.
   useEffect(() => {
@@ -313,6 +398,8 @@ export function EditorPage() {
             onFocus={(id) => engine?.focusAnnotation(id)}
           />
 
+          <QualityPanel job={job.data} labels={labelStyles} onSeek={setFrame} />
+
           <ShortcutHelp />
         </aside>
       </div>
@@ -324,6 +411,16 @@ export function EditorPage() {
         stopFrame={job.data?.stop_frame ?? 0}
         currentFrame={currentFrame}
         onSeek={setFrame}
+        selectedTrackId={selectedTrackId}
+        onSelectTrack={(trackId) => {
+          setSelectedTrackId(trackId);
+          setTrackNotice(null);
+        }}
+        onMoveKeyframe={(trackId, from, to) => {
+          setTrackNotice(null);
+          editTrack.mutate({ trackId, edit: (track) => moveKeyframe(track, from, to) });
+        }}
+        notice={trackNotice}
       />
 
       {/* Frame navigation */}
