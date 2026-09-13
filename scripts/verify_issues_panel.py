@@ -12,11 +12,16 @@ cannot prove is the loop: that the panel reaches the endpoint, that an issue ope
 selected object actually carries that object's id, that a reply lands on the right thread,
 and that resolving one moves it out of the open list without losing it.
 
-The check that matters most is the **anchor**. A track materialised onto a frame is not a
+Two checks carry the most weight. The **anchor**: A track materialised onto a frame is not a
 shape: it has no row in the shapes table, and the editor gives it the *track's* id. Sending
 that as `shape_id` points a foreign key at nothing — the issue still saves, still lists, and
 silently stops pointing at the object it was about. Nothing in the UI would show it, so this
 asserts against the API which column was actually filled in.
+
+And the **pin's coordinate space**. The canvas scales and centres the frame, so a screen
+point sent straight through lands somewhere else entirely. An issue pinned to the wrong pixel
+is worse than one not pinned at all, because it reads as deliberate — so the harness clicks
+the centre of the canvas and asserts the stored point is near the centre of the *image*.
 
 Needs the packaged server (`python desktop/sidecar/build.py`) and a Chromium Playwright can
 drive; set `CURVEVISION_CHROMIUM` if the bundled one is not found.
@@ -207,6 +212,65 @@ def main() -> int:
                 check(page.get_by_text("1 resolved").count() > 0,
                       "but is still reachable, rather than hidden",
                       "the resolved issue vanished from the panel entirely")
+
+                # Pinning: arm the pin, click the image, and check the point that reached
+                # the server is the pixel that was clicked rather than a screen coordinate.
+                # The canvas is scaled and centred, so a screen point sent straight through
+                # lands somewhere else entirely — and an issue pinned to the wrong pixel is
+                # worse than one not pinned at all, because it reads as deliberate.
+                canvas = page.locator("canvas").first
+                box = canvas.bounding_box()
+                assert box is not None, "the canvas has no bounding box"
+
+                page.get_by_label("Describe the problem").fill("the wheel is outside the box")
+                page.get_by_role("button", name="Pin").click()
+                page.wait_for_timeout(300)
+
+                target = (box["x"] + box["width"] * 0.5, box["y"] + box["height"] * 0.5)
+                page.mouse.click(*target)
+                page.wait_for_timeout(600)
+
+                pinned_label = page.get_by_text("pinned at", exact=False)
+                check(pinned_label.count() > 0,
+                      "clicking the image places a pin and the panel says where",
+                      "the click did not place a pin")
+                placed = pinned_label.first.inner_text() if pinned_label.count() else ""
+                print(f"  {placed}")
+
+                page.get_by_role("button", name="Open an issue").click()
+                page.wait_for_timeout(2000)
+
+                pinned = next((i for i in issues_of(base, token, job_id)
+                               if i["state"] == "open"), None)
+                check(pinned is not None, "the pinned issue reached the server",
+                      "no open issue after pinning")
+                if pinned is not None:
+                    position = pinned["position"]
+                    print(f"  position stored: {position}")
+                    check(len(position) == 2 and all(isinstance(v, (int, float)) for v in position),
+                          "the issue carries a two-number point",
+                          f"position is {position!r}")
+                    # Where the click should land, exactly.
+                    #
+                    # Selecting the object earlier focused the view on it, so the viewport is
+                    # centred on that box at ~479% rather than fitted to the frame. The
+                    # centre of the canvas is therefore the centre of the *box*, which the
+                    # seeded keyframe pins precisely: [20, 40, 90, 110] -> (55, 75).
+                    #
+                    # That makes this an exact expectation rather than a tolerance around a
+                    # guess, and it fails for either mistake worth catching: a screen
+                    # coordinate sent straight through, and a conversion that ignores the
+                    # viewport's pan or scale.
+                    x1, y1, x2, y2 = KEYFRAMES[0][1]
+                    expected = ((x1 + x2) / 2, (y1 + y2) / 2)
+                    if len(position) == 2:
+                        off = (abs(position[0] - expected[0]), abs(position[1] - expected[1]))
+                        print(f"  expected the focused box's centre {expected}; "
+                              f"off by {off[0]:.1f}, {off[1]:.1f} px")
+                        check(off[0] <= 3 and off[1] <= 3,
+                              "the stored point is in image space, through the live viewport",
+                              f"the point is {position}, not the focused box's centre "
+                              f"{expected}")
 
                 check(not raised, "the whole loop raises nothing", f"page error: {raised}")
                 shot = Path("/tmp/curvevision-issues.png")

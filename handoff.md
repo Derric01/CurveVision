@@ -5,7 +5,7 @@
 > [`AGENTS.md`](./AGENTS.md) first; it is the working contract. Update this file after every
 > iteration, including the ones that mostly failed.
 >
-> **Last updated:** 2026-09-13 (iteration 22) · branch `claude/curvevision-platform-build-n1g71n` · PRs [#1](https://github.com/Derric01/CurveVision/pull/1)–[#10](https://github.com/Derric01/CurveVision/pull/10) merged (iterations 1–16) · PRs [#11](https://github.com/Derric01/CurveVision/pull/11)–[#12](https://github.com/Derric01/CurveVision/pull/12) merged (iterations 17–21) · iteration 22 on the branch, rebased onto `origin/main` at `4683fa4`
+> **Last updated:** 2026-09-13 (iteration 23) · branch `claude/curvevision-platform-build-n1g71n` · PRs [#1](https://github.com/Derric01/CurveVision/pull/1)–[#10](https://github.com/Derric01/CurveVision/pull/10) merged (iterations 1–16) · PRs [#11](https://github.com/Derric01/CurveVision/pull/11)–[#12](https://github.com/Derric01/CurveVision/pull/12) merged (iterations 17–21) · iterations 22–23 in open PR [#13](https://github.com/Derric01/CurveVision/pull/13)
 
 ---
 
@@ -69,12 +69,17 @@ was the last unconnected piece of the desktop application.
 
 ## Next best action
 
-**Pin an issue to a point on the canvas.** `Issue.position` is stored, the API accepts it,
-and nothing places one — so an issue says "frame 40, this object" rather than "here". It
-needs a click-to-place interaction and a marker in the renderer, which is the first thing in
-a while that touches the canvas rather than the chrome around it.
+**Pre-build chunks after a video upload.** `media.build_chunks` builds rather than plans, and
+nothing enqueues it. `media.probe_task` is enqueued from the same place and already decodes
+the whole file to count frames — so the honest move is probably **one** job that counts *and*
+builds in a single pass, rather than two that each walk the file. Careful: the desktop queue
+is inline, so a job that takes a minute blocks the request that queued it.
 
-**Then: pre-build chunks after a video upload.** `api.issues` / `createIssue` / `resolveIssue` have been
+**Then: a browser harness in CI.** Nine exist and between them they have found every defect
+the unit suites missed, including a ref-timing bug that had disconnected seven controls. They
+need a packaged sidecar and a Chromium, so nightly or pre-release rather than per-push. Note
+the sidecar embeds `web/dist`: a run needs `npm --prefix web run build` **and** a sidecar
+rebuild, or it silently tests the previous frontend. `api.issues` / `createIssue` / `resolveIssue` have been
 on the client since the first web iteration with nothing calling them. The quality panel is
 the pattern to copy — both are frame-anchored lists a reviewer clicks through — and an issue
 additionally carries a `position`, so it can be drawn on the canvas rather than only listed.
@@ -299,24 +304,54 @@ being updated and this one was not. Check it against* Completed *before trusting
 
 ## Remaining high-priority work
 
-1. **Pin an issue to a point on the canvas.** `position` is stored, the API accepts it, and
-   nothing places one. Needs a click-to-place interaction and a marker in the renderer.
-2. **Pre-build chunks after a video upload.** `media.build_chunks` builds rather than plans,
+1. **Pre-build chunks after a video upload.** `media.build_chunks` builds rather than plans,
    and nothing enqueues it. Careful: the desktop queue is inline, and `media.probe_task`
    already decodes the whole file — one job that counts and builds probably beats two.
-3. **A browser harness in CI.** Nine exist and between them they have found every defect
+2. **A browser harness in CI.** Nine exist and between them they have found every defect
    the unit suites missed, this iteration's included. Note the sidecar embeds `web/dist`, so
    a run needs `npm --prefix web run build` **and** a sidecar rebuild, or it silently tests
    the previous frontend.
-4. **Signed installers in CI** — one runner per platform; PyInstaller does not cross-compile.
-5. **Webhook retry/backoff** wired to the job queue.
-6. **`choose_files` is still unused.** The shell can open a native *file* picker as well as a
+3. **Signed installers in CI** — one runner per platform; PyInstaller does not cross-compile.
+4. **Webhook retry/backoff** wired to the job queue.
+5. **`choose_files` is still unused.** The shell can open a native *file* picker as well as a
    folder one, and `/tasks/{id}/local-import` accepts a file path. Connecting it is small, and
    deliberately left until someone wants it — the folder case is the one that matters.
 
 ---
 
 ## Last iteration
+
+**An issue can be pinned to a point on the image.** `Issue.position` had been stored and
+accepted by the API with nothing placing one, so an issue said "frame 40, this object" rather
+than "here". *Pin* arms the canvas, one click places the point, and the pin draws on the
+overlay — amber while open, dimmed once resolved, brighter for the thread being read.
+
+**A pin is overlay state, not a scene object.** Keeping it out of the scene is what
+guarantees it cannot be selected, dragged, deleted by a marquee, or exported — four
+properties that would otherwise each need remembering as a special case. It is drawn at a
+**fixed screen size**: a marker that shrinks with the image stops doing the one job it has.
+
+**Picking is armed and spent in one click.** The engine disarms itself on the click, so the
+canvas never sits in a mode the annotator has to find their way out of. Panning still works
+while armed, because a reviewer needs to reach the part of the frame they mean first.
+
+**`hasPin` is stricter than "the field exists".** `position` is free-form JSON server-side
+and defaults to `[]`, so a partial pair or a `null` that survived a round trip would place a
+marker at `NaN` — which paints nothing and leaves the annotator hunting for a pin that was
+never drawn. Only two finite numbers count.
+
+*A note on the harness, because it was wrong first.* The pin check originally asserted the
+stored point was near the centre of the **image**, on the reasoning that clicking the centre
+of the canvas hits the centre of the frame. It does not: an earlier step in the same harness
+focuses the selected object, so the viewport is centred on that box at 479%. The assertion
+now expects the focused box's centre — `[20, 40, 90, 110]` → `(55, 75)` — which the
+implementation hits **exactly, off by 0.0 px**. That is a stronger check than the tolerance it
+replaced, and it fails for either mistake worth catching: a screen coordinate passed straight
+through, and a conversion that ignores pan or scale.
+
+---
+
+## Iteration 22
 
 **Issues are reachable from the editor — and building the panel found a bug that had
 disconnected seven controls.**
@@ -1093,7 +1128,19 @@ present. Both corrected; the second is a licensing claim and was the more urgent
 ```
 ./scripts/check.sh                    all 9 steps green
   ruff · ruff format · mypy · pytest server (394) · pytest sdk (13)
-  notices (52 deps) · eslint · tsc · vitest (309)
+  notices (52 deps) · eslint · tsc · vitest (317)
+```
+
+Iteration 23 added 8 web tests (317, up from 309) and no server tests — `position` has been
+in the schema since the first iteration; what was missing was anything that wrote to it.
+
+```
+ok   clicking the image places a pin and the panel says where
+     pinned at 55, 75
+     position stored: [55.0, 75.0]
+ok   the issue carries a two-number point
+     expected the focused box's centre (55.0, 75.0); off by 0.0, 0.0 px
+ok   the stored point is in image space, through the live viewport
 ```
 
 Iteration 22 added 16 web tests (309, up from 293) and no server tests — the issues API was

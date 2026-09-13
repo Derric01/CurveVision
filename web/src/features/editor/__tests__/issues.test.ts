@@ -12,7 +12,7 @@ import { describe, expect, it } from 'vitest';
 
 import type { Annotation } from '@/canvas/types';
 import type { Issue } from '@/api/types';
-import { anchorFor, describeAnchor, issueRows, openCount } from '../issues';
+import { anchorFor, describeAnchor, hasPin, issuePins, issueRows, openCount } from '../issues';
 
 function comment(body: string, author: string | null = 'rey', at = '2026-09-13T00:00:00Z') {
   return {
@@ -178,5 +178,65 @@ describe('describeAnchor', () => {
   it('says when it points at an object, for either kind of anchor', () => {
     expect(describeAnchor(issue({ frame: 3, shape_id: 's' }))).toBe('frame 3 · on an object');
     expect(describeAnchor(issue({ frame: 3, track_id: 't' }))).toBe('frame 3 · on an object');
+  });
+
+  it('prefers "pinned", which is the more specific thing to say', () => {
+    expect(describeAnchor(issue({ frame: 3, shape_id: 's', position: [10, 20] })))
+      .toBe('frame 3 · pinned');
+  });
+});
+
+describe('hasPin', () => {
+  it('accepts a real pair of coordinates, including the origin', () => {
+    expect(hasPin(issue({ position: [10, 20] }))).toBe(true);
+    expect(hasPin(issue({ position: [0, 0] }))).toBe(true);
+  });
+
+  it('rejects anything that would place a marker at NaN', () => {
+    // `position` is free-form JSON server-side and defaults to `[]`. A marker drawn at NaN
+    // paints nothing at all, so the annotator hunts for a pin that was never there.
+    expect(hasPin(issue({ position: [] }))).toBe(false);
+    expect(hasPin(issue({ position: [10] }))).toBe(false);
+    expect(hasPin(issue({ position: [10, Number.NaN] }))).toBe(false);
+    expect(hasPin({ ...issue(), position: [10, null] } as unknown as Issue)).toBe(false);
+    expect(hasPin({ ...issue(), position: undefined } as unknown as Issue)).toBe(false);
+  });
+});
+
+describe('issuePins', () => {
+  it('draws only the pins belonging to the frame on screen', () => {
+    // The same coordinates mean a different place on a different picture.
+    const pins = issuePins(
+      [
+        issue({ id: 'here', frame: 4, position: [10, 20] }),
+        issue({ id: 'elsewhere', frame: 9, position: [10, 20] }),
+      ],
+      4,
+    );
+    expect(pins.map((pin) => pin.id)).toEqual(['here']);
+    expect(pins[0]).toMatchObject({ x: 10, y: 20, resolved: false, active: false });
+  });
+
+  it('skips an issue with no usable point rather than drawing at NaN', () => {
+    expect(issuePins([issue({ frame: 0, position: [] })], 0)).toEqual([]);
+  });
+
+  it('still draws a resolved pin, marked, because "where was it" outlives the fix', () => {
+    const pins = issuePins([issue({ frame: 0, position: [1, 2], state: 'resolved' })], 0);
+    expect(pins[0]?.resolved).toBe(true);
+  });
+
+  it('marks the open thread so the row and the pin agree', () => {
+    const pins = issuePins(
+      [issue({ id: 'a', frame: 0, position: [1, 2] }), issue({ id: 'b', frame: 0, position: [3, 4] })],
+      0,
+      'b',
+    );
+    expect(pins.find((pin) => pin.id === 'a')?.active).toBe(false);
+    expect(pins.find((pin) => pin.id === 'b')?.active).toBe(true);
+  });
+
+  it('survives no issues at all', () => {
+    expect(issuePins(undefined, 0)).toEqual([]);
   });
 });

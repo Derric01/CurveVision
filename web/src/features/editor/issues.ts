@@ -107,6 +107,57 @@ export function anchorFor(
 /** A short description of where an issue points, for the row. */
 export function describeAnchor(issue: Issue): string {
   const where = `frame ${issue.frame}`;
+  if (hasPin(issue)) return `${where} · pinned`;
   if (issue.shape_id || issue.track_id) return `${where} · on an object`;
   return where;
+}
+
+/** A marker the canvas draws for an issue that was pinned to a point. */
+export interface IssuePin {
+  id: string;
+  x: number;
+  y: number;
+  resolved: boolean;
+  /** The issue whose thread is open, drawn brighter so the row and the pin agree. */
+  active: boolean;
+}
+
+/**
+ * Whether an issue carries a usable point.
+ *
+ * `position` is a free-form JSON list server-side and defaults to `[]`, so "has a position"
+ * is not the same as "the field exists". A pair of finite numbers is the only thing that can
+ * be drawn; anything else — an empty list, a partial pair, a `null` that survived a round
+ * trip — would place a marker at `NaN`, which silently paints nothing and leaves the
+ * annotator looking for a pin that is not there.
+ */
+export function hasPin(issue: Issue): boolean {
+  const [x, y] = issue.position ?? [];
+  return Number.isFinite(x) && Number.isFinite(y);
+}
+
+/**
+ * The pins to draw for one frame.
+ *
+ * Only this frame's: a pin is a point on a picture, and the same coordinates mean a different
+ * place on a different frame. Resolved issues still draw, dimmed — a reviewer checking
+ * whether something was fixed wants to see where it was.
+ */
+export function issuePins(
+  issues: Issue[] | undefined | null,
+  currentFrame: number,
+  activeId: string | null = null,
+): IssuePin[] {
+  const pins: IssuePin[] = [];
+  for (const issue of issues ?? []) {
+    if (issue.frame !== currentFrame || !hasPin(issue)) continue;
+    pins.push({
+      id: issue.id,
+      x: issue.position[0] as number,
+      y: issue.position[1] as number,
+      resolved: issue.state !== 'open',
+      active: issue.id === activeId,
+    });
+  }
+  return pins;
 }

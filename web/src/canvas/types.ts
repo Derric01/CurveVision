@@ -124,6 +124,8 @@ export interface EngineEvents {
   hoverChanged: (id: string | null) => void;
   /** A draft object being drawn right now; null when no draw is in progress. */
   draftChanged: (draft: Annotation | null) => void;
+  /** A point picked in image space, when point-picking was armed. Disarms on the click. */
+  pointPicked: (point: Point) => void;
 }
 
 export interface AnnotationChange {

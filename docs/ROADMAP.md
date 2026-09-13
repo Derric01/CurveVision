@@ -52,7 +52,7 @@ application — and produce a real dataset with it.
 | Roles and per-organization membership | **Done** |
 | Job assignment and the review state machine | **Done** |
 | Overlapping jobs reconciled on export (no duplicated objects at a job seam; track identity survives it) | **Done** |
-| Issues and comment threads anchored to frames | **Done** — and, since this iteration, actually reachable: the editor lists them, opens one on the current frame anchored to the selected object, replies on a thread, and resolves or reopens it |
+| Issues and comment threads anchored to frames | **Done** — and reachable: the editor lists them, opens one on the current frame anchored to the selected object **or pinned to a point you click on the image**, replies on a thread, and resolves or reopens it |
 | Annotation history | **Done** |
 | `ModelProvider` abstraction and the HTTP inference contract | **Done** |
 | Model predictions as accept/reject suggestions | **Done** |

@@ -24,6 +24,16 @@ export interface RendererLayers {
   overlay: CanvasRenderingContext2D;
 }
 
+/** A review issue pinned to a point on this frame. */
+export interface OverlayPin {
+  id: string;
+  x: number;
+  y: number;
+  resolved: boolean;
+  /** The issue whose thread is open in the sidebar. */
+  active: boolean;
+}
+
 export interface OverlayState {
   /** Object being drawn right now. */
   draft: Annotation | null;
@@ -32,6 +42,14 @@ export interface OverlayState {
   cursor: { x: number; y: number } | null;
   /** Vertex snap indicator. */
   snap: { x: number; y: number } | null;
+  /**
+   * Issue pins for the frame on screen.
+   *
+   * Overlay rather than a shape layer: a pin is not an annotation, it does not export, and
+   * it must not be pickable by the selection tools — a reviewer's marker is not something
+   * you drag, delete with the rest of a marquee, or accidentally include in a dataset.
+   */
+  pins: OverlayPin[];
 }
 
 export const EMPTY_OVERLAY: OverlayState = {
@@ -39,9 +57,12 @@ export const EMPTY_OVERLAY: OverlayState = {
   marquee: null,
   cursor: null,
   snap: null,
+  pins: [],
 };
 
 const HANDLE_SIZE = 7;
+/** Screen pixels, not image pixels — a pin marks a place and must stay findable. */
+const PIN_RADIUS = 9;
 const SELECTED_LINE_WIDTH = 2.5;
 const DEFAULT_LINE_WIDTH = 1.75;
 
@@ -151,6 +172,46 @@ export class Renderer {
       context.stroke();
       context.restore();
     }
+
+    for (const pin of overlay.pins) this.paintPin(context, viewport, pin);
+  }
+
+  /**
+   * One issue pin.
+   *
+   * Drawn at a fixed screen size rather than scaled with the image: a pin marks a place, and
+   * a marker that shrinks to nothing at low zoom stops doing the one job it has. The dot at
+   * the centre is what says *which* pixel — a ring alone leaves the exact point ambiguous at
+   * the moment the reviewer is trying to be precise.
+   */
+  private paintPin(
+    context: CanvasRenderingContext2D,
+    viewport: ViewportState,
+    pin: OverlayPin,
+  ): void {
+    const point = imageToScreen(viewport, { x: pin.x, y: pin.y });
+    const colour = pin.resolved ? '#64748b' : '#fbbf24';
+    context.save();
+    context.globalAlpha = pin.resolved ? 0.65 : 1;
+
+    // A dark halo first, so the pin stays legible over a light frame as well as a dark one.
+    context.strokeStyle = 'rgba(2, 6, 23, 0.75)';
+    context.lineWidth = pin.active ? 5 : 4;
+    context.beginPath();
+    context.arc(point.x, point.y, PIN_RADIUS, 0, Math.PI * 2);
+    context.stroke();
+
+    context.strokeStyle = colour;
+    context.lineWidth = pin.active ? 2.5 : 1.5;
+    context.beginPath();
+    context.arc(point.x, point.y, PIN_RADIUS, 0, Math.PI * 2);
+    context.stroke();
+
+    context.fillStyle = colour;
+    context.beginPath();
+    context.arc(point.x, point.y, pin.active ? 2.5 : 2, 0, Math.PI * 2);
+    context.fill();
+    context.restore();
   }
 
   // ------------------------------------------------------------------- painting

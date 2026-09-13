@@ -247,7 +247,7 @@ actually need before training — **how many frames have no annotations at all**
 | Jobs as the unit of assignment (parallel annotation on one task) | **Done** |
 | Overlapping jobs merged on export — one object at a seam, not two | **Done** |
 | Review state machine: `new → in_progress → submitted → accepted/rejected` | **Done** |
-| Issues and comment threads anchored to a frame and shape, in the editor — open one on the selected object, reply, resolve, reopen | **Done** |
+| Issues and comment threads in the editor — open one on the selected object or pinned to a point on the image, reply, resolve, reopen | **Done** |
 | Annotation history | **Done** |
 | Immutable dataset releases with content hashing | **Done** |
 | Content-addressed media (the same file across tasks is stored once) | **Done** |

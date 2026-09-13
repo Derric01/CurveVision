@@ -25,7 +25,7 @@
 
 import { useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Check, ChevronRight, MessageSquare, RotateCcw, Send } from 'lucide-react';
+import { Check, ChevronRight, MapPin, MessageSquare, RotateCcw, Send, X } from 'lucide-react';
 import clsx from 'clsx';
 
 import { api } from '@/api/client';
@@ -38,12 +38,25 @@ export function IssuesPanel({
   currentFrame,
   selected,
   onSeek,
+  picking,
+  pickedPoint,
+  onPickingChange,
+  onClearPoint,
+  onOpenThread,
 }: {
   jobId: string;
   currentFrame: number;
   /** The annotation an issue would be anchored to, when one is selected. */
   selected: Annotation | null;
   onSeek: (frame: number) => void;
+  /** True while the next canvas click will place a pin. */
+  picking: boolean;
+  /** The point the last click placed, in image space, or null. */
+  pickedPoint: { x: number; y: number } | null;
+  onPickingChange: (picking: boolean) => void;
+  onClearPoint: () => void;
+  /** The thread being read, so the canvas can draw its pin brighter. */
+  onOpenThread: (issueId: string | null) => void;
 }) {
   const queryClient = useQueryClient();
   const [draft, setDraft] = useState('');
@@ -66,9 +79,14 @@ export function IssuesPanel({
         frame: currentFrame,
         body: draft.trim(),
         ...anchorFor(selected),
+        // Sent only when a point was actually placed. The API defaults `position` to an
+        // empty list, which is what "not pinned" means; sending `[0, 0]` for an unplaced
+        // pin would put a marker in the top-left corner of every such issue.
+        ...(pickedPoint ? { position: [pickedPoint.x, pickedPoint.y] } : {}),
       }),
     onSuccess: async () => {
       setDraft('');
+      onClearPoint();
       await refresh();
     },
   });
@@ -117,7 +135,7 @@ export function IssuesPanel({
           className="w-full resize-none rounded-md border border-ink-700 bg-ink-950 px-2 py-1.5 text-xs text-ink-100 placeholder:text-ink-600 focus:border-curve-400 focus:outline-none"
           aria-label="Describe the problem"
         />
-        <div className="mt-1.5 flex items-center gap-2">
+        <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
           <Button
             size="sm"
             variant="secondary"
@@ -127,12 +145,31 @@ export function IssuesPanel({
             {create.isPending ? <Spinner className="mr-1.5 h-3 w-3" /> : <Send size={12} className="mr-1.5" />}
             Open an issue
           </Button>
-          <span className="truncate text-[10px] text-ink-600">
-            {/* Says what it will attach to before it attaches it — an issue that silently
-                lost its anchor reads exactly like one that never had it. */}
-            {selected ? 'on the selected object' : `on frame ${currentFrame}`}
-          </span>
+          <Button
+            size="sm"
+            variant="ghost"
+            active={picking}
+            onClick={() => onPickingChange(!picking)}
+            title={picking ? 'Click the image to place the pin' : 'Point at the problem'}
+          >
+            <MapPin size={12} className="mr-1" />
+            {picking ? 'Click the image' : 'Pin'}
+          </Button>
+          {pickedPoint && (
+            <Button size="sm" variant="ghost" onClick={onClearPoint} title="Remove the pin">
+              <X size={11} />
+            </Button>
+          )}
         </div>
+        <p className="mt-1 truncate text-[10px] text-ink-600">
+          {/* Says what it will attach to before it attaches it — an issue that silently lost
+              its anchor reads exactly like one that never had it. */}
+          {pickedPoint
+            ? `pinned at ${Math.round(pickedPoint.x)}, ${Math.round(pickedPoint.y)}`
+            : selected
+              ? 'on the selected object'
+              : `on frame ${currentFrame}`}
+        </p>
 
         {error !== null && error !== undefined && (
           <p className="mt-2 rounded border border-red-500/30 bg-red-500/10 px-2 py-1.5 text-[11px] text-red-300">
@@ -158,7 +195,9 @@ export function IssuesPanel({
               reply={reply}
               busy={comment.isPending || setState.isPending}
               onToggle={() => {
-                setOpenThread(openThread === row.issue.id ? null : row.issue.id);
+                const next = openThread === row.issue.id ? null : row.issue.id;
+                setOpenThread(next);
+                onOpenThread(next);
                 setReply('');
               }}
               onSeek={() => onSeek(row.issue.frame)}
@@ -195,7 +234,9 @@ export function IssuesPanel({
                 reply={reply}
                 busy={comment.isPending || setState.isPending}
                 onToggle={() => {
-                  setOpenThread(openThread === row.issue.id ? null : row.issue.id);
+                  const next = openThread === row.issue.id ? null : row.issue.id;
+                  setOpenThread(next);
+                  onOpenThread(next);
                   setReply('');
                 }}
                 onSeek={() => onSeek(row.issue.frame)}
