@@ -488,9 +488,10 @@ Planned: KITTI, LabelMe, Open Images, TFRecord, Datumaro bridge.
 
   Geometry is exact rather than bbox-approximate: polygons are clipped
   (Sutherland–Hodgman) and measured by the shoelace formula, and matching is greedy on
-  descending IoU, which is COCO's rule. What is not built: a UI for *creating* a
-  ground-truth job (it is an API or CLI call), and running the comparison as a background
-  job — it runs inline, which a very large ground truth would change.
+  descending IoU, which is COCO's rule. The task page creates the ground-truth job and
+  shows each job's latest F1; the editor shows the report. What is not built: running the
+  comparison as a background job — it runs inline, which a very large ground truth would
+  change.
 
 ---
 

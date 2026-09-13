@@ -252,7 +252,7 @@ actually need before training — **how many frames have no annotations at all**
 | Immutable dataset releases with content hashing | **Done** |
 | Content-addressed media (the same file across tasks is stored once) | **Done** |
 | Export jobs with downloadable artifacts | **In Progress** |
-| Ground-truth quality reports: precision/recall/F1 per label, classified conflicts, and a panel in the editor where clicking a conflict seeks to its frame | **Done** |
+| Ground-truth quality reports: declare a task's answer key, then score each job against it — precision/recall/F1 per label, classified conflicts, and a panel in the editor where clicking a conflict seeks to its frame | **Done** |
 
 ### Images and video
 

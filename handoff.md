@@ -5,7 +5,7 @@
 > [`AGENTS.md`](./AGENTS.md) first; it is the working contract. Update this file after every
 > iteration, including the ones that mostly failed.
 >
-> **Last updated:** 2026-09-13 (iteration 20) · branch `claude/curvevision-platform-build-n1g71n` · PRs [#1](https://github.com/Derric01/CurveVision/pull/1)–[#10](https://github.com/Derric01/CurveVision/pull/10) merged (iterations 1–16) · iterations 17–20 in open PR [#11](https://github.com/Derric01/CurveVision/pull/11)
+> **Last updated:** 2026-09-13 (iteration 21) · branch `claude/curvevision-platform-build-n1g71n` · PRs [#1](https://github.com/Derric01/CurveVision/pull/1)–[#10](https://github.com/Derric01/CurveVision/pull/10) merged (iterations 1–16) · PR [#11](https://github.com/Derric01/CurveVision/pull/11) merged (iterations 17–20) · iteration 21 on the branch, restarted from `origin/main` at `87a25b6`
 
 ---
 
@@ -19,9 +19,8 @@ supervises it, and folders annotated in place without copying a byte.
 
 **The tree is green.** `./scripts/check.sh` passes all nine steps.
 
-Honestly incomplete, and marked as such everywhere: the mask brush, the keypoint UI, an in-
-editor view of issues, a UI for creating a ground-truth job, resumable uploads, and signed
-desktop installers.
+Honestly incomplete, and marked as such everywhere: the mask brush, the keypoint UI, an
+in-editor view of issues, resumable uploads, and signed desktop installers.
 
 **Annotation quality is measured rather than declared, and a reviewer can now see it.** A
 task holds a ground-truth job; scoring an annotation job against it produces per-label
@@ -70,18 +69,18 @@ was the last unconnected piece of the desktop application.
 
 ## Next best action
 
-**A UI for creating a ground-truth job.** Reading a quality report is a panel now; declaring
-what "correct" means for a task is still `POST /tasks/{id}/ground-truth` or the CLI. It
-belongs on the task page rather than in the editor — it is a task-level decision of the same
-weight as defining the label schema, which is why the endpoint takes `Action.UPDATE` on the
-task rather than a review permission.
-
-**Then: show issues in the editor.** `api.issues` / `createIssue` / `resolveIssue` have been
+**Show issues in the editor.** `api.issues` / `createIssue` / `resolveIssue` have been
 on the client since the first web iteration with nothing calling them. The quality panel is
 the pattern to copy — both are frame-anchored lists a reviewer clicks through — and an issue
 additionally carries a `position`, so it can be drawn on the canvas rather than only listed.
 
-*Superseded: "drag a keyframe along its lane", which is done.*
+**Then: run the comparison as a background job.** `QUEUE_ROUTING` already has a `quality`
+queue and nothing routes to it. Scoring is arithmetic over rows already in the database, so
+inline is right today; a ground truth over thousands of frames changes that calculus, and the
+endpoint's docstring says so.
+
+*Superseded: "a UI for creating a ground-truth job" and "drag a keyframe along its lane",
+both done.*
 
 <details><summary>What that took, for whoever wires the next pointer interaction</summary>
 
@@ -115,7 +114,7 @@ a mutation that flushes the shape buffer, re-reads `annotation_version`, then wr
   that counts and builds in a single pass, rather than two that each walk the file.
 * **Surface a task whose frame count could not be corrected.** The job reports "this task
   already has annotation work"; nothing shows it to anyone.
-* **Put a browser harness in CI.** Seven now exist (`screenshot.py`, `verify_local_import.py`,
+* **Put a browser harness in CI.** Eight now exist (`screenshot.py`, `verify_local_import.py`,
   `verify_chunked_frames.py`, `verify_track_timeline.py`, `verify_scissors.py`,
   `verify_keyframe_editing.py`, `verify_quality_panel.py`) and between them they have found
   every defect the unit suites missed — including this iteration's. Nightly or pre-release;
@@ -285,7 +284,7 @@ full docs set including seven ADRs.
 | Surfacing an uncorrected frame count | When a task already carries annotations, `media.probe_task` declines the correction and says so in its result. Nothing shows that to a user. |
 | Webhooks | Delivery works and is signed; retry/backoff is not wired to the queue. |
 | Mask brush, keypoint UI | Storage, export and the model exist on both sides; neither drawing tool does. |
-| Quality reports | Scoring works end to end, and the editor now shows a report: three scores, a per-label breakdown worst-first, and conflicts that seek to their frame on click. A stale report is marked stale. What is left: **no UI creates a ground-truth job** (API or CLI only), and the comparison runs inline rather than on the `quality` queue, which a very large ground truth would change. |
+| Quality reports | Complete end to end and driven in a browser: the task page creates the answer key and shows each job's latest F1, the editor shows the report and seeks to a conflict on click, and a stale report is marked stale. What is left: the comparison runs inline rather than on the `quality` queue, which a very large ground truth would change. |
 
 *This table went stale once — it still listed the open-folder flow and chunked delivery as
 unbuilt several iterations after both shipped, because the narrative sections above were
@@ -295,27 +294,56 @@ being updated and this one was not. Check it against* Completed *before trusting
 
 ## Remaining high-priority work
 
-1. **A way to create a ground-truth job without the CLI.** Reading a report is a panel now;
-   declaring what "correct" means for a task is still an API call. It belongs on the task
-   page rather than the editor — same weight of decision as defining the label schema.
-2. **Issues in the editor.** `api.issues` / `createIssue` / `resolveIssue` have had no UI
+1. **Issues in the editor.** `api.issues` / `createIssue` / `resolveIssue` have had no UI
    since the first web iteration. The quality panel is the pattern to copy.
-3. **Pre-build chunks after a video upload.** `media.build_chunks` builds rather than plans,
+2. **Pre-build chunks after a video upload.** `media.build_chunks` builds rather than plans,
    and nothing enqueues it. Careful: the desktop queue is inline, and `media.probe_task`
    already decodes the whole file — one job that counts and builds probably beats two.
-4. **A browser harness in CI.** Seven exist and between them they have found every defect
+3. **A browser harness in CI.** Eight exist and between them they have found every defect
    the unit suites missed, this iteration's included. Note the sidecar embeds `web/dist`, so
    a run needs `npm --prefix web run build` **and** a sidecar rebuild, or it silently tests
    the previous frontend.
-5. **Signed installers in CI** — one runner per platform; PyInstaller does not cross-compile.
-6. **Webhook retry/backoff** wired to the job queue.
-7. **`choose_files` is still unused.** The shell can open a native *file* picker as well as a
+4. **Signed installers in CI** — one runner per platform; PyInstaller does not cross-compile.
+5. **Webhook retry/backoff** wired to the job queue.
+6. **`choose_files` is still unused.** The shell can open a native *file* picker as well as a
    folder one, and `/tasks/{id}/local-import` accepts a file path. Connecting it is small, and
    deliberately left until someone wants it — the folder case is the one that matters.
 
 ---
 
 ## Last iteration
+
+**The quality feature is complete end to end, and has been driven that way in a browser.**
+Creating a ground-truth job was the last part only the API and the CLI could reach — and it
+is the decision that gives every score on the task its meaning. The task page now creates it,
+with both frame bounds optional.
+
+**The claim that carries the most weight: a blank frame field means the whole task, not frame
+0.** Both bounds default to the full range server-side. A form reading an empty field as `0`
+would produce a **one-frame answer key** while looking like it had done what was asked, and
+every score afterwards would be a real-looking number computed from one frame.
+`planRange` returns `null` for a blank bound and the request omits the key entirely;
+`verify_ground_truth_setup.py` submits the form untouched and asserts the job covers every
+frame. Two unit tests pin it from both ends — blank is not 0, and a typed `0` is still 0.
+
+**The answer key is no longer listed as ordinary work.** It was "Job #5" among the others, so
+the one job nobody should be handed for ordinary annotation looked exactly like the ones they
+should. It now has its own panel, marked, with a warning when nothing has been annotated in
+it — scoring against an empty ground truth marks every object the annotator drew as invented,
+which produces a precision of 0 that says nothing about their work.
+
+The job list also shows each job's latest F1 beside its state, flagged **stale** when the job
+has changed since it was scored. The two answer different questions — "has it been reviewed"
+and "was it right" — and a job can be accepted with a poor score.
+
+`scripts/verify_ground_truth_setup.py` is the eighth harness and the first to drive **both
+halves as one workflow**: declare the answer key on the task page, annotate it, then score a
+job from the editor and get P=1.00 R=0.50 over six frames — a number that follows from the
+ground truth just declared, so a panel showing a hardcoded score would fail.
+
+---
+
+## Iteration 20
 
 **A keyframe can be dragged along its lane.** `moveKeyframe` had been written and tested for
 two iterations with nothing calling it; grabbing a marker and dropping it on another frame
@@ -1013,7 +1041,24 @@ present. Both corrected; the second is a licensing claim and was the more urgent
 ```
 ./scripts/check.sh                    all 9 steps green
   ruff · ruff format · mypy · pytest server (394) · pytest sdk (13)
-  notices (52 deps) · eslint · tsc · vitest (272)
+  notices (52 deps) · eslint · tsc · vitest (293)
+```
+
+Iteration 21 added 21 web tests (293, up from 272) and no server tests — the ground-truth
+endpoint was already covered by `tests/api/test_quality.py`; what was missing was a caller.
+
+```
+ok   a task with no ground truth offers to create one
+ok   a ground-truth job now exists on the task
+     it covers frames 0-5 of 0-5
+ok   leaving both frame fields blank means the whole task, not frame 0
+ok   the form is replaced by a description once one exists
+ok   the ground-truth job is marked as the answer key
+ok   an empty answer key says so, rather than looking ready to score
+ok   the editor offers to score the job against the new answer key
+     score: P=1.00 R=0.50 F1=0.67 over 6 frames
+ok   the score reflects the ground truth just declared (one of two objects found)
+ok   all 6 frames were compared, because the answer key covers them
 ```
 
 Iteration 20 added 7 web tests (272, up from 265) and no server tests — the drag is entirely

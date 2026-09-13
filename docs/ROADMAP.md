@@ -64,7 +64,7 @@ application — and produce a real dataset with it.
 | Intelligent scissors (edge-snapping boundaries) | **Done** — live-wire, implemented directly rather than by loading a ~10 MB OpenCV build; see [ADR 0009](./adr/0009-intelligent-scissors.md) |
 | Mask brush tool | **Planned** — RLE storage and export exist; the drawing tool does not |
 | Skeleton / keypoint editing UI | **Planned** — the model and COCO keypoint export exist |
-| Ground-truth quality reports | **Done** — a task can hold a ground-truth job; scoring an annotation job against it gives precision/recall/F1 per label plus classified conflicts (missing, extra, wrong label, poor overlap), and the editor shows the report beside the frames, where clicking a conflict seeks to it. A report records which version of the job it scored, so a stale one is marked stale rather than read as current. The comparison still runs inline rather than as a background job, and there is no UI for *creating* a ground-truth job — that is the API or the CLI |
+| Ground-truth quality reports | **Done** — a task can hold a ground-truth job; scoring an annotation job against it gives precision/recall/F1 per label plus classified conflicts (missing, extra, wrong label, poor overlap), and the editor shows the report beside the frames, where clicking a conflict seeks to it. A report records which version of the job it scored, so a stale one is marked stale rather than read as current. The comparison still runs inline rather than as a background job, and a ground-truth job is created from the task page, which also shows each job's latest F1 and marks a stale one |
 | Resumable uploads | *Planned* — the storage model exists; there are no endpoints yet |
 
 **What "Beta" needs before we call it that:** video annotation end to end, the track
@@ -167,8 +167,8 @@ deciding whether to adopt this needs them more than they need the roadmap.
   done yet.
 * **No consensus or honeypot quality workflows.** Quality starts and ends with ground-truth
   comparison: one answer key per task, scored per job. Consensus scoring, honeypot frames and
-  automatic reviewer assignment are under *Future*, and creating the ground-truth job itself
-  is an API or CLI call rather than a button.
+  automatic reviewer assignment are under *Future*. Scoring also runs inline rather than as a
+  background job, which a very large ground truth would change.
 * **No signed installers.** The desktop app builds and runs from source; `.dmg`, `.msi` and
   `.AppImage` need one CI runner per platform and are not built yet.
 * **Young.** This has not been through years of production use across many organisations.

@@ -227,10 +227,12 @@ Six things worth knowing about what the number means:
 Computing a report is a `review` action; a ground-truth job cannot be scored against
 itself. The comparison runs inline rather than as a background job.
 
-The editor shows all of this in its right-hand panel: the three scores, a per-label
+The whole loop has a UI. The **task page** creates the ground-truth job — both frame bounds
+optional, blank meaning the whole task — marks it as the answer key rather than listing it
+among ordinary work, and shows each job's latest F1 beside its state, flagged when the job
+has changed since. The **editor** shows the report itself: the three scores, a per-label
 breakdown ordered worst-first, and the conflicts as a list where **clicking one seeks to its
-frame** — a conflict is a place, not a statistic. A report whose job has changed since is
-marked stale there rather than presented as current.
+frame** — a conflict is a place, not a statistic.
 
 ## Overlapping jobs, and what export does with them
 
