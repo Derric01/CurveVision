@@ -12,6 +12,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   adjacentKeyframe,
+  frameAtPosition,
   framePosition,
   interpolateTrack,
   isPresent,
@@ -183,6 +184,39 @@ describe('framePosition', () => {
   it('clamps rather than positioning a marker off the bar', () => {
     expect(framePosition(-5, 0, 10)).toBe(0);
     expect(framePosition(99, 0, 10)).toBe(1);
+  });
+});
+
+describe('frameAtPosition', () => {
+  it('is the inverse of framePosition', () => {
+    // The click-to-seek and the keyframe drag both turn a pointer x into a frame. If they
+    // disagreed by one, a marker would land next to where the annotator dropped it.
+    for (const [start, stop] of [[0, 10], [0, 599], [40, 75], [3, 4]] as const) {
+      for (let frame = start; frame <= stop; frame++) {
+        expect(frameAtPosition(framePosition(frame, start, stop), start, stop)).toBe(frame);
+      }
+    }
+  });
+
+  it('rounds to the nearest frame rather than truncating toward the start', () => {
+    // 0.44 of a 0-9 lane is frame 3.96. Truncating would put every drop one frame early.
+    expect(frameAtPosition(0.44, 0, 9)).toBe(4);
+    expect(frameAtPosition(0.5, 0, 10)).toBe(5);
+  });
+
+  it('pins to the lane rather than naming a frame the job does not have', () => {
+    expect(frameAtPosition(-0.4, 0, 10)).toBe(0);
+    expect(frameAtPosition(1.8, 0, 10)).toBe(10);
+  });
+
+  it('respects a job that does not start at frame 0', () => {
+    expect(frameAtPosition(0, 40, 60)).toBe(40);
+    expect(frameAtPosition(1, 40, 60)).toBe(60);
+    expect(frameAtPosition(0.5, 40, 60)).toBe(50);
+  });
+
+  it('is the only frame there is on a one-frame job', () => {
+    expect(frameAtPosition(0.7, 7, 7)).toBe(7);
   });
 });
 

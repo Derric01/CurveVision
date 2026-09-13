@@ -12,10 +12,10 @@
  * first keyframe to last would claim the object is on screen during its absences.
  */
 
-import { useCallback, useRef } from 'react';
+import { useCallback, useRef, useState } from 'react';
 import clsx from 'clsx';
 import type { LabelStyle } from '@/canvas/types';
-import { framePosition, type TrackRow } from './timeline';
+import { frameAtPosition, framePosition, type TrackRow } from './timeline';
 
 const LANE_HEIGHT = 18;
 
@@ -28,6 +28,7 @@ export function TrackTimeline({
   onSeek,
   selectedTrackId,
   onSelectTrack,
+  onMoveKeyframe,
   notice,
 }: {
   rows: TrackRow[];
@@ -39,6 +40,8 @@ export function TrackTimeline({
   /** The track keyframe shortcuts act on; `null` when none is chosen. */
   selectedTrackId?: string | null;
   onSelectTrack?: (trackId: string | null) => void;
+  /** Move a keyframe to another frame. Omitted, the markers are not draggable. */
+  onMoveKeyframe?: (trackId: string, from: number, to: number) => void;
   /** Why the last keyframe edit did nothing, when it did nothing. */
   notice?: string | null;
 }) {
@@ -59,6 +62,7 @@ export function TrackTimeline({
                 <>
                   <kbd className="rounded bg-ink-800 px-1">K</kbd> keyframe ·{' '}
                   <kbd className="rounded bg-ink-800 px-1">O</kbd> leaves here
+                  {onMoveKeyframe ? ' · drag a marker to move it' : null}
                 </>
               ) : (
                 'Select a track to edit its keyframes'
@@ -83,6 +87,7 @@ export function TrackTimeline({
               onSeek={onSeek}
               selected={selectedTrackId === row.trackId}
               onSelect={onSelectTrack}
+              onMoveKeyframe={onMoveKeyframe}
             />
           ))}
         </ul>
@@ -100,6 +105,7 @@ function Lane({
   onSeek,
   selected,
   onSelect,
+  onMoveKeyframe,
 }: {
   row: TrackRow;
   label: LabelStyle | undefined;
@@ -109,21 +115,77 @@ function Lane({
   onSeek: (frame: number) => void;
   selected?: boolean;
   onSelect?: (trackId: string | null) => void;
+  onMoveKeyframe?: (trackId: string, from: number, to: number) => void;
 }) {
   const bar = useRef<HTMLButtonElement>(null);
   const colour = label?.color ?? '#64748b';
   const name = label?.name ?? 'track';
 
+  // The keyframe being dragged, and where it currently sits. Local state rather than a
+  // write per pointer move: a drag across a 600-frame lane crosses hundreds of frames, and
+  // a write each would be hundreds of round trips for one edit the annotator has not
+  // finished making. The move is sent once, on release.
+  const [drag, setDrag] = useState<{ from: number; to: number } | null>(null);
+  /** The frame under a pointer x, in the lane's own coordinates. */
+  const frameAtPointer = useCallback(
+    (clientX: number): number | null => {
+      const box = bar.current?.getBoundingClientRect();
+      if (!box || box.width === 0) return null;
+      return frameAtPosition((clientX - box.left) / box.width, startFrame, stopFrame);
+    },
+    [startFrame, stopFrame],
+  );
+
   // Clicking the lane seeks to the frame under the pointer, which is how a timeline is
   // expected to behave and saves dragging the slider to reach a track's first appearance.
   const seekToPointer = useCallback(
     (clientX: number) => {
-      const box = bar.current?.getBoundingClientRect();
-      if (!box || box.width === 0) return;
-      const fraction = Math.min(1, Math.max(0, (clientX - box.left) / box.width));
-      onSeek(startFrame + Math.round(fraction * (stopFrame - startFrame)));
+      const frame = frameAtPointer(clientX);
+      if (frame !== null) onSeek(frame);
     },
-    [onSeek, startFrame, stopFrame],
+    [frameAtPointer, onSeek],
+  );
+
+  const startDrag = useCallback(
+    (event: React.PointerEvent, frame: number) => {
+      if (!onMoveKeyframe) return;
+      // Keep the lane's own click-to-seek out of it, and take the pointer so the drag
+      // survives leaving the 18px lane vertically — which it will, constantly.
+      event.stopPropagation();
+      event.preventDefault();
+      event.currentTarget.setPointerCapture(event.pointerId);
+      setDrag({ from: frame, to: frame });
+      // Dragging a lane's keyframe is working on that track, so select it. Otherwise the
+      // annotator drags a marker and the `K`/`O` shortcuts still act on a different track.
+      if (onSelect && !selected) onSelect(row.trackId);
+    },
+    [onMoveKeyframe, onSelect, selected, row.trackId],
+  );
+
+  const moveDrag = useCallback(
+    (event: React.PointerEvent) => {
+      if (!drag) return;
+      const frame = frameAtPointer(event.clientX);
+      if (frame === null || frame === drag.to) return;
+      setDrag({ from: drag.from, to: frame });
+    },
+    [drag, frameAtPointer],
+  );
+
+  const endDrag = useCallback(
+    (event: React.PointerEvent) => {
+      if (!drag) return;
+      event.stopPropagation();
+      const { from, to } = drag;
+      setDrag(null);
+      // A press that never moved is a click, and this is where that is decided — not in a
+      // click handler. A click handler cannot tell the two apart without a flag saying "a
+      // drag just happened", and a flag that the click is supposed to consume gets stuck
+      // set whenever the click does not arrive. Here the pointer positions say it outright.
+      if (to === from) onSeek(from);
+      else onMoveKeyframe?.(row.trackId, from, to);
+    },
+    [drag, onMoveKeyframe, onSeek, row.trackId],
   );
 
   const percent = (frame: number) => `${framePosition(frame, startFrame, stopFrame) * 100}%`;
@@ -159,60 +221,108 @@ function Lane({
         </span>
       )}
 
-      <button
-        ref={bar}
-        type="button"
-        onClick={(event) => seekToPointer(event.clientX)}
-        className={clsx(
-          'relative flex-1 rounded-sm focus:outline-none focus-visible:ring-1 focus-visible:ring-curve-400',
-          selected ? 'bg-ink-800 ring-1 ring-curve-500/40' : 'bg-ink-850',
-        )}
-        style={{ height: LANE_HEIGHT }}
-        aria-label={`${name}: ${row.keyframes.length} keyframes. Click to seek.`}
-      >
-        {/* Presence. One bar per appearance, so absences read as gaps. */}
-        {row.segments.map((segment) => (
+      {/* The lane is a positioned wrapper, and the keyframe markers are siblings of the
+          seek button rather than children of it.
+
+          That is structural, not cosmetic. When a marker sat inside the button, a drag
+          ending on it still produced a `click` that bubbled to the button, so releasing a
+          keyframe also seeked the playhead to wherever it was dropped. Suppressing that
+          click with a flag worked until the click did not arrive — then the flag stayed
+          set and swallowed the next real seek instead. Outside the button there is no
+          click to suppress. */}
+      <div className="relative flex-1" style={{ height: LANE_HEIGHT }}>
+        <button
+          ref={bar}
+          type="button"
+          onClick={(event) => seekToPointer(event.clientX)}
+          className={clsx(
+            'absolute inset-0 rounded-sm focus:outline-none focus-visible:ring-1 focus-visible:ring-curve-400',
+            selected ? 'bg-ink-800 ring-1 ring-curve-500/40' : 'bg-ink-850',
+          )}
+          aria-label={`${name}: ${row.keyframes.length} keyframes. Click to seek.`}
+        >
+          {/* Presence. One bar per appearance, so absences read as gaps. */}
+          {row.segments.map((segment) => (
+            <span
+              key={`${segment.start}-${segment.stop}`}
+              className="absolute inset-y-1 rounded-sm"
+              style={{
+                left: percent(segment.start),
+                // +1 frame of width so a one-frame segment is still visible rather than zero-wide.
+                width: `calc(${percent(segment.stop)} - ${percent(segment.start)} + 2px)`,
+                backgroundColor: colour,
+                opacity: 0.35,
+              }}
+            />
+          ))}
+
+          {/* The playhead, so a lane reads against the frame you are actually on. */}
           <span
-            key={`${segment.start}-${segment.stop}`}
-            className="absolute inset-y-1 rounded-sm"
-            style={{
-              left: percent(segment.start),
-              // +1 frame of width so a one-frame segment is still visible rather than zero-wide.
-              width: `calc(${percent(segment.stop)} - ${percent(segment.start)} + 2px)`,
-              backgroundColor: colour,
-              opacity: 0.35,
-            }}
+            className="absolute inset-y-0 w-px bg-ink-100/70"
+            style={{ left: percent(currentFrame) }}
+            aria-hidden
           />
-        ))}
+        </button>
 
         {/* Keyframes. A departure is drawn hollow: it marks where the object goes, not
             where it is, and conflating the two is the thing this whole file exists to
             avoid. */}
         {row.keyframes.map((frame) => {
           const departure = row.departures.includes(frame);
+          // While dragging, the marker is drawn where the pointer is rather than where the
+          // keyframe is stored. That preview is the only thing telling the annotator which
+          // frame they are about to drop on; a marker that stays put until the write lands
+          // makes the drag a guess.
+          const dragging = drag?.from === frame;
+          const shown = dragging ? drag.to : frame;
+          const label = `Frame ${frame}${departure ? ' — object leaves' : ''}`;
           return (
-            <span
+            <button
               key={frame}
+              type="button"
+              // The visible marker is 3px wide, which is a target nobody can hit. This
+              // wrapper is 11px of transparent padding around it, so the hit area grows
+              // without the lane looking different.
+              onPointerDown={(event) => startDrag(event, frame)}
+              onPointerMove={moveDrag}
+              onPointerUp={endDrag}
+              onPointerCancel={endDrag}
+              // Keyboard only. `detail === 0` means no pointer was involved — Enter or
+              // Space on a focused marker — so a mouse click does not reach here twice:
+              // `endDrag` has already handled the pointer case.
+              onClick={(event) => {
+                if (event.detail === 0) onSeek(frame);
+              }}
+              data-keyframe={frame}
+              title={onMoveKeyframe ? `${label}. Drag to move it.` : label}
+              aria-label={onMoveKeyframe ? `${label}. Drag to move it.` : label}
               className={clsx(
-                'absolute top-1/2 h-2 w-[3px] -translate-x-1/2 -translate-y-1/2 rounded-[1px]',
-                departure && 'ring-1',
+                'absolute top-1/2 z-10 flex h-4 w-[11px] -translate-x-1/2 -translate-y-1/2',
+                'items-center justify-center focus:outline-none',
+                'focus-visible:ring-1 focus-visible:ring-curve-400',
+                // Without a move handler there is nothing to drag, and an 11px button that
+                // swallows clicks would make the lane *less* clickable than it was before
+                // markers became interactive. Let the pointer through to the lane instead.
+                onMoveKeyframe
+                  ? dragging
+                    ? 'cursor-grabbing'
+                    : 'cursor-grab'
+                  : 'pointer-events-none',
               )}
-              style={
-                departure
-                  ? { left: percent(frame), backgroundColor: 'transparent', boxShadow: `inset 0 0 0 1px ${colour}` }
-                  : { left: percent(frame), backgroundColor: colour }
-              }
-            />
+              style={{ left: percent(shown) }}
+            >
+              <span
+                className={clsx('h-2 w-[3px] rounded-[1px]', dragging && 'h-3 ring-1 ring-ink-100')}
+                style={
+                  departure
+                    ? { backgroundColor: 'transparent', boxShadow: `inset 0 0 0 1px ${colour}` }
+                    : { backgroundColor: colour }
+                }
+              />
+            </button>
           );
         })}
-
-        {/* The playhead, so a lane reads against the frame you are actually on. */}
-        <span
-          className="absolute inset-y-0 w-px bg-ink-100/70"
-          style={{ left: percent(currentFrame) }}
-          aria-hidden
-        />
-      </button>
+      </div>
     </li>
   );
 }

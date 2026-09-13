@@ -5,7 +5,7 @@
 > [`AGENTS.md`](./AGENTS.md) first; it is the working contract. Update this file after every
 > iteration, including the ones that mostly failed.
 >
-> **Last updated:** 2026-09-13 (iteration 19) · branch `claude/curvevision-platform-build-n1g71n` · PRs [#1](https://github.com/Derric01/CurveVision/pull/1)–[#10](https://github.com/Derric01/CurveVision/pull/10) merged (iterations 1–16) · iterations 17–19 in open PR [#11](https://github.com/Derric01/CurveVision/pull/11)
+> **Last updated:** 2026-09-13 (iteration 20) · branch `claude/curvevision-platform-build-n1g71n` · PRs [#1](https://github.com/Derric01/CurveVision/pull/1)–[#10](https://github.com/Derric01/CurveVision/pull/10) merged (iterations 1–16) · iterations 17–20 in open PR [#11](https://github.com/Derric01/CurveVision/pull/11)
 
 ---
 
@@ -19,8 +19,9 @@ supervises it, and folders annotated in place without copying a byte.
 
 **The tree is green.** `./scripts/check.sh` passes all nine steps.
 
-Honestly incomplete, and marked as such everywhere: dragging a keyframe along its lane, the
-mask brush, the keypoint UI, resumable uploads, and signed desktop installers.
+Honestly incomplete, and marked as such everywhere: the mask brush, the keypoint UI, an in-
+editor view of issues, a UI for creating a ground-truth job, resumable uploads, and signed
+desktop installers.
 
 **Annotation quality is measured rather than declared, and a reviewer can now see it.** A
 task holds a ground-truth job; scoring an annotation job against it produces per-label
@@ -69,25 +70,45 @@ was the last unconnected piece of the desktop application.
 
 ## Next best action
 
-**Drag a keyframe along its lane.** Adding (`K`), removing (`K` again) and marking a
-departure (`O`) all work from the timeline now; `moveKeyframe` is written and tested in
-`keyframes.ts` but nothing calls it. It needs a pointer-drag on the lane rather than a
-shortcut, which is why it was left: the other two were a keypress each.
+**A UI for creating a ground-truth job.** Reading a quality report is a panel now; declaring
+what "correct" means for a task is still `POST /tasks/{id}/ground-truth` or the CLI. It
+belongs on the task page rather than in the editor — it is a task-level decision of the same
+weight as defining the label schema, which is why the endpoint takes `Action.UPDATE` on the
+task rather than a review permission.
+
+**Then: show issues in the editor.** `api.issues` / `createIssue` / `resolveIssue` have been
+on the client since the first web iteration with nothing calling them. The quality panel is
+the pattern to copy — both are frame-anchored lists a reviewer clicks through — and an issue
+additionally carries a `position`, so it can be drawn on the canvas rather than only listed.
+
+*Superseded: "drag a keyframe along its lane", which is done.*
+
+<details><summary>What that took, for whoever wires the next pointer interaction</summary>
+
+Two traps, both found by reviewing the implementation rather than by a failing test:
+
+**A drag ends with a `click` on whatever is underneath.** The lane is a click-to-seek button,
+so the first version moved the keyframe *and* jumped the playhead to where it was dropped.
+The obvious fix — a flag the click handler consumes — is worse than it looks: when the click
+does not arrive, the flag stays set and swallows the next real seek instead. The markers are
+now **siblings of the seek button rather than children**, so there is no click to suppress.
+
+**Press versus drag is decided from the pointer positions, in `pointerup`,** not inferred in
+a click handler. `endDrag` knows whether the pointer moved; a click handler does not. The
+marker's `onClick` is keyboard-only, gated on `event.detail === 0`.
+
+Also: `setPointerCapture` is not optional. The lane is 18px tall and a drag leaves it
+immediately and constantly — the harness deliberately drags 30px off-lane mid-gesture.
 
 *Correcting an earlier note here: keyframe edits do **not** go through `useAutosave`. That
 path builds only `created_shapes`/`updated_shapes` and has no track surface. They go through
 a mutation that flushes the shape buffer, re-reads `annotation_version`, then writes
 `updated_tracks`.*
 
+</details>
+
 **Then, in rough order:**
 
-* **A UI for creating a ground-truth job.** Reading a report is now a panel; declaring what
-  "correct" means for a task is still `POST /tasks/{id}/ground-truth` or the CLI. It belongs
-  on the task page, not in the editor — it is a task-level decision of the same weight as
-  defining the label schema, which is why the endpoint takes `Action.UPDATE` on the task.
-* **Show issues in the editor.** `api.issues` / `createIssue` / `resolveIssue` have existed
-  on the client since the first web iteration with nothing calling them. The quality panel is
-  the pattern to copy — both are frame-anchored lists a reviewer clicks through.
 * **Pre-build chunks after a video upload.** `media.build_chunks` builds rather than plans,
   and nothing enqueues it. `media.probe_task` is now enqueued from the same place and
   already decodes the whole file to count it — so the honest move is probably **one** job
@@ -259,7 +280,7 @@ full docs set including seven ADRs.
 
 | Item | Where it stands |
 | --- | --- |
-| Track keyframe **editing** | `K` adds or removes a keyframe and `O` marks a departure, on the selected track. **Dragging** a keyframe along its lane is not built: `moveKeyframe` is written and tested in `keyframes.ts` but nothing calls it, because it needs a pointer-drag rather than a shortcut. See [Next best action](#next-best-action). |
+| Track keyframe **editing** | Complete: `K` adds or removes a keyframe, `O` marks a departure, and a marker can be dragged along its lane. Verified in a browser, not only in unit tests. |
 | Pre-building chunks after upload | `media.build_chunks` builds rather than plans, and nothing enqueues it. `media.probe_task` already walks the whole file to count frames, so one job that counts *and* builds probably beats two that each decode it. |
 | Surfacing an uncorrected frame count | When a task already carries annotations, `media.probe_task` declines the correction and says so in its result. Nothing shows that to a user. |
 | Webhooks | Delivery works and is signed; retry/backoff is not wired to the queue. |
@@ -274,29 +295,54 @@ being updated and this one was not. Check it against* Completed *before trusting
 
 ## Remaining high-priority work
 
-1. **Dragging a keyframe along its lane** — `K` and `O` work; `moveKeyframe` is written,
-   tested and uncalled. See [Next best action](#next-best-action).
-2. **A way to create a ground-truth job without the CLI.** Reading a report is a panel now;
+1. **A way to create a ground-truth job without the CLI.** Reading a report is a panel now;
    declaring what "correct" means for a task is still an API call. It belongs on the task
    page rather than the editor — same weight of decision as defining the label schema.
-3. **Issues in the editor.** `api.issues` / `createIssue` / `resolveIssue` have had no UI
+2. **Issues in the editor.** `api.issues` / `createIssue` / `resolveIssue` have had no UI
    since the first web iteration. The quality panel is the pattern to copy.
-4. **Pre-build chunks after a video upload.** `media.build_chunks` builds rather than plans,
+3. **Pre-build chunks after a video upload.** `media.build_chunks` builds rather than plans,
    and nothing enqueues it. Careful: the desktop queue is inline, and `media.probe_task`
    already decodes the whole file — one job that counts and builds probably beats two.
-5. **A browser harness in CI.** Seven exist and between them they have found every defect
+4. **A browser harness in CI.** Seven exist and between them they have found every defect
    the unit suites missed, this iteration's included. Note the sidecar embeds `web/dist`, so
    a run needs `npm --prefix web run build` **and** a sidecar rebuild, or it silently tests
    the previous frontend.
-6. **Signed installers in CI** — one runner per platform; PyInstaller does not cross-compile.
-7. **Webhook retry/backoff** wired to the job queue.
-8. **`choose_files` is still unused.** The shell can open a native *file* picker as well as a
+5. **Signed installers in CI** — one runner per platform; PyInstaller does not cross-compile.
+6. **Webhook retry/backoff** wired to the job queue.
+7. **`choose_files` is still unused.** The shell can open a native *file* picker as well as a
    folder one, and `/tasks/{id}/local-import` accepts a file path. Connecting it is small, and
    deliberately left until someone wants it — the folder case is the one that matters.
 
 ---
 
 ## Last iteration
+
+**A keyframe can be dragged along its lane.** `moveKeyframe` had been written and tested for
+two iterations with nothing calling it; grabbing a marker and dropping it on another frame
+now moves it, keeping its geometry. A drop onto an occupied frame is refused rather than
+merged — the API rejects two shapes on one frame, and merging would silently discard one of
+the annotator's positions.
+
+The arithmetic that turns a pointer x into a frame is now `frameAtPosition` in `timeline.ts`,
+the inverse of the existing `framePosition`, tested against it across four frame ranges.
+Click-to-seek and drag-to-move both go through it, so they cannot drift a frame apart — a
+marker that lands next to where you dropped it is the kind of thing an annotator stops
+trusting and works around.
+
+**Two bugs were caught by reviewing the implementation, before any verification ran.** Both
+are recorded under [Next best action](#next-best-action) because they generalise to the next
+pointer interaction somebody wires: a drag ends with a `click` on whatever is underneath, and
+the flag that suppresses it gets stuck set whenever the click does not arrive. The markers
+are siblings of the seek button now, so there is nothing to suppress; press-versus-drag is
+decided in `pointerup` from the pointer positions themselves.
+
+`verify_keyframe_editing.py` was extended rather than joined by an eighth harness — same
+feature, same seeded clip. It drags the marker 30px off the 18px lane mid-gesture, which is
+what a drag without `setPointerCapture` cannot survive.
+
+---
+
+## Iteration 19
 
 **A reviewer can read a quality report in the editor — and building the panel exposed two
 defects in the data behind it.**
@@ -967,8 +1013,25 @@ present. Both corrected; the second is a licensing claim and was the more urgent
 ```
 ./scripts/check.sh                    all 9 steps green
   ruff · ruff format · mypy · pytest server (394) · pytest sdk (13)
-  notices (52 deps) · eslint · tsc · vitest (265)
+  notices (52 deps) · eslint · tsc · vitest (272)
 ```
+
+Iteration 20 added 7 web tests (272, up from 265) and no server tests — the drag is entirely
+client-side, and `moveKeyframe` was already covered. The browser harness is what proves it:
+
+```
+ok   the keyframe at frame 10 is a grabbable marker
+     keyframes after dragging 10 -> 5: [0, 5, 14, 15, 20]
+ok   dragging moved the keyframe from 10 to 5
+     its x is 110.0 (the dragged keyframe's own x was 110)
+ok   the keyframe kept its geometry across the move
+     frame readout: '16 / 24' -> '16 / 24'
+ok   releasing a dragged keyframe does not also seek the editor
+ok   dragging raises nothing
+```
+
+The frame readout is the discriminating one: it is the assertion that fails if the lane's
+click-to-seek fires after a drop.
 
 Iteration 19 added 5 server tests (394, up from 389) and 30 web tests (265, up from 235).
 Both defects were confirmed to fail when reverted rather than assumed:

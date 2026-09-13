@@ -42,7 +42,7 @@ import { frameAnnotations, toLabelStyles } from './adapters';
 import { useFrameObjectUrl } from './useFrameObjectUrl';
 import { TrackTimeline } from './TrackTimeline';
 import { adjacentKeyframe, trackRows } from './timeline';
-import { markDeparture, toggleKeyframe, type EditResult } from './keyframes';
+import { markDeparture, moveKeyframe, toggleKeyframe, type EditResult } from './keyframes';
 import { QualityPanel } from './QualityPanel';
 import { useAutosave } from './useAutosave';
 
@@ -137,8 +137,16 @@ export function EditorPage() {
   const [trackNotice, setTrackNotice] = useState<string | null>(null);
 
   const editTrack = useMutation({
-    mutationFn: async (edit: (track: ApiTrack) => EditResult) => {
-      const track = annotations.data?.tracks.find((t) => t.id === selectedTrackId);
+    // Takes the track explicitly rather than reading `selectedTrackId`: a drag names the
+    // lane it started on, and selection follows the drag rather than gating it.
+    mutationFn: async ({
+      trackId,
+      edit,
+    }: {
+      trackId: string | null;
+      edit: (track: ApiTrack) => EditResult;
+    }) => {
+      const track = annotations.data?.tracks.find((t) => t.id === trackId);
       if (!track) return { refused: 'Select a track on the timeline first.' };
 
       const result = edit(track);
@@ -222,10 +230,16 @@ export function EditorPage() {
         if (next !== null) setFrame(next);
       } else if (event.key === 'k' && selectedTrackId) {
         event.preventDefault();
-        editTrack.mutate((track) => toggleKeyframe(track, frame ?? job.data!.start_frame));
+        editTrack.mutate({
+          trackId: selectedTrackId,
+          edit: (track) => toggleKeyframe(track, frame ?? job.data!.start_frame),
+        });
       } else if (event.key === 'o' && selectedTrackId) {
         event.preventDefault();
-        editTrack.mutate((track) => markDeparture(track, frame ?? job.data!.start_frame));
+        editTrack.mutate({
+          trackId: selectedTrackId,
+          edit: (track) => markDeparture(track, frame ?? job.data!.start_frame),
+        });
       }
     }
     window.addEventListener('keydown', onKey);
@@ -401,6 +415,10 @@ export function EditorPage() {
         onSelectTrack={(trackId) => {
           setSelectedTrackId(trackId);
           setTrackNotice(null);
+        }}
+        onMoveKeyframe={(trackId, from, to) => {
+          setTrackNotice(null);
+          editTrack.mutate({ trackId, edit: (track) => moveKeyframe(track, from, to) });
         }}
         notice={trackNotice}
       />

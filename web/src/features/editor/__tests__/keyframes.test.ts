@@ -257,6 +257,34 @@ describe('moveKeyframe', () => {
     expect(result.ok).toBe(false);
     if (!result.ok) expect(result.refusal.reason).toMatch(/no keyframe/);
   });
+
+  // The two below are routine once a keyframe can be dragged, and were not reachable while
+  // `moveKeyframe` had no caller.
+
+  it('re-sorts when a keyframe is dragged past its neighbour', () => {
+    // Dragging the middle marker to the right of the last one is a normal thing to do with
+    // a pointer. The shapes must come back in frame order: `interpolateTrack` walks them in
+    // order and would read the track as going backwards in time.
+    const before = movingTrack([shape(0, 0), shape(5, 50), shape(10, 100)]);
+    const after = ok(moveKeyframe(before, 5, 20));
+
+    expect(frames(after)).toEqual([0, 10, 20]);
+    expect(keyframeAt(after, 20)?.points).toEqual([50, 0, 70, 20]);
+    // And the track still interpolates: frame 15 sits between the 10 and the 20.
+    const at15 = positionAt(after, 15);
+    expect(at15?.points[0]).toBeCloseTo(75, 5);
+  });
+
+  it('keeps a departure a departure when it moves', () => {
+    // Dragging the hollow marker means "the object leaves later", not "the object is here
+    // now". Losing `outside` would put the object back on screen for the rest of the track.
+    const before = movingTrack([shape(0, 0), shape(6, 60, true)]);
+    const after = ok(moveKeyframe(before, 6, 9));
+
+    expect(keyframeAt(after, 9)?.outside).toBe(true);
+    expect(positionAt(after, 8)).not.toBeNull();
+    expect(positionAt(after, 9)).toBeNull();
+  });
 });
 
 describe('framesThatMoved', () => {

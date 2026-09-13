@@ -263,7 +263,7 @@ actually need before training — **how many frames have no annotations at all**
 | Video: frames decoded and served individually, so a video task is annotatable | **Done** |
 | Client-side track interpolation (scrubbing costs no round trip) | **Done** |
 | Chunked frame delivery — 36 frames decoded in one pass and fetched in one request, so stepping costs 17× fewer decodes and 12× fewer requests | **Done** |
-| Track timeline — every track's keyframes and where it is present, `,`/`.` to step between them, and `K`/`O` to add a keyframe or mark a departure. Dragging a keyframe along its lane is not built | **In Progress** |
+| Track timeline — every track's keyframes and where it is present, `,`/`.` to step between them, `K`/`O` to add a keyframe or mark a departure, and drag a keyframe along its lane to move it | **Done** |
 | Resumable uploads — storage model only; no endpoints yet | *Planned* |
 
 Interpolation between keyframes resamples polygons to a common arc-length parameterisation

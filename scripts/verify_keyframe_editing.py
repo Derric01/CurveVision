@@ -34,6 +34,9 @@ FRAMES = 24
 KEYFRAMES = [(0, [20, 40, 90, 110]), (20, [200, 40, 270, 110])]
 EDIT_FRAME = 10
 DEPART_FRAME = 15
+#: Where the keyframe added at EDIT_FRAME is then dragged. Free of other keyframes, and to
+#: the *left* so a drag that silently did nothing cannot pass by coincidence.
+DRAG_TO = 5
 
 
 def seed(base: str, token: str, clip: bytes) -> tuple[str, str]:
@@ -184,6 +187,60 @@ def main() -> int:
                       "the frame before the departure was pinned, so nothing froze",
                       f"frame {DEPART_FRAME - 1} was not pinned; frames leading up to the "
                       "departure will have frozen")
+
+                # Dragging a marker along its lane. `moveKeyframe` is unit-tested; what
+                # cannot be unit-tested is that a pointer lands on the marker at all, that
+                # the drag survives leaving an 18px lane, and that releasing it does not
+                # *also* seek — the lane under the marker is a click-to-seek button, so the
+                # obvious implementation moves the keyframe and then jumps the playhead to
+                # wherever it was dropped.
+                lane = page.locator('button[aria-label*="Click to seek"]').first
+                box = lane.bounding_box()
+                assert box is not None, "the lane has no bounding box"
+
+                def lane_x(frame: int) -> float:
+                    return box["x"] + (frame / (FRAMES - 1)) * box["width"]
+
+                marker = page.locator(f'[data-keyframe="{EDIT_FRAME}"]').first
+                check(marker.count() > 0,
+                      f"the keyframe at frame {EDIT_FRAME} is a grabbable marker",
+                      f"no draggable marker at frame {EDIT_FRAME}")
+
+                before_readout = page.locator("footer span.font-mono").inner_text()
+                middle = box["y"] + box["height"] / 2
+                page.mouse.move(lane_x(EDIT_FRAME), middle)
+                page.mouse.down()
+                # Several steps, and deliberately off the lane vertically partway through:
+                # a drag without pointer capture dies the moment it leaves those 18 pixels.
+                page.mouse.move(lane_x(8), middle - 30, steps=5)
+                page.mouse.move(lane_x(DRAG_TO), middle, steps=5)
+                page.mouse.up()
+                page.wait_for_timeout(1800)
+
+                track = track_of(base, token, job_id)
+                moved = sorted(shape["frame"] for shape in track["shapes"])
+                print(f"  keyframes after dragging {EDIT_FRAME} -> {DRAG_TO}: {moved}")
+                check(DRAG_TO in moved and EDIT_FRAME not in moved,
+                      f"dragging moved the keyframe from {EDIT_FRAME} to {DRAG_TO}",
+                      f"the keyframe did not move; frames are {moved}")
+
+                landed = next((s for s in track["shapes"] if s["frame"] == DRAG_TO), None)
+                if landed:
+                    # It carried its own geometry rather than being re-interpolated at the
+                    # new frame, which would make a drag silently a redraw.
+                    x = landed["points"][0]
+                    print(f"  its x is {x:.1f} (the dragged keyframe's own x was 110)")
+                    check(abs(x - 110) <= 1.0,
+                          "the keyframe kept its geometry across the move",
+                          f"the moved keyframe is at x={x:.1f}, not the 110 it carried")
+
+                after_readout = page.locator("footer span.font-mono").inner_text()
+                print(f"  frame readout: {before_readout!r} -> {after_readout!r}")
+                check(before_readout == after_readout,
+                      "releasing a dragged keyframe does not also seek the editor",
+                      f"the drop seeked the playhead ({before_readout!r} -> {after_readout!r})")
+
+                check(not raised, "dragging raises nothing", f"page error: {raised}")
 
                 shot = Path("/tmp/curvevision-keyframes.png")
                 page.screenshot(path=str(shot))

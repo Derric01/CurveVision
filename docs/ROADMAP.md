@@ -60,7 +60,7 @@ application — and produce a real dataset with it.
 | REST API and API tokens | **Done** |
 | Webhooks with HMAC signing | **In Progress** — delivery works; retry/backoff is not wired to the queue |
 | Video annotation | **In Progress** — a video task is annotatable, and frames are served from chunks decoded one pass at a time (17× fewer decodes when stepping through frames; see the implementation plan for the measurements). The editor fetches a chunk rather than 36 frames. The track-editing timeline is not built |
-| Track editing UI (keyframe timeline) | **In Progress** — the timeline shows every track's keyframes and where it is present, `,`/`.` step between keyframes, and selecting a track lets `K` add or remove a keyframe and `O` mark where the object leaves. Dragging a keyframe along its lane is not built |
+| Track editing UI (keyframe timeline) | **Done** — the timeline shows every track's keyframes and where it is present, `,`/`.` step between them, `K` adds or removes a keyframe, `O` marks where the object leaves, and a keyframe can be **dragged along its lane** to another frame, keeping its geometry. A drop onto an occupied frame is refused rather than merged |
 | Intelligent scissors (edge-snapping boundaries) | **Done** — live-wire, implemented directly rather than by loading a ~10 MB OpenCV build; see [ADR 0009](./adr/0009-intelligent-scissors.md) |
 | Mask brush tool | **Planned** — RLE storage and export exist; the drawing tool does not |
 | Skeleton / keypoint editing UI | **Planned** — the model and COCO keypoint export exist |
