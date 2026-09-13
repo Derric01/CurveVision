@@ -225,6 +225,10 @@ async def build_report(
         precision=result.overall.precision,
         recall=result.overall.recall,
         f1=result.overall.f1,
+        # What this score is a statement about. Read back alongside the job's version now,
+        # it is the difference between "this job scores 0.4" and "this job scored 0.4 six
+        # edits ago" — and a reviewer acts very differently on the two.
+        annotation_version=job.annotation_version,
         details=result.as_details(),
     )
     session.add(report)

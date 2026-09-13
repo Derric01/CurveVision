@@ -126,8 +126,10 @@ def main() -> int:
                       f"`k` edited an unselected track: {len(unchanged['shapes'])} keyframes")
 
                 # The select control is the track's name button; its accessible name is the
-                # label, so locate it by the state attribute that makes it a toggle.
-                selector = page.locator('button[aria-pressed]')
+                # label, so locate it by the attribute that exists for exactly this purpose.
+                # (It was `button[aria-pressed]` until the quality panel's filter chips made
+                # that ambiguous — "the first toggle in the editor" is not a track selector.)
+                selector = page.locator('button[data-track-selector]')
                 check(selector.count() >= 1, "a track can be selected from the timeline",
                       "no track selector in the timeline")
                 selector.first.click()

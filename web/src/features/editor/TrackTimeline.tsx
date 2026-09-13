@@ -140,6 +140,11 @@ function Lane({
           type="button"
           onClick={() => onSelect(selected ? null : row.trackId)}
           aria-pressed={selected}
+          // A stable hook for the browser harnesses. `aria-pressed` alone stopped being
+          // unique once the quality panel added filter chips, and a harness that finds
+          // "the first toggle in the editor" is one layout change from driving the wrong
+          // button.
+          data-track-selector=""
           title={`${name} — click to ${selected ? 'deselect' : 'select for keyframe editing'}`}
           className={clsx(
             'w-20 shrink-0 truncate rounded-sm px-1 text-left text-[10px]',

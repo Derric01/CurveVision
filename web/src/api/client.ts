@@ -27,6 +27,7 @@ import type {
   ProblemDocument,
   Project,
   ProjectStatistics,
+  QualityReport,
   Task,
   TaskMediaMeta,
   TaskProgress,
@@ -346,6 +347,34 @@ export const api = {
       method: 'PATCH',
       body: { state: 'resolved' },
     }),
+
+  // ---------------------------------------------------------------------- quality
+  /**
+   * The most recent report for a job. 404s when nobody has scored it yet, which is the
+   * ordinary state rather than an error — the caller distinguishes them by status.
+   */
+  jobQuality: (jobId: string) => request<QualityReport>(`/jobs/${jobId}/quality`),
+
+  /**
+   * Score a job against its task's ground truth, replacing any previous report.
+   *
+   * A review action, not a read: the server requires the reviewer permission. It runs
+   * inline, so this resolves with the report rather than a task id to poll.
+   */
+  computeQuality: (jobId: string, iouThreshold = 0.5) =>
+    request<QualityReport>(`/jobs/${jobId}/quality`, {
+      method: 'POST',
+      body: { iou_threshold: iouThreshold },
+    }),
+
+  /** Every job's latest score on a task, newest first. */
+  taskQuality: (taskId: string) => request<QualityReport[]>(`/tasks/${taskId}/quality`),
+
+  /** Create the job whose annotations every other job on the task is measured against. */
+  createGroundTruthJob: (
+    taskId: string,
+    input: { start_frame?: number; stop_frame?: number; assignee_id?: string } = {},
+  ) => request<Job>(`/tasks/${taskId}/ground-truth`, { method: 'POST', body: input }),
 
   // --------------------------------------------------------------------- datasets
   formats: () => request<DatasetFormat[]>('/formats'),

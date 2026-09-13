@@ -267,6 +267,10 @@ class QualityReportOut(ORMModel):
     precision: float
     recall: float
     f1: float
+    #: The job's annotation version when it was scored. Compare it against the job's version
+    #: now: if they differ, the annotations have moved on and this score describes work that
+    #: no longer exists. `None` on reports written before the column existed.
+    annotation_version: int | None = None
     #: Per-label scores and the classified conflicts. See `services/comparison.py`.
     details: dict[str, Any] = Field(default_factory=dict)
     created_at: datetime

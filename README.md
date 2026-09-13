@@ -78,11 +78,10 @@ AI-assisted     upload → run your model → accept or correct → review → e
 ```
 
 > **Status: early, and honestly labelled.** The manual annotation path is complete and
-> tested end to end. Video, the track-editing timeline and quality reports are partly
-> built. **Every feature below carries its real state** — nothing is marked Done unless it
-> works and has tests. If you need a platform with years of production mileage behind it
-> for critical work today, this is not yet that — and we would rather say so here than have
-> you find out later.
+> tested end to end. Video and the track-editing timeline are partly built. **Every feature
+> below carries its real state** — nothing is marked Done unless it works and has tests. If
+> you need a platform with years of production mileage behind it for critical work today,
+> this is not yet that — and we would rather say so here than have you find out later.
 
 ---
 
@@ -253,7 +252,7 @@ actually need before training — **how many frames have no annotations at all**
 | Immutable dataset releases with content hashing | **Done** |
 | Content-addressed media (the same file across tasks is stored once) | **Done** |
 | Export jobs with downloadable artifacts | **In Progress** |
-| Ground-truth quality reports: precision/recall/F1 per label and classified conflicts, over the API — no UI yet | **In Progress** |
+| Ground-truth quality reports: precision/recall/F1 per label, classified conflicts, and a panel in the editor where clicking a conflict seeks to its frame | **Done** |
 
 ### Images and video
 

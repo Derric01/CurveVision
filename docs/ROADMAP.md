@@ -64,7 +64,7 @@ application — and produce a real dataset with it.
 | Intelligent scissors (edge-snapping boundaries) | **Done** — live-wire, implemented directly rather than by loading a ~10 MB OpenCV build; see [ADR 0009](./adr/0009-intelligent-scissors.md) |
 | Mask brush tool | **Planned** — RLE storage and export exist; the drawing tool does not |
 | Skeleton / keypoint editing UI | **Planned** — the model and COCO keypoint export exist |
-| Ground-truth quality reports | **In Progress** — a task can hold a ground-truth job, and scoring an annotation job against it gives precision/recall/F1 per label plus classified conflicts (missing, extra, wrong label, poor overlap) over the API. No UI shows a report yet, and the comparison runs inline rather than as a background job |
+| Ground-truth quality reports | **Done** — a task can hold a ground-truth job; scoring an annotation job against it gives precision/recall/F1 per label plus classified conflicts (missing, extra, wrong label, poor overlap), and the editor shows the report beside the frames, where clicking a conflict seeks to it. A report records which version of the job it scored, so a stale one is marked stale rather than read as current. The comparison still runs inline rather than as a background job, and there is no UI for *creating* a ground-truth job — that is the API or the CLI |
 | Resumable uploads | *Planned* — the storage model exists; there are no endpoints yet |
 
 **What "Beta" needs before we call it that:** video annotation end to end, the track
@@ -165,9 +165,10 @@ deciding whether to adopt this needs them more than they need the roadmap.
   speaking that API. **Azure Blob Storage and Google Cloud Storage are not supported**, and
   adding them means a new `Storage` implementation — a contained piece of work nobody has
   done yet.
-* **No consensus or honeypot quality workflows.** The quality module is *In Progress* and
-  starts with ground-truth comparison; consensus scoring and honeypot frames are under
-  *Later*.
+* **No consensus or honeypot quality workflows.** Quality starts and ends with ground-truth
+  comparison: one answer key per task, scored per job. Consensus scoring, honeypot frames and
+  automatic reviewer assignment are under *Future*, and creating the ground-truth job itself
+  is an API or CLI call rather than a button.
 * **No signed installers.** The desktop app builds and runs from source; `.dmg`, `.msi` and
   `.AppImage` need one CI runner per platform and are not built yet.
 * **Young.** This has not been through years of production use across many organisations.

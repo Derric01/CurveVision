@@ -43,6 +43,7 @@ import { useFrameObjectUrl } from './useFrameObjectUrl';
 import { TrackTimeline } from './TrackTimeline';
 import { adjacentKeyframe, trackRows } from './timeline';
 import { markDeparture, toggleKeyframe, type EditResult } from './keyframes';
+import { QualityPanel } from './QualityPanel';
 import { useAutosave } from './useAutosave';
 
 const TOOLS: { name: ToolName; icon: typeof Square; label: string; key: string }[] = [
@@ -382,6 +383,8 @@ export function EditorPage() {
             selection={selection}
             onFocus={(id) => engine?.focusAnnotation(id)}
           />
+
+          <QualityPanel job={job.data} labels={labelStyles} onSeek={setFrame} />
 
           <ShortcutHelp />
         </aside>

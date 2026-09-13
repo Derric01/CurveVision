@@ -5,7 +5,7 @@
 > [`AGENTS.md`](./AGENTS.md) first; it is the working contract. Update this file after every
 > iteration, including the ones that mostly failed.
 >
-> **Last updated:** 2026-09-13 (iteration 18) · branch `claude/curvevision-platform-build-n1g71n` · PRs [#1](https://github.com/Derric01/CurveVision/pull/1)–[#10](https://github.com/Derric01/CurveVision/pull/10) merged (iterations 1–16) · iterations 17–18 in open PR [#11](https://github.com/Derric01/CurveVision/pull/11)
+> **Last updated:** 2026-09-13 (iteration 19) · branch `claude/curvevision-platform-build-n1g71n` · PRs [#1](https://github.com/Derric01/CurveVision/pull/1)–[#10](https://github.com/Derric01/CurveVision/pull/10) merged (iterations 1–16) · iterations 17–19 in open PR [#11](https://github.com/Derric01/CurveVision/pull/11)
 
 ---
 
@@ -19,15 +19,17 @@ supervises it, and folders annotated in place without copying a byte.
 
 **The tree is green.** `./scripts/check.sh` passes all nine steps.
 
-Honestly incomplete, and marked as such everywhere: the track-editing timeline (read-only),
-the mask brush, the keypoint UI, quality reports (no UI), resumable uploads, and signed
-desktop installers.
+Honestly incomplete, and marked as such everywhere: dragging a keyframe along its lane, the
+mask brush, the keypoint UI, resumable uploads, and signed desktop installers.
 
-**Annotation quality is now measured rather than declared.** `QualityReport` had been a
-table nothing wrote to — the clearest "toy" left in the codebase. A task can now hold a
-ground-truth job, and scoring an annotation job against it produces per-label
-precision/recall/F1 and a conflict list that names each mistake. Over the API and the SDK
-and the CLI; not yet in the editor.
+**Annotation quality is measured rather than declared, and a reviewer can now see it.** A
+task holds a ground-truth job; scoring an annotation job against it produces per-label
+precision/recall/F1 and a conflict list naming each mistake. The editor shows that report in
+its right-hand panel, and **clicking a conflict seeks to its frame** — a conflict is a place,
+not a statistic. Building the panel turned up a real gap in the model: a report recorded no
+version of the job it scored, so a score taken before the annotator fixed everything looked
+current. `QualityReport.annotation_version` closes that, and the panel marks a stale report
+stale. Still no UI for *creating* a ground-truth job; that stays an API or CLI call.
 
 The desktop window **signs itself in from the connection the shell injects** and opens
 straight into the application.
@@ -67,13 +69,7 @@ was the last unconnected piece of the desktop application.
 
 ## Next best action
 
-**Show a quality report in the editor.** The arithmetic, the endpoints, the SDK and the CLI
-all exist; a reviewer still has to run `curvevision job score` to see any of it. The conflict
-list is already frame-addressed and shape-addressed, so the natural shape is a panel that
-lists conflicts and seeks to one on click — the same move the issues panel makes. Creating a
-ground-truth job has no UI either. This is the largest finished-but-invisible subsystem left.
-
-**Then: drag a keyframe along its lane.** Adding (`K`), removing (`K` again) and marking a
+**Drag a keyframe along its lane.** Adding (`K`), removing (`K` again) and marking a
 departure (`O`) all work from the timeline now; `moveKeyframe` is written and tested in
 `keyframes.ts` but nothing calls it. It needs a pointer-drag on the lane rather than a
 shortcut, which is why it was left: the other two were a keypress each.
@@ -85,21 +81,26 @@ a mutation that flushes the shape buffer, re-reads `annotation_version`, then wr
 
 **Then, in rough order:**
 
-* **Show a quality report in the editor.** The arithmetic, the endpoints, the SDK and the
-  CLI all exist; a reviewer still has to run `curvevision job score` to see any of it. The
-  conflict list is already frame-addressed and shape-addressed, so the natural shape is a
-  panel that lists conflicts and seeks to one on click — the same move the issues panel
-  makes. Creating a ground-truth job has no UI either.
+* **A UI for creating a ground-truth job.** Reading a report is now a panel; declaring what
+  "correct" means for a task is still `POST /tasks/{id}/ground-truth` or the CLI. It belongs
+  on the task page, not in the editor — it is a task-level decision of the same weight as
+  defining the label schema, which is why the endpoint takes `Action.UPDATE` on the task.
+* **Show issues in the editor.** `api.issues` / `createIssue` / `resolveIssue` have existed
+  on the client since the first web iteration with nothing calling them. The quality panel is
+  the pattern to copy — both are frame-anchored lists a reviewer clicks through.
 * **Pre-build chunks after a video upload.** `media.build_chunks` builds rather than plans,
   and nothing enqueues it. `media.probe_task` is now enqueued from the same place and
   already decodes the whole file to count it — so the honest move is probably **one** job
   that counts and builds in a single pass, rather than two that each walk the file.
 * **Surface a task whose frame count could not be corrected.** The job reports "this task
   already has annotation work"; nothing shows it to anyone.
-* **Put a browser harness in CI.** Four now exist (`screenshot.py`,
-  `verify_local_import.py`, `verify_chunked_frames.py`, `verify_track_timeline.py`) and
-  between them they have found every defect the unit suites missed. Nightly or pre-release;
-  each needs a packaged sidecar and a Chromium.
+* **Put a browser harness in CI.** Seven now exist (`screenshot.py`, `verify_local_import.py`,
+  `verify_chunked_frames.py`, `verify_track_timeline.py`, `verify_scissors.py`,
+  `verify_keyframe_editing.py`, `verify_quality_panel.py`) and between them they have found
+  every defect the unit suites missed — including this iteration's. Nightly or pre-release;
+  each needs a packaged sidecar and a Chromium. Note the sidecar embeds `web/dist`, so a
+  harness run needs `npm --prefix web run build` **and** a sidecar rebuild, or it silently
+  tests the previous frontend.
 
 ## Completed
 
@@ -258,12 +259,12 @@ full docs set including seven ADRs.
 
 | Item | Where it stands |
 | --- | --- |
-| Track keyframe **editing** | The timeline shows every track's keyframes and where it is present, and `,`/`.` step between them. Adding, moving, removing and marking a departure from the timeline is not built. See [Next best action](#next-best-action). |
+| Track keyframe **editing** | `K` adds or removes a keyframe and `O` marks a departure, on the selected track. **Dragging** a keyframe along its lane is not built: `moveKeyframe` is written and tested in `keyframes.ts` but nothing calls it, because it needs a pointer-drag rather than a shortcut. See [Next best action](#next-best-action). |
 | Pre-building chunks after upload | `media.build_chunks` builds rather than plans, and nothing enqueues it. `media.probe_task` already walks the whole file to count frames, so one job that counts *and* builds probably beats two that each decode it. |
 | Surfacing an uncorrected frame count | When a task already carries annotations, `media.probe_task` declines the correction and says so in its result. Nothing shows that to a user. |
 | Webhooks | Delivery works and is signed; retry/backoff is not wired to the queue. |
 | Mask brush, keypoint UI | Storage, export and the model exist on both sides; neither drawing tool does. |
-| Quality reports | Scoring works end to end over the API, the SDK and the CLI, and is tested. **No UI**: nothing in the editor creates a ground-truth job or shows a report. The comparison also runs inline rather than on the `quality` queue, which a very large ground truth would change. |
+| Quality reports | Scoring works end to end, and the editor now shows a report: three scores, a per-label breakdown worst-first, and conflicts that seek to their frame on click. A stale report is marked stale. What is left: **no UI creates a ground-truth job** (API or CLI only), and the comparison runs inline rather than on the `quality` queue, which a very large ground truth would change. |
 
 *This table went stale once — it still listed the open-folder flow and chunked delivery as
 unbuilt several iterations after both shipped, because the narrative sections above were
@@ -273,25 +274,93 @@ being updated and this one was not. Check it against* Completed *before trusting
 
 ## Remaining high-priority work
 
-1. **Editing keyframes from the timeline** — it shows them; acting on them is what makes it
-   a tool rather than a map. See [Next best action](#next-best-action).
-2. **A quality report in the editor**, and a way to create a ground-truth job without the
-   CLI. The measuring is done and tested; none of it is visible to someone annotating.
-3. **Pre-build chunks after a video upload.** `media.build_chunks` builds rather than plans,
+1. **Dragging a keyframe along its lane** — `K` and `O` work; `moveKeyframe` is written,
+   tested and uncalled. See [Next best action](#next-best-action).
+2. **A way to create a ground-truth job without the CLI.** Reading a report is a panel now;
+   declaring what "correct" means for a task is still an API call. It belongs on the task
+   page rather than the editor — same weight of decision as defining the label schema.
+3. **Issues in the editor.** `api.issues` / `createIssue` / `resolveIssue` have had no UI
+   since the first web iteration. The quality panel is the pattern to copy.
+4. **Pre-build chunks after a video upload.** `media.build_chunks` builds rather than plans,
    and nothing enqueues it. Careful: the desktop queue is inline, and `media.probe_task`
    already decodes the whole file — one job that counts and builds probably beats two.
-4. **A browser harness in CI.** Four exist (`screenshot.py`, `verify_local_import.py`,
-   `verify_chunked_frames.py`, `verify_track_timeline.py`) and between them they have found
-   every defect the unit suites missed.
-5. **Signed installers in CI** — one runner per platform; PyInstaller does not cross-compile.
-6. **Webhook retry/backoff** wired to the job queue.
-7. **`choose_files` is still unused.** The shell can open a native *file* picker as well as a
+5. **A browser harness in CI.** Seven exist and between them they have found every defect
+   the unit suites missed, this iteration's included. Note the sidecar embeds `web/dist`, so
+   a run needs `npm --prefix web run build` **and** a sidecar rebuild, or it silently tests
+   the previous frontend.
+6. **Signed installers in CI** — one runner per platform; PyInstaller does not cross-compile.
+7. **Webhook retry/backoff** wired to the job queue.
+8. **`choose_files` is still unused.** The shell can open a native *file* picker as well as a
    folder one, and `/tasks/{id}/local-import` accepts a file path. Connecting it is small, and
    deliberately left until someone wants it — the folder case is the one that matters.
 
 ---
 
 ## Last iteration
+
+**A reviewer can read a quality report in the editor — and building the panel exposed two
+defects in the data behind it.**
+
+The comparison engine has been correct and tested since it landed. The only way to see a
+report was `curvevision job score`, which means the reviewer who needs it was the one person
+not looking at a terminal. It is now a panel in the editor's right sidebar: precision,
+recall and F1; a per-label breakdown ordered **worst first**, because a schema of twelve
+labels sorted alphabetically buries the thing you opened the report to find; and the
+conflicts as a list where **clicking one seeks to its frame**.
+
+That last part is the design. **A conflict is a place, not a statistic.** The comparison
+already addresses every conflict by frame and by shape, so a reviewer reads "missed a car on
+frame 214", clicks, and is looking at frame 214. A report that only totals things tells you
+a job is bad without telling you where.
+
+Pure logic lives in `features/editor/quality.ts` and is tested without a DOM; `QualityPanel`
+renders it. Truncation is stated rather than silent — a capped list says "200 of 3,412"
+instead of implying the job has 200 problems — and a label the project schema no longer has
+still gets a row, because dropping it would quietly subtract its conflicts from what the
+reviewer sees.
+
+**Defect 1, found by reading the model: a report did not record what it measured.** A
+`QualityReport` stored a score and a timestamp and nothing about the annotations it scored.
+So a report read as current however much work had landed since — and it failed in the worst
+direction: the annotator fixes everything, the old F1 of 0.4 is still on screen, and a
+reviewer rejects the job on a measurement of work that no longer exists.
+`QualityReport.annotation_version` (migration `4b1c7de9a20f`) records the job's version at
+the moment of comparison, and the panel marks a report stale when the job has moved on.
+Nullable, because reports written before the column genuinely cannot say — and presenting
+*that* as "current" is the failure the column exists to prevent.
+
+**Defect 2, found by the browser harness, not the unit suite: a conflict's two label fields
+swapped meaning depending on the kind.** `label_id` carried the ground truth's label on
+`missing` and `poor_overlap` and the annotator's on `extra` and `wrong_label`; nothing said
+so, and `expected_label_id` was populated on `wrong_label` alone. The screenshot showed
+`Missed: unlabelled` where the ground truth plainly said *car* — the unit test had happened
+to construct its fixture the way the client read it, so both agreed and both were wrong.
+
+Worse than the miss: because candidates are paired by **geometry, not by label**, a
+`poor_overlap` conflict reported `reference.label_id` while `shape_id` named the annotator's
+shape. A reviewer shown "Loose geometry: car" clicked through to a box labelled *person*,
+having been told something false about their own work, authoritatively.
+
+Each field now means one thing on every kind: `label_id` is the annotated shape's label
+(null on a miss, where nothing was annotated), `expected_label_id` is the ground truth's
+(null on an extra, where the ground truth has nothing). Four server tests pin it,
+`docs/API.md` states it, and the panel shows the second label only where it differs — "car →
+car" is noise.
+
+**`scripts/verify_quality_panel.py`** is the seventh browser harness and the seventh to find
+something the unit suites could not. It seeds a job wrong in four different ways so all four
+conflict kinds are exercised, then checks the reviewer's actual path: the panel offers to
+score an unscored job, the score renders, **a conflict row moves the editor** (frame 1 → 5,
+the seeded target), and annotating afterwards marks the report stale.
+
+One trap worth recording: the packaged sidecar **embeds `web/dist`**, so a harness run needs
+`npm --prefix web run build` *and* a sidecar rebuild. Without both it silently exercises the
+previous frontend — which is what the first run of this harness did, timing out on a panel
+that existed in the source and not in the binary.
+
+---
+
+## Iteration 18
 
 **Keyframes can be edited from the timeline — and the browser check found a second bug.**
 
@@ -897,8 +966,38 @@ present. Both corrected; the second is a licensing claim and was the more urgent
 
 ```
 ./scripts/check.sh                    all 9 steps green
-  ruff · ruff format · mypy · pytest server (389) · pytest sdk (13)
-  notices (52 deps) · eslint · tsc · vitest (235)
+  ruff · ruff format · mypy · pytest server (394) · pytest sdk (13)
+  notices (52 deps) · eslint · tsc · vitest (265)
+```
+
+Iteration 19 added 5 server tests (394, up from 389) and 30 web tests (265, up from 235).
+Both defects were confirmed to fail when reverted rather than assumed:
+
+* Removing `annotation_version=job.annotation_version` from `build_report` fails
+  `test_a_report_records_the_version_of_the_job_it_scored` with `assert None == 1`.
+* The conflict-label fix is pinned by four tests in `TestConflictLabelsMeanOneThing`,
+  including the one that would have caught it: a loose box whose label differs from the
+  ground truth's must report *its own* label, not the reference's.
+
+Migration `4b1c7de9a20f` was applied and rolled back against a real SQLite database rather
+than only generated — `quality_reports.annotation_version` present after `upgrade head`,
+gone after `downgrade -1`. The test suite builds its schema with `create_all`, so a
+migration is never exercised there.
+
+`scripts/verify_quality_panel.py` drives the whole path in Chromium against the packaged
+server:
+
+```
+ok   an unscored job offers to check itself against ground truth
+ok   and says plainly that it has not been scored
+     server-side score: P=0.25 R=0.25 F1=0.25;
+     conflicts ['extra', 'missing', 'poor_overlap', 'wrong_label']
+ok   all four conflict kinds are exercised
+ok   the panel shows the score
+ok   conflicts are listed as rows a reviewer can act on
+     frame readout: '1 / 6' -> '5 / 6'
+ok   clicking a conflict seeks the editor to the frame it is about
+ok   a report is marked stale once the job is annotated further
 ```
 
 Iteration 18 added 28 web tests (235, up from 207). The no-movement rule is checked by
@@ -1063,6 +1162,8 @@ missing, and it is the reason this iteration found anything):
 | Scrubbing frames quickly **threw in the canvas** | `AnnotationCanvas` called `image.decode()`, caught the rejection with `.catch(() => undefined)`, and then carried on into the success path anyway — handing a *broken* `HTMLImageElement` to the renderer, where `drawImage` throws. A swallowed error that does not stop the code it was swallowed for. | `scripts/verify_keyframe_editing.py`, which steps frames fast enough to lose a decode; it now asserts the page raises nothing |
 | Marking a departure **froze the frames leading up to it** | `interpolateTrack` holds the previous position when the next keyframe is `outside`, so a departure at frame 6 on a track keyframed at 0 and 10 stopped the object moving on frames 1–5. | `pins the frame before, because a departure freezes what leads up to it` |
 | A **rotated rectangle exported as its unrotated box** in YOLO | A rotated rectangle is stored as the unrotated box plus an angle; the exporter used `points[:4]` directly, so a 100×20 bar turned 90° (occupying 20×100) was written as 100×20 — a box that does not contain its object. `capabilities` also omitted `ROTATED_RECTANGLE`, so the warning said such shapes were *dropped* while they were being written wrong. | `test_a_rotated_box_exports_its_real_extent` and `test_the_capabilities_no_longer_claim_it_is_dropped`; the first confirmed to fail with the fix reverted |
+| A quality report **did not record what it measured** | `QualityReport` stored a score and a timestamp and nothing about the annotations behind it, so a report read as current however much work had landed since. The failure ran the wrong way: the annotator fixes everything, the old F1 stays on screen, and a reviewer rejects the job on a measurement of work that no longer exists. | `test_a_report_records_the_version_of_the_job_it_scored`, confirmed to fail with the fix reverted (`assert None == 1`) |
+| A conflict's two label fields **swapped meaning depending on the kind** | `label_id` carried the ground truth's label on `missing` and `poor_overlap` and the annotator's on `extra` and `wrong_label`; `expected_label_id` was set on `wrong_label` alone. The panel showed `Missed: unlabelled` where the ground truth said *car*. Worse: candidates are paired by **geometry, not label**, so a `poor_overlap` reported the reference's label while `shape_id` named the annotator's shape — "Loose geometry: car" clicking through to a box labelled *person*. | `TestConflictLabelsMeanOneThing` (4 tests) and `scripts/verify_quality_panel.py`, which is what caught it: the unit fixture happened to be built the way the client read it, so both agreed and both were wrong |
 | Every object on a job seam was **exported twice** | A task with `overlap > 0` shares frames between two jobs by design; export appended each job's shapes instead of reconciling them. The archive is well-formed and nothing errors, so a model simply trains on doubled boxes. `overlap` is API-settable and had no test coverage at all. | `test_one_object_annotated_in_both_jobs_is_exported_once`, written to fail first |
 | Two unrelated tracks in different jobs shared one `track_id` | The id fell back to a job-local `enumerate` index, so job 1's first object and job 2's first object were both `0`. Any consumer grouping by track id welds them into one. No overlap needed — a plain segmented task was enough. | `test_two_unrelated_tracks_in_different_jobs_get_different_ids`, written to fail first |
 | A track crossing a job seam was exported as two objects | Even once the duplicate was removed, the two halves kept different ids, so the export said the car vanished and a stranger appeared — the precise discontinuity the overlap exists to prevent. | `test_a_track_crossing_the_seam_keeps_one_identity`; confirmed to fail with unification disabled |

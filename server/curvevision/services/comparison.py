@@ -106,8 +106,16 @@ class ConflictKind(StrEnum):
 class Conflict:
     kind: ConflictKind
     frame: int
+    #: The label on the **annotated** shape, or None when nothing was annotated (`missing`).
+    #:
+    #: One meaning on every kind, deliberately. This field used to carry the ground truth's
+    #: label on `missing` and `poor_overlap` and the annotator's on the other two, which
+    #: forced every reader to special-case the kind and let a `poor_overlap` conflict report
+    #: a label the shape it names does not have. A reviewer reading "loose geometry: car"
+    #: and clicking through to a box labelled "person" has been told something false.
     label_id: uuid.UUID | None
-    #: The ground-truth label where they differ, so a reviewer sees both sides.
+    #: The label the **ground truth** gives, or None when the ground truth has nothing there
+    #: (`extra`). Set on every other kind, so both sides are always visible.
     expected_label_id: uuid.UUID | None = None
     shape_id: uuid.UUID | None = None
     ground_truth_shape_id: uuid.UUID | None = None
@@ -465,7 +473,10 @@ def _compare_frame(
             Conflict(
                 kind=ConflictKind.POOR_OVERLAP if best else ConflictKind.MISSING,
                 frame=frame,
-                label_id=reference.label_id,
+                # The annotated shape's own label, which on a poor overlap need not be the
+                # ground truth's: candidates are paired by geometry, not by label.
+                label_id=best.annotated.label_id if best else None,
+                expected_label_id=reference.label_id,
                 shape_id=best.annotated.id if best else None,
                 ground_truth_shape_id=reference.id,
                 iou=best.iou if best else None,
