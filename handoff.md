@@ -5,7 +5,7 @@
 > [`AGENTS.md`](./AGENTS.md) first; it is the working contract. Update this file after every
 > iteration, including the ones that mostly failed.
 >
-> **Last updated:** 2026-09-13 (iteration 17) · branch `claude/curvevision-platform-build-n1g71n` · PRs [#1](https://github.com/Derric01/CurveVision/pull/1)–[#10](https://github.com/Derric01/CurveVision/pull/10) merged (iterations 1–16) · iteration 17 is the open PR on this branch
+> **Last updated:** 2026-09-13 (iteration 18) · branch `claude/curvevision-platform-build-n1g71n` · PRs [#1](https://github.com/Derric01/CurveVision/pull/1)–[#10](https://github.com/Derric01/CurveVision/pull/10) merged (iterations 1–16) · iterations 17–18 in open PR [#11](https://github.com/Derric01/CurveVision/pull/11)
 
 ---
 
@@ -67,21 +67,21 @@ was the last unconnected piece of the desktop application.
 
 ## Next best action
 
-**Edit keyframes from the timeline.** The lanes now *show* a track's keyframes and where it
-is present; the next step is acting on them, which is what turns the timeline from a map
-into a tool. In rough order of value:
+**Show a quality report in the editor.** The arithmetic, the endpoints, the SDK and the CLI
+all exist; a reviewer still has to run `curvevision job score` to see any of it. The conflict
+list is already frame-addressed and shape-addressed, so the natural shape is a panel that
+lists conflicts and seeks to one on click — the same move the issues panel makes. Creating a
+ground-truth job has no UI either. This is the largest finished-but-invisible subsystem left.
 
-1. **Toggle a keyframe on the current frame** for the selected track — add one where the
-   shape has been moved, remove one that was a mistake.
-2. **Mark a departure** (`outside`) at the current frame, which is how an annotator says
-   "the object leaves here". `trackSegments` already renders it correctly, so the gap
-   appears the moment the write lands.
-3. **Drag a keyframe** along its lane to a different frame.
+**Then: drag a keyframe along its lane.** Adding (`K`), removing (`K` again) and marking a
+departure (`O`) all work from the timeline now; `moveKeyframe` is written and tested in
+`keyframes.ts` but nothing calls it. It needs a pointer-drag on the lane rather than a
+shortcut, which is why it was left: the other two were a keypress each.
 
-Each of those is an annotation write through the existing autosave path — `useAutosave`
-already batches and handles the 409 — so the work is UI plus a `TrackIn` payload, not new
-server surface. `web/src/features/editor/timeline.ts` is where the maths lives and where
-anything new about keyframe positions belongs.
+*Correcting an earlier note here: keyframe edits do **not** go through `useAutosave`. That
+path builds only `created_shapes`/`updated_shapes` and has no track surface. They go through
+a mutation that flushes the shape buffer, re-reads `annotation_version`, then writes
+`updated_tracks`.*
 
 **Then, in rough order:**
 
@@ -168,6 +168,13 @@ build; the search is lazy, so anchoring costs 2.8 ms and a short drag single-dig
 milliseconds. Bindings match `PathTool`. Output is simplified to an editable polygon.
 Verified in Chromium against a disc: every vertex within 1.5 px of the rim.
 [ADR 0009](./docs/adr/0009-intelligent-scissors.md).
+
+**Editing track keyframes from the timeline** — select a track, then `K` adds a keyframe at
+the current frame (carrying the interpolated position, so nothing moves) or removes the one
+already there, and `O` marks where the object leaves. `keyframes.ts` is pure and separately
+tested; `framesThatMoved` checks the no-movement rule frame by frame rather than asserting
+it. Removing the last keyframe deletes the track rather than leaving an empty one.
+`scripts/verify_keyframe_editing.py` drives it in Chromium and asserts against the API.
 
 **Eleven dataset formats** — COCO, all five Ultralytics YOLO tasks (detection, segmentation,
 OBB, pose, classification), Pascal VOC, KITTI, MOTChallenge, CVAT XML, segmentation masks and
@@ -285,6 +292,44 @@ being updated and this one was not. Check it against* Completed *before trusting
 ---
 
 ## Last iteration
+
+**Keyframes can be edited from the timeline — and the browser check found a second bug.**
+
+The timeline showed a track's keyframes; now `K` adds or removes one and `O` marks where the
+object leaves, on whichever track is selected. The pure logic is `keyframes.ts`; the editor
+is the state machine around it.
+
+**The rule everything rests on: adding a keyframe must move the object on no other frame.**
+A track interpolates between stored positions, so a keyframe carrying the wrong geometry
+shifts every frame between it and its neighbours — the annotator sees a box they did not
+draw, on frames they were not looking at. `toggleKeyframe` inserts the *interpolated*
+position, which is by construction what was already on screen, and `framesThatMoved` checks
+that frame by frame rather than trusting the argument. Replacing it with the obvious wrong
+implementation (copy the previous keyframe's points) fails four tests.
+
+**`markDeparture` turned out to need more than it looks.** `interpolateTrack` deliberately
+*holds* the previous position when the next keyframe is a departure, rather than animating
+towards coordinates that are usually a stale copy. So dropping a departure at frame 6 onto a
+track with keyframes at 0 and 10 froze frames 1–5 at the frame-0 position — five frames
+nobody touched, silently stopped moving. A test caught it. The fix pins the already-displayed
+shape at frame 5 first, which changes nothing by itself and leaves every earlier frame exactly
+where it was.
+
+**`scripts/verify_keyframe_editing.py` then found a real defect the unit tests could not.**
+Scrubbing frames quickly made the editor throw: `AnnotationCanvas` called `image.decode()`,
+caught the rejection with `.catch(() => undefined)` — and then **carried on into the success
+path anyway**, handing a *broken* `HTMLImageElement` to the renderer, where `drawImage`
+threw. Now a failed decode clears the media instead. Clearing rather than keeping the previous
+frame is deliberate: a frame number identifies one picture, so leaving the old image under a
+new frame number would let somebody draw a box on the wrong one.
+
+**A claim in this file was wrong and is corrected.** It said keyframe editing would be "an
+annotation write through the existing autosave path — `useAutosave` already batches and
+handles the 409". `useAutosave` builds only `created_shapes`/`updated_shapes`; it has no track
+surface at all. Track edits go through a mutation that flushes the shape buffer first, re-reads
+`annotation_version`, then writes `updated_tracks`.
+
+### Iteration 17
 
 **The other three Ultralytics YOLO tasks — and a shipped format that was quietly wrong.**
 
@@ -853,8 +898,19 @@ present. Both corrected; the second is a licensing claim and was the more urgent
 ```
 ./scripts/check.sh                    all 9 steps green
   ruff · ruff format · mypy · pytest server (389) · pytest sdk (13)
-  notices (52 deps) · eslint · tsc · vitest (207)
+  notices (52 deps) · eslint · tsc · vitest (235)
 ```
+
+Iteration 18 added 28 web tests (235, up from 207). The no-movement rule is checked by
+`framesThatMoved` across every frame in the range, and replacing `toggleKeyframe` with the
+obvious wrong implementation — copy the previous keyframe's points — fails four of them.
+
+`scripts/verify_keyframe_editing.py` drives it in Chromium against the packaged server and
+asserts against the **API**, not the DOM: the question is whether the annotation is now what
+the annotator asked for. It reported the new keyframe's x as exactly **110.0**, the
+interpolated position, and confirmed frame 14 was pinned ahead of the departure at 15. It also
+found the broken-image bug above on its first run — the fifth harness, and the fifth time one
+has caught something the unit suites could not.
 
 Iteration 17 added 28 server tests (389, up from 361). The rotation fix is pinned by
 `test_a_rotated_box_exports_its_real_extent`, confirmed to fail when the fix is reverted, and
@@ -1004,6 +1060,8 @@ missing, and it is the reason this iteration found anything):
 | Video tests would have skipped silently in CI | `av` was in the `media` extra but not `dev`, and CI installs `[dev]`. `pytest.importorskip` would have skipped every video test while the suite reported green. | Added to `dev`; the tests run rather than skip |
 | The editor's label list was cut through the middle of a row | A fixed `max-h-52` (13rem) cap on the list; six labels need ~14rem. Functional — it scrolled — but it looked broken, and a six-label schema is not unusual. Now `max-h-[30vh]`. | Regenerated screenshot: all six labels visible, `OBJECTS` heading intact below |
 | Two documents claimed no third-party source is present, while a third section of one of them listed the file that is | Iteration 3 corrected that sentence in the README only; two other documents kept their copies. A licensing claim that contradicts itself three sections apart is worse than no claim. | Both now defer to **THIRD_PARTY_NOTICES § Adapted source** as the authoritative list |
+| Scrubbing frames quickly **threw in the canvas** | `AnnotationCanvas` called `image.decode()`, caught the rejection with `.catch(() => undefined)`, and then carried on into the success path anyway — handing a *broken* `HTMLImageElement` to the renderer, where `drawImage` throws. A swallowed error that does not stop the code it was swallowed for. | `scripts/verify_keyframe_editing.py`, which steps frames fast enough to lose a decode; it now asserts the page raises nothing |
+| Marking a departure **froze the frames leading up to it** | `interpolateTrack` holds the previous position when the next keyframe is `outside`, so a departure at frame 6 on a track keyframed at 0 and 10 stopped the object moving on frames 1–5. | `pins the frame before, because a departure freezes what leads up to it` |
 | A **rotated rectangle exported as its unrotated box** in YOLO | A rotated rectangle is stored as the unrotated box plus an angle; the exporter used `points[:4]` directly, so a 100×20 bar turned 90° (occupying 20×100) was written as 100×20 — a box that does not contain its object. `capabilities` also omitted `ROTATED_RECTANGLE`, so the warning said such shapes were *dropped* while they were being written wrong. | `test_a_rotated_box_exports_its_real_extent` and `test_the_capabilities_no_longer_claim_it_is_dropped`; the first confirmed to fail with the fix reverted |
 | Every object on a job seam was **exported twice** | A task with `overlap > 0` shares frames between two jobs by design; export appended each job's shapes instead of reconciling them. The archive is well-formed and nothing errors, so a model simply trains on doubled boxes. `overlap` is API-settable and had no test coverage at all. | `test_one_object_annotated_in_both_jobs_is_exported_once`, written to fail first |
 | Two unrelated tracks in different jobs shared one `track_id` | The id fell back to a job-local `enumerate` index, so job 1's first object and job 2's first object were both `0`. Any consumer grouping by track id welds them into one. No overlap needed — a plain segmented task was enough. | `test_two_unrelated_tracks_in_different_jobs_get_different_ids`, written to fail first |
@@ -1049,6 +1107,11 @@ missing, and it is the reason this iteration found anything):
   annotators' boxes. Averaging is defensible and is what a consensus pass would do; picking
   one is predictable, which matters more when nobody is watching. `consensus/intersect_merge.py`
   upstream is the piece to adapt if averaging is ever wanted.
+- **A keyframe cannot be dragged along its lane yet.** `moveKeyframe` is written and tested
+  but nothing calls it; it needs a pointer-drag rather than a shortcut.
+- **Keyframe edits are one write each, not batched.** Each `K` or `O` flushes the shape
+  buffer, re-reads the version and PATCHes. That is right for deliberate discrete edits and
+  would be wrong for a drag, which is the other reason dragging is not wired yet.
 - **YOLO Pose and Classification are export-only.** Pose because `data.yaml` records how
   many keypoints there are but not what they are called, so an import would attach every
   joint to the wrong name; classification because the directory tree *is* the annotation, so

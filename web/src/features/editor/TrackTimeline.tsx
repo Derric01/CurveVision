@@ -26,6 +26,9 @@ export function TrackTimeline({
   stopFrame,
   currentFrame,
   onSeek,
+  selectedTrackId,
+  onSelectTrack,
+  notice,
 }: {
   rows: TrackRow[];
   labels: LabelStyle[];
@@ -33,6 +36,11 @@ export function TrackTimeline({
   stopFrame: number;
   currentFrame: number;
   onSeek: (frame: number) => void;
+  /** The track keyframe shortcuts act on; `null` when none is chosen. */
+  selectedTrackId?: string | null;
+  onSelectTrack?: (trackId: string | null) => void;
+  /** Why the last keyframe edit did nothing, when it did nothing. */
+  notice?: string | null;
 }) {
   const byId = new Map(labels.map((label) => [label.id, label]));
 
@@ -41,9 +49,28 @@ export function TrackTimeline({
   return (
     <div className="max-h-32 shrink-0 overflow-y-auto border-t border-ink-800 bg-ink-900/40">
       <div className="px-3 py-1.5">
-        <h3 className="pb-1 text-[10px] font-medium uppercase tracking-wide text-ink-500">
-          Tracks
-        </h3>
+        <div className="flex items-baseline justify-between pb-1">
+          <h3 className="text-[10px] font-medium uppercase tracking-wide text-ink-500">
+            Tracks
+          </h3>
+          {onSelectTrack ? (
+            <p className="text-[10px] text-ink-500">
+              {selectedTrackId ? (
+                <>
+                  <kbd className="rounded bg-ink-800 px-1">K</kbd> keyframe ·{' '}
+                  <kbd className="rounded bg-ink-800 px-1">O</kbd> leaves here
+                </>
+              ) : (
+                'Select a track to edit its keyframes'
+              )}
+            </p>
+          ) : null}
+        </div>
+        {notice ? (
+          <p className="mb-1 rounded-sm bg-amber-500/10 px-2 py-1 text-[10px] text-amber-300">
+            {notice}
+          </p>
+        ) : null}
         <ul className="space-y-0.5">
           {rows.map((row) => (
             <Lane
@@ -54,6 +81,8 @@ export function TrackTimeline({
               stopFrame={stopFrame}
               currentFrame={currentFrame}
               onSeek={onSeek}
+              selected={selectedTrackId === row.trackId}
+              onSelect={onSelectTrack}
             />
           ))}
         </ul>
@@ -69,6 +98,8 @@ function Lane({
   stopFrame,
   currentFrame,
   onSeek,
+  selected,
+  onSelect,
 }: {
   row: TrackRow;
   label: LabelStyle | undefined;
@@ -76,6 +107,8 @@ function Lane({
   stopFrame: number;
   currentFrame: number;
   onSeek: (frame: number) => void;
+  selected?: boolean;
+  onSelect?: (trackId: string | null) => void;
 }) {
   const bar = useRef<HTMLButtonElement>(null);
   const colour = label?.color ?? '#64748b';
@@ -102,15 +135,33 @@ function Lane({
         style={{ backgroundColor: colour }}
         aria-hidden
       />
-      <span className="w-20 shrink-0 truncate text-[10px] text-ink-400" title={name}>
-        {name}
-      </span>
+      {onSelect ? (
+        <button
+          type="button"
+          onClick={() => onSelect(selected ? null : row.trackId)}
+          aria-pressed={selected}
+          title={`${name} — click to ${selected ? 'deselect' : 'select for keyframe editing'}`}
+          className={clsx(
+            'w-20 shrink-0 truncate rounded-sm px-1 text-left text-[10px]',
+            selected ? 'bg-curve-500/20 text-curve-200' : 'text-ink-400 hover:text-ink-200',
+          )}
+        >
+          {name}
+        </button>
+      ) : (
+        <span className="w-20 shrink-0 truncate text-[10px] text-ink-400" title={name}>
+          {name}
+        </span>
+      )}
 
       <button
         ref={bar}
         type="button"
         onClick={(event) => seekToPointer(event.clientX)}
-        className="relative flex-1 rounded-sm bg-ink-850 focus:outline-none focus-visible:ring-1 focus-visible:ring-curve-400"
+        className={clsx(
+          'relative flex-1 rounded-sm focus:outline-none focus-visible:ring-1 focus-visible:ring-curve-400',
+          selected ? 'bg-ink-800 ring-1 ring-curve-500/40' : 'bg-ink-850',
+        )}
         style={{ height: LANE_HEIGHT }}
         aria-label={`${name}: ${row.keyframes.length} keyframes. Click to seek.`}
       >

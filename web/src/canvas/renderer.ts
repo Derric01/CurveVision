@@ -73,6 +73,10 @@ export class Renderer {
     const context = this.layers.media;
     context.clearRect(0, 0, viewport.width, viewport.height);
     if (!media.image) return;
+    // Belt and braces: an image that failed to load draws as a throw rather than as
+    // nothing, and one bad frame should never take down the whole canvas.
+    if (media.image instanceof HTMLImageElement && !media.image.complete) return;
+    if (media.image instanceof HTMLImageElement && media.image.naturalWidth === 0) return;
 
     const origin = imageToScreen(viewport, { x: 0, y: 0 });
     // Nearest-neighbour above 2x: annotators zoom in to place a boundary on an exact
