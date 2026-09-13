@@ -163,7 +163,7 @@ already the seam.
 
 ### 0.2 Development environment
 
-* Python 3.11+, Node 20+.
+* Python 3.11+, Node 22+.
 * `uv` (or `pip`) for Python dependency installation; `pyproject.toml` is the single source
   of truth for backend deps.
 * `npm` workspaces are *not* used — `web/` is a single package to keep the toolchain flat.

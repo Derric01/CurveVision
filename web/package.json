@@ -5,6 +5,9 @@
   "type": "module",
   "description": "CurveVision web application and annotation editor",
   "license": "MIT",
+  "engines": {
+    "node": ">=22"
+  },
   "scripts": {
     "dev": "vite",
     "build": "tsc -b --noEmit && vite build",
