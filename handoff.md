@@ -5,7 +5,7 @@
 > [`AGENTS.md`](./AGENTS.md) first; it is the working contract. Update this file after every
 > iteration, including the ones that mostly failed.
 >
-> **Last updated:** 2026-09-15 (iteration 31) · branch `claude/curvevision-platform-build-n1g71n` · PRs [#1](https://github.com/Derric01/CurveVision/pull/1)–[#13](https://github.com/Derric01/CurveVision/pull/13) **all merged** (iterations 1–26). The branch was restarted from `main` at `171c169`; iterations 27–31 are on it, in open PR [#14](https://github.com/Derric01/CurveVision/pull/14).
+> **Last updated:** 2026-09-15 (iteration 31) · branch `claude/curvevision-platform-build-n1g71n` · PRs [#1](https://github.com/Derric01/CurveVision/pull/1)–[#14](https://github.com/Derric01/CurveVision/pull/14) **all merged**. [#14](https://github.com/Derric01/CurveVision/pull/14) carried iterations 27–29 (the Node 20 bump, the provisional frame count, the skeleton tool) and merged at `675532f`. Iterations 30–31 — the two mask commits — were already pushed to the branch when it merged, so they were **rebased onto `main`** and belong to a new pull request: a merged PR cannot track new work.
 
 ---
 
