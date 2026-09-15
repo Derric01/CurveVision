@@ -5,7 +5,7 @@
 > [`AGENTS.md`](./AGENTS.md) first; it is the working contract. Update this file after every
 > iteration, including the ones that mostly failed.
 >
-> **Last updated:** 2026-09-15 (iteration 30) · branch `claude/curvevision-platform-build-n1g71n` · PRs [#1](https://github.com/Derric01/CurveVision/pull/1)–[#13](https://github.com/Derric01/CurveVision/pull/13) **all merged** (iterations 1–26). The branch was restarted from `main` at `171c169`; iterations 27–30 are on it, in open PR [#14](https://github.com/Derric01/CurveVision/pull/14).
+> **Last updated:** 2026-09-15 (iteration 31) · branch `claude/curvevision-platform-build-n1g71n` · PRs [#1](https://github.com/Derric01/CurveVision/pull/1)–[#13](https://github.com/Derric01/CurveVision/pull/13) **all merged** (iterations 1–26). The branch was restarted from `main` at `171c169`; iterations 27–31 are on it, in open PR [#14](https://github.com/Derric01/CurveVision/pull/14).
 
 ---
 
@@ -30,6 +30,11 @@ nightly and on every push to `main`.
 estimate; where it cannot be replaced by a decoded one — the task already carries annotations,
 or the file is truncated or undecodable — the task page says so, names the file, and offers to
 recount. That matters because an overstated count offers frames that do not exist.
+
+**A mask is drawn as its pixels.** The editor used to draw one through the same branch as a
+rectangle — an empty box where the pixels were — so an annotator could not tell a mask
+covering a whole car from one covering its wing mirror. It now paints the pixels, and picks
+by them: clicking an empty corner of a mask's bounding box no longer selects it.
 
 **A mask now actually exports.** It did not, despite the roadmap saying so: `cvat_xml`
 declared `ShapeType.MASK` and wrote the two corners of the bounding box, and
@@ -99,30 +104,19 @@ nothing routes to it. Scoring is arithmetic over rows already in the database, s
 right today; a ground truth over thousands of frames changes that calculus, and the
 endpoint's docstring says so. This is the largest unblocked item left.
 
-**Then: render a mask, then draw one.** The export half is done and tested, so a mask drawn
-in the editor now has two real formats to land in. Two jobs, in this order:
+**Then: the mask brush.** Everything around it is now in place — the encoding is stated on
+both sides and pinned by a shared fixture, two formats carry a mask, and the editor draws one
+pixel for pixel and picks it by its pixels. `canvas/mask.ts` already exports `encodeRle`,
+which is what a brush commits with, and the scissors tool already reads frame pixels through
+`ToolContext.imageData`, which is the awkward part of a brush solved once already.
 
-1. **Render it.** `renderer.ts` draws a mask as its bounding box — the same branch as a
-   rectangle. Porting `formats/rle.py`'s `decode` to TypeScript and painting the pixels to an
-   offscreen canvas is self-contained, testable in the node environment, and is the half a
-   brush cannot be reviewed without: you cannot judge a brush whose output you cannot see.
-2. **Draw it.** The scissors tool already reads frame pixels through `ToolContext.imageData`,
-   which is the awkward part of a brush already solved once.
-
-Keep the two encoders honest with each other: `formats/rle.py`'s docstring is the single
-statement of the convention, and a TypeScript copy that drifts from it produces masks the
-server decodes into the wrong pixels.
-
-**Then: `choose_files` is still unused.** The desktop shell can open a native *file* picker as
-well as a folder one, and `/tasks/{id}/local-import` accepts a file path. Connecting it is
-small and was deliberately left until somebody wanted it — the folder case is the one that
-matters.
-
-**Blocked, not next: signed installers for macOS and Windows.** The desktop app builds and
-runs from source; `.dmg`, `.msi` and `.AppImage` are not built. It needs one CI runner per
-platform, because PyInstaller does not cross-compile, and signing needs credentials the
-project does not have — so it is blocked on something **outside the repository** rather than
-on work. Confirm what certificates are available before starting it.
+Two things to decide before starting. **A brush edits an existing mask as often as it starts
+a new one**, so the tool needs a notion of "the mask I am editing" that the other tools do
+not have — probably the current selection when it is a mask of the active label. And **a
+stroke is not a shape**: dragging paints into a scratch bitmap, and only the pointer-up
+commits. Keeping that bitmap the size of the *frame* and cropping to its filled extent on
+commit is simpler than growing a box as the stroke wanders, and a frame-sized `Uint8Array` is
+a few hundred kilobytes.
 
 *Superseded: "a UI for creating a ground-truth job", "drag a keyframe along its lane",
 "show issues in the editor", "put a browser harness in CI" and "surface a task whose frame
@@ -333,7 +327,7 @@ full docs set including seven ADRs.
 | Surfacing an uncorrected frame count | Complete and driven in a browser. `Asset.frame_count_exact` records whether a count was established by decoding; `GET /tasks/{id}/media` reports it and names the estimated files; the task page warns and offers `POST /tasks/{id}/media/recount`. Both ways a count stays provisional are covered — the declined correction and the file nothing could decode. |
 | Webhooks | Complete: signed delivery, capped exponential backoff with jitter, and a retry policy that distinguishes "the receiver is struggling" from "the receiver said no". |
 | Keypoint (skeleton) tool | Complete and driven in a browser, through to the exported `yolo_pose` rows: joints placed in declared order, `X` skips one, `Enter` finishes early, `Alt`-click marks a joint occluded, and the bones are drawn. |
-| Masks | Stored, and now genuinely **exported** — `cvat_xml` writes CVAT's real mask element and reads it back, `segmentation_mask` paints the pixels. What is left: the editor draws a mask as its bounding box rather than its pixels, and no brush creates one. The last shape type the platform can carry but not create. |
+| Masks | Stored, **exported** (`cvat_xml` writes CVAT's real mask element and reads it back; `segmentation_mask` paints the pixels) and **drawn** — the editor renders the pixels and picks by them, verified by reading the canvas back in a browser. What is left is the brush: masks are the last shape type the platform can carry and not create. |
 | Quality reports | Complete end to end and driven in a browser: the task page creates the answer key and shows each job's latest F1, the editor shows the report and seeks to a conflict on click, and a stale report is marked stale. What is left: the comparison runs inline rather than on the `quality` queue, which a very large ground truth would change. |
 
 *This table went stale once — it still listed the open-folder flow and chunked delivery as
@@ -347,9 +341,9 @@ being updated and this one was not. Check it against* Completed *before trusting
 1. **The comparison runs inline rather than on the `quality` queue.** `QUEUE_ROUTING` has the
    queue and nothing routes to it. Fine today — scoring is arithmetic over rows already in the
    database — and not fine for a ground truth over thousands of frames.
-2. **Mask brush, and mask rendering.** Masks round-trip through the model, the API and two
-   exporters now; the editor still draws one as a bounding box, and nothing creates one.
-   `formats/rle.py` is the encoding, and a TypeScript decoder is the first half of both jobs.
+2. **Mask brush.** Everything around it is done: the encoding is written down on both
+   sides, two formats carry a mask, and the editor draws and picks one. `canvas/mask.ts`
+   already exports `encodeRle`, which is what a brush commits with.
 3. **`choose_files` is still unused.** The shell can open a native *file* picker as well as a
    folder one, and `/tasks/{id}/local-import` accepts a file path. Connecting it is small, and
    deliberately left until someone wants it — the folder case is the one that matters.
@@ -359,6 +353,68 @@ being updated and this one was not. Check it against* Completed *before trusting
 ---
 
 ## Last iteration
+
+### 31 — a mask is drawn as its pixels
+
+The editor drew a mask through the same branch as a rectangle: an empty box where the pixels
+were. An annotator could not tell a mask covering a whole car from one covering its wing
+mirror, and could not review an imported one at all. With export fixed the iteration before,
+this was the other half of making masks usable before a brush is worth building — **you
+cannot review a brush whose output you cannot see.**
+
+`canvas/mask.ts` is the TypeScript half of the encoding, and its docstring says out loud that
+it is *the second statement of a convention that also lives in `formats/rle.py`*. Two
+implementations of one encoding is exactly the arrangement that drifts, and a drift here is
+silent: the browser paints one set of pixels and the exporter writes another, with nothing
+failing. So both test suites now carry **the same worked example** — an L in a 4×3 box,
+encoding to `[0, 3, 1, 1]`, covering four named absolute pixels — and each file's fixture
+comment points at the other. If either side changes its mind, that side goes red.
+
+**Rendering.** The decoded bitmap is built once per shape into an offscreen canvas and cached
+on the mask payload's identity, so a repaint is a `drawImage` rather than a megapixel loop on
+the pointer-move path. The payload is replaced rather than mutated when a shape changes, so
+identity is a sound key and needs no version counter; `forgetMasks()` clears the cache when
+the frame changes, which also handles a pending shape whose client id becomes a server id.
+Smoothing is off: a mask is a per-pixel yes or no, and a softened edge shows the annotator a
+boundary that is not the one being stored. A mask that paints its own pixels does not also
+get the translucent bounding-box fill, which would tint the empty corners exactly like the
+covered ones.
+
+**Picking follows the pixels too.** `hitTest` used to accept any click inside the bounding
+box, which for a thin diagonal mask means swallowing clicks across a large empty area and
+sitting on top of whatever is really there. It now consults the mask, with a tolerance ring
+probed around the pointer so a click a couple of pixels off a visible edge still reaches it —
+an annotator clicking a mask and selecting nothing is the worse failure. `annotationBounds`
+reads the mask's own box rather than `points`, which an importer or a tool may not have set.
+
+**The harness reads the canvas back rather than trusting a screenshot.**
+`scripts/verify_mask_rendering.py` seeds a plus with unequal arms, then uses `getImageData`
+to check the crossing and both arms are painted, an empty part of the frame is not, and the
+pixel *only a transposed mask would cover* is not either. Then it clicks a covered pixel and
+an empty corner and checks the selection each time.
+
+**Two harness bugs on the way, both worth writing down**, because both looked exactly like
+renderer bugs:
+
+1. The first version reverse-engineered the image-to-canvas transform from the extent of what
+   was painted. That extent includes the outline stroke, so every probe landed off by a few
+   pixels and the harness reported the centre of the mask transparent and the corner of its
+   box painted — a perfect description of the bug it was meant to catch, from a correct
+   renderer.
+2. Measuring the frame's rectangle off the *shapes* layer includes the label chip drawn above
+   the shape's top-left corner, which stretched it 15px upwards. The fix is to measure off
+   the **media** layer, which holds the frame and nothing else, so its lit extent is exactly
+   the fitted frame. The aspect-ratio check went from 1.465 to 1.500 and every probe landed.
+
+The lesson for the next harness: when an assertion about pixels fails, suspect the coordinate
+conversion before the renderer, and prefer a measurement the page can give you exactly over
+one derived from what you drew.
+
+Verified: `./scripts/check.sh` green — 480 server tests, 13 SDK, 424 web (28 new); the
+harness green against a freshly packaged sidecar.
+
+
+## Iteration 30
 
 ### 30 — a mask now actually exports
 

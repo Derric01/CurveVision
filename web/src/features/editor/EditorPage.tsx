@@ -677,6 +677,9 @@ function ObjectList({
                 // object row apart from a label row: both are `aside li button` carrying the
                 // label's name, and selecting the wrong one silently selects nothing.
                 data-object-id={annotation.id}
+                // Selection state as a hook too: "the row looks highlighted" is a colour
+                // class, which a harness cannot read without knowing the palette.
+                data-selected={selection.includes(annotation.id) ? 'true' : 'false'}
                 className={clsx(
                   'flex w-full items-center gap-2 px-3 py-1.5 text-left text-xs',
                   selection.includes(annotation.id)

@@ -42,6 +42,21 @@ export interface Box {
 }
 
 /**
+ * An instance mask, matching the server's `MaskData` exactly.
+ *
+ * `width` and `height` are *inclusive* spans of the mask's own sub-rectangle: a 4-wide box
+ * at x=10 ends at x=13. See `canvas/mask.ts` for the run-length convention, which is stated
+ * there in full because the server states it too and the two must not drift.
+ */
+export interface MaskData {
+  rle: number[];
+  left: number;
+  top: number;
+  width: number;
+  height: number;
+}
+
+/**
  * One joint of a skeleton, matching the server's `SkeletonElement` exactly.
  *
  * `points` is always a two-number pair, even for a joint nobody could see: that one is
@@ -87,6 +102,8 @@ export interface Annotation {
    * including the skipped ones. Absent on every other shape type.
    */
   elements?: SkeletonElement[];
+  /** Run-length pixels, for a mask. Absent on every other shape type. */
+  mask?: MaskData;
 }
 
 export interface LabelStyle {

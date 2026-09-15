@@ -181,7 +181,7 @@ lossless native one — each declaring honestly what it can represent, *before* 
 | Per-label visibility and locking | **Done** |
 | Crash-resilient autosave | **Done** |
 | Track keyframes: add, remove and mark a departure from the timeline | **Done** |
-| Masks — stored and exported (CVAT XML and indexed PNG, pixel for pixel); the editor draws one as its bounding box rather than its pixels, and no brush tool creates one | *Planned* |
+| Mask brush — masks are stored, drawn pixel for pixel in the editor, and exported (CVAT XML and indexed PNG); no brush tool creates one | *Planned* |
 
 **It stays fast.** The canvas is a Canvas2D engine with an R-tree spatial index, so
 rendering costs what is *on screen* rather than what is in the dataset.

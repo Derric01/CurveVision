@@ -5,6 +5,7 @@
  * so it allocates as little as it can get away with.
  */
 
+import { maskBounds, maskContains } from './mask';
 import type { Annotation, Box, Point, ShapeType } from './types';
 
 /** Bounding box of a flat coordinate list. */
@@ -35,6 +36,16 @@ export function boundsOf(points: number[]): Box {
  */
 export function annotationBounds(annotation: Annotation): Box {
   const { shapeType, points } = annotation;
+  if (shapeType === 'mask') {
+    // From the mask's own box, not from `points`. A mask's geometry is its runs; `points`
+    // is a convenience copy of the same box that an importer or a tool may not have set,
+    // and a shape with no bounds falls out of the spatial index and becomes unselectable.
+    const box = maskBounds(annotation.mask);
+    if (box) {
+      const [minX, minY, maxX, maxY] = box;
+      return { minX, minY, maxX, maxY };
+    }
+  }
   if (shapeType === 'ellipse' && points.length >= 4) {
     const [cx, cy, rx, ry] = points as [number, number, number, number];
     return { minX: cx - rx, minY: cy - ry, maxX: cx + rx, maxY: cy + ry };
@@ -134,10 +145,20 @@ export function pointInPolygon(point: Point, points: number[]): boolean {
 export function hitTest(annotation: Annotation, point: Point, tolerance: number): boolean {
   const { shapeType, points } = annotation;
   switch (shapeType) {
+    case 'mask': {
+      // A mask is rarely rectangular, so its bounding box is mostly *not* the object. Picking
+      // by the box makes a thin diagonal mask swallow clicks across a large empty area and
+      // sit on top of whatever is really there. Tolerance still applies at the box, so a
+      // click a couple of pixels outside a mask's edge can still reach it.
+      if (!boxContains(annotationBounds(annotation), point, tolerance)) return false;
+      if (!annotation.mask) return true;
+      if (maskContains(annotation.mask, point.x, point.y)) return true;
+      return tolerance > 0 && nearMask(annotation, point, tolerance);
+    }
+
     case 'rectangle':
     case 'rotated_rectangle':
     case 'cuboid':
-    case 'mask':
       return boxContains(annotationBounds(annotation), point, tolerance);
 
     case 'ellipse': {
@@ -170,6 +191,25 @@ export function hitTest(annotation: Annotation, point: Point, tolerance: number)
     default:
       return boxContains(annotationBounds(annotation), point, tolerance);
   }
+}
+
+/**
+ * Whether any pixel within `tolerance` of `point` is inside the mask.
+ *
+ * Probes a ring rather than a filled disc: a mask thin enough for the centre to miss is one
+ * whose edge is what the pointer is near, and eight samples find that edge at a fraction of
+ * the cost. It is an approximation, and deliberately a generous one -- the alternative is an
+ * annotator clicking a visible mask and selecting nothing.
+ */
+function nearMask(annotation: Annotation, point: Point, tolerance: number): boolean {
+  const radius = Math.max(1, tolerance);
+  for (let step = 0; step < 8; step += 1) {
+    const angle = (step * Math.PI) / 4;
+    const x = point.x + Math.cos(angle) * radius;
+    const y = point.y + Math.sin(angle) * radius;
+    if (maskContains(annotation.mask, x, y)) return true;
+  }
+  return false;
 }
 
 function nearAnyEdge(

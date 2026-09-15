@@ -100,6 +100,8 @@ export class AnnotationEngine {
 
   setMedia(media: SceneMedia, { fit = true }: { fit?: boolean } = {}): void {
     this.media = media;
+    // A new frame means new shapes; the mask bitmaps cached for the old one are dead.
+    this.renderer.forgetMasks();
     if (media.image !== this.cachedImageDataSource) {
       this.cachedImageData = null;
       this.cachedImageDataSource = null;

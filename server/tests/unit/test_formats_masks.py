@@ -46,6 +46,12 @@ from curvevision.formats.rle import (
 #: An L in a 4x3 box:  ###.
 #:                     #...
 #:                     ....
+#:
+#: **The same worked example as `web/src/canvas/__tests__/mask.test.ts`**, on purpose. That
+#: file is a second implementation of this encoding, and a drift between the two is silent:
+#: the browser would paint one set of pixels and this would write another, with nothing
+#: failing. The shared numbers -- these flags, the run list `[0, 3, 1, 1]`, and the four
+#: absolute pixels at (10,10) -- are what makes a drift show up as a red test on one side.
 L_SHAPE = [True] * 3 + [False] + [True] + [False] * 7
 BOX = (4, 3)
 
