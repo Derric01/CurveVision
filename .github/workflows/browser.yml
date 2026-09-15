@@ -1,11 +1,11 @@
 # Browser harnesses.
 #
-# Eight scripts in `scripts/` drive the packaged desktop application in a real Chromium and
+# Nine scripts in `scripts/` drive the packaged desktop application in a real Chromium and
 # assert against the API rather than the DOM. Between them they have found every defect the
 # unit suites missed: a Content-Security-Policy that blocked the app's own scripts, frame
 # images that never rendered, a swallowed decode error that threw on fast scrubbing, a
 # ref-timing bug that had disconnected seven editor controls, and an issue anchor pointing at
-# a row in the wrong table.
+# a row in the wrong table, and a deleted asset whose frames the task went on counting.
 #
 # They are not in `ci.yml` because they cost a PyInstaller build plus a browser download --
 # minutes, not seconds -- and CI that takes half an hour per push stops being run. Nightly and
@@ -43,7 +43,7 @@ jobs:
   harnesses:
     name: Drive the packaged app in Chromium
     runs-on: ubuntu-latest
-    # A PyInstaller build plus eight end-to-end runs. Generous, but bounded: a hang should
+    # A PyInstaller build plus nine end-to-end runs. Generous, but bounded: a hang should
     # fail the run rather than burn an hour of somebody's minutes.
     timeout-minutes: 45
 
@@ -109,6 +109,7 @@ jobs:
               scripts/verify_quality_panel.py
               scripts/verify_ground_truth_setup.py
               scripts/verify_issues_panel.py
+              scripts/verify_frame_count_warning.py
             )
           fi
 

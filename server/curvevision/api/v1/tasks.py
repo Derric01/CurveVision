@@ -25,7 +25,9 @@ from curvevision.domain.media import MediaBlob
 from curvevision.domain.project import Project
 from curvevision.domain.task import Job, Task
 from curvevision.policy import Action, ResourceType
+from curvevision.schemas.system import BackgroundTaskOut
 from curvevision.schemas.task import (
+    ESTIMATED_ASSET_SAMPLE,
     AssetOut,
     FrameInfo,
     JobOut,
@@ -212,14 +214,63 @@ async def delete_asset(asset_id: uuid.UUID, scope: TaskScopeDep, session: Sessio
 
 
 @router.get("/tasks/{task_id}/media", response_model=TaskMediaMeta)
-async def media_meta(scope: TaskScopeDep, settings: SettingsDep) -> TaskMediaMeta:
+async def media_meta(
+    scope: TaskScopeDep, session: SessionDep, settings: SettingsDep
+) -> TaskMediaMeta:
+    """Frame numbering and chunking for a task, and whether the frame count is trustworthy.
+
+    `frame_count_exact` is the part a client must not ignore. A video task's count starts as
+    an estimate from container metadata, and an overestimate offers frames that do not
+    exist -- an annotator who steps onto one meets what looks like missing media. The probe
+    normally fixes it within seconds of upload, but it can decline (the task already carries
+    annotations) or fail (an undecodable file), and this is where that shows.
+    """
+    estimated = await media_service.estimated_assets(session, scope.task.id)
     return TaskMediaMeta(
         task_id=scope.task.id,
         media_kind=scope.task.media_kind,
         frame_count=scope.task.frame_count,
         frames_per_chunk=settings.frames_per_chunk,
         chunk_count=media_service.chunk_count(scope.task.frame_count, settings.frames_per_chunk),
+        frame_count_exact=not estimated,
+        estimated_assets=[asset.name for asset in estimated[:ESTIMATED_ASSET_SAMPLE]],
+        estimated_asset_count=len(estimated),
     )
+
+
+@router.post(
+    "/tasks/{task_id}/media/recount",
+    response_model=BackgroundTaskOut,
+    status_code=status.HTTP_202_ACCEPTED,
+)
+async def recount_frames(scope: TaskScopeDep, session: SessionDep) -> BackgroundTaskOut:
+    """Ask for a task's video frame counts to be established by decoding.
+
+    The upload path already does this automatically; this endpoint exists for the cases
+    where that attempt did not stick -- a file that was temporarily unreachable, a codec a
+    later build can decode, or a task that carried annotations when the probe first ran and
+    has since had them cleared. Without it a client can see that a count is provisional and
+    has no way to act on it.
+
+    Returns the queued job rather than a result: counting a two-hour clip is minutes of
+    decoding, which is exactly why it was never on the request path. Poll the background
+    task, or re-read `GET /tasks/{id}/media` and watch `frame_count_exact`.
+
+    A task with nothing left to count returns a job anyway, which then finds every asset
+    already exact and changes nothing. That is cheaper than teaching the endpoint a second
+    answer shape for a case the caller can already see from `frame_count_exact`.
+    """
+    scope.authorize(Action.UPDATE, ResourceType.TASK)
+    # `enqueue` commits the row itself -- it has to, because a worker cannot pick up a row
+    # that is not visible yet -- so there is deliberately no commit after this.
+    queued = await background_service.enqueue(
+        session,
+        kind="media.probe_task",
+        payload={"task_id": str(scope.task.id)},
+        resource_type="task",
+        resource_id=scope.task.id,
+    )
+    return BackgroundTaskOut.model_validate(queued)
 
 
 @router.get("/tasks/{task_id}/frames/{frame}", response_model=FrameInfo)

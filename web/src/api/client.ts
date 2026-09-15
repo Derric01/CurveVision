@@ -14,6 +14,7 @@ import { desktopToken } from '@/desktop';
 import type {
   AnnotationDocument,
   AnnotationWriteResult,
+  BackgroundTaskBrief,
   DatasetFormat,
   FrameInfo,
   InferenceResult,
@@ -302,6 +303,16 @@ export const api = {
 
   /** How this task's frames are grouped into chunks, and how many there are. */
   taskMedia: (taskId: string) => request<TaskMediaMeta>(`/tasks/${taskId}/media`),
+
+  /**
+   * Ask the server to establish this task's video frame counts by decoding them.
+   *
+   * Returns the queued job, not a result: counting a two-hour clip is minutes of decoding,
+   * which is exactly why it is not on the request path. Re-read `taskMedia` afterwards and
+   * watch `frame_count_exact` rather than waiting on this.
+   */
+  recountFrames: (taskId: string) =>
+    request<BackgroundTaskBrief>(`/tasks/${taskId}/media/recount`, { method: 'POST' }),
 
   /**
    * A run of decoded video frames, as one archive.

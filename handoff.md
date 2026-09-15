@@ -5,7 +5,7 @@
 > [`AGENTS.md`](./AGENTS.md) first; it is the working contract. Update this file after every
 > iteration, including the ones that mostly failed.
 >
-> **Last updated:** 2026-09-13 (iteration 26) · branch `claude/curvevision-platform-build-n1g71n` · PRs [#1](https://github.com/Derric01/CurveVision/pull/1)–[#10](https://github.com/Derric01/CurveVision/pull/10) merged (iterations 1–16) · PRs [#11](https://github.com/Derric01/CurveVision/pull/11)–[#12](https://github.com/Derric01/CurveVision/pull/12) merged (iterations 17–21) · iterations 22–23 in open PR [#13](https://github.com/Derric01/CurveVision/pull/13)
+> **Last updated:** 2026-09-15 (iteration 28) · branch `claude/curvevision-platform-build-n1g71n` · PRs [#1](https://github.com/Derric01/CurveVision/pull/1)–[#13](https://github.com/Derric01/CurveVision/pull/13) **all merged** (iterations 1–26). The branch was restarted from `main` at `171c169`; iterations 27–28 are unmerged commits on it with no pull request open. A merged PR cannot carry new work — open a new one when these are ready.
 
 ---
 
@@ -13,11 +13,23 @@
 
 CurveVision is a working annotation platform in **two shapes from one codebase**: a desktop
 application and a server. The manual annotation path is complete end to end — create a
-project and label schema, add media, draw, review, export COCO/YOLO/Pascal VOC/native — and
-is tested. The desktop shape works: a packaged single-executable server, a Tauri shell that
-supervises it, and folders annotated in place without copying a byte.
+project and label schema, add media, draw, review, export to any of eleven formats — and
+is tested. The exporters cover COCO, CVAT XML, Pascal VOC, KITTI, MOTChallenge, indexed
+segmentation masks, the lossless native format, and the Ultralytics YOLO family in four
+shapes (detection/segmentation, OBB, pose, classification), each declaring in its
+`capabilities` exactly what it cannot carry rather than dropping it silently.
 
-**The tree is green.** `./scripts/check.sh` passes all nine steps.
+The desktop shape works: a packaged single-executable server, a Tauri shell that supervises
+it, and folders annotated in place without copying a byte.
+
+**The tree is green.** `./scripts/check.sh` passes all nine steps: 444 server tests, 13 SDK,
+339 web. Nine browser harnesses drive the packaged desktop application in a real Chromium,
+nightly and on every push to `main`.
+
+**A number the platform is not sure about says so.** A video task's frame count starts as an
+estimate; where it cannot be replaced by a decoded one — the task already carries annotations,
+or the file is truncated or undecodable — the task page says so, names the file, and offers to
+recount. That matters because an overstated count offers frames that do not exist.
 
 Honestly incomplete, and marked as such everywhere: the mask brush, the keypoint UI,
 resumable uploads, and signed desktop installers.
@@ -29,7 +41,8 @@ its right-hand panel, and **clicking a conflict seeks to its frame** — a confl
 not a statistic. Building the panel turned up a real gap in the model: a report recorded no
 version of the job it scored, so a score taken before the annotator fixed everything looked
 current. `QualityReport.annotation_version` closes that, and the panel marks a stale report
-stale. Still no UI for *creating* a ground-truth job; that stays an API or CLI call.
+stale. The answer key is created from the task page too, and a blank frame range there means
+*the whole task* rather than frame 0 — a distinction a browser harness exists to protect.
 
 The desktop window **signs itself in from the connection the shell injects** and opens
 straight into the application.
@@ -69,31 +82,38 @@ was the last unconnected piece of the desktop application.
 
 ## Next best action
 
-**Signed installers for macOS and Windows.** The desktop app builds and runs from source;
-`.dmg`, `.msi` and `.AppImage` are not built. It needs one CI runner per platform, because
-PyInstaller does not cross-compile, and signing needs credentials the project does not have —
-so this is the first item in a while that is **blocked on something outside the repository**
-rather than on work. Worth confirming what certificates are available before starting.
+**Run the comparison as a background job.** `QUEUE_ROUTING` already has a `quality` queue and
+nothing routes to it. Scoring is arithmetic over rows already in the database, so inline is
+right today; a ground truth over thousands of frames changes that calculus, and the
+endpoint's docstring says so. This is the largest unblocked item left.
+
+**Then: the drawing tools that have no UI.** Masks and skeletons round-trip through the
+model, the API and the exporters — `yolo_pose` will write a skeleton dataset today — but
+neither can be *drawn*. That is the widest remaining gap between what the platform stores and
+what a person can produce in it, and it is honestly marked as such in the roadmap rather than
+claimed.
 
 **Then: `choose_files` is still unused.** The desktop shell can open a native *file* picker as
 well as a folder one, and `/tasks/{id}/local-import` accepts a file path. Connecting it is
 small and was deliberately left until somebody wanted it — the folder case is the one that
-matters. Nine exist and between them they have found every defect
-the unit suites missed, including a ref-timing bug that had disconnected seven controls. They
-need a packaged sidecar and a Chromium, so nightly or pre-release rather than per-push. Note
-the sidecar embeds `web/dist`: a run needs `npm --prefix web run build` **and** a sidecar
-rebuild, or it silently tests the previous frontend. `api.issues` / `createIssue` / `resolveIssue` have been
-on the client since the first web iteration with nothing calling them. The quality panel is
-the pattern to copy — both are frame-anchored lists a reviewer clicks through — and an issue
-additionally carries a `position`, so it can be drawn on the canvas rather than only listed.
+matters.
 
-**Then: run the comparison as a background job.** `QUEUE_ROUTING` already has a `quality`
-queue and nothing routes to it. Scoring is arithmetic over rows already in the database, so
-inline is right today; a ground truth over thousands of frames changes that calculus, and the
-endpoint's docstring says so.
+**Blocked, not next: signed installers for macOS and Windows.** The desktop app builds and
+runs from source; `.dmg`, `.msi` and `.AppImage` are not built. It needs one CI runner per
+platform, because PyInstaller does not cross-compile, and signing needs credentials the
+project does not have — so it is blocked on something **outside the repository** rather than
+on work. Confirm what certificates are available before starting it.
 
-*Superseded: "a UI for creating a ground-truth job" and "drag a keyframe along its lane",
-both done.*
+*Superseded: "a UI for creating a ground-truth job", "drag a keyframe along its lane",
+"show issues in the editor", "put a browser harness in CI" and "surface a task whose frame
+count could not be corrected" — all done. This section had also fused two paragraphs into one
+unreadable one; that is repaired.*
+
+> **A note for whoever writes the next harness.** The nine in `scripts/` have now found every
+> defect the unit suites missed, most recently a deleted asset whose frames the task went on
+> counting. They need a packaged sidecar and a Chromium, so nightly rather than per-push, and
+> the sidecar **embeds `web/dist`** — a run needs `npm --prefix web run build` *and* a sidecar
+> rebuild, or it silently tests the previous frontend.
 
 <details><summary>What that took, for whoever wires the next pointer interaction</summary>
 
@@ -290,9 +310,9 @@ full docs set including seven ADRs.
 | --- | --- |
 | Track keyframe **editing** | Complete: `K` adds or removes a keyframe, `O` marks a departure, and a marker can be dragged along its lane. Verified in a browser, not only in unit tests. |
 | Pre-building chunks after upload | Done: probing chains the build once the frame numbering is settled, so the first annotator no longer pays the decode. Not fused into one pass — see the iteration note for why that is not available in general. |
-| Surfacing an uncorrected frame count | When a task already carries annotations, `media.probe_task` declines the correction and says so in its result. Nothing shows that to a user. |
+| Surfacing an uncorrected frame count | Complete and driven in a browser. `Asset.frame_count_exact` records whether a count was established by decoding; `GET /tasks/{id}/media` reports it and names the estimated files; the task page warns and offers `POST /tasks/{id}/media/recount`. Both ways a count stays provisional are covered — the declined correction and the file nothing could decode. |
 | Webhooks | Complete: signed delivery, capped exponential backoff with jitter, and a retry policy that distinguishes "the receiver is struggling" from "the receiver said no". |
-| Mask brush, keypoint UI | Storage, export and the model exist on both sides; neither drawing tool does. |
+| Mask brush, keypoint UI | Storage, export and the model exist on both sides; neither drawing tool does. `yolo_pose` will export a skeleton dataset that nothing in the application can draw — the widest remaining gap between what is stored and what a person can produce. |
 | Quality reports | Complete end to end and driven in a browser: the task page creates the answer key and shows each job's latest F1, the editor shows the report and seeks to a conflict on click, and a stale report is marked stale. What is left: the comparison runs inline rather than on the `quality` queue, which a very large ground truth would change. |
 
 *This table went stale once — it still listed the open-folder flow and chunked delivery as
@@ -303,14 +323,106 @@ being updated and this one was not. Check it against* Completed *before trusting
 
 ## Remaining high-priority work
 
-1. **Signed installers in CI** — one runner per platform; PyInstaller does not cross-compile.
-2. **`choose_files` is still unused.** The shell can open a native *file* picker as well as a
+1. **The comparison runs inline rather than on the `quality` queue.** `QUEUE_ROUTING` has the
+   queue and nothing routes to it. Fine today — scoring is arithmetic over rows already in the
+   database — and not fine for a ground truth over thousands of frames.
+2. **Mask brush and keypoint UI.** Both round-trip through the model, the API and the
+   exporters; neither can be drawn.
+3. **`choose_files` is still unused.** The shell can open a native *file* picker as well as a
    folder one, and `/tasks/{id}/local-import` accepts a file path. Connecting it is small, and
    deliberately left until someone wants it — the folder case is the one that matters.
+4. **Signed installers in CI** — *blocked outside the repository*: one runner per platform
+   (PyInstaller does not cross-compile) and signing certificates the project does not have.
 
 ---
 
 ## Last iteration
+
+Two iterations on one branch, both small, both closing something that was quietly wrong.
+
+### 27 — CI was running on a deprecated Node
+
+GitHub now forces every action declaring `using: node20` onto Node 24 and warns on each run.
+Four actions were in that set across both workflows. Each moved to the lowest major that
+actually declares `node24`, which keeps the breaking-change surface as small as the fix
+allows — and the target versions were read out of each action's own `action.yml` rather than
+from release notes, because one of them is not what you would guess: **`upload-artifact@v5`
+still declares `node20`** and would have fixed nothing. v6 is the minimum there.
+
+Separately, the Node the project is *built with* was pinned to 20, which reached end of life
+in April 2026 — a different thing from the action runtime, and not covered by that bump. It
+is now 22, the version this repository is actually developed and tested against. The web
+image, the README badge and the two docs that state the requirement moved with it, and
+`web/package.json` declares `engines.node` so the claim lives in the file the badge links to
+instead of only in prose.
+
+`browser.yml` does not run on pull requests by design, so the `upload-artifact@v6` bump is
+not covered by PR CI. It was exercised by running the harnesses locally; a
+`workflow_dispatch` run is the way to confirm it in CI.
+
+### 28 — a frame count that is a guess now says so
+
+This was the oldest open item in this file: *"the job reports 'this task already has
+annotation work'; nothing shows it to anyone."*
+
+A video task is created with an estimated frame count, because counting means decoding the
+whole file. `media.probe_task` normally replaces the estimate within seconds. It can also
+**decline** — the task already carries annotations, so its frame ranges are not the job's to
+move — or **fail**, on a file that is truncated, moved, or undecodable. In both cases the task
+kept a number that may offer frames the media does not contain, and an annotator who reaches
+one meets what looks like missing media. The outcome was reported into a background-task row
+nobody reads.
+
+**The model now records it.** `Asset.frame_count_exact` says whether a count was established
+by decoding. It is set where the asset is created (an image is exact by construction; a video
+is not), and set again by `correct_frame_counts` for every asset it manages to count —
+**including the ones whose number did not move**, because the flag records *the decode*, not
+the change. Marking only the assets that changed would leave every correctly-estimated video
+warning forever.
+
+`GET /tasks/{id}/media` reports `frame_count_exact`, names up to five estimated files and
+gives the true total; `AssetOut` carries the same flag per asset. The task page turns that
+into a warning that **names the file**, with a **Recount frames** button
+(`POST /tasks/{id}/media/recount`, which needs `update` on the task — a corrected count
+repartitions jobs — while *reading* the warning needs only read access, since the annotator
+who meets the missing frame is the one who needs to see it).
+
+**A performance bug fell out of it.** `needs_exact_count` used to mean only "this task holds
+video", so adding three photographs to a task holding a counted two-hour clip scheduled a job
+that decoded the whole clip again to arrive at a number already on the row. It now means "…
+whose count has not been established", and `correct_frame_counts` skips an asset already
+marked exact. Blobs are content-addressed and immutable, so there is nothing to re-check.
+
+**And a real bug, found by the browser harness rather than by any unit test.**
+`scripts/verify_frame_count_warning.py` deletes the uncountable clip and expects the frames it
+invented to go with it. They did not. `delete_asset` marked the row deleted; `recount_frames`
+then queried the assets — and the sessionmaker is built with **`autoflush=False`**, so the
+DELETE had not reached the database and the recount summed the very asset it was dropping.
+The task kept a frame count, and job ranges, for media that was gone. One `await
+session.flush()` fixes it. It reproduces on a plain three-image task with no video anywhere
+near it, which is now a test.
+
+**On the migration's backfill.** Image assets are set exact — an image contributes exactly one
+frame by definition. Video assets are left False, which understates what is known for the
+ones already counted before the column existed. That is the safe direction: the consequence is
+a warning on a task that turns out to be fine, cleared by one idempotent re-probe. The
+opposite default would silence the warning on exactly the tasks it exists for.
+
+**On the harness, which is the part worth copying.** The state is manufactured *the way a user
+reaches it*, entirely through the public API, with nothing reaching into the database to fake
+a flag: the second upload is a clip truncated mid-stream — what an interrupted transfer
+produces — whose header still probes (2.333s at 3 fps, so the task takes the estimate of six)
+and which decodes to none of them. Six frames, none of which exist. The truncation offset is
+**searched for rather than hardcoded**, and the harness asserts that premise before it
+asserts anything else, so a future PyAV that decodes the file differently fails on the premise
+and says so instead of passing while testing nothing.
+
+Verified: `./scripts/check.sh` green — nine steps, **444 server tests, 13 SDK, 339 web**; the migration
+applied, rolled back and re-applied against a real SQLite database **with rows in it**, with
+the backfill checked per asset kind; the harness green against a freshly packaged sidecar.
+
+
+## Iteration 26
 
 **The browser harnesses run automatically.** Eight of them existed and had found every defect
 the unit suites missed; none ran without somebody remembering to. `.github/workflows/browser.yml`
@@ -1495,6 +1607,8 @@ missing, and it is the reason this iteration found anything):
 
 | Bug | Root cause | Verified by |
 | --- | --- | --- |
+| **A deleted asset's frames were still counted** | `delete_asset` marked the row deleted; every caller then recounts the task's frames. The sessionmaker is built with `autoflush=False`, so the DELETE had not reached the database and the recount summed the asset it was dropping — leaving a frame count, and job ranges, for media that was gone. One `await session.flush()`. | `scripts/verify_frame_count_warning.py` found it; `test_deleting_an_asset_leaves_the_task_counting_only_what_is_left` reproduces it on three images with no video involved |
+| Every upload re-decoded video that had already been counted | `needs_exact_count` meant only "this task holds video", so adding three photographs to a task holding a counted two-hour clip scheduled a full decode of the clip. It now also requires the count to be unestablished, and `correct_frame_counts` skips an asset already marked exact. | `test_a_counted_video_is_not_decoded_a_second_time`, which counts the decodes |
 | Handlers read a different configuration than their own app | `SettingsDep` resolved via `get_settings()` (the **environment**) while the engine was bound to `create_app(settings)`. Silently wrote media to the wrong directory and made `local_mode` false inside a local install. | `test_request_handlers_read_the_app_s_settings_not_the_environment` |
 | Background jobs could disagree with the request that queued them | Job handlers, the storage factory and the queue factory all call `get_settings()`. Added `configure_settings()`, bound in the app lifespan, mirroring `configure_engine()`. | Full suite; media now lands in the app data dir |
 | A moved/deleted source file returned a truncated 200 | The error was raised inside the streaming response body, after the status line had been sent. | `test_a_file_the_user_moved_reports_a_missing_frame_not_a_server_error` |
@@ -1527,6 +1641,14 @@ missing, and it is the reason this iteration found anything):
 
 ## Known issues
 
+- **A recount on a task that carries annotations decodes the file to reach the same
+  refusal.** When `rebuild_jobs` declines, the whole correction is rolled back — including the
+  `frame_count_exact` flags, which is right, because the numbers on the rows are the estimates
+  again and claiming they were established by decoding would be false. The cost is that the
+  next probe walks the file again. The alternative is a task that stops warning about a number
+  nobody ever managed to fix, which is worse. If this ever matters, recording the counted
+  number *without* applying it is the route — it would also let the warning say "the real
+  count is 1,438, not 1,500", which is more useful than what it says now.
 - **A sparse scrub costs more than it used to.** Jumping to every 100th frame builds a chunk
   at each landing that it mostly does not use, and each build JPEG-encodes 36 frames rather
   than one: 0.40s → 0.99s across six such jumps in the measurement. Sequential stepping — what

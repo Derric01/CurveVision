@@ -79,6 +79,19 @@ class Asset(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     #: video contributes ``blob.frame_count``. Lets frame numbers stay contiguous per task.
     start_frame: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     frame_count: Mapped[int] = mapped_column(Integer, default=1, nullable=False)
+    #: Whether ``frame_count`` was established by decoding the media, rather than estimated
+    #: from container metadata. An image is exact by construction -- it contributes exactly
+    #: one frame, and nothing has to be decoded to know that. A video starts False and
+    #: becomes True when ``media.probe_task`` counts it.
+    #:
+    #: False is not a claim that the count is *wrong*. It is the absence of a record that
+    #: anything ever checked. The distinction earns its column because the check can decline
+    #: (the task already carries annotations, so its frame ranges are not the job's to move)
+    #: or fail (a file that moved, a codec this build cannot decode), and either way the task
+    #: keeps a number that may overstate the media. An overstated count offers frames that do
+    #: not exist, which an annotator meets as what looks like missing media -- so somebody
+    #: has to be able to see that the number is provisional.
+    frame_count_exact: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
 
     task: Mapped[Task] = relationship(back_populates="assets")
     blob: Mapped[MediaBlob] = relationship(lazy="joined")

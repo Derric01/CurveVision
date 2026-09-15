@@ -7,6 +7,7 @@ import { api } from '@/api/client';
 import { chooseFolder, isDesktop, onOpenFolder } from '@/desktop';
 import { summariseImport, type ImportSummary } from './localImport';
 import { GroundTruthPanel } from './GroundTruthPanel';
+import { FrameCountNotice } from './FrameCountNotice';
 import { latestReportByJob, splitJobs } from './groundTruth';
 import {
   Badge,
@@ -30,6 +31,14 @@ export function TaskPage() {
   const quality = useQuery({
     queryKey: ['task-quality', taskId],
     queryFn: () => api.taskQuality(taskId),
+    retry: false,
+  });
+  // Only this endpoint knows whether the frame count was counted or guessed. Like the
+  // scores above it is a nice-to-have on this page: a viewer without the permission gets a
+  // 403, and the job list must still render.
+  const media = useQuery({
+    queryKey: ['task-media', taskId],
+    queryFn: () => api.taskMedia(taskId),
     retry: false,
   });
 
@@ -60,6 +69,7 @@ export function TaskPage() {
       await Promise.all([
         queryClient.invalidateQueries({ queryKey: ['task', taskId] }),
         queryClient.invalidateQueries({ queryKey: ['jobs', taskId] }),
+        queryClient.invalidateQueries({ queryKey: ['task-media', taskId] }),
         queryClient.invalidateQueries({ queryKey: ['project'] }),
       ]);
     } catch (error) {
@@ -106,6 +116,8 @@ export function TaskPage() {
           {task.data?.frame_count.toLocaleString()} frames · {task.data?.media_kind}
         </p>
       </header>
+
+      <FrameCountNotice taskId={taskId} media={media.data} />
 
       {isDesktop() && (
         <Panel

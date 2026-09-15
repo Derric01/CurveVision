@@ -16,6 +16,7 @@ tests exist to prevent, and `make_matroska` reproduces it exactly rather than de
 from __future__ import annotations
 
 import io
+import uuid
 from typing import Any
 
 import pytest
@@ -181,6 +182,7 @@ async def test_a_task_with_annotations_keeps_its_estimate(
     row = await session.get(Task, task["id"])
     asset = (await session.execute(select(Asset).where(Asset.task_id == row.id))).scalar_one()
     asset.frame_count = FRAMES - 1
+    asset.frame_count_exact = False  # an asset already marked exact is skipped
     row.frame_count = FRAMES - 1
     job = (await session.execute(select(Job).where(Job.task_id == row.id))).scalars().first()
     job.shape_count = 3  # somebody has drawn on this
@@ -227,6 +229,7 @@ async def test_correcting_the_count_discards_the_stale_chunks(
     row = await session.get(Task, task["id"])
     asset = (await session.execute(select(Asset).where(Asset.task_id == row.id))).scalar_one()
     asset.frame_count = FRAMES - 1
+    asset.frame_count_exact = False  # an asset already marked exact is skipped
     row.frame_count = FRAMES - 1
     await session.commit()
 
@@ -308,6 +311,7 @@ async def test_the_build_is_queued_after_the_count_is_settled_not_before(
     row = await session.get(Task, task["id"])
     asset = (await session.execute(select(Asset).where(Asset.task_id == row.id))).scalar_one()
     asset.frame_count = FRAMES - 1
+    asset.frame_count_exact = False  # an asset already marked exact is skipped
     row.frame_count = FRAMES - 1
     await session.commit()
 
@@ -425,6 +429,7 @@ async def test_a_probe_that_discards_chunks_rebuilds_them(
     row = await session.get(Task, task["id"])
     asset = (await session.execute(select(Asset).where(Asset.task_id == row.id))).scalar_one()
     asset.frame_count = FRAMES - 1
+    asset.frame_count_exact = False  # an asset already marked exact is skipped
     row.frame_count = FRAMES - 1
     await session.commit()
 
@@ -438,3 +443,308 @@ async def test_a_probe_that_discards_chunks_rebuilds_them(
     )
     assert chunks, "the chunks were discarded and never rebuilt"
     assert max(chunk.start_frame + chunk.frame_count - 1 for chunk in chunks) == FRAMES - 1
+
+
+# ------------------------------------------- saying so when the count is still a guess
+#
+# Everything above fixes the count. These cover the cases where it *cannot* be fixed, which
+# used to be invisible: the job reported "this task already has annotation work" into a
+# background-task row nobody reads, and the task went on offering frames that may not exist.
+# `Asset.frame_count_exact` records whether a count was established by decoding, and
+# `GET /tasks/{id}/media` is where a client can see it.
+
+
+async def test_a_counted_video_says_its_frame_count_is_exact(
+    owner: ApiActor, project: dict[str, Any]
+) -> None:
+    task = await video_task(owner, project, make_matroska())
+
+    meta = (await owner.get(f"/api/v1/tasks/{task['id']}/media")).json()
+    assert meta["frame_count"] == FRAMES
+    assert meta["frame_count_exact"] is True
+    assert meta["estimated_assets"] == []
+    assert meta["estimated_asset_count"] == 0
+
+
+async def test_an_image_task_is_exact_without_anything_decoding_it(
+    owner: ApiActor, project: dict[str, Any]
+) -> None:
+    """An image contributes exactly one frame by definition. Nothing has to prove that."""
+    from tests.api.test_workflow import png_bytes
+
+    created = await owner.post(
+        "/api/v1/tasks",
+        json={"project_id": project["id"], "name": "Stills", "media_kind": "image"},
+    )
+    task = created.json()
+    await owner.post(
+        f"/api/v1/tasks/{task['id']}/assets",
+        files=[("files", ("a.png", png_bytes(), "image/png"))],
+    )
+
+    meta = (await owner.get(f"/api/v1/tasks/{task['id']}/media")).json()
+    assert meta["frame_count_exact"] is True
+
+    assets = (await owner.get(f"/api/v1/tasks/{task['id']}/assets")).json()
+    assert [asset["frame_count_exact"] for asset in assets] == [True]
+
+
+async def test_a_task_that_kept_its_estimate_says_so_and_names_the_file(
+    owner: ApiActor, project: dict[str, Any], session: Any
+) -> None:
+    """The gap this closes, stated as a user meets it.
+
+    `test_a_task_with_annotations_keeps_its_estimate` above proves the correction is
+    declined. That is the right call -- repartitioning frames would orphan somebody's work --
+    but until now the task went on presenting a frame count that may overstate the media,
+    with nothing anywhere saying it was provisional.
+    """
+    from sqlalchemy import select
+
+    from curvevision.domain.media import Asset
+    from curvevision.domain.task import Job, Task
+    from curvevision.jobs.tasks import probe_task_media
+
+    task = await video_task(owner, project, make_matroska())
+
+    row = await session.get(Task, task["id"])
+    asset = (await session.execute(select(Asset).where(Asset.task_id == row.id))).scalar_one()
+    asset.frame_count = FRAMES - 1
+    asset.frame_count_exact = False
+    row.frame_count = FRAMES - 1
+    job = (await session.execute(select(Job).where(Job.task_id == row.id))).scalars().first()
+    job.shape_count = 3  # somebody has drawn on this
+    await session.commit()
+
+    result = await probe_task_media({"task_id": task["id"]})
+    assert "skipped" in result
+
+    meta = (await owner.get(f"/api/v1/tasks/{task['id']}/media")).json()
+    assert meta["frame_count"] == FRAMES - 1, "the estimate must survive intact"
+    assert meta["frame_count_exact"] is False
+    assert meta["estimated_assets"] == ["clip.mkv"], "the warning has to name the file"
+    assert meta["estimated_asset_count"] == 1
+
+
+async def test_a_file_that_cannot_be_decoded_stays_marked_as_an_estimate(
+    owner: ApiActor, project: dict[str, Any], session: Any, monkeypatch: Any
+) -> None:
+    """The other way a count stays provisional: the decode itself fails.
+
+    A file that moved, or a codec this build has no decoder for. `correct_frame_counts`
+    deliberately leaves the estimate in place rather than replacing it with zero, and the
+    flag is what makes that visible instead of silent.
+    """
+    from sqlalchemy import select
+
+    from curvevision.core.errors import ValidationError
+    from curvevision.domain.media import Asset
+    from curvevision.domain.task import Task
+    from curvevision.jobs.tasks import probe_task_media
+    from curvevision.services import media as media_service
+
+    task = await video_task(owner, project, make_matroska())
+
+    row = await session.get(Task, task["id"])
+    asset = (await session.execute(select(Asset).where(Asset.task_id == row.id))).scalar_one()
+    asset.frame_count = FRAMES - 1
+    asset.frame_count_exact = False
+    row.frame_count = FRAMES - 1
+    await session.commit()
+
+    async def undecodable(*_args: Any, **_kwargs: Any) -> int:
+        raise ValidationError("no decoder for this codec")
+
+    monkeypatch.setattr(media_service, "exact_frame_count", undecodable)
+
+    result = await probe_task_media({"task_id": task["id"]})
+    assert result["corrected"] == []
+
+    meta = (await owner.get(f"/api/v1/tasks/{task['id']}/media")).json()
+    assert meta["frame_count"] == FRAMES - 1, "the estimate stands; zero would be worse"
+    assert meta["frame_count_exact"] is False
+    assert meta["estimated_assets"] == ["clip.mkv"]
+
+
+async def test_a_correct_estimate_is_still_marked_once_something_checks_it(
+    owner: ApiActor, project: dict[str, Any], session: Any
+) -> None:
+    """The flag records the decode, not the change.
+
+    An estimate that happened to be right is indistinguishable from one that was not until
+    something counts the frames. Marking only the assets whose number *moved* would leave
+    every correctly-estimated video warning forever.
+    """
+    from sqlalchemy import select
+
+    from curvevision.domain.media import Asset
+    from curvevision.jobs.tasks import probe_task_media
+
+    task = await video_task(owner, project, make_matroska())
+
+    # The count is already right; only the record of having checked is removed.
+    found = await session.execute(select(Asset).where(Asset.task_id == task["id"]))
+    asset = found.scalar_one()
+    asset.frame_count_exact = False
+    await session.commit()
+
+    result = await probe_task_media({"task_id": task["id"]})
+    assert result["corrected"] == [], "nothing should have moved"
+
+    meta = (await owner.get(f"/api/v1/tasks/{task['id']}/media")).json()
+    assert meta["frame_count_exact"] is True
+    assert meta["frame_count"] == FRAMES
+
+
+async def test_a_counted_video_is_not_decoded_a_second_time(
+    owner: ApiActor, project: dict[str, Any], session: Any, monkeypatch: Any
+) -> None:
+    """Adding three photographs must not re-decode a two-hour clip.
+
+    Before the flag existed, `needs_exact_count` meant only "this task holds video", so
+    every later upload scheduled a job that walked every video again to arrive at numbers
+    already on the rows.
+    """
+    from curvevision.services import media as media_service
+    from tests.api.test_workflow import png_bytes
+
+    task = await video_task(owner, project, make_matroska())
+
+    assert await media_service.needs_exact_count(session, uuid.UUID(task["id"])) is False
+
+    decodes = 0
+    original = media_service.exact_frame_count
+
+    async def counting(*args: Any, **kwargs: Any) -> int:
+        nonlocal decodes
+        decodes += 1
+        return await original(*args, **kwargs)
+
+    monkeypatch.setattr(media_service, "exact_frame_count", counting)
+
+    added = await owner.post(
+        f"/api/v1/tasks/{task['id']}/assets",
+        files=[("files", ("a.png", png_bytes(), "image/png"))],
+    )
+    assert added.status_code == 201, added.text
+    assert decodes == 0, f"the clip was decoded {decodes} more time(s) for an image upload"
+
+    # And even a probe run by hand finds nothing left to do.
+    from curvevision.jobs.tasks import probe_task_media
+
+    assert (await probe_task_media({"task_id": task["id"]}))["corrected"] == []
+    assert decodes == 0
+
+
+# ------------------------------------------------------------ asking for a recount
+
+
+async def test_recount_queues_a_probe(owner: ApiActor, project: dict[str, Any]) -> None:
+    """A client that can see the count is provisional needs a way to act on it."""
+    task = await video_task(owner, project, make_matroska())
+
+    response = await owner.post(f"/api/v1/tasks/{task['id']}/media/recount")
+
+    assert response.status_code == 202, response.text
+    assert response.json()["kind"] == "media.probe_task"
+
+
+async def test_recount_fixes_a_count_whose_first_attempt_failed(
+    owner: ApiActor, project: dict[str, Any], session: Any
+) -> None:
+    """End to end: the state the warning describes, and the button that clears it."""
+    from sqlalchemy import select
+
+    from curvevision.domain.media import Asset
+    from curvevision.domain.task import Task
+
+    task = await video_task(owner, project, make_matroska())
+
+    row = await session.get(Task, task["id"])
+    asset = (await session.execute(select(Asset).where(Asset.task_id == row.id))).scalar_one()
+    asset.frame_count = FRAMES - 1
+    asset.frame_count_exact = False
+    row.frame_count = FRAMES - 1
+    await session.commit()
+
+    before = (await owner.get(f"/api/v1/tasks/{task['id']}/media")).json()
+    assert before["frame_count_exact"] is False
+    assert before["frame_count"] == FRAMES - 1
+
+    assert (await owner.post(f"/api/v1/tasks/{task['id']}/media/recount")).status_code == 202
+
+    after = (await owner.get(f"/api/v1/tasks/{task['id']}/media")).json()
+    assert after["frame_count_exact"] is True
+    assert after["frame_count"] == FRAMES
+    assert after["estimated_assets"] == []
+
+
+async def test_an_annotator_cannot_ask_for_a_recount(
+    owner: ApiActor,
+    client: Any,
+    organization: dict[str, Any],
+    project: dict[str, Any],
+) -> None:
+    """Recounting repartitions jobs, so it is an update to the task, not a read of it."""
+    from curvevision.domain.enums import Role
+    from tests.conftest import add_member, register
+
+    task = await video_task(owner, project, make_matroska())
+    annotator = await register(client, "casual")
+    await add_member(owner, organization["id"], annotator, Role.ANNOTATOR)
+
+    # The warning is a read, and an annotator is exactly who needs to see it.
+    assert (await annotator.get(f"/api/v1/tasks/{task['id']}/media")).status_code == 200
+
+    response = await annotator.post(f"/api/v1/tasks/{task['id']}/media/recount")
+    assert response.status_code == 403, response.text
+
+
+# ------------------------------------------------ the count after media is removed
+
+
+async def test_deleting_an_asset_leaves_the_task_counting_only_what_is_left(
+    owner: ApiActor, project: dict[str, Any]
+) -> None:
+    """Removing media has to remove its frames, or the task offers frames with no file.
+
+    Found by `scripts/verify_frame_count_warning.py`, which deletes an uncountable clip and
+    expected the invented frames to go with it. `delete_asset` marked the row deleted and
+    `recount_frames` then queried the assets -- but the sessionmaker is built with
+    `autoflush=False`, so the DELETE had not reached the database and the recount summed the
+    asset it was supposed to be dropping. The task kept a frame count, and job ranges, for
+    media that was gone.
+    """
+    from tests.api.test_workflow import png_bytes
+
+    created = await owner.post(
+        "/api/v1/tasks",
+        json={"project_id": project["id"], "name": "Stills", "media_kind": "image"},
+    )
+    task = created.json()
+    uploaded = await owner.post(
+        f"/api/v1/tasks/{task['id']}/assets",
+        files=[
+            ("files", ("a.png", png_bytes(), "image/png")),
+            ("files", ("b.png", png_bytes(), "image/png")),
+            ("files", ("c.png", png_bytes(), "image/png")),
+        ],
+    )
+    assert uploaded.status_code == 201, uploaded.text
+    assert (await owner.get(f"/api/v1/tasks/{task['id']}")).json()["frame_count"] == 3
+
+    assets = (await owner.get(f"/api/v1/tasks/{task['id']}/assets")).json()
+    removed = next(asset for asset in assets if asset["name"] == "b.png")
+    deleted = await owner.delete(f"/api/v1/tasks/{task['id']}/assets/{removed['id']}")
+    assert deleted.status_code == 204, deleted.text
+
+    refreshed = (await owner.get(f"/api/v1/tasks/{task['id']}")).json()
+    assert refreshed["frame_count"] == 2, "the removed asset's frame is still being counted"
+
+    # And the frames that remain are renumbered contiguously, so frame 1 is now `c.png`
+    # rather than a hole where `b.png` used to be.
+    remaining = (await owner.get(f"/api/v1/tasks/{task['id']}/assets")).json()
+    assert [(a["name"], a["start_frame"]) for a in remaining] == [("a.png", 0), ("c.png", 1)]
+
+    jobs = (await owner.get(f"/api/v1/tasks/{task['id']}/jobs")).json()
+    assert max(job["stop_frame"] for job in jobs) == 1, "a job still covers the deleted frame"

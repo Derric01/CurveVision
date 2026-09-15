@@ -102,6 +102,9 @@ class AssetOut(ORMModel):
     position: int
     start_frame: int
     frame_count: int
+    #: False while `frame_count` is still the upload-time estimate rather than a decoded
+    #: count. Always True for an image, which contributes exactly one frame by definition.
+    frame_count_exact: bool = True
     created_at: datetime
 
 
@@ -142,6 +145,21 @@ class TaskMediaMeta(StrictModel):
     frame_count: int
     frames_per_chunk: int
     chunk_count: int
+    #: False when at least one asset's frame count is still the upload-time estimate, so
+    #: `frame_count` may offer frames the media does not contain. Always True for a task of
+    #: images, and for a video task whose probe has finished.
+    frame_count_exact: bool = True
+    #: The names of the assets that are still estimates, so a warning can name the file
+    #: rather than only say that something is wrong. Capped at `ESTIMATED_ASSET_SAMPLE`
+    #: because a task may hold tens of thousands of assets; `estimated_asset_count` is the
+    #: true total.
+    estimated_assets: list[str] = Field(default_factory=list)
+    estimated_asset_count: int = 0
+
+
+#: How many filenames `TaskMediaMeta.estimated_assets` carries. Enough to be useful in a
+#: warning, few enough that the response stays a fixed size.
+ESTIMATED_ASSET_SAMPLE = 5
 
 
 class UploadInit(StrictModel):

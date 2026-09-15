@@ -397,6 +397,15 @@ frame navigation, label sidebar, object list, autosave to the API.
   task that already carries annotations, because repartitioning frames under an annotator
   would orphan their work.
 
+  **And when it cannot correct one, it says so.** `Asset.frame_count_exact` records whether
+  a count was established by decoding or is still the upload-time guess, so the two cases
+  the job cannot fix — a task that already carries work, and a file that is truncated, moved
+  or undecodable — stop being invisible. `GET /tasks/{id}/media` reports
+  `frame_count_exact` and names the files still estimated; the task page turns that into a
+  warning with a **Recount frames** button (`POST /tasks/{id}/media/recount`). The flag also
+  stops the job re-decoding what it already counted: adding three photographs to a task
+  holding a counted two-hour clip used to schedule a full decode of the clip.
+
 * **Chunked media delivery** — **Done** on the server. Frames are grouped into chunks of N
   (default 36), decoded in one pass and stored as one ZIP of JPEGs, recorded as a
   `MediaChunk`. `GET /tasks/{id}/chunks/{n}` serves the archive; the frame endpoint takes

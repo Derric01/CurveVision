@@ -140,6 +140,30 @@ export interface TaskMediaMeta {
   /** How many frames one chunk holds. Zero means chunking is switched off server-side. */
   frames_per_chunk: number;
   chunk_count: number;
+  /**
+   * False while at least one asset's `frame_count` is still the upload-time estimate from
+   * container metadata rather than a decoded count. An estimate that runs high offers
+   * frames the media does not contain, which an annotator meets as missing media — so this
+   * is worth showing rather than trusting.
+   *
+   * Optional because a server older than this field simply omits it; absent reads as true,
+   * which is what that server meant.
+   */
+  frame_count_exact?: boolean;
+  /** Names of the estimated assets, up to a server-side sample size. */
+  estimated_assets?: string[];
+  /** How many are estimated in total, which may exceed `estimated_assets.length`. */
+  estimated_asset_count?: number;
+}
+
+/** A queued background job, as much of it as a caller that only wants to poll needs. */
+export interface BackgroundTaskBrief {
+  id: string;
+  kind: string;
+  state: string;
+  progress: number;
+  message: string | null;
+  error: string | null;
 }
 
 export interface Asset {
@@ -149,6 +173,8 @@ export interface Asset {
   position: number;
   start_frame: number;
   frame_count: number;
+  /** See `TaskMediaMeta.frame_count_exact`. Always true for an image. */
+  frame_count_exact?: boolean;
   created_at: string;
 }
 
