@@ -30,6 +30,7 @@ from dataclasses import replace
 from typing import Any
 from xml.sax.saxutils import escape
 
+from curvevision.core.errors import ValidationError
 from curvevision.core.logging import get_logger
 from curvevision.domain.enums import ShapeType
 from curvevision.formats.base import (
@@ -44,6 +45,16 @@ from curvevision.formats.base import (
     normalise_rectangle,
 )
 from curvevision.formats.registry import register
+from curvevision.formats.rle import (
+    from_attribute as rle_from_attribute,
+)
+from curvevision.formats.rle import (
+    mask_bounds,
+    validate_mask,
+)
+from curvevision.formats.rle import (
+    to_attribute as rle_to_attribute,
+)
 
 logger = get_logger(__name__)
 
@@ -63,6 +74,42 @@ def _points_attr(points: list[float]) -> str:
     """`[x1,y1,x2,y2]` to CVAT's `x1,y1;x2,y2`."""
     pairs = zip(points[0::2], points[1::2], strict=False)
     return ";".join(f"{x:.2f},{y:.2f}" for x, y in pairs)
+
+
+def _mask_attrs(mask: dict[str, Any] | None) -> str | None:
+    """CVAT's mask attributes, or None when there is no mask to write.
+
+    `width` and `height` are *inclusive* spans in CVAT's element -- it writes
+    `right - left + 1` -- which is exactly what our stored box already holds, so the two
+    line up without arithmetic. A shape typed `mask` with no mask payload is dropped rather
+    than written as an empty one: an empty mask covers nothing, and a reader cannot tell it
+    from a mask that failed to serialise.
+    """
+    if not mask:
+        return None
+    try:
+        validate_mask(mask)
+    except ValidationError:
+        return None
+    return (
+        f' rle="{rle_to_attribute([int(run) for run in mask["rle"]])}"'
+        f' left="{int(mask["left"])}" top="{int(mask["top"])}"'
+        f' width="{int(mask["width"])}" height="{int(mask["height"])}"'
+    )
+
+
+def _mask_from(element: ET.Element) -> dict[str, Any] | None:
+    """A CVAT `<mask>` element back to a stored mask, or None if it carries no runs."""
+    runs = rle_from_attribute(element.get("rle", ""))
+    if not runs:
+        return None
+    return {
+        "rle": runs,
+        "left": int(element.get("left", "0") or 0),
+        "top": int(element.get("top", "0") or 0),
+        "width": int(element.get("width", "0") or 0),
+        "height": int(element.get("height", "0") or 0),
+    }
 
 
 def _parse_points(value: str) -> list[float]:
@@ -240,6 +287,15 @@ class CvatXmlFormat:
         elif shape.shape_type is ShapeType.ELLIPSE:
             cx, cy, rx, ry = [*list(shape.points), 0, 0, 0, 0][:4]
             parts.append(f' cx="{cx:.2f}" cy="{cy:.2f}" rx="{rx:.2f}" ry="{ry:.2f}"')
+        elif shape.shape_type is ShapeType.MASK:
+            # A mask's geometry is its runs, not its `points`. Writing `points` here -- which
+            # is what this did until the mask export was finished -- emitted the two corners
+            # of the bounding box and silently dropped every pixel, while the format's own
+            # capabilities claimed masks were carried.
+            attributes = _mask_attrs(shape.mask)
+            if attributes is None:
+                return []
+            parts.append(attributes)
         else:
             parts.append(f' points="{_points_attr(shape.points)}"')
 
@@ -361,14 +417,24 @@ class CvatXmlFormat:
         if shape_type is None:
             return None
 
+        mask: dict[str, Any] | None = None
         try:
             if shape_type is ShapeType.RECTANGLE:
                 points = [float(element.get(key, "0")) for key in ("xtl", "ytl", "xbr", "ybr")]
             elif shape_type is ShapeType.ELLIPSE:
                 points = [float(element.get(key, "0")) for key in ("cx", "cy", "rx", "ry")]
+            elif shape_type is ShapeType.MASK:
+                mask = _mask_from(element)
+                if mask is None:
+                    result.warnings.append(f"{source_name}: a mask carried no rle; skipped")
+                    return None
+                left, top, right, bottom = mask_bounds(mask)
+                # The corners as well as the runs: bounds, hit-testing and the label chip all
+                # read `points`, and a mask with none of them would be selectable nowhere.
+                points = [float(left), float(top), float(right), float(bottom)]
             else:
                 points = _parse_points(element.get("points", ""))
-        except ValueError:
+        except (ValueError, ValidationError):
             result.warnings.append(f"{source_name}: unreadable {element.tag} coordinates; skipped")
             return None
 
@@ -393,6 +459,7 @@ class CvatXmlFormat:
             occluded=element.get("occluded") == "1",
             z_order=int(element.get("z_order", "0") or 0),
             attributes=attributes,
+            mask=mask,
         )
 
 

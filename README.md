@@ -181,8 +181,7 @@ lossless native one — each declaring honestly what it can represent, *before* 
 | Per-label visibility and locking | **Done** |
 | Crash-resilient autosave | **Done** |
 | Track keyframes: add, remove and mark a departure from the timeline | **Done** |
-| Masks — RLE storage and export exist; the brush tool does not | *Planned* |
-| Mask brush — masks store, render and export; no brush tool draws one | *Planned* |
+| Masks — stored and exported (CVAT XML and indexed PNG, pixel for pixel); the editor draws one as its bounding box rather than its pixels, and no brush tool creates one | *Planned* |
 
 **It stays fast.** The canvas is a Canvas2D engine with an R-tree spatial index, so
 rendering costs what is *on screen* rather than what is in the dataset.
@@ -272,14 +271,21 @@ visibly scrambles a shape the moment an annotator inserts a vertex.
 
 ### Import and export
 
-Four formats, each declaring **honestly** what it can represent:
+Eleven formats, each declaring **honestly** what it can represent:
 
 | Format | Round-trips |
 | --- | --- |
+| **CurveVision JSON** | everything, losslessly |
+| **CVAT XML 1.1** | boxes, polygons, polylines, points, ellipses, **masks**, tags, attributes, tracks |
 | **COCO** | rectangles, polygons, keypoints |
 | **YOLO** | boxes, segmentation polygons |
+| **YOLO OBB** | rotated boxes, with the angle kept |
+| **YOLO Pose** | skeletons — export only |
+| **YOLO Classification** | whole-image tags — export only |
 | **Pascal VOC** | bounding boxes |
-| **CurveVision JSON** | everything, losslessly |
+| **KITTI** | 2D boxes |
+| **MOTChallenge** | boxes with object identity across frames |
+| **Segmentation mask** | masks, polygons, boxes and ellipses, rasterised — export only |
 
 An export that would drop annotations tells you **before** you rely on it — in a response
 header and inside the archive. Silently dropping polylines is how people discover a broken
