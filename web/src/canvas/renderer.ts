@@ -14,6 +14,7 @@
  */
 
 import { annotationBounds } from './geometry';
+import { decodeMask, maskRgba, rgbOf, type DecodedMask } from './mask';
 import { bones, drawableJoints } from './skeleton';
 import type { Scene } from './scene';
 import { imageToScreen, visibleBox } from './viewport';
@@ -66,9 +67,30 @@ const HANDLE_SIZE = 7;
 const PIN_RADIUS = 9;
 const SELECTED_LINE_WIDTH = 2.5;
 const DEFAULT_LINE_WIDTH = 1.75;
+/**
+ * How solid a mask's own pixels are.
+ *
+ * Higher than the translucent fill a polygon gets, because a mask's *shape* is the
+ * information -- a ragged boundary you can barely see is the same as not drawing it -- and
+ * low enough that the frame underneath is still readable, which is what an annotator is
+ * checking the mask against.
+ */
+const MASK_FILL_ALPHA = 0.55;
 
 export class Renderer {
   private lastDrawnShapes = 0;
+  /**
+   * Decoded mask bitmaps, by shape id.
+   *
+   * A plain Map rather than a WeakMap: the key is a string id, not the object. It is
+   * pruned when a shape's mask is replaced or becomes unreadable, and `forgetMasks` clears
+   * it wholesale when the frame changes, so it tracks what is on screen rather than
+   * growing with every shape ever rendered.
+   */
+  private maskCache = new Map<
+    string,
+    { payload: unknown; color: string; bitmap: DecodedMask & { canvas: HTMLCanvasElement } }
+  >();
 
   constructor(
     private readonly layers: RendererLayers,
@@ -89,6 +111,17 @@ export class Renderer {
       canvas.style.height = `${height}px`;
       context.setTransform(dpr, 0, 0, dpr, 0, 0);
     }
+  }
+
+  /**
+   * Drop every cached mask bitmap. Called when the frame changes.
+   *
+   * Without it the cache keeps one canvas per mask for every frame ever visited, which on
+   * a long video is a real leak; and a shape that was pending when it was cached keeps an
+   * entry under its client id after the server assigns a real one.
+   */
+  forgetMasks(): void {
+    this.maskCache.clear();
   }
 
   drawMedia(viewport: ViewportState, media: SceneMedia): void {
@@ -236,10 +269,15 @@ export class Renderer {
     if (annotation.occluded) context.setLineDash([2, 3]);
 
     if (annotation.shapeType === 'skeleton') this.paintBones(context, viewport, annotation);
+    const paintedPixels =
+      annotation.shapeType === 'mask' && this.paintMask(context, viewport, annotation, color);
 
     this.tracePath(context, viewport, annotation);
 
-    if (isFillable(annotation)) context.fill();
+    // A mask that painted its own pixels does not also get a translucent fill over its
+    // bounding box: that would tint the empty corners exactly like the covered ones, which
+    // is the misreading this whole change exists to remove.
+    if (isFillable(annotation) && !paintedPixels) context.fill();
     context.stroke();
 
     if (selected) {
@@ -251,6 +289,80 @@ export class Renderer {
       context.stroke();
     }
     context.restore();
+  }
+
+  /**
+   * A mask's own pixels, drawn at the viewport transform. Returns whether anything landed.
+   *
+   * Until this existed a mask was drawn through the same branch as a rectangle: an empty box
+   * where the pixels were. An annotator could not tell a mask covering a whole car from one
+   * covering its wing mirror, and could not review an imported one at all.
+   *
+   * The decoded bitmap is cached per shape, keyed on the mask payload's identity. Decoding
+   * run-lengths and building RGBA bytes on every repaint would put a megapixel loop on the
+   * pointer-move path -- and the payload is replaced rather than mutated whenever the shape
+   * changes, so identity is a sound cache key and needs no version counter.
+   */
+  private paintMask(
+    context: CanvasRenderingContext2D,
+    viewport: ViewportState,
+    annotation: Annotation,
+    color: string,
+  ): boolean {
+    const bitmap = this.maskBitmap(annotation, color);
+    if (!bitmap) return false;
+
+    const { canvas, left, top, width, height } = bitmap;
+    const topLeft = imageToScreen(viewport, { x: left, y: top });
+    const bottomRight = imageToScreen(viewport, { x: left + width, y: top + height });
+
+    context.save();
+    // Nearest-neighbour: a mask is a per-pixel yes or no, and a smoothed edge shows the
+    // annotator a boundary that is not the one being stored. At a zoom below 1:1 the browser
+    // is downsampling either way, but at the zoom somebody actually edits at this is the
+    // difference between seeing the data and seeing an impression of it.
+    context.imageSmoothingEnabled = false;
+    context.drawImage(
+      canvas,
+      topLeft.x,
+      topLeft.y,
+      bottomRight.x - topLeft.x,
+      bottomRight.y - topLeft.y,
+    );
+    context.restore();
+    return true;
+  }
+
+  private maskBitmap(
+    annotation: Annotation,
+    color: string,
+  ): (DecodedMask & { canvas: HTMLCanvasElement }) | null {
+    const payload = annotation.mask;
+    if (!payload) return null;
+
+    const cached = this.maskCache.get(annotation.id);
+    if (cached && cached.payload === payload && cached.color === color) return cached.bitmap;
+
+    const decoded = decodeMask(payload);
+    if (!decoded) {
+      // Malformed, or covering nothing. Forget any stale bitmap and let the outline stand
+      // in -- drawing the previous mask's pixels would be worse than drawing none.
+      this.maskCache.delete(annotation.id);
+      return null;
+    }
+
+    const canvas = document.createElement('canvas');
+    canvas.width = decoded.width;
+    canvas.height = decoded.height;
+    const target = canvas.getContext('2d');
+    if (!target) return null;
+    const image = target.createImageData(decoded.width, decoded.height);
+    image.data.set(maskRgba(decoded, rgbOf(color), MASK_FILL_ALPHA));
+    target.putImageData(image, 0, 0);
+
+    const bitmap = { ...decoded, canvas };
+    this.maskCache.set(annotation.id, { payload, color, bitmap });
+    return bitmap;
   }
 
   /**

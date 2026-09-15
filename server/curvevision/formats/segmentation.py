@@ -24,6 +24,7 @@ from __future__ import annotations
 
 from io import BytesIO
 
+from curvevision.core.errors import ValidationError
 from curvevision.core.logging import get_logger
 from curvevision.domain.enums import ShapeType
 from curvevision.formats.base import (
@@ -37,12 +38,13 @@ from curvevision.formats.base import (
     normalise_rectangle,
 )
 from curvevision.formats.registry import register
+from curvevision.formats.rle import pixels as mask_pixels
 
 logger = get_logger(__name__)
 
 #: Shapes that enclose an area and can therefore be painted. A polyline and a point set
 #: cover no pixels; rasterising them would invent a region the annotator did not draw.
-FILLABLE = frozenset({ShapeType.RECTANGLE, ShapeType.POLYGON, ShapeType.ELLIPSE})
+FILLABLE = frozenset({ShapeType.RECTANGLE, ShapeType.POLYGON, ShapeType.ELLIPSE, ShapeType.MASK})
 
 
 #: Pascal VOC's palette generator. Reproduced because the *look* of these files is a
@@ -68,7 +70,12 @@ class SegmentationMaskFormat:
     version = "1.0"
     extension = "zip"
     capabilities = FormatCapabilities(
-        shape_types=(ShapeType.RECTANGLE, ShapeType.POLYGON, ShapeType.ELLIPSE),
+        shape_types=(
+            ShapeType.RECTANGLE,
+            ShapeType.POLYGON,
+            ShapeType.ELLIPSE,
+            ShapeType.MASK,
+        ),
         supports_import=False,
         supports_export=True,
         supports_tracks=False,
@@ -76,10 +83,12 @@ class SegmentationMaskFormat:
         supports_attributes=False,
         notes=(
             "One indexed PNG per frame; pixel values are class indices, 0 is background. "
-            "Polygons, boxes and ellipses are rasterised; polylines and point sets cover no "
-            "area and are omitted. Overlaps are resolved by z-order, so the shape in front "
-            "wins. Export only: a mask cannot be turned back into the polygons it came "
-            "from, and inventing contours on import would produce shapes nobody drew."
+            "Masks are written pixel for pixel; polygons, boxes and ellipses are "
+            "rasterised; polylines and point sets cover no area and are omitted. "
+            "Overlaps are resolved by z-order, so the shape in front wins. Export only: "
+            "a flattened class map cannot be turned back into the individual objects it "
+            "was painted from, and inventing contours on import would produce shapes "
+            "nobody drew."
         ),
     )
 
@@ -166,6 +175,13 @@ class SegmentationMaskFormat:
 def _fill(draw: object, shape: ShapeRecord, index: int) -> None:
     """Paint one shape into the mask at `index`."""
     points = list(shape.points)
+    if shape.shape_type is ShapeType.MASK:
+        # Pixel for pixel, from the runs. Until this existed the *segmentation mask* format
+        # was the one format that could not export a mask: a mask shape matched nothing in
+        # `FILLABLE` and contributed no pixels at all, so a frame of masks exported as a
+        # page of background while the file looked perfectly well-formed.
+        _fill_mask(draw, shape, index)
+        return
     if shape.shape_type is ShapeType.RECTANGLE:
         x1, y1, x2, y2 = normalise_rectangle(points)
         draw.rectangle([x1, y1, x2, y2], fill=index)  # type: ignore[attr-defined]
@@ -176,6 +192,28 @@ def _fill(draw: object, shape: ShapeRecord, index: int) -> None:
         pairs = list(zip(points[0::2], points[1::2], strict=False))
         if len(pairs) >= 3:
             draw.polygon(pairs, fill=index)  # type: ignore[attr-defined]
+
+
+def _fill_mask(draw: object, shape: ShapeRecord, index: int) -> None:
+    """Paint a stored mask's foreground pixels.
+
+    Point by point rather than by pasting a bitmap: `ImageDraw.point` takes a whole sequence
+    in one call, which is one Pillow crossing for the shape, and it needs no second
+    representation of the mask to exist in memory. A malformed mask is skipped with a log
+    line rather than raising -- one corrupt shape must not cost the other thousand frames of
+    an export.
+    """
+    if not shape.mask:
+        return
+    try:
+        points = list(mask_pixels(shape.mask))
+    except ValidationError:
+        logger.warning(
+            "segmentation_mask: skipping an unreadable mask", extra={"label": shape.label}
+        )
+        return
+    if points:
+        draw.point(points, fill=index)  # type: ignore[attr-defined]
 
 
 register(SegmentationMaskFormat())

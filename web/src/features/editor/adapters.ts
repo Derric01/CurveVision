@@ -8,7 +8,13 @@
 
 import type { AnnotationDocument, ApiShape, ApiSkeletonElement, Label } from '@/api/types';
 import { skeletonSchema } from '@/canvas/skeleton';
-import type { Annotation, LabelStyle, ShapeType, SkeletonElement } from '@/canvas/types';
+import type {
+  Annotation,
+  LabelStyle,
+  MaskData,
+  ShapeType,
+  SkeletonElement,
+} from '@/canvas/types';
 import { interpolateTrack, type Keyframe } from './interpolate';
 
 export function toAnnotation(shape: ApiShape): Annotation {
@@ -30,6 +36,7 @@ export function toAnnotation(shape: ApiShape): Annotation {
     ...(shape.elements && shape.elements.length > 0
       ? { elements: shape.elements.map(toSkeletonElement) }
       : {}),
+    ...(shape.mask ? { mask: shape.mask as unknown as MaskData } : {}),
   };
 }
 
@@ -69,6 +76,9 @@ export function toApiShape(annotation: Annotation): Record<string, unknown> {
           })),
         }
       : {}),
+    // Same shape on both sides, so it travels as-is rather than through a per-field mapping
+    // that would be one more place for the encoding to drift.
+    ...(annotation.mask ? { mask: annotation.mask } : {}),
   };
 }
 

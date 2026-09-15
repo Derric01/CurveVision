@@ -314,7 +314,11 @@ Geometry types: `rectangle`, `rotated_rectangle`, `polygon`, `polyline`, `points
 `ellipse`, `mask`, `cuboid` (*Planned*), `skeleton` (keypoints with an edge graph).
 
 Points are stored as a flat `float[]` (`[x1,y1,x2,y2,…]`) in a JSON column. Masks are stored
-RLE-encoded with a bounding box, which keeps a 4K instance mask in the low kilobytes.
+RLE-encoded with a bounding box, which keeps a 4K instance mask in the low kilobytes. The
+encoding is written down once, in `formats/rle.py`: runs alternate **starting with
+background**, read row-major inside the box, summing to `width * height`. The element they
+serialise into matches CVAT's (`rle`, `left`, `top`, `width`, `height`, with the spans
+inclusive), which was read out of CVAT's own serialiser rather than assumed.
 
 `TrackShape` carries `outside` (object left the frame), `occluded`, and `keyframe` flags.
 Interpolation between keyframes is linear for rectangles/points/ellipses and, for polygons
@@ -468,12 +472,21 @@ class DatasetFormat(Protocol):
 `DatasetView` is a read-only, streaming projection over jobs/frames/annotations, so exporting
 a 500k-image dataset never materialises it in memory.
 
-Shipped: **COCO** (instances + keypoints), **YOLO** (detection + segmentation), **Pascal VOC**,
-**CurveVision JSON** (lossless native). Each declares its capabilities, and the export API
-warns which annotations will be dropped *before* running (e.g. polylines are not
-representable in COCO instances).
+Shipped, eleven: **CurveVision JSON** (lossless native), **CVAT XML 1.1**, **COCO**
+(instances + keypoints), **YOLO** (detection + segmentation), **YOLO OBB**, **YOLO Pose**,
+**YOLO Classification**, **Pascal VOC**, **KITTI**, **MOTChallenge**, and **segmentation
+mask** (indexed PNG). Each declares its capabilities, and the export API warns which
+annotations will be dropped *before* running (e.g. polylines are not representable in COCO
+instances).
 
-Planned: KITTI, LabelMe, Open Images, TFRecord, Datumaro bridge.
+**A capability declaration is a promise, and one of them was not kept.** `cvat_xml` listed
+`ShapeType.MASK` and said in its notes that masks were carried; its writer emitted the two
+corners of the bounding box and dropped every pixel, into a file that parsed cleanly.
+`segmentation_mask` — the format whose entire purpose is masks — matched no mask shape and
+exported a frame of them as background. Both now write the real thing, `cvat_xml` reads it
+back, and `formats/rle.py` states the encoding once so nothing has to guess it.
+
+Planned: LabelMe, Open Images, TFRecord, Datumaro bridge.
 
 ---
 
