@@ -531,6 +531,7 @@ export class AnnotationEngine {
       this.overlay = { ...this.overlay, snap: result.snap };
       this.invalidate('overlay');
     }
+    if (result.status !== undefined) this.listeners.toolStatusChanged?.(result.status);
     if (result.invalidateShapes) this.invalidate('shapes');
   }
 

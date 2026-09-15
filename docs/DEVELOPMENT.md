@@ -3,7 +3,7 @@
 ## Requirements
 
 * Python 3.11+
-* Node 20+
+* Node 22+
 * Docker (only for PostgreSQL, Redis and MinIO; the test suites need none of them)
 
 ## Quick start

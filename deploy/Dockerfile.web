@@ -1,4 +1,4 @@
-FROM node:20-alpine AS builder
+FROM node:22-alpine AS builder
 WORKDIR /build
 
 # Copy manifests first so a source-only change reuses the cached install layer.

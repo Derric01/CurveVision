@@ -163,7 +163,7 @@ already the seam.
 
 ### 0.2 Development environment
 
-* Python 3.11+, Node 20+.
+* Python 3.11+, Node 22+.
 * `uv` (or `pip`) for Python dependency installation; `pyproject.toml` is the single source
   of truth for backend deps.
 * `npm` workspaces are *not* used — `web/` is a single package to keep the toolchain flat.
@@ -363,7 +363,7 @@ filtering, frame navigation with prefetch, and snapping to nearby vertices.
 **Done:** engine core (scene, R-tree index, renderer, command stack, tools for rectangle,
 polygon, polyline, point, ellipse; select/transform; zoom/pan; undo/redo; keyboard map),
 frame navigation, label sidebar, object list, autosave to the API.
-**In Progress:** mask brush tool, skeleton editing UI, track keyframe *editing* (the timeline shows keyframes and presence; adding and removing them is not built).
+**In Progress:** mask brush tool. **Done since:** the skeleton tool (joints placed in the label's declared order, a joint nobody can see recorded as invisible rather than dropped, and the bones drawn) and track keyframe editing.
 **Planned:** cuboid, magnetic lasso, multi-user presence cursors.
 
 ---
@@ -396,6 +396,15 @@ frame navigation, label sidebar, object list, autosave to the API.
   renumbering invalidated. It declines entirely — rather than applying half of itself — on a
   task that already carries annotations, because repartitioning frames under an annotator
   would orphan their work.
+
+  **And when it cannot correct one, it says so.** `Asset.frame_count_exact` records whether
+  a count was established by decoding or is still the upload-time guess, so the two cases
+  the job cannot fix — a task that already carries work, and a file that is truncated, moved
+  or undecodable — stop being invisible. `GET /tasks/{id}/media` reports
+  `frame_count_exact` and names the files still estimated; the task page turns that into a
+  warning with a **Recount frames** button (`POST /tasks/{id}/media/recount`). The flag also
+  stops the job re-decoding what it already counted: adding three photographs to a task
+  holding a counted two-hour clip used to schedule a full decode of the clip.
 
 * **Chunked media delivery** — **Done** on the server. Frames are grouped into chunks of N
   (default 36), decoded in one pass and stored as one ZIP of JPEGs, recorded as a

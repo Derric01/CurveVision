@@ -12,7 +12,7 @@ Same editor, same exporters, same code — your images never leave your infrastr
 [![CI](https://github.com/Derric01/CurveVision/actions/workflows/ci.yml/badge.svg)](https://github.com/Derric01/CurveVision/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/license-MIT-14b8a6.svg)](LICENSE)
 [![Python 3.11+](https://img.shields.io/badge/python-3.11%2B-3776ab.svg)](server/pyproject.toml)
-[![Node 20+](https://img.shields.io/badge/node-20%2B-5fa04e.svg)](web/package.json)
+[![Node 22+](https://img.shields.io/badge/node-22%2B-5fa04e.svg)](web/package.json)
 [![PRs welcome](https://img.shields.io/badge/PRs-welcome-f59e0b.svg)](docs/CONTRIBUTING.md)
 
 [**Quick start**](#quick-start) · [Features](#what-it-does) · [Architecture](docs/ARCHITECTURE.md) · [API](docs/API.md) · [Roadmap](docs/ROADMAP.md) · [Contributing](docs/CONTRIBUTING.md)
@@ -182,7 +182,7 @@ lossless native one — each declaring honestly what it can represent, *before* 
 | Crash-resilient autosave | **Done** |
 | Track keyframes: add, remove and mark a departure from the timeline | **Done** |
 | Masks — RLE storage and export exist; the brush tool does not | *Planned* |
-| Skeletons / keypoints — model and COCO export exist; the UI does not | *Planned* |
+| Mask brush — masks store, render and export; no brush tool draws one | *Planned* |
 
 **It stays fast.** The canvas is a Canvas2D engine with an R-tree spatial index, so
 rendering costs what is *on screen* rather than what is in the dataset.

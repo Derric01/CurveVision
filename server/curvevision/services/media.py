@@ -323,6 +323,10 @@ async def _attach(
         position=position,
         start_frame=task.frame_count,
         frame_count=max(1, blob.frame_count or 1),
+        # An image contributes exactly one frame and nothing has to decode it to know that.
+        # A video's count is whatever the container claimed, which is an estimate until
+        # `correct_frame_counts` counts the frames for real.
+        frame_count_exact=blob.kind is not MediaKind.VIDEO,
     )
     session.add(asset)
     await session.flush()
@@ -554,18 +558,41 @@ def _count_frames(source: bytes | Path) -> int:
 
 
 async def needs_exact_count(session: AsyncSession, task_id: uuid.UUID) -> bool:
-    """Whether this task holds any video, and so any estimated frame count to correct.
+    """Whether this task holds a video whose frame count has not been counted yet.
 
     Asked before enqueueing the job rather than inside it, so a folder of 50,000
     photographs does not schedule background work that would find nothing to do.
+
+    The `frame_count_exact` half matters as much as the video half: adding three photographs
+    to a task that already holds a counted two-hour clip would otherwise schedule a job that
+    decodes the whole clip again to learn a number already on the row.
     """
     found = await session.execute(
         select(Asset.id)
         .join(MediaBlob, MediaBlob.id == Asset.blob_id)
-        .where(Asset.task_id == task_id, MediaBlob.kind == MediaKind.VIDEO)
+        .where(
+            Asset.task_id == task_id,
+            MediaBlob.kind == MediaKind.VIDEO,
+            Asset.frame_count_exact.is_(False),
+        )
         .limit(1)
     )
     return found.first() is not None
+
+
+async def estimated_assets(session: AsyncSession, task_id: uuid.UUID) -> list[Asset]:
+    """This task's assets whose frame count has never been verified, in position order.
+
+    Empty for a task of images, and for a video task the probe has finished with. Anything
+    it returns is a file whose frame count may overstate the media, which is what the task
+    page warns about.
+    """
+    result = await session.execute(
+        select(Asset)
+        .where(Asset.task_id == task_id, Asset.frame_count_exact.is_(False))
+        .order_by(Asset.position)
+    )
+    return list(result.scalars().all())
 
 
 async def exact_frame_count(blob: MediaBlob, storage: Storage) -> int:
@@ -582,6 +609,12 @@ async def correct_frame_counts(
     Returns `(asset name, before, after)` for each one that actually changed, so a caller
     can report what it did rather than claiming to have done something.
 
+    Every asset it manages to count is marked `frame_count_exact`, including the ones whose
+    count already matched: the flag records *that the file was decoded*, not that the number
+    moved, and a correct estimate is still only an estimate until something checks it. An
+    asset it could not count keeps the flag False, which is how the task page knows there is
+    still a file to warn about.
+
     The blob's own count is corrected too: it is content-addressed, so the same video
     attached to a second task starts with the right number instead of re-earning the
     estimate.
@@ -593,7 +626,12 @@ async def correct_frame_counts(
     ).scalars()
 
     changed: list[tuple[str, int, int]] = []
+    verified = 0
     for asset in assets:
+        if asset.frame_count_exact:
+            # Already decoded once. Blobs are content-addressed and immutable, so counting
+            # again would walk the whole file to learn what is already on the row.
+            continue
         blob = await session.get(MediaBlob, asset.blob_id)
         if blob is None or blob.kind is not MediaKind.VIDEO:
             continue
@@ -601,15 +639,20 @@ async def correct_frame_counts(
             counted = await exact_frame_count(blob, storage)
         except (NotFoundError, ValidationError):
             # A file that moved, or one this build cannot decode. The estimate stands --
-            # it is wrong, but replacing it with zero would be worse.
+            # it is wrong, but replacing it with zero would be worse -- and the asset stays
+            # marked inexact, so the fact that it stood is visible rather than swallowed.
             continue
-        if counted <= 0 or counted == asset.frame_count:
+        if counted <= 0:
+            continue
+        asset.frame_count_exact = True
+        verified += 1
+        if counted == asset.frame_count:
             continue
         changed.append((asset.name, asset.frame_count, counted))
         asset.frame_count = counted
         blob.frame_count = counted
 
-    if changed:
+    if changed or verified:
         await session.flush()
     return changed
 
@@ -719,5 +762,13 @@ async def delete_asset(session: AsyncSession, asset: Asset) -> None:
     The underlying blob is intentionally left in storage: it may be referenced by another
     task, and reclaiming it belongs to a garbage-collection job that can verify that
     safely, not to an interactive delete.
+
+    **The flush is not optional.** The sessionmaker is built with ``autoflush=False``, so
+    without it the DELETE does not reach the database until the caller commits -- and every
+    caller recounts the task's frames first. That recount would then query the assets, still
+    see this one, and leave the task counting a frame whose file is gone, with a job range
+    covering it. A browser harness found that: it deleted an unreadable clip and the task
+    went on offering the frames the clip had invented.
     """
     await session.delete(asset)
+    await session.flush()

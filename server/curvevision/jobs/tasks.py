@@ -131,6 +131,12 @@ async def probe_task_media(payload: dict[str, Any]) -> dict[str, Any]:
                 # Annotations exist, so the frame ranges are not ours to move. Abandon the
                 # correction entirely rather than leave a task whose jobs and frame count
                 # disagree -- half-applied is worse than not applied.
+                #
+                # The rollback takes the `frame_count_exact` flags with it, which is right:
+                # the counts on the rows are the estimates again, so claiming they were
+                # established by decoding would be false. The cost is that a later probe
+                # decodes the file again to reach the same refusal; the alternative is a
+                # task that stops warning about a number nobody ever managed to fix.
                 await session.rollback()
                 # The numbering did not move, so any chunks already built are still
                 # addressed correctly and the ones that are missing are still worth having.

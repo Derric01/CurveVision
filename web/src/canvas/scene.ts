@@ -7,6 +7,7 @@
 
 import { annotationBounds } from './geometry';
 import { SpatialIndex } from './spatial';
+import type { SkeletonSchema } from './skeleton';
 import type { Annotation, Box, LabelStyle, Point } from './types';
 
 export interface SceneOptions {
@@ -96,6 +97,16 @@ export class Scene {
 
   labelName(id: string): string {
     return this.labels.get(id)?.name ?? 'unlabelled';
+  }
+
+  /**
+   * The joint order and bones for a skeleton label, or `undefined` for every other label.
+   *
+   * One accessor for the tool and the renderer both, so the order the annotator is asked
+   * for joints in and the order they are drawn in cannot drift apart.
+   */
+  skeletonFor(id: string): SkeletonSchema | undefined {
+    return this.labels.get(id)?.skeleton;
   }
 
   setLabelVisible(id: string, visible: boolean): void {

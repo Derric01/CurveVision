@@ -7,6 +7,8 @@
  * unmaintainable component.
  */
 
+import type { SkeletonSchema } from './skeleton';
+
 export type ShapeType =
   | 'rectangle'
   | 'rotated_rectangle'
@@ -40,6 +42,20 @@ export interface Box {
 }
 
 /**
+ * One joint of a skeleton, matching the server's `SkeletonElement` exactly.
+ *
+ * `points` is always a two-number pair, even for a joint nobody could see: that one is
+ * written as `(0, 0)` with `outside` set, which is Ultralytics' visibility 0. Omitting it
+ * instead would shorten the row and shift every later joint into the wrong slot.
+ */
+export interface SkeletonElement {
+  labelId: string;
+  points: number[];
+  occluded: boolean;
+  outside: boolean;
+}
+
+/**
  * One annotation in the scene.
  *
  * `points` is a flat coordinate list, matching the server's representation exactly, so no
@@ -66,6 +82,11 @@ export interface Annotation {
   pending?: boolean;
   /** Track this shape was materialised from, when applicable. */
   trackId?: string | null;
+  /**
+   * Joints, for a skeleton. One entry per joint the label declares, in declared order —
+   * including the skipped ones. Absent on every other shape type.
+   */
+  elements?: SkeletonElement[];
 }
 
 export interface LabelStyle {
@@ -74,6 +95,20 @@ export interface LabelStyle {
   color: string;
   visible: boolean;
   locked: boolean;
+  /**
+   * The skeleton this label is a joint of, when it is one.
+   *
+   * Joints are in the style list because the canvas has to name and colour them, but they
+   * are not labels anybody draws with — the parent is. Anything offering a choice of label
+   * filters on this.
+   */
+  parentId?: string | null;
+  /**
+   * Joint names and bones, when this label is a skeleton. The tool needs it to know what to
+   * ask for next; the renderer needs it to draw the bones. Kept on the style rather than
+   * fetched separately so both read one source and cannot disagree about joint order.
+   */
+  skeleton?: SkeletonSchema;
 }
 
 /** Viewport transform: image space -> screen space. */
@@ -101,7 +136,8 @@ export type ToolName =
   | 'polyline'
   | 'points'
   | 'ellipse'
-  | 'scissors';
+  | 'scissors'
+  | 'skeleton';
 
 export interface PointerInput {
   /** Position in image space. */
@@ -126,6 +162,14 @@ export interface EngineEvents {
   draftChanged: (draft: Annotation | null) => void;
   /** A point picked in image space, when point-picking was armed. Disarms on the click. */
   pointPicked: (point: Point) => void;
+  /**
+   * What the active tool is waiting for, or `null` when it is waiting for nothing.
+   *
+   * Exists for interactions a person cannot read off the canvas — placing the joints of a
+   * skeleton in a fixed order is the first. Without it the annotator is clicking blind
+   * through a seventeen-joint pose.
+   */
+  toolStatusChanged: (status: string | null) => void;
 }
 
 export interface AnnotationChange {

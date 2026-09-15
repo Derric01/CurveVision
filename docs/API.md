@@ -78,7 +78,7 @@ the right credential for anything unattended.
 | Organizations | `/organizations`, `/organizations/{id}/members` |
 | Projects | `/projects`, `/projects/{id}`, `/projects/{id}/labels`, `/projects/{id}/statistics` |
 | Tasks | `/tasks`, `/tasks/{id}`, `/tasks/{id}/assets`, `/tasks/{id}/jobs`, `/tasks/{id}/progress` |
-| Media | `/tasks/{id}/media`, `/tasks/{id}/frames/{frame}`, `/tasks/{id}/frames/{frame}/data` |
+| Media | `/tasks/{id}/media`, `/tasks/{id}/media/recount`, `/tasks/{id}/frames/{frame}`, `/tasks/{id}/frames/{frame}/data` |
 | Jobs | `/jobs`, `/jobs/{id}`, `/jobs/{id}/review` |
 | Annotations | `/jobs/{id}/annotations`, `/jobs/{id}/frames/{frame}/annotations`, `/jobs/{id}/history` |
 | Review | `/jobs/{id}/issues`, `/jobs/{id}/issues/{id}/comments` |
@@ -87,6 +87,58 @@ the right credential for anything unattended.
 | AI | `/models`, `/jobs/{id}/inference`, `/jobs/{id}/suggestions` |
 | Integrations | `/webhooks` |
 | System | `/health`, `/formats`, `/background-tasks` |
+
+## Frame counts, and when to trust one
+
+A video task is created with an **estimated** frame count. An exact one means decoding the
+whole file, which cannot happen inside an upload request, so the estimate comes from
+container metadata — `stream.frames` where the container declares it, and
+`int(duration x frame_rate)` where it does not. Both drift, and the damaging direction is
+high: the task then offers frames that do not exist, and an annotator who steps onto one
+meets what looks like missing media.
+
+A background job (`media.probe_task`) decodes the file and replaces the estimate, normally
+within seconds of upload. It can also fail to: the task already carries annotations, so its
+frame ranges are not the job's to move; or the file is truncated, moved, or encoded with
+something the build cannot decode.
+
+```http
+GET /api/v1/tasks/{task_id}/media
+```
+
+```json
+{
+  "task_id": "…",
+  "media_kind": "video",
+  "frame_count": 13,
+  "frames_per_chunk": 36,
+  "chunk_count": 1,
+  "frame_count_exact": false,
+  "estimated_assets": ["truncated.mkv"],
+  "estimated_asset_count": 1
+}
+```
+
+`frame_count_exact` is false while any asset's count is still an estimate.
+`estimated_assets` names up to five of them so a warning can say *which file*;
+`estimated_asset_count` is the true total. `AssetOut.frame_count_exact` carries the same
+flag per asset. An image is always exact — it contributes exactly one frame by definition,
+and nothing has to decode it to know that.
+
+```http
+POST /api/v1/tasks/{task_id}/media/recount
+```
+
+Queues a fresh count. Returns `202` and the background task, not a result: counting a
+two-hour clip is minutes of decoding, which is why it is not on the request path. Poll the
+background task, or re-read `GET /tasks/{id}/media` and watch `frame_count_exact`. Requires
+`update` on the task, because a corrected count repartitions the task's jobs; reading the
+warning requires only read access, since the annotator who meets the missing frame is the
+one who needs to see it.
+
+A task whose count cannot be established keeps its estimate rather than being zeroed —
+a wrong number is more useful than no media at all — and stays flagged until something
+counts it or the offending asset is removed.
 
 ## Annotations
 
