@@ -30,6 +30,8 @@ interface Props {
   /** When true, the next click reports a point instead of drawing. */
   picking?: boolean;
   onPointPicked?: (point: Point) => void;
+  /** What the active tool is waiting for, for tools with a multi-step interaction. */
+  onToolStatus?: (status: string | null) => void;
 }
 
 export const AnnotationCanvas = forwardRef<CanvasHandle, Props>(function AnnotationCanvas(
@@ -45,6 +47,7 @@ export const AnnotationCanvas = forwardRef<CanvasHandle, Props>(function Annotat
     pins,
     picking = false,
     onPointPicked,
+    onToolStatus,
   },
   ref,
 ) {
@@ -56,8 +59,20 @@ export const AnnotationCanvas = forwardRef<CanvasHandle, Props>(function Annotat
 
   // Callbacks are read through a ref so the engine is built once, not rebuilt whenever a
   // parent re-render produces new function identities.
-  const callbacks = useRef({ onChange, onSelectionChange, onViewportChange, onPointPicked });
-  callbacks.current = { onChange, onSelectionChange, onViewportChange, onPointPicked };
+  const callbacks = useRef({
+    onChange,
+    onSelectionChange,
+    onViewportChange,
+    onPointPicked,
+    onToolStatus,
+  });
+  callbacks.current = {
+    onChange,
+    onSelectionChange,
+    onViewportChange,
+    onPointPicked,
+    onToolStatus,
+  };
 
   // A getter, not a snapshot. `useImperativeHandle` runs as a layout effect and is declared
   // above the effect that constructs the engine, so a plain `{ engine: engineRef.current }`
@@ -89,6 +104,7 @@ export const AnnotationCanvas = forwardRef<CanvasHandle, Props>(function Annotat
         selectionChanged: (ids) => callbacks.current.onSelectionChange(ids),
         viewportChanged: (viewport) => callbacks.current.onViewportChange?.(viewport.scale),
         pointPicked: (point) => callbacks.current.onPointPicked?.(point),
+        toolStatusChanged: (status) => callbacks.current.onToolStatus?.(status),
       },
     });
     engineRef.current = engine;

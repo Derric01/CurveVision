@@ -236,7 +236,18 @@ export interface ApiShape {
   confidence: number | null;
   attributes: Record<string, unknown>;
   mask: Record<string, unknown> | null;
-  elements: Record<string, unknown>[];
+  /** Skeleton joints, in the parent label's declared child order. Empty for every other
+   * shape type. */
+  elements: ApiSkeletonElement[];
+}
+
+/** One joint of a skeleton, as the API sends and accepts it. */
+export interface ApiSkeletonElement {
+  label_id: string;
+  /** Exactly two numbers. `[0, 0]` with `outside` set is a joint nobody could see. */
+  points: number[];
+  occluded: boolean;
+  outside: boolean;
 }
 
 export interface ApiTrack {

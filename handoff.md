@@ -5,7 +5,7 @@
 > [`AGENTS.md`](./AGENTS.md) first; it is the working contract. Update this file after every
 > iteration, including the ones that mostly failed.
 >
-> **Last updated:** 2026-09-15 (iteration 28) · branch `claude/curvevision-platform-build-n1g71n` · PRs [#1](https://github.com/Derric01/CurveVision/pull/1)–[#13](https://github.com/Derric01/CurveVision/pull/13) **all merged** (iterations 1–26). The branch was restarted from `main` at `171c169`; iterations 27–28 are unmerged commits on it with no pull request open. A merged PR cannot carry new work — open a new one when these are ready.
+> **Last updated:** 2026-09-15 (iteration 29) · branch `claude/curvevision-platform-build-n1g71n` · PRs [#1](https://github.com/Derric01/CurveVision/pull/1)–[#13](https://github.com/Derric01/CurveVision/pull/13) **all merged** (iterations 1–26). The branch was restarted from `main` at `171c169`; iterations 27–29 are unmerged commits on it with no pull request open. A merged PR cannot carry new work — open a new one when these are ready.
 
 ---
 
@@ -31,8 +31,14 @@ estimate; where it cannot be replaced by a decoded one — the task already carr
 or the file is truncated or undecodable — the task page says so, names the file, and offers to
 recount. That matters because an overstated count offers frames that do not exist.
 
-Honestly incomplete, and marked as such everywhere: the mask brush, the keypoint UI,
-resumable uploads, and signed desktop installers.
+**A skeleton can now be drawn, not only stored and exported.** The joints of a label are
+placed in the order it declares them, a joint nobody can see is recorded as invisible rather
+than dropped — which is what keeps `yolo_pose`'s positional triples lined up — and the bones
+are drawn. That closes the last case of the platform exporting a dataset shape it could not
+produce.
+
+Honestly incomplete, and marked as such everywhere: the mask brush, resumable uploads, and
+signed desktop installers.
 
 **Annotation quality is measured rather than declared, and a reviewer can now see it.** A
 task holds a ground-truth job; scoring an annotation job against it produces per-label
@@ -87,11 +93,11 @@ nothing routes to it. Scoring is arithmetic over rows already in the database, s
 right today; a ground truth over thousands of frames changes that calculus, and the
 endpoint's docstring says so. This is the largest unblocked item left.
 
-**Then: the drawing tools that have no UI.** Masks and skeletons round-trip through the
-model, the API and the exporters — `yolo_pose` will write a skeleton dataset today — but
-neither can be *drawn*. That is the widest remaining gap between what the platform stores and
-what a person can produce in it, and it is honestly marked as such in the roadmap rather than
-claimed.
+**Then: the mask brush.** Masks round-trip through the model, the API and the exporters —
+`segmentation_mask` will write an indexed PNG today — but nothing draws one. It is now the
+only shape type the platform can carry and not create, the skeleton tool having closed the
+other. Note that the scissors tool already reads frame pixels through `ToolContext.imageData`,
+which is the awkward part of a brush already solved once.
 
 **Then: `choose_files` is still unused.** The desktop shell can open a native *file* picker as
 well as a folder one, and `/tasks/{id}/local-import` accepts a file path. Connecting it is
@@ -109,9 +115,9 @@ on work. Confirm what certificates are available before starting it.
 count could not be corrected" — all done. This section had also fused two paragraphs into one
 unreadable one; that is repaired.*
 
-> **A note for whoever writes the next harness.** The nine in `scripts/` have now found every
+> **A note for whoever writes the next harness.** The ten in `scripts/` have now found every
 > defect the unit suites missed, most recently a deleted asset whose frames the task went on
-> counting. They need a packaged sidecar and a Chromium, so nightly rather than per-push, and
+> counting and a pose exporter that collapsed a straight-armed skeleton's box to zero area. They need a packaged sidecar and a Chromium, so nightly rather than per-push, and
 > the sidecar **embeds `web/dist`** — a run needs `npm --prefix web run build` *and* a sidecar
 > rebuild, or it silently tests the previous frontend.
 
@@ -312,7 +318,8 @@ full docs set including seven ADRs.
 | Pre-building chunks after upload | Done: probing chains the build once the frame numbering is settled, so the first annotator no longer pays the decode. Not fused into one pass — see the iteration note for why that is not available in general. |
 | Surfacing an uncorrected frame count | Complete and driven in a browser. `Asset.frame_count_exact` records whether a count was established by decoding; `GET /tasks/{id}/media` reports it and names the estimated files; the task page warns and offers `POST /tasks/{id}/media/recount`. Both ways a count stays provisional are covered — the declined correction and the file nothing could decode. |
 | Webhooks | Complete: signed delivery, capped exponential backoff with jitter, and a retry policy that distinguishes "the receiver is struggling" from "the receiver said no". |
-| Mask brush, keypoint UI | Storage, export and the model exist on both sides; neither drawing tool does. `yolo_pose` will export a skeleton dataset that nothing in the application can draw — the widest remaining gap between what is stored and what a person can produce. |
+| Keypoint (skeleton) tool | Complete and driven in a browser, through to the exported `yolo_pose` rows: joints placed in declared order, `X` skips one, `Enter` finishes early, `Alt`-click marks a joint occluded, and the bones are drawn. |
+| Mask brush | Storage, rendering and export exist; no tool draws one. The last shape type the platform can carry but not create. |
 | Quality reports | Complete end to end and driven in a browser: the task page creates the answer key and shows each job's latest F1, the editor shows the report and seeks to a conflict on click, and a stale report is marked stale. What is left: the comparison runs inline rather than on the `quality` queue, which a very large ground truth would change. |
 
 *This table went stale once — it still listed the open-folder flow and chunked delivery as
@@ -326,8 +333,8 @@ being updated and this one was not. Check it against* Completed *before trusting
 1. **The comparison runs inline rather than on the `quality` queue.** `QUEUE_ROUTING` has the
    queue and nothing routes to it. Fine today — scoring is arithmetic over rows already in the
    database — and not fine for a ground truth over thousands of frames.
-2. **Mask brush and keypoint UI.** Both round-trip through the model, the API and the
-   exporters; neither can be drawn.
+2. **Mask brush.** Masks round-trip through the model, the API and the exporters; nothing
+   draws one. The skeleton half of this pair is now done.
 3. **`choose_files` is still unused.** The shell can open a native *file* picker as well as a
    folder one, and `/tasks/{id}/local-import` accepts a file path. Connecting it is small, and
    deliberately left until someone wants it — the folder case is the one that matters.
@@ -337,6 +344,70 @@ being updated and this one was not. Check it against* Completed *before trusting
 ---
 
 ## Last iteration
+
+### 29 — a skeleton can be drawn
+
+The platform has exported `yolo_pose` since the YOLO-variants iteration. Nothing in it could
+*draw* a skeleton: the shape type, the parent/child label schema, `skeleton_edges`, the
+`elements` write path and four exporters all existed, and the one missing piece was the tool.
+It exported a dataset shape it could not produce.
+
+**Joint order is the whole design.** `yolo_pose` writes `px py v` positionally — the third
+triple *is* the third declared joint, and there is no name in the file to correct a
+mis-ordering. So the tool walks a label's children strictly in order and never lets the
+annotator choose which joint to place next, and a joint nobody can see is **skipped, not
+omitted**: `X` records it as a zero-visibility element in its own slot. Omitting it would
+shorten the row and move every later joint one place left — a dataset that looks correct and
+teaches a model to put elbows where wrists are.
+
+Two endings, because the common case should not need a keystroke: placing the last joint
+commits by itself, and `Enter` finishes early with the rest padded as skipped. `Backspace`
+takes back the last decision, placed or skipped; `Alt`-click marks a joint occluded
+(Ultralytics visibility 1 rather than 2); `Escape` throws the skeleton away. A skeleton whose
+joints were *all* skipped is discarded rather than written — it is a claim with no content.
+
+**`canvas/skeleton.ts` is pure and holds every rule**, so the ordering can be tested without a
+canvas, and the renderer and the tool read the same joint order from one place
+(`Scene.skeletonFor`) rather than each deriving it. The draft on screen is built by the same
+`buildElements` that produces the commit, so a preview cannot drift from what lands.
+
+**A bone with a skipped endpoint is not drawn.** A line to where a hidden joint "would have
+been" is indistinguishable on screen from one somebody annotated, which is the one thing a
+keypoint tool must never produce.
+
+**One real bug in the exporter, surfaced by the harness.** `yolo_pose` derives each object's
+box from its located keypoints, and that box collapses whenever they are collinear — an arm
+seen straight on, or a pose with a single visible joint. The harness's three clicks along one
+canvas row exported `h=0.000000` for both poses, and every trainer that reads these files
+drops a zero-area box: the annotation vanishes silently. A degenerate side is now given one
+pixel, which is the smallest thing that is not nothing. Two tests cover it and both were
+confirmed to fail without the guard.
+
+**One UI regression caught on the way.** Joint labels have to be in the canvas' style list —
+otherwise a joint has no name or colour — but they are not labels anybody draws *with*. The
+first version listed all seventeen of them in the Labels panel alongside their parent, eating
+the 1–9 number shortcuts. `LabelStyle.parentId` and `drawableLabels()` separate the two
+audiences; the harness asserts the panel offers `['arm', 'car']` and not the joints.
+
+New engine surface, kept small: `ToolResult.status` and an `EngineEvents.toolStatusChanged`,
+because the joint order is nowhere on the canvas and without a line of text the annotator is
+clicking blind through a seventeen-joint pose. `skeletonHint.ts` turns that into copy,
+including the two dead ends — no label has joints, or the chosen one does not — where saying
+*which* labels would work is the difference between a next step and a tool that ignores
+clicks.
+
+`scripts/verify_skeleton_tool.py` draws two skeletons in a real Chromium, one complete and one
+with its middle joint skipped, and follows the second all the way into the exported label
+file: same row width for both, visibility 0 in the middle slot, and the joints either side
+still visible. That last assertion is the one that would catch a regression in any of the six
+layers between the click and the file.
+
+Verified: `./scripts/check.sh` green — 446 server tests, 13 SDK, 396 web (68 of them new for
+the skeleton rules, the state machine and the hint copy); the harness green against a freshly
+packaged sidecar.
+
+
+## Iterations 27–28
 
 Two iterations on one branch, both small, both closing something that was quietly wrong.
 
@@ -1607,6 +1678,7 @@ missing, and it is the reason this iteration found anything):
 
 | Bug | Root cause | Verified by |
 | --- | --- | --- |
+| **`yolo_pose` collapsed a straight pose's box to zero area** | The box is derived from the located keypoints, so collinear joints — an arm seen straight on, or a pose with one visible joint — gave `w=0` or `h=0`. Every trainer that reads these files drops a zero-area box, so the annotation vanished silently. A degenerate side now gets one pixel. | `scripts/verify_skeleton_tool.py` exported `h=0.000000`; `test_a_collapsed_box_is_given_a_pixel_rather_than_written_as_nothing` and `test_a_single_visible_joint_still_gets_a_box`, both confirmed to fail without the guard |
 | **A deleted asset's frames were still counted** | `delete_asset` marked the row deleted; every caller then recounts the task's frames. The sessionmaker is built with `autoflush=False`, so the DELETE had not reached the database and the recount summed the asset it was dropping — leaving a frame count, and job ranges, for media that was gone. One `await session.flush()`. | `scripts/verify_frame_count_warning.py` found it; `test_deleting_an_asset_leaves_the_task_counting_only_what_is_left` reproduces it on three images with no video involved |
 | Every upload re-decoded video that had already been counted | `needs_exact_count` meant only "this task holds video", so adding three photographs to a task holding a counted two-hour clip scheduled a full decode of the clip. It now also requires the count to be unestablished, and `correct_frame_counts` skips an asset already marked exact. | `test_a_counted_video_is_not_decoded_a_second_time`, which counts the decodes |
 | Handlers read a different configuration than their own app | `SettingsDep` resolved via `get_settings()` (the **environment**) while the engine was bound to `create_app(settings)`. Silently wrote media to the wrong directory and made `local_mode` false inside a local install. | `test_request_handlers_read_the_app_s_settings_not_the_environment` |

@@ -63,7 +63,7 @@ application — and produce a real dataset with it.
 | Track editing UI (keyframe timeline) | **Done** — the timeline shows every track's keyframes and where it is present, `,`/`.` step between them, `K` adds or removes a keyframe, `O` marks where the object leaves, and a keyframe can be **dragged along its lane** to another frame, keeping its geometry. A drop onto an occupied frame is refused rather than merged |
 | Intelligent scissors (edge-snapping boundaries) | **Done** — live-wire, implemented directly rather than by loading a ~10 MB OpenCV build; see [ADR 0009](./adr/0009-intelligent-scissors.md) |
 | Mask brush tool | **Planned** — RLE storage and export exist; the drawing tool does not |
-| Skeleton / keypoint editing UI | **Planned** — the model and COCO keypoint export exist |
+| Skeleton / keypoint editing UI | **Done** — a tool that places a label's declared joints in order, skips the ones nobody can see rather than dropping them, and draws the bones. Verified end to end in a browser, through to the exported `yolo_pose` rows |
 | Ground-truth quality reports | **Done** — a task can hold a ground-truth job; scoring an annotation job against it gives precision/recall/F1 per label plus classified conflicts (missing, extra, wrong label, poor overlap), and the editor shows the report beside the frames, where clicking a conflict seeks to it. A report records which version of the job it scored, so a stale one is marked stale rather than read as current. The comparison still runs inline rather than as a background job, and a ground-truth job is created from the task page, which also shows each job's latest F1 and marks a stale one |
 | Resumable uploads | *Planned* — the storage model exists; there are no endpoints yet |
 

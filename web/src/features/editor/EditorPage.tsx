@@ -23,6 +23,7 @@ import {
   Maximize2,
   MousePointer2,
   Pentagon,
+  PersonStanding,
   Redo2,
   Send,
   Spline,
@@ -38,7 +39,7 @@ import type { AnnotationChange, LabelStyle, ToolName } from '@/canvas/types';
 import type { ApiTrack } from '@/api/types';
 import { Badge, Button, ErrorNotice, Kbd, Spinner, jobStateTone } from '@/ui/primitives';
 import { AnnotationCanvas, type CanvasHandle } from './AnnotationCanvas';
-import { frameAnnotations, toLabelStyles } from './adapters';
+import { drawableLabels, frameAnnotations, toLabelStyles } from './adapters';
 import { useFrameObjectUrl } from './useFrameObjectUrl';
 import { TrackTimeline } from './TrackTimeline';
 import { adjacentKeyframe, trackRows } from './timeline';
@@ -46,6 +47,7 @@ import { markDeparture, moveKeyframe, toggleKeyframe, type EditResult } from './
 import { QualityPanel } from './QualityPanel';
 import { IssuesPanel } from './IssuesPanel';
 import { issuePins } from './issues';
+import { skeletonHint } from './skeletonHint';
 import { useAutosave } from './useAutosave';
 
 const TOOLS: { name: ToolName; icon: typeof Square; label: string; key: string }[] = [
@@ -56,6 +58,7 @@ const TOOLS: { name: ToolName; icon: typeof Square; label: string; key: string }
   { name: 'polyline', icon: Spline, label: 'Polyline', key: 'L' },
   { name: 'ellipse', icon: CircleDashed, label: 'Ellipse', key: 'E' },
   { name: 'scissors', icon: Scissors, label: 'Scissors (snaps to edges)', key: 'S' },
+  { name: 'skeleton', icon: PersonStanding, label: 'Skeleton (joints, in order)', key: 'J' },
 ];
 
 export function EditorPage() {
@@ -68,6 +71,10 @@ export function EditorPage() {
   const [activeLabelId, setActiveLabelId] = useState<string | null>(null);
   const [selection, setSelection] = useState<string[]>([]);
   const [labelStyles, setLabelStyles] = useState<LabelStyle[]>([]);
+  // What a multi-step tool is waiting for. The skeleton tool is the only one that sets
+  // it today: its joint order is invisible on the canvas, so clicking through a
+  // seventeen-joint pose without it is clicking blind.
+  const [toolStatus, setToolStatus] = useState<string | null>(null);
   const [zoom, setZoom] = useState(1);
   // Placing an issue pin: armed from the panel, spent by one canvas click.
   const [picking, setPicking] = useState(false);
@@ -100,7 +107,8 @@ export function EditorPage() {
     if (labels.data && labelStyles.length === 0) {
       const styles = toLabelStyles(labels.data);
       setLabelStyles(styles);
-      setActiveLabelId(styles[0]?.id ?? null);
+      // A joint is never the opening choice: it is not something anybody draws with.
+      setActiveLabelId(drawableLabels(styles)[0]?.id ?? null);
     }
   }, [labels.data, labelStyles.length]);
 
@@ -392,7 +400,17 @@ export function EditorPage() {
               setPickedPoint(point);
               setPicking(false);
             }}
+            onToolStatus={setToolStatus}
           />
+
+          {tool === 'skeleton' && (
+            <div
+              className="pointer-events-none absolute left-1/2 top-3 -translate-x-1/2 rounded-md border border-curve-500/40 bg-ink-900/90 px-3 py-1.5 text-xs text-ink-200 shadow-lg"
+              data-skeleton-status=""
+            >
+              {skeletonHint(labelStyles, activeLabelId, toolStatus)}
+            </div>
+          )}
 
           <div className="pointer-events-none absolute bottom-2 left-2 flex gap-2 text-[11px] text-ink-500">
             <span className="rounded bg-ink-900/80 px-1.5 py-0.5">{Math.round(zoom * 100)}%</span>
@@ -405,7 +423,7 @@ export function EditorPage() {
         {/* Right panel */}
         <aside className="flex w-72 shrink-0 flex-col border-l border-ink-800">
           <LabelPanel
-            labels={labelStyles}
+            labels={drawableLabels(labelStyles)}
             activeLabelId={activeLabelId}
             onSelect={setActiveLabelId}
             onToggleVisible={(id, visible_) => {
@@ -591,6 +609,8 @@ function LabelPanel({
                 type="button"
                 className="flex min-w-0 flex-1 items-center gap-2 text-left"
                 onClick={() => onSelect(label.id)}
+                data-label-id={label.id}
+                data-label-name={label.name}
               >
                 <span
                   className="h-3 w-3 shrink-0 rounded-sm"
@@ -689,11 +709,15 @@ function ShortcutHelp() {
       <dl className="mt-2 space-y-1">
         {[
           ['V / R / P / L / E', 'Select, rectangle, polygon, polyline, ellipse'],
+          ['S / J', 'Scissors, skeleton'],
           ['Space (hold)', 'Pan'],
           ['← / →', 'Previous / next frame'],
           [', / .', 'Previous / next keyframe'],
-          ['Enter', 'Finish polygon'],
-          ['Backspace', 'Remove last vertex'],
+          ['K / O', 'Add or remove a keyframe / mark a departure'],
+          ['Enter', 'Finish polygon or skeleton'],
+          ['Backspace', 'Remove last vertex or joint'],
+          ['X', 'Skip the joint being asked for'],
+          ['Alt+click', 'Place a joint as occluded'],
           ['Ctrl+Z / Ctrl+Shift+Z', 'Undo / redo'],
           ['Ctrl+A', 'Select all'],
           ['Ctrl+D', 'Duplicate'],

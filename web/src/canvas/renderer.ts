@@ -14,6 +14,7 @@
  */
 
 import { annotationBounds } from './geometry';
+import { bones, drawableJoints } from './skeleton';
 import type { Scene } from './scene';
 import { imageToScreen, visibleBox } from './viewport';
 import type { Annotation, SceneMedia, ViewportState } from './types';
@@ -234,6 +235,8 @@ export class Renderer {
     if (annotation.source === 'model' || draft) context.setLineDash([6, 4]);
     if (annotation.occluded) context.setLineDash([2, 3]);
 
+    if (annotation.shapeType === 'skeleton') this.paintBones(context, viewport, annotation);
+
     this.tracePath(context, viewport, annotation);
 
     if (isFillable(annotation)) context.fill();
@@ -247,6 +250,38 @@ export class Renderer {
       context.lineWidth = 1;
       context.stroke();
     }
+    context.restore();
+  }
+
+  /**
+   * The bones, drawn under the joints.
+   *
+   * A bone whose endpoint was skipped is not drawn at all: a line to where a hidden joint
+   * "would have been" is indistinguishable on screen from one somebody annotated, which is
+   * the one thing a keypoint tool must never produce. `bones` drops those; this only draws
+   * what it returns.
+   */
+  private paintBones(
+    context: CanvasRenderingContext2D,
+    viewport: ViewportState,
+    annotation: Annotation,
+  ): void {
+    const schema = this.scene.skeletonFor(annotation.labelId);
+    if (!schema || !annotation.elements) return;
+    const segments = bones(schema.edges, annotation.elements);
+    if (segments.length === 0) return;
+
+    context.save();
+    context.setLineDash([]);
+    context.lineWidth = Math.max(1, context.lineWidth - 0.5);
+    context.beginPath();
+    for (const [start, end] of segments) {
+      const from = imageToScreen(viewport, start);
+      const to = imageToScreen(viewport, end);
+      context.moveTo(from.x, from.y);
+      context.lineTo(to.x, to.y);
+    }
+    context.stroke();
     context.restore();
   }
 
@@ -283,6 +318,19 @@ export class Renderer {
         0,
         Math.PI * 2,
       );
+      return;
+    }
+
+    if (shapeType === 'skeleton' && annotation.elements) {
+      // From the elements rather than from `points`, because a skipped joint has no
+      // position and must not be drawn at the origin, where it would look like a joint
+      // somebody actually placed in the corner of the image.
+      for (const joint of drawableJoints(annotation.elements)) {
+        const screen = imageToScreen(viewport, joint.point);
+        const radius = joint.occluded ? 3 : 4.5;
+        context.moveTo(screen.x + radius, screen.y);
+        context.arc(screen.x, screen.y, radius, 0, Math.PI * 2);
+      }
       return;
     }
 

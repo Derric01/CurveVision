@@ -182,7 +182,7 @@ lossless native one — each declaring honestly what it can represent, *before* 
 | Crash-resilient autosave | **Done** |
 | Track keyframes: add, remove and mark a departure from the timeline | **Done** |
 | Masks — RLE storage and export exist; the brush tool does not | *Planned* |
-| Skeletons / keypoints — model and COCO export exist; the UI does not | *Planned* |
+| Mask brush — masks store, render and export; no brush tool draws one | *Planned* |
 
 **It stays fast.** The canvas is a Canvas2D engine with an R-tree spatial index, so
 rendering costs what is *on screen* rather than what is in the dataset.

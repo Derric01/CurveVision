@@ -250,6 +250,54 @@ class TestYoloPose:
         assert round(float(width) * 200) == 20
         assert round(float(height) * 200) == 80
 
+    def test_a_collapsed_box_is_given_a_pixel_rather_than_written_as_nothing(self) -> None:
+        """A box derived from keypoints collapses more often than it looks.
+
+        Three joints in a straight line -- an arm seen straight on, or a pose with one
+        joint visible -- give a box of zero height or zero width, and every trainer that
+        reads these files drops a zero-area box. The object is really there; only its
+        extent is unmeasurable from joints alone. Found by
+        `scripts/verify_skeleton_tool.py`, whose three clicks along one row exported
+        `h=0.000000` for both poses.
+        """
+        flat = ShapeRecord(
+            label="person",
+            shape_type=ShapeType.SKELETON,
+            points=[100.0, 60.0],
+            elements=[
+                {"points": [100.0, 60.0]},
+                {"points": [140.0, 60.0]},
+                {"points": [180.0, 60.0]},
+            ],
+        )
+        sink = MemoryExportSink()
+        get_format("yolo_pose").export(dataset([frame([flat])], [person_label()]), sink)
+
+        _cls, _cx, _cy, width, height = only_label_file(sink).split()[:5]
+        assert float(width) > 0.0
+        assert float(height) > 0.0, "a flat pose exported a zero-height box"
+        # One pixel in a 200px frame, and the width is still the real span of the joints.
+        assert round(float(height) * 200) == 1
+        assert round(float(width) * 200) == 80
+
+    def test_a_single_visible_joint_still_gets_a_box(self) -> None:
+        lonely = ShapeRecord(
+            label="person",
+            shape_type=ShapeType.SKELETON,
+            points=[100.0, 60.0],
+            elements=[
+                {"points": [100.0, 60.0]},
+                {"points": [0.0, 0.0], "outside": True},
+                {"points": [0.0, 0.0], "outside": True},
+            ],
+        )
+        sink = MemoryExportSink()
+        get_format("yolo_pose").export(dataset([frame([lonely])], [person_label()]), sink)
+
+        parts = only_label_file(sink).split()
+        assert float(parts[3]) > 0.0 and float(parts[4]) > 0.0
+        assert [parts[5 + i * 3 + 2] for i in range(3)] == ["2", "0", "0"]
+
     def test_data_yaml_declares_the_keypoint_shape(self) -> None:
         """Ultralytics needs `kpt_shape` to size the model's pose head."""
         sink = MemoryExportSink()

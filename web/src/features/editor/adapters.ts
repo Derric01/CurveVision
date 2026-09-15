@@ -6,8 +6,9 @@
  * place that changes.
  */
 
-import type { AnnotationDocument, ApiShape, Label } from '@/api/types';
-import type { Annotation, LabelStyle, ShapeType } from '@/canvas/types';
+import type { AnnotationDocument, ApiShape, ApiSkeletonElement, Label } from '@/api/types';
+import { skeletonSchema } from '@/canvas/skeleton';
+import type { Annotation, LabelStyle, ShapeType, SkeletonElement } from '@/canvas/types';
 import { interpolateTrack, type Keyframe } from './interpolate';
 
 export function toAnnotation(shape: ApiShape): Annotation {
@@ -26,6 +27,18 @@ export function toAnnotation(shape: ApiShape): Annotation {
     source: shape.source,
     confidence: shape.confidence,
     attributes: shape.attributes,
+    ...(shape.elements && shape.elements.length > 0
+      ? { elements: shape.elements.map(toSkeletonElement) }
+      : {}),
+  };
+}
+
+function toSkeletonElement(element: ApiSkeletonElement): SkeletonElement {
+  return {
+    labelId: element.label_id,
+    points: element.points,
+    occluded: element.occluded,
+    outside: element.outside,
   };
 }
 
@@ -44,17 +57,70 @@ export function toApiShape(annotation: Annotation): Record<string, unknown> {
     group: annotation.group ?? null,
     source: annotation.source === 'interpolated' ? 'manual' : annotation.source,
     attributes: annotation.attributes,
+    // Sent only when there are joints. The server rejects a skeleton with no elements, and
+    // sending an empty array on every rectangle would be noise on the hottest write path.
+    ...(annotation.elements && annotation.elements.length > 0
+      ? {
+          elements: annotation.elements.map((element) => ({
+            label_id: element.labelId,
+            points: element.points,
+            occluded: element.occluded,
+            outside: element.outside,
+          })),
+        }
+      : {}),
   };
 }
 
+/**
+ * Label styles for the canvas, including each skeleton's joint order and bones.
+ *
+ * Child (keypoint) labels are flattened in alongside their parents rather than dropped:
+ * without them the canvas cannot name or colour a joint, and a skeleton drawn by somebody
+ * else would render as anonymous dots.
+ */
 export function toLabelStyles(labels: Label[]): LabelStyle[] {
-  return labels.map((label) => ({
-    id: label.id,
-    name: label.name,
-    color: label.color,
-    visible: true,
-    locked: false,
-  }));
+  const styles: LabelStyle[] = [];
+  for (const label of labels) {
+    const schema = skeletonSchema({
+      id: label.id,
+      name: label.name,
+      children: label.children,
+      skeletonEdges: label.skeleton_edges,
+    });
+    styles.push({
+      id: label.id,
+      name: label.name,
+      color: label.color,
+      visible: true,
+      locked: false,
+      ...(schema ? { skeleton: schema } : {}),
+    });
+    for (const child of label.children ?? []) {
+      styles.push({
+        id: child.id,
+        name: child.name,
+        // A joint with no colour of its own inherits its skeleton's, so one pose reads as
+        // one object rather than as a scatter of unrelated points.
+        color: child.color || label.color,
+        visible: true,
+        locked: false,
+        parentId: label.id,
+      });
+    }
+  }
+  return styles;
+}
+
+/**
+ * The labels somebody can actually draw with.
+ *
+ * A joint is annotated as part of its skeleton, never on its own, so listing joints
+ * alongside their parents would offer seventeen choices that do nothing and push the real
+ * labels off the panel — and eat the number shortcuts on the way.
+ */
+export function drawableLabels(labels: readonly LabelStyle[]): LabelStyle[] {
+  return labels.filter((label) => label.parentId == null);
 }
 
 /**

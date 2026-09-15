@@ -357,6 +357,13 @@ class YoloPoseFormat:
         if not located:
             return None
         x, y, box_w, box_h = bounding_box([coord for point in located for coord in point])
+        # A box derived from keypoints collapses whenever they are collinear -- one visible
+        # joint, or an arm seen straight on -- and a zero-area box is dropped by every
+        # trainer that reads these files. The object is really there; only its extent is
+        # unmeasurable from joints alone, so it gets the smallest box that is not nothing
+        # rather than being silently discarded.
+        box_w = max(box_w, 1.0)
+        box_h = max(box_h, 1.0)
         values = [
             _clamp((x + box_w / 2) / width),
             _clamp((y + box_h / 2) / height),

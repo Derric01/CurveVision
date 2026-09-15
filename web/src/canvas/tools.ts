@@ -28,6 +28,15 @@ import type {
 } from './types';
 import { MIN_VERTICES } from './types';
 import { computeFeatures, LiveWire, simplify, type EdgeFeatures } from './scissors';
+import {
+  buildElements,
+  canCommit,
+  describeProgress,
+  isComplete,
+  skeletonPoints,
+  type PlacedJoint,
+  type SkeletonSchema,
+} from './skeleton';
 
 export interface ToolContext {
   scene: Scene;
@@ -59,6 +68,13 @@ export interface ToolResult {
   snap?: Point | null;
   /** Redraw the shape layer, not just the overlay. */
   invalidateShapes?: boolean;
+  /**
+   * One line for the UI about what the tool is waiting for — "left wrist, joint 3 of 17".
+   *
+   * `null` clears it. Only tools with a multi-step interaction the annotator cannot infer
+   * from the canvas set this; for the rest the shape being drawn says everything.
+   */
+  status?: string | null;
 }
 
 export interface Tool {
@@ -669,10 +685,163 @@ export class ScissorsTool implements Tool {
   }
 }
 
+// ------------------------------------------------------------------------- skeleton
+
+/**
+ * Place a label's declared joints, one at a time, in the order the label declares them.
+ *
+ * Skeletons already round-tripped through the model, the API and `yolo_pose`; nothing in
+ * the application could draw one, so the platform exported a dataset shape it could not
+ * produce. This is that missing half.
+ *
+ * **Order is the whole design.** `yolo_pose` writes `px py v` positionally, so the third
+ * triple *is* the third declared joint — there is no name in the file to correct a
+ * mis-ordering. The tool therefore walks the joints strictly in order and never lets the
+ * annotator choose which one to place next, and a joint nobody can see is **skipped, not
+ * omitted**: it becomes a zero-visibility element in its own slot. Omitting it would
+ * shorten the row and move every later joint one place left, which is a dataset that looks
+ * correct and teaches a model to put elbows where wrists are.
+ *
+ * Two endings, because the common case should not need a keystroke: placing the last joint
+ * finishes the skeleton by itself, and `Enter` finishes early with the rest skipped.
+ */
+export class SkeletonTool implements Tool {
+  readonly name = 'skeleton' as const;
+  readonly cursor = 'crosshair';
+
+  private placement: (PlacedJoint | null)[] = [];
+  private labelId: string | null = null;
+
+  onPointerDown(input: PointerInput, context: ToolContext): ToolResult {
+    const labelId = context.activeLabelId();
+    if (!labelId) return {};
+    const schema = context.scene.skeletonFor(labelId);
+    // The active label is not a skeleton. Doing nothing is right; the panel says why,
+    // because a canvas that silently ignores clicks is indistinguishable from a broken one.
+    if (!schema) return {};
+
+    // Switching label mid-skeleton would mix one label's joints into another's slots.
+    if (this.labelId !== null && this.labelId !== labelId) this.reset();
+    this.labelId = labelId;
+
+    const size = context.imageSize();
+    const [x = 0, y = 0] = clampToImage([input.image.x, input.image.y], size.width, size.height);
+    // Alt marks a joint the annotator can locate but cannot see clearly -- Ultralytics'
+    // visibility 1, as opposed to 2 for plainly visible.
+    this.placement = [...this.placement, { point: { x, y }, occluded: input.altKey }];
+
+    if (isComplete(schema, this.placement)) return this.finish(context);
+    return { draft: this.draft(context), status: describeProgress(schema, this.placement) };
+  }
+
+  onPointerMove(_input: PointerInput, _context: ToolContext): ToolResult {
+    // Nothing follows the pointer: a joint is where it is clicked, and a line trailing to
+    // the cursor would suggest the next joint connects to the last one, which the bones say
+    // it may well not.
+    return {};
+  }
+
+  onPointerUp(): ToolResult {
+    return {};
+  }
+
+  onKey(key: string, context: ToolContext): ToolResult | null {
+    const schema = this.schema(context);
+    if (!schema) return null;
+
+    if (key === 'Enter') {
+      if (this.placement.length === 0) return null;
+      return this.finish(context);
+    }
+    // Skip the joint being asked for. Recorded as a decision, not a gap -- see the class
+    // comment for why that distinction is the point of the whole tool.
+    if (key === 'x' || key === 'X') {
+      if (isComplete(schema, this.placement)) return null;
+      this.placement = [...this.placement, null];
+      if (isComplete(schema, this.placement)) {
+        // Every joint skipped is not a skeleton, it is a claim with no content.
+        if (!canCommit(this.placement)) return this.cancel();
+        return this.finish(context);
+      }
+      return { draft: this.draft(context), status: describeProgress(schema, this.placement) };
+    }
+    if (key === 'Backspace') {
+      if (this.placement.length === 0) return null;
+      this.placement = this.placement.slice(0, -1);
+      return { draft: this.draft(context), status: describeProgress(schema, this.placement) };
+    }
+    if (key === 'Escape') {
+      if (this.placement.length === 0) return null;
+      return this.cancel();
+    }
+    return null;
+  }
+
+  cancel(): ToolResult {
+    this.reset();
+    return { draft: null, status: null };
+  }
+
+  /** What the panel shows: which joint is being asked for, and how far through. */
+  progress(context: ToolContext): string | null {
+    const schema = this.schema(context);
+    if (!schema) return null;
+    return describeProgress(schema, this.placement);
+  }
+
+  private schema(context: ToolContext): SkeletonSchema | null {
+    const labelId = this.labelId ?? context.activeLabelId();
+    if (!labelId) return null;
+    return context.scene.skeletonFor(labelId) ?? null;
+  }
+
+  private finish(context: ToolContext): ToolResult {
+    const schema = this.schema(context);
+    if (!schema || !canCommit(this.placement)) return this.cancel();
+
+    const elements = buildElements(schema, this.placement);
+    const created: Annotation = {
+      ...draftAnnotation(schema.labelId, 'skeleton', skeletonPoints(elements)),
+      elements,
+    };
+    this.reset();
+    return { created, draft: null, status: null };
+  }
+
+  /**
+   * The skeleton as it stands, for the overlay.
+   *
+   * Built from `buildElements` rather than from the placement directly, so what is on
+   * screen mid-draw is exactly what would be committed -- a preview drawn a second way is
+   * a second implementation, and the two drift.
+   */
+  private draft(context: ToolContext): Annotation | null {
+    const schema = this.schema(context);
+    if (!schema || this.placement.length === 0) return null;
+    const elements = buildElements(schema, this.placement);
+    return {
+      ...draftAnnotation(schema.labelId, 'skeleton', skeletonPoints(elements)),
+      elements,
+    };
+  }
+
+  private reset(): void {
+    this.placement = [];
+    this.labelId = null;
+  }
+
+  /** Joints decided so far, for tests and for the panel. */
+  get decided(): number {
+    return this.placement.length;
+  }
+}
+
 export function createTool(name: ToolName): Tool {
   switch (name) {
     case 'scissors':
       return new ScissorsTool();
+    case 'skeleton':
+      return new SkeletonTool();
     case 'rectangle':
       return new RectangleTool();
     case 'ellipse':
@@ -698,6 +867,8 @@ export const TOOL_SHORTCUTS: Record<string, ToolName> = {
   n: 'points',
   e: 'ellipse',
   s: 'scissors',
+  // `k` is the editor's add-keyframe and `n` is the point tool, so joints get `j`.
+  j: 'skeleton',
 };
 
 export { boundsOf };
