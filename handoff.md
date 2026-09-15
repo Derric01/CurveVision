@@ -5,7 +5,7 @@
 > [`AGENTS.md`](./AGENTS.md) first; it is the working contract. Update this file after every
 > iteration, including the ones that mostly failed.
 >
-> **Last updated:** 2026-09-15 (iteration 31) · branch `claude/curvevision-platform-build-n1g71n` · PRs [#1](https://github.com/Derric01/CurveVision/pull/1)–[#14](https://github.com/Derric01/CurveVision/pull/14) **all merged**. [#14](https://github.com/Derric01/CurveVision/pull/14) carried iterations 27–29 (the Node 20 bump, the provisional frame count, the skeleton tool) and merged at `675532f`. Iterations 30–31 — the two mask commits — were already pushed to the branch when it merged, so they were **rebased onto `main`** and belong to a new pull request: a merged PR cannot track new work.
+> **Last updated:** 2026-09-15 (iteration 32) · branch `claude/curvevision-platform-build-n1g71n` · PRs [#1](https://github.com/Derric01/CurveVision/pull/1)–[#15](https://github.com/Derric01/CurveVision/pull/15) **all merged**. [#14](https://github.com/Derric01/CurveVision/pull/14) carried iterations 27–29 (the Node 20 bump, the provisional frame count, the skeleton tool); [#15](https://github.com/Derric01/CurveVision/pull/15) carried 30–31 (the two mask iterations). The branch was restarted from `main` after each merge — a merged PR cannot track new work, so follow-up commits belong on a branch rebased onto the default, never stacked on merged history. Iteration 32 is unmerged on the branch with no PR open yet.
 
 ---
 
@@ -30,6 +30,13 @@ nightly and on every push to `main`.
 estimate; where it cannot be replaced by a decoded one — the task already carries annotations,
 or the file is truncated or undecodable — the task page says so, names the file, and offers to
 recount. That matters because an overstated count offers frames that do not exist.
+
+**Scoring a job against a ground truth is fast, and that is measured.** This file said for
+several iterations that the comparison should move to the unused `quality` queue because a
+large ground truth would be slow. Measuring it found the worry aimed at the wrong dimension —
+frames are free; *objects per frame* was quadratic — and an exact bounding-box rejection ahead
+of the polygon clip took the worst case from 34 seconds to 0.7. The inline path stays, now
+for a reason somebody can reproduce.
 
 **A mask is drawn as its pixels.** The editor used to draw one through the same branch as a
 rectangle — an empty box where the pixels were — so an annotator could not tell a mask
@@ -99,12 +106,7 @@ was the last unconnected piece of the desktop application.
 
 ## Next best action
 
-**Run the comparison as a background job.** `QUEUE_ROUTING` already has a `quality` queue and
-nothing routes to it. Scoring is arithmetic over rows already in the database, so inline is
-right today; a ground truth over thousands of frames changes that calculus, and the
-endpoint's docstring says so. This is the largest unblocked item left.
-
-**Then: the mask brush.** Everything around it is now in place — the encoding is stated on
+**The mask brush.** Everything around it is now in place — the encoding is stated on
 both sides and pinned by a shared fixture, two formats carry a mask, and the editor draws one
 pixel for pixel and picks it by its pixels. `canvas/mask.ts` already exports `encodeRle`,
 which is what a brush commits with, and the scissors tool already reads frame pixels through
@@ -328,7 +330,7 @@ full docs set including seven ADRs.
 | Webhooks | Complete: signed delivery, capped exponential backoff with jitter, and a retry policy that distinguishes "the receiver is struggling" from "the receiver said no". |
 | Keypoint (skeleton) tool | Complete and driven in a browser, through to the exported `yolo_pose` rows: joints placed in declared order, `X` skips one, `Enter` finishes early, `Alt`-click marks a joint occluded, and the bones are drawn. |
 | Masks | Stored, **exported** (`cvat_xml` writes CVAT's real mask element and reads it back; `segmentation_mask` paints the pixels) and **drawn** — the editor renders the pixels and picks by them, verified by reading the canvas back in a browser. What is left is the brush: masks are the last shape type the platform can carry and not create. |
-| Quality reports | Complete end to end and driven in a browser: the task page creates the answer key and shows each job's latest F1, the editor shows the report and seeks to a conflict on click, and a stale report is marked stale. What is left: the comparison runs inline rather than on the `quality` queue, which a very large ground truth would change. |
+| Quality reports | Complete end to end and driven in a browser: the task page creates the answer key and shows each job's latest F1, the editor shows the report and seeks to a conflict on click, and a stale report is marked stale. The comparison runs **inline, deliberately and measurably** — 200,000 shapes a side over 10,000 frames score in 4.4s. Nothing outstanding. |
 
 *This table went stale once — it still listed the open-folder flow and chunked delivery as
 unbuilt several iterations after both shipped, because the narrative sections above were
@@ -338,21 +340,83 @@ being updated and this one was not. Check it against* Completed *before trusting
 
 ## Remaining high-priority work
 
-1. **The comparison runs inline rather than on the `quality` queue.** `QUEUE_ROUTING` has the
-   queue and nothing routes to it. Fine today — scoring is arithmetic over rows already in the
-   database — and not fine for a ground truth over thousands of frames.
-2. **Mask brush.** Everything around it is done: the encoding is written down on both
+1. **Mask brush.** Everything around it is done: the encoding is written down on both
    sides, two formats carry a mask, and the editor draws and picks one. `canvas/mask.ts`
    already exports `encodeRle`, which is what a brush commits with.
-3. **`choose_files` is still unused.** The shell can open a native *file* picker as well as a
+2. **`choose_files` is still unused.** The shell can open a native *file* picker as well as a
    folder one, and `/tasks/{id}/local-import` accepts a file path. Connecting it is small, and
    deliberately left until someone wants it — the folder case is the one that matters.
-4. **Signed installers in CI** — *blocked outside the repository*: one runner per platform
+3. **Signed installers in CI** — *blocked outside the repository*: one runner per platform
    (PyInstaller does not cross-compile) and signing certificates the project does not have.
 
 ---
 
 ## Last iteration
+
+### 32 — the comparison did not need a queue; it needed a bounding box
+
+This file carried an item for several iterations: *"run the comparison as a background job —
+`QUEUE_ROUTING` already has a `quality` queue and nothing routes to it… a ground truth over
+thousands of frames changes that calculus."* That was a prediction, and `AGENTS.md` says not
+to invent a benchmark. So the first move was to measure it rather than to build the queue.
+
+**The measurement refuted the premise and found a better problem.**
+`tests/benchmarks/test_comparison_scale.py` varies the two dimensions independently, because
+a single "shapes" number would hide which one matters:
+
+| case | before |
+| --- | --- |
+| 1,000 frames × 2 objects | 0.056s |
+| 10,000 frames × 2 | 0.570s |
+| **100,000 frames × 2** | **5.68s** |
+| 100 frames × 10 objects | 0.097s |
+| 100 frames × 50 objects | 2.28s |
+| **100 frames × 200 objects** | **34.0s** |
+| busy street: 10,000 frames × 20 | 37.2s |
+
+Frames are free and perfectly linear — a hundred thousand of them cost 5.7 seconds. The item
+was aimed at the dimension that does not hurt. What hurts is **objects per frame**, and it is
+quadratic: five times the shapes on a frame cost twenty-three times the work.
+
+**Why.** `_compare_frame` ran a full `shape_iou` — build both polygons, two shoelace areas,
+a Sutherland–Hodgman clip — for *every* (annotated, truth) pair on the frame, including the
+overwhelming majority nowhere near each other. For an ellipse it built a 64-vertex outline to
+discover the two shapes did not touch. On a frame of 200 objects a side that is 40,000
+polygon clips to find roughly 200 real overlaps.
+
+**The fix is an exact rejection, not an approximation.** `shape_bounds` gives each shape's
+axis-aligned box once per shape rather than once per pair, and `boxes_overlap` skips the pair
+when the boxes do not intersect: two shapes whose boxes are disjoint cannot share area, so
+their IoU is zero and the pair was never going to be a candidate.
+
+| case | before | after |
+| --- | --- | --- |
+| 100 frames × 200 objects | 34.0s | **0.715s** (48×) |
+| 100 frames × 50 objects | 2.28s | 0.117s (20×) |
+| busy street | 37.2s | **4.43s** (8.4×) |
+| 100,000 frames × 2 | 5.68s | 4.58s |
+
+Throughput is now roughly **flat at ~40,000 shapes/s whatever the crowding** — the quadratic
+is gone in practice. The whole benchmark file went from 85s to 16s.
+
+**So the inline path stays, and the docs now say why with a number.** A queue would have
+moved a 34-second computation off the request without making it any less than 34 seconds, and
+the reviewer would have swapped an answer for a task id to poll. The claim was corrected in
+four places that all carried it: the endpoint docstring, `ROADMAP.md` (twice),
+`IMPLEMENTATION_PLAN.md`, and this file.
+
+**The risk in a broad phase is rejecting a pair that should have matched**, which would be a
+silent scoring bug rather than a slow one. It can only happen by under-reporting a shape's
+extent, so the tests cover the shape where the extent is not the coordinate list: an ellipse
+stores `[cx, cy, rx, ry]`, and reading its extent straight off the coordinates would put the
+box somewhere else entirely. There is a containment invariant — *every vertex `to_polygon`
+produces lies inside `shape_bounds`* — checked across all five area shapes, and it was
+confirmed to fail (with two others) when the ellipse case is removed.
+
+Verified: `./scripts/check.sh` green — 480 server tests (12 new), 13 SDK, 424 web.
+
+
+## Iteration 31
 
 ### 31 — a mask is drawn as its pixels
 

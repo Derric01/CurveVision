@@ -21,10 +21,12 @@ from curvevision.core.errors import ValidationError
 from curvevision.domain.enums import ShapeType
 from curvevision.services.comparison import (
     ConflictKind,
+    boxes_overlap,
     compare_annotations,
     convex,
     intersection_area,
     polygon_area,
+    shape_bounds,
     shape_iou,
     to_polygon,
 )
@@ -394,3 +396,99 @@ class TestConflictLabelsMeanOneThing:
         assert {conflict.kind for conflict in result.conflicts}
         for conflict in result.conflicts:
             assert conflict.label_id is not None or conflict.expected_label_id is not None
+
+
+# --------------------------------------------------------------------- the broad phase
+
+
+class TestBroadPhase:
+    """The bounding-box rejection that stops the matcher clipping every pair of polygons.
+
+    It is exact -- two shapes whose axis-aligned boxes do not overlap cannot share area --
+    so the only way it can be wrong is by under-reporting a shape's extent and rejecting a
+    pair that should have matched. These check the shapes where the extent is not simply the
+    coordinate list, which is where such a bug would live.
+    """
+
+    def test_a_rectangle_s_box_is_its_corners_whichever_way_round_they_are(self) -> None:
+        assert shape_bounds(ShapeType.RECTANGLE, [10, 20, 30, 40]) == (10, 20, 30, 40)
+        assert shape_bounds(ShapeType.RECTANGLE, [30, 40, 10, 20]) == (10, 20, 30, 40)
+
+    # The one that matters: an ellipse stores `[cx, cy, rx, ry]`, so reading its extent
+    # straight off the coordinate list would give a box in completely the wrong place and
+    # reject every pair it was really overlapping.
+    def test_an_ellipse_s_box_is_its_radii_not_its_coordinate_extent(self) -> None:
+        assert shape_bounds(ShapeType.ELLIPSE, [100, 100, 20, 10]) == (80, 90, 120, 110)
+
+    def test_a_negative_radius_is_read_as_its_magnitude(self) -> None:
+        assert shape_bounds(ShapeType.ELLIPSE, [100, 100, -20, -10]) == (80, 90, 120, 110)
+
+    def test_the_box_matches_the_outline_for_every_area_shape(self) -> None:
+        """The invariant: the box has to contain the polygon, or the rejection is unsound."""
+        cases = [
+            (ShapeType.RECTANGLE, [10, 20, 30, 40]),
+            (ShapeType.POLYGON, [0, 0, 10, 0, 10, 10, 0, 10]),
+            (ShapeType.ROTATED_RECTANGLE, [0, 5, 5, 0, 10, 5, 5, 10]),
+            (ShapeType.ELLIPSE, [100, 100, 20, 10]),
+            (ShapeType.MASK, [4, 4, 12, 9]),
+        ]
+        for shape_type, points in cases:
+            box = shape_bounds(shape_type, points)
+            outline = to_polygon(shape_type, points)
+            assert box is not None, shape_type
+            left, top, right, bottom = box
+            for x, y in outline:
+                # A tolerance because an ellipse's outline is sampled: a vertex may sit a
+                # hair inside the true extremum, never outside it.
+                assert left - 1e-6 <= x <= right + 1e-6, (shape_type, x, box)
+                assert top - 1e-6 <= y <= bottom + 1e-6, (shape_type, y, box)
+
+    def test_a_shape_that_encloses_nothing_has_no_box(self) -> None:
+        assert shape_bounds(ShapeType.POLYLINE, [0, 0, 10, 10]) is None
+        assert shape_bounds(ShapeType.POINTS, [0, 0]) is None
+        assert shape_bounds(ShapeType.SKELETON, [0, 0, 5, 5]) is None
+        assert shape_bounds(ShapeType.RECTANGLE, [1, 2]) is None
+
+    def test_boxes_that_only_touch_do_not_overlap(self) -> None:
+        """They share a line, which is zero area, so the pair is not worth a clip."""
+        assert boxes_overlap((0, 0, 10, 10), (5, 5, 15, 15))
+        assert not boxes_overlap((0, 0, 10, 10), (10, 0, 20, 10))
+        assert not boxes_overlap((0, 0, 10, 10), (0, 10, 10, 20))
+        assert not boxes_overlap((0, 0, 10, 10), (20, 20, 30, 30))
+
+    def test_a_pair_the_broad_phase_admits_can_still_score_zero(self) -> None:
+        """Boxes overlapping is necessary, not sufficient; `shape_iou` is still the answer.
+
+        Two thin diagonal bars crossing at a corner have overlapping bounding boxes and
+        almost no shared area.
+        """
+        one = FakeShape(0, CAR, ShapeType.POLYGON, [0, 0, 2, 0, 12, 10, 10, 10])
+        two = FakeShape(0, CAR, ShapeType.POLYGON, [10, 0, 12, 0, 2, 10, 0, 10])
+        assert boxes_overlap(
+            shape_bounds(one.shape_type, one.points),  # type: ignore[arg-type]
+            shape_bounds(two.shape_type, two.points),  # type: ignore[arg-type]
+        )
+        assert shape_iou(one.shape_type, one.points, two.shape_type, two.points) < 0.5
+
+    # The direction that would be a silent scoring bug rather than a slow one.
+    def test_a_pair_that_barely_overlaps_is_still_matched(self) -> None:
+        annotated = [rect(0, CAR, 0, 0, 100, 100)]
+        truth = [rect(0, CAR, 1, 1, 101, 101)]
+        result = compare_annotations(annotated, truth, iou_threshold=0.9)
+        assert result.overall.matched == 1, "a near-identical box stopped matching"
+
+    def test_ellipses_still_match_each_other(self) -> None:
+        """If the ellipse box were read off the coordinates, this would score zero."""
+        annotated = [FakeShape(0, CAR, ShapeType.ELLIPSE, [100, 100, 20, 20])]
+        truth = [FakeShape(0, CAR, ShapeType.ELLIPSE, [101, 101, 20, 20])]
+        result = compare_annotations(annotated, truth, iou_threshold=0.5)
+        assert result.overall.matched == 1
+
+    def test_distant_objects_are_counted_as_missing_and_extra_not_matched(self) -> None:
+        """What the rejection is for, stated as the score it produces."""
+        annotated = [rect(0, CAR, 0, 0, 10, 10)]
+        truth = [rect(0, CAR, 500, 500, 510, 510)]
+        result = compare_annotations(annotated, truth)
+        assert result.overall.matched == 0
+        assert result.overall.missing == 1
+        assert result.overall.extra == 1
