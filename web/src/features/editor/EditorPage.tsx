@@ -48,6 +48,7 @@ import { QualityPanel } from './QualityPanel';
 import { IssuesPanel } from './IssuesPanel';
 import { issuePins } from './issues';
 import { skeletonHint } from './skeletonHint';
+import { AutoAnnotatePanel } from './AutoAnnotatePanel';
 import { useAutosave } from './useAutosave';
 
 const TOOLS: { name: ToolName; icon: typeof Square; label: string; key: string }[] = [
@@ -445,6 +446,14 @@ export function EditorPage() {
             labels={labelStyles}
             selection={selection}
             onFocus={(id) => engine?.focusAnnotation(id)}
+          />
+
+          <AutoAnnotatePanel
+            jobId={jobId}
+            labels={drawableLabels(labelStyles)}
+            // Predictions are annotations on the frame, so the canvas has to be told the
+            // frame changed underneath it.
+            onRan={() => void queryClient.invalidateQueries({ queryKey: ['annotations', jobId] })}
           />
 
           <IssuesPanel

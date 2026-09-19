@@ -430,6 +430,12 @@ export const api = {
       label_mapping?: Record<string, string>;
       confidence_threshold?: number;
       persist?: boolean;
+      /**
+       * What to look for, by name, for an open-vocabulary model. Left empty, the server
+       * falls back to the project's own label names. Sending these to a model with a fixed
+       * label space is refused with a 422 rather than silently ignored.
+       */
+      classes?: string[];
     },
   ) => request<InferenceResult>(`/jobs/${jobId}/inference`, { method: 'POST', body }),
 

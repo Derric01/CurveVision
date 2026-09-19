@@ -5,7 +5,7 @@
 > [`AGENTS.md`](./AGENTS.md) first; it is the working contract. Update this file after every
 > iteration, including the ones that mostly failed.
 >
-> **Last updated:** 2026-09-15 (iteration 33) · branch `claude/curvevision-platform-build-n1g71n` · PRs [#1](https://github.com/Derric01/CurveVision/pull/1)–[#15](https://github.com/Derric01/CurveVision/pull/15) **all merged**. [#14](https://github.com/Derric01/CurveVision/pull/14) carried iterations 27–29 (the Node 20 bump, the provisional frame count, the skeleton tool); [#15](https://github.com/Derric01/CurveVision/pull/15) carried 30–31 (the two mask iterations). The branch was restarted from `main` after each merge — a merged PR cannot track new work, so follow-up commits belong on a branch rebased onto the default, never stacked on merged history. Iterations 32–33 are unmerged on the branch with no PR open yet.
+> **Last updated:** 2026-09-19 (iteration 34) · branch `claude/curvevision-platform-build-n1g71n` · PRs [#1](https://github.com/Derric01/CurveVision/pull/1)–[#16](https://github.com/Derric01/CurveVision/pull/16) **all merged**. [#14](https://github.com/Derric01/CurveVision/pull/14) carried iterations 27–29 (the Node 20 bump, the provisional frame count, the skeleton tool); [#15](https://github.com/Derric01/CurveVision/pull/15) carried 30–31 (the two mask iterations); [#16](https://github.com/Derric01/CurveVision/pull/16) carried 32–33 (the comparison bounding box, open vocabulary). The branch was restarted from `main` after each merge — a merged PR cannot track new work, so follow-up commits belong on a branch rebased onto the default, never stacked on merged history. Iteration 34 is unmerged on the branch with no PR open yet.
 
 ---
 
@@ -22,14 +22,22 @@ shapes (detection/segmentation, OBB, pose, classification), each declaring in it
 The desktop shape works: a packaged single-executable server, a Tauri shell that supervises
 it, and folders annotated in place without copying a byte.
 
-**The tree is green.** `./scripts/check.sh` passes all nine steps: 444 server tests, 13 SDK,
-339 web. Nine browser harnesses drive the packaged desktop application in a real Chromium,
+**The tree is green.** `./scripts/check.sh` passes all nine steps: 515 server tests, 13 SDK,
+464 web. Twelve browser harnesses drive the packaged desktop application in a real Chromium,
 nightly and on every push to `main`.
 
 **A number the platform is not sure about says so.** A video task's frame count starts as an
 estimate; where it cannot be replaced by a decoded one — the task already carries annotations,
 or the file is truncated or undecodable — the task page says so, names the file, and offers to
 recount. That matters because an overstated count offers frames that do not exist.
+
+**A model can be run from the editor.** The right rail has an auto-annotate panel: choose a
+model, and for an open-vocabulary one type what to look for; predictions land as ordinary
+annotations marked `source="model"`, drawn dashed, editable like anything drawn by hand. It
+says before the run what it will look for, where those classes came from, and which of them
+have no project label to land in — the server reports that last one only afterwards, once the
+model has already spent the time. Driven end to end against a **real** model server in
+`verify_auto_annotate.py`. What still does not exist is a model to point it at: see below.
 
 **A model can be asked to find things by name.** The inference contract assumed every model
 has a fixed label space, so there was no way to say *find forklifts* unless somebody had
@@ -349,6 +357,7 @@ full docs set including seven ADRs.
 | Webhooks | Complete: signed delivery, capped exponential backoff with jitter, and a retry policy that distinguishes "the receiver is struggling" from "the receiver said no". |
 | Keypoint (skeleton) tool | Complete and driven in a browser, through to the exported `yolo_pose` rows: joints placed in declared order, `X` skips one, `Enter` finishes early, `Alt`-click marks a joint occluded, and the bones are drawn. |
 | Masks | Stored, **exported** (`cvat_xml` writes CVAT's real mask element and reads it back; `segmentation_mask` paints the pixels) and **drawn** — the editor renders the pixels and picks by them, verified by reading the canvas back in a browser. What is left is the brush: masks are the last shape type the platform can carry and not create. |
+| Auto-annotate | Complete for the "run over these frames" kinds and driven in a browser against a real model server: model picker, class box for an open-vocabulary model, the plan stated before the run, unmatched classes named before the run, predictions stored as reviewable suggestions. Interactive kinds (`interactor`, `tracker`) are listed with the reason this panel cannot drive them rather than hidden. |
 | Quality reports | Complete end to end and driven in a browser: the task page creates the answer key and shows each job's latest F1, the editor shows the report and seeks to a conflict on click, and a stale report is marked stale. The comparison runs **inline, deliberately and measurably** — 200,000 shapes a side over 10,000 frames score in 4.4s. Nothing outstanding. |
 
 *This table went stale once — it still listed the open-folder flow and chunked delivery as
@@ -362,20 +371,74 @@ being updated and this one was not. Check it against* Completed *before trusting
 1. **No model ships, so auto-annotate cannot be tried.** ADR 0005 accepted this
    deliberately ("No out-of-the-box models… a genuine onboarding cost") and planned
    reference servers in separate repositories. The contract is now ready for one.
-2. **Nothing in the editor calls the inference endpoint.** The API and the contract exist;
-   the UI has no auto-annotate affordance at all.
-3. **Mask brush.** Everything around it is done: the encoding is written down on both
+2. **Mask brush.** Everything around it is done: the encoding is written down on both
    sides, two formats carry a mask, and the editor draws and picks one. `canvas/mask.ts`
    already exports `encodeRle`, which is what a brush commits with.
-4. **`choose_files` is still unused.** The shell can open a native *file* picker as well as a
+3. **`choose_files` is still unused.** The shell can open a native *file* picker as well as a
    folder one, and `/tasks/{id}/local-import` accepts a file path. Connecting it is small, and
    deliberately left until someone wants it — the folder case is the one that matters.
-5. **Signed installers in CI** — *blocked outside the repository*: one runner per platform
+4. **Signed installers in CI** — *blocked outside the repository*: one runner per platform
    (PyInstaller does not cross-compile) and signing certificates the project does not have.
 
 ---
 
 ## Last iteration
+
+### 34 — auto-annotate from the editor
+
+Iteration 33 built the contract for asking a model to find things by name. Nothing in the
+product could ask. `api.models`, `api.runInference` and `api.decideSuggestions` had been on
+the web client since the **first** web iteration with nothing calling them — grep found zero
+call sites — which is the same shape of gap as the issues API before iteration 22: a whole
+server path with no way in.
+
+The panel sits in the editor's right rail, under the object list. Choose a model, and for an
+open-vocabulary one type what to look for; what comes back lands as ordinary annotations with
+`source: "model"`, drawn dashed, editable and deletable like anything drawn by hand.
+
+**Every decision it makes is a pure function in `autoAnnotate.ts`, tested without a DOM.**
+Two of them deliberately restate rules the server already enforces, which is worth naming
+rather than leaving as accidental duplication:
+
+- `blockedReason` mirrors `services/inference.resolve_classes`. The server's 422 is still the
+  authority; this exists so a dead end is visible **before** a round trip.
+- `labelMapping` anticipates what `persist_predictions` will drop. The server reports unmapped
+  labels *after* the run, by which point the model has already spent the time. A class with no
+  matching project label is now called out before the button is pressed, with the fix ("add
+  the label first") rather than just the loss.
+
+Both are phrased on screen as what *will* happen, never as what did.
+
+**The bug the harness found, which is the reason it exists.** The class box is only shown for
+an open-vocabulary model. Type `forklift`, then pick a fixed-head model out of the same list:
+the box unmounts with the text still in component state, `blockedReason` still saw it, and the
+run button went **disabled over text the annotator could no longer see or clear**. A dead end
+with no way out, and the first version of the harness passed straight over it — the check read
+`run.is_disabled() or classes.count() == 0`, and the second disjunct is *always* true for a
+fixed-head model, so it asserted nothing. A check that cannot fail is worse than no check: it
+reads like coverage.
+
+The fix is not to block harder. The run goes ahead over the model's own labels, and
+`ignoredClassesNote` says plainly that the typed classes are ignored and which kind of model
+would use them. The rewritten harness asserts the button is live, the note names `forklift`,
+and — the part that mirrors the server rule — that the request on the wire carries **no**
+class prompt, which is what the server would 422 for.
+
+**The model server in the harness is real**, not a stub inside the app: an `HTTPServer` on
+localhost speaking the documented contract in about thirty lines, which is itself the
+demonstration of ADR 0005 — attaching a model is a URL, not a deployment project. The packaged
+sidecar reaches it exactly as it would reach anybody's Triton box, so the run exercises
+browser → API → provider → HTTP → annotation tables rather than a mock of the middle. It
+records every request, which is what lets the harness assert the claim a silent drop would look
+identical to: **the classes typed are the classes the model was asked for.**
+
+Verified: `./scripts/check.sh` green — 515 server tests, 13 SDK, 464 web (40 new); twelve
+browser harnesses, the new one included, all checks passing against the packaged application.
+The two new checks were confirmed to bite by running them against the unfixed panel and
+watching Playwright time out on a disabled button.
+
+
+## Iteration 33
 
 ### 33 — a model can be asked to find things by name
 
