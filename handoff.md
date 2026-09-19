@@ -5,7 +5,7 @@
 > [`AGENTS.md`](./AGENTS.md) first; it is the working contract. Update this file after every
 > iteration, including the ones that mostly failed.
 >
-> **Last updated:** 2026-09-19 (iteration 34) · branch `claude/curvevision-platform-build-n1g71n` · PRs [#1](https://github.com/Derric01/CurveVision/pull/1)–[#16](https://github.com/Derric01/CurveVision/pull/16) **all merged**. [#14](https://github.com/Derric01/CurveVision/pull/14) carried iterations 27–29 (the Node 20 bump, the provisional frame count, the skeleton tool); [#15](https://github.com/Derric01/CurveVision/pull/15) carried 30–31 (the two mask iterations); [#16](https://github.com/Derric01/CurveVision/pull/16) carried 32–33 (the comparison bounding box, open vocabulary). The branch was restarted from `main` after each merge — a merged PR cannot track new work, so follow-up commits belong on a branch rebased onto the default, never stacked on merged history. Iteration 34 is unmerged on the branch with no PR open yet.
+> **Last updated:** 2026-09-19 (iteration 35) · branch `claude/curvevision-platform-build-n1g71n` · PRs [#1](https://github.com/Derric01/CurveVision/pull/1)–[#16](https://github.com/Derric01/CurveVision/pull/16) **all merged**. [#14](https://github.com/Derric01/CurveVision/pull/14) carried iterations 27–29 (the Node 20 bump, the provisional frame count, the skeleton tool); [#15](https://github.com/Derric01/CurveVision/pull/15) carried 30–31 (the two mask iterations); [#16](https://github.com/Derric01/CurveVision/pull/16) carried 32–33 (the comparison bounding box, open vocabulary). The branch was restarted from `main` after each merge — a merged PR cannot track new work, so follow-up commits belong on a branch rebased onto the default, never stacked on merged history. Iterations 34–35 are unmerged on the branch with no PR open yet.
 
 ---
 
@@ -23,13 +23,21 @@ The desktop shape works: a packaged single-executable server, a Tauri shell that
 it, and folders annotated in place without copying a byte.
 
 **The tree is green.** `./scripts/check.sh` passes all nine steps: 515 server tests, 13 SDK,
-464 web. Twelve browser harnesses drive the packaged desktop application in a real Chromium,
+480 web. Twelve browser harnesses drive the packaged desktop application in a real Chromium,
 nightly and on every push to `main`.
 
 **A number the platform is not sure about says so.** A video task's frame count starts as an
 estimate; where it cannot be replaced by a decoded one — the task already carries annotations,
 or the file is truncated or undecodable — the task page says so, names the file, and offers to
 recount. That matters because an overstated count offers frames that do not exist.
+
+**What a model proposes can be accepted or rejected.** Accepting keeps the annotation and
+keeps `source="model"` — the dataset still records that a machine drew it and a human agreed
+— clearing only the confidence; rejecting deletes it. That pair is what separates a
+suggestion awaiting review from one already accepted, and the canvas, the object list and
+the review panel all turn on the same predicate, so they cannot disagree about what is
+outstanding. Until this iteration the editor dashed every model-sourced annotation, which
+would have made accepting one look like a button that did nothing.
 
 **A model can be run from the editor.** The right rail has an auto-annotate panel: choose a
 model, and for an open-vocabulary one type what to look for; predictions land as ordinary
@@ -357,6 +365,7 @@ full docs set including seven ADRs.
 | Webhooks | Complete: signed delivery, capped exponential backoff with jitter, and a retry policy that distinguishes "the receiver is struggling" from "the receiver said no". |
 | Keypoint (skeleton) tool | Complete and driven in a browser, through to the exported `yolo_pose` rows: joints placed in declared order, `X` skips one, `Enter` finishes early, `Alt`-click marks a joint occluded, and the bones are drawn. |
 | Masks | Stored, **exported** (`cvat_xml` writes CVAT's real mask element and reads it back; `segmentation_mask` paints the pixels) and **drawn** — the editor renders the pixels and picks by them, verified by reading the canvas back in a browser. What is left is the brush: masks are the last shape type the platform can carry and not create. |
+| Reviewing suggestions | Complete and measured in a browser: a job-wide count, accept and reject in bulk over shapes, tracks and tags, and an accepted suggestion drawn solid rather than dashed. Per-object accept/reject buttons do not exist — an individual suggestion is accepted by editing it and rejected by deleting it, which is what the editor already does. |
 | Auto-annotate | Complete for the "run over these frames" kinds and driven in a browser against a real model server: model picker, class box for an open-vocabulary model, the plan stated before the run, unmatched classes named before the run, predictions stored as reviewable suggestions. Interactive kinds (`interactor`, `tracker`) are listed with the reason this panel cannot drive them rather than hidden. |
 | Quality reports | Complete end to end and driven in a browser: the task page creates the answer key and shows each job's latest F1, the editor shows the report and seeks to a conflict on click, and a stale report is marked stale. The comparison runs **inline, deliberately and measurably** — 200,000 shapes a side over 10,000 frames score in 4.4s. Nothing outstanding. |
 
@@ -374,15 +383,76 @@ being updated and this one was not. Check it against* Completed *before trusting
 2. **Mask brush.** Everything around it is done: the encoding is written down on both
    sides, two formats carry a mask, and the editor draws and picks one. `canvas/mask.ts`
    already exports `encodeRle`, which is what a brush commits with.
-3. **`choose_files` is still unused.** The shell can open a native *file* picker as well as a
+3. **`Scene.showSuggestions` has no control wired to it.** The filter works and now hides
+   only *unreviewed* suggestions, so an accepted one stays visible; nothing sets it to
+   false. `Scene.fillOpacity` is in the same position. Both are scene-level display
+   settings and neither has a plumbing path from React yet, which is the actual work — a
+   toggle each is the easy part.
+4. **`choose_files` is still unused.** The shell can open a native *file* picker as well as a
    folder one, and `/tasks/{id}/local-import` accepts a file path. Connecting it is small, and
    deliberately left until someone wants it — the folder case is the one that matters.
-4. **Signed installers in CI** — *blocked outside the repository*: one runner per platform
+5. **Signed installers in CI** — *blocked outside the repository*: one runner per platform
    (PyInstaller does not cross-compile) and signing certificates the project does not have.
 
 ---
 
 ## Last iteration
+
+### 35 — accepting a suggestion used to change nothing anybody could see
+
+Iteration 34 gave the editor a way to run a model. This is the other half, and it turned up
+a defect that had been sitting quietly under the whole feature.
+
+`POST /jobs/{id}/suggestions` and the client's `decideSuggestions` had both existed for many
+iterations with nothing calling them. That was the obvious gap. The one underneath it was
+worse: **the renderer could not tell an accepted suggestion from a pending one.** Accepting
+clears a prediction's `confidence` and deliberately *keeps* `source = "model"`, so the
+dataset still records that a machine drew the geometry and a human agreed — while the editor
+dashed every `source === 'model'` annotation. Wire up the button and it would have appeared
+to do nothing at all.
+
+So the state is a **pair**, and `isUnreviewed` in `canvas/types.ts` now says so once:
+
+| | `confidence` set | `confidence` null |
+| --- | --- | --- |
+| `source = "model"` | **awaiting review** | accepted as it stands |
+| `source = "model_corrected"` | — | accepted, with a human's edits |
+
+The renderer, the scene's visibility filter and the object list's flag all turn on it, so
+the canvas and the list cannot disagree about what is outstanding. A prediction always
+arrives carrying a confidence (`PredictedShape.confidence` defaults to `1.0`), so a null one
+is never a model that simply declined to say.
+
+**The review panel renders nothing when nothing is waiting** — an ordinary hand-annotated
+job loses no space in an already-full rail — and its count is **job-wide**, because a run
+covers the whole job and an "accept all" scoped to the frame on screen would leave the rest
+silently pending.
+
+**The measurement, and a false green worth recording.** "Accepting makes it look accepted"
+is a claim about pixels, so the harness measures pixels: it walks the columns of a thin band
+across a box's top edge and counts the ones holding an *opaque* pixel, which separates the
+stroke from the 0.18-alpha fill beneath it. A `[6, 4]` dash lights 74% of them; a solid
+stroke lights 100%.
+
+Reverting the renderer to confirm the check bites reported **every check passed** — because
+`tsc` had failed on the now-unused import, `npm run build` never wrote a bundle, and the
+run exercised the *previous* frontend. `grep -cE "^error"` had swallowed the failure, since
+a TypeScript error line starts with the file name. That is exactly the hazard
+`docs/CONTRIBUTING.md` warns about, met from the other direction: not a forgotten rebuild
+but a *failed* one reported as a pass. With the revert actually in the bundle the check
+failed properly — 70%, "accepting changed nothing on screen". **Check a build's exit status,
+never a grep of its output.**
+
+Also widened `decideSuggestions` to tracks and tags. The endpoint has always taken all
+three; the client sent only shapes, which would have silently left a tracker's or a
+classifier's output unreviewable.
+
+Verified: `./scripts/check.sh` green — 515 server tests, 13 SDK, 480 web (16 new); the
+auto-annotate harness now drives the whole loop, run → review → accept → run → reject, with
+21 checks against the packaged application.
+
+
+## Iteration 34
 
 ### 34 — auto-annotate from the editor
 

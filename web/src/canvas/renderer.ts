@@ -18,6 +18,7 @@ import { decodeMask, maskRgba, rgbOf, type DecodedMask } from './mask';
 import { bones, drawableJoints } from './skeleton';
 import type { Scene } from './scene';
 import { imageToScreen, visibleBox } from './viewport';
+import { isUnreviewed } from './types';
 import type { Annotation, SceneMedia, ViewportState } from './types';
 
 export interface RendererLayers {
@@ -264,8 +265,11 @@ export class Renderer {
     context.lineWidth = selected ? SELECTED_LINE_WIDTH : DEFAULT_LINE_WIDTH;
 
     // Model suggestions are drawn dashed so an annotator can tell at a glance what a
-    // machine proposed and what a human placed.
-    if (annotation.source === 'model' || draft) context.setLineDash([6, 4]);
+    // machine proposed and what a human placed. Only the ones still *awaiting* a decision:
+    // accepting one clears its confidence and keeps `source = "model"` for provenance, and
+    // if that still drew dashed, accepting would change nothing anybody could see. See
+    // `features/editor/suggestions.ts`, where the pair is written down once.
+    if (isUnreviewed(annotation) || draft) context.setLineDash([6, 4]);
     if (annotation.occluded) context.setLineDash([2, 3]);
 
     if (annotation.shapeType === 'skeleton') this.paintBones(context, viewport, annotation);

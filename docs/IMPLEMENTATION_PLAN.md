@@ -584,10 +584,14 @@ different interaction (`interactor`, `tracker`) are listed with the reason rathe
 
 Predictions land as **suggestions**: annotations with `source = "model"` and a confidence,
 drawn dashed in the editor and editable or deletable like any other annotation — **Done**.
-An explicit accept/reject control is **Planned**: `POST /jobs/{id}/suggestions` and
-the client's `decideSuggestions` both exist and nothing in the UI calls them, so today a
-suggestion is accepted by editing it and rejected by deleting it. Editing one flips `source`
-to `"model_corrected"` so dataset provenance survives to export.
+They can be accepted or rejected in bulk from the editor's review panel — **Done**.
+Accepting keeps the annotation and keeps `source = "model"`, clearing only the confidence,
+so the dataset still records that a machine drew it and a human agreed; rejecting deletes
+it. That pair is what the canvas, the object list and the panel all read to tell a
+suggestion awaiting review from one already accepted. Editing one flips `source` to
+`"model_corrected"`, so dataset provenance survives to export either way. Per-object
+accept/reject controls are **Planned**: an individual suggestion is accepted today by
+editing it and rejected by deleting it.
 
 ---
 

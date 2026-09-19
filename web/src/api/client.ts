@@ -439,9 +439,23 @@ export const api = {
     },
   ) => request<InferenceResult>(`/jobs/${jobId}/inference`, { method: 'POST', body }),
 
-  decideSuggestions: (jobId: string, shapeIds: string[], accepted: boolean) =>
+  /**
+   * Accept or reject model suggestions in bulk. Tracks and tags as well as shapes, because
+   * a tracker produces the first and a classifier the second, and the endpoint has always
+   * taken all three.
+   */
+  decideSuggestions: (
+    jobId: string,
+    ids: { shapeIds?: string[]; trackIds?: string[]; tagIds?: string[] },
+    accepted: boolean,
+  ) =>
     request<Record<string, number>>(`/jobs/${jobId}/suggestions`, {
       method: 'POST',
-      body: { shape_ids: shapeIds, accepted },
+      body: {
+        shape_ids: ids.shapeIds ?? [],
+        track_ids: ids.trackIds ?? [],
+        tag_ids: ids.tagIds ?? [],
+        accepted,
+      },
     }),
 };

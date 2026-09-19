@@ -195,6 +195,36 @@ export interface AnnotationChange {
   deletedIds: string[];
 }
 
+/** Anything carrying the two fields that together say whether a human has ruled on it. */
+export interface Reviewable {
+  source: AnnotationSource | string;
+  confidence?: number | null;
+}
+
+/**
+ * A model suggestion nobody has accepted or rejected yet.
+ *
+ * **Why this is a pair and not just the source.** Accepting a suggestion clears its
+ * `confidence` and deliberately *keeps* `source = "model"`, so the dataset still records
+ * that a machine produced the geometry and a human agreed with it; rejecting deletes the
+ * row outright. So `source === 'model'` alone means only "a model produced this at some
+ * point", and the pair is the state:
+ *
+ * | | `confidence` set | `confidence` null |
+ * | --- | --- | --- |
+ * | `source = "model"` | **awaiting review** | accepted as it stands |
+ * | `source = "model_corrected"` | — | accepted, with a human's edits |
+ *
+ * Written down once because getting it wrong is invisible: the editor drew every
+ * `source === 'model'` annotation dashed, so accepting one changed nothing on screen.
+ *
+ * A prediction always arrives carrying a confidence — `PredictedShape.confidence` defaults
+ * to `1.0` on the server — so a null one is never a model that simply declined to say.
+ */
+export function isUnreviewed(annotation: Reviewable): boolean {
+  return annotation.source === 'model' && annotation.confidence != null;
+}
+
 export const EMPTY_CHANGE: AnnotationChange = Object.freeze({
   created: [],
   updated: [],
