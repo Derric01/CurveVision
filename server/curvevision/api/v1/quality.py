@@ -56,8 +56,16 @@ async def compute_quality(
 
     Runs inline rather than as a background job: the comparison is arithmetic over
     annotations already in the database, and a reviewer asking "how did this go" should get
-    an answer rather than a task id to poll. A task with a very large ground truth would
-    change that calculus, and `QUEUE_ROUTING` already has a `quality` queue waiting.
+    an answer rather than a task id to poll.
+
+    **That used to be a guess about scale, and is now a measurement.** This docstring said a
+    very large ground truth would change the calculus; measuring it
+    (`tests/benchmarks/test_comparison_scale.py`) found the worry aimed at the wrong
+    dimension. Frames are free -- 100,000 of them score in 4.6 seconds, linear -- and the
+    cost was in *objects per frame*, where the matcher was quadratic. With the bounding-box
+    rejection in `services/comparison.py` the worst realistic case, 200,000 shapes a side
+    over 10,000 frames, finishes in 4.4 seconds, so there is nothing here a queue would
+    improve.
     """
     scope.authorize(Action.REVIEW, ResourceType.JOB)
     report = await quality_service.build_report(

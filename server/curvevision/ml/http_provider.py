@@ -7,6 +7,7 @@ The contract, deliberately small enough to implement in a 30-line FastAPI script
     {
       "model": "yolo-v8n",
       "confidence_threshold": 0.5,
+      "classes": ["forklift", "pallet"],
       "prompts": {...},
       "options": {...},
       "frames": [
@@ -14,6 +15,11 @@ The contract, deliberately small enough to implement in a 30-line FastAPI script
          "image": "<base64>", "content_type": "image/jpeg"}
       ]
     }
+
+``classes`` is what to look for, by name, for an **open-vocabulary** model -- YOLO-World,
+Grounding DINO, OWL-ViT and their like, which take the class list as text at inference time
+rather than having one baked in. A closed-vocabulary server can ignore the key; CurveVision
+will not send a non-empty one to a model that did not declare itself open-vocabulary.
 
 Response::
 
@@ -31,7 +37,10 @@ returns normalised coordinates should say so via ``"normalised": true`` on the r
 and this adapter rescales.
 
 ``GET <endpoint>/models`` optionally returns ``{"models": [...]}`` for discovery; when it
-is absent, the labels configured on the registration are used instead.
+is absent, the labels configured on the registration are used instead. A model entry may
+carry ``"open_vocabulary": true``, which is how a server says it reads ``classes``; without
+it CurveVision treats the model's ``labels`` as the whole of what it can find, and refuses
+to ask it for anything else rather than sending a prompt that would be silently dropped.
 """
 
 from __future__ import annotations
@@ -88,6 +97,7 @@ class HttpModelProvider:
                     _parse_shape_type(value) for value in entry.get("shape_types", ["rectangle"])
                 ),
                 description=entry.get("description"),
+                open_vocabulary=bool(entry.get("open_vocabulary", False)),
                 metadata=dict(entry.get("metadata", {})),
             )
             for entry in payload.get("models", [])
@@ -98,6 +108,7 @@ class HttpModelProvider:
         body = {
             "model": request.model,
             "confidence_threshold": request.confidence_threshold,
+            "classes": request.classes,
             "prompts": request.prompts,
             "options": {**config.get("options", {}), **request.options},
             "frames": [

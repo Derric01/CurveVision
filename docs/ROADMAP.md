@@ -64,7 +64,7 @@ application — and produce a real dataset with it.
 | Intelligent scissors (edge-snapping boundaries) | **Done** — live-wire, implemented directly rather than by loading a ~10 MB OpenCV build; see [ADR 0009](./adr/0009-intelligent-scissors.md) |
 | Mask brush tool | **Planned** — storage, rendering and export all exist now, the editor draws a mask pixel for pixel and picks it by its pixels rather than its bounding box, and the drawing tool is what is left. *This row used to claim export already worked. It did not: `cvat_xml` wrote a mask's two bounding corners instead of its pixels, and `segmentation_mask` — the mask format — matched no mask shape at all and exported a frame of them as background. Both are fixed and tested; the brush is what is left* |
 | Skeleton / keypoint editing UI | **Done** — a tool that places a label's declared joints in order, skips the ones nobody can see rather than dropping them, and draws the bones. Verified end to end in a browser, through to the exported `yolo_pose` rows |
-| Ground-truth quality reports | **Done** — a task can hold a ground-truth job; scoring an annotation job against it gives precision/recall/F1 per label plus classified conflicts (missing, extra, wrong label, poor overlap), and the editor shows the report beside the frames, where clicking a conflict seeks to it. A report records which version of the job it scored, so a stale one is marked stale rather than read as current. The comparison still runs inline rather than as a background job, and a ground-truth job is created from the task page, which also shows each job's latest F1 and marks a stale one |
+| Ground-truth quality reports | **Done** — a task can hold a ground-truth job; scoring an annotation job against it gives precision/recall/F1 per label plus classified conflicts (missing, extra, wrong label, poor overlap), and the editor shows the report beside the frames, where clicking a conflict seeks to it. A report records which version of the job it scored, so a stale one is marked stale rather than read as current. The comparison runs inline, and stays inline deliberately: Measured rather than assumed: 200,000 shapes a side over 10,000 frames of 20 objects each score in **4.4 seconds**, and 100,000 frames of two objects in 4.6 — see `tests/benchmarks/test_comparison_scale.py`. A ground-truth job is created from the task page, which also shows each job's latest F1 and marks a stale one |
 | Resumable uploads | *Planned* — the storage model exists; there are no endpoints yet |
 
 **Beta's criteria are met.** Video annotation, the track timeline and webhook retries are
@@ -169,8 +169,10 @@ deciding whether to adopt this needs them more than they need the roadmap.
   done yet.
 * **No consensus or honeypot quality workflows.** Quality starts and ends with ground-truth
   comparison: one answer key per task, scored per job. Consensus scoring, honeypot frames and
-  automatic reviewer assignment are under *Future*. Scoring also runs inline rather than as a
-  background job, which a very large ground truth would change.
+  automatic reviewer assignment are under *Future*. Scoring runs inline and stays there: it
+  was measured rather than guessed at, and the worst realistic ground truth finishes in a few
+  seconds. The unused `quality` queue would have hidden the real cost, which was a quadratic
+  matcher, not the request path.
 * **No signed installers.** The desktop app builds and runs from source; `.dmg`, `.msi` and
   `.AppImage` need one CI runner per platform and are not built yet.
 * **Young.** This has not been through years of production use across many organisations.

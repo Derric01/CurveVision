@@ -11,6 +11,7 @@ from __future__ import annotations
 import uuid
 from typing import Any
 
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from curvevision.core.config import Settings
@@ -19,6 +20,7 @@ from curvevision.domain.annotation import Shape, Tag
 from curvevision.domain.enums import SHAPE_MIN_POINTS, AnnotationSource, ShapeType
 from curvevision.domain.identity import User
 from curvevision.domain.media import MediaBlob
+from curvevision.domain.project import Label
 from curvevision.domain.system import ModelRegistration
 from curvevision.domain.task import Job, Task
 from curvevision.ml import (
@@ -70,6 +72,74 @@ async def collect_frames(
     return collected
 
 
+async def project_label_names(session: AsyncSession, project_id: uuid.UUID) -> list[str]:
+    """The project's own label names, in schema order, for an open-vocabulary fallback.
+
+    Top-level labels only: a skeleton's joints are parts of an object, not objects to go
+    looking for, and asking a detector for "left wrist" would return nonsense boxes that
+    then have nowhere sensible to land.
+    """
+    rows = await session.execute(
+        select(Label.name)
+        .where(Label.project_id == project_id, Label.parent_id.is_(None))
+        .order_by(Label.position, Label.name)
+    )
+    return [str(name) for name in rows.scalars().all()]
+
+
+def resolve_classes(
+    requested: list[str],
+    *,
+    open_vocabulary: bool,
+    project_labels: list[str],
+    model_labels: list[str],
+    model_name: str,
+) -> list[str]:
+    """What to ask the model to look for.
+
+    Three cases, and the difference between them is the whole point of the flag:
+
+    * **A closed-vocabulary model asked for classes.** Refused. The model has a fixed head
+      and cannot look for anything else; sending the names anyway would be dropped by the
+      server and the caller would see an empty result with no idea why. An error naming
+      what the model *can* find is the only outcome that leads anywhere.
+    * **An open-vocabulary model with nothing requested.** Falls back to the project's own
+      label names. A project that has declared `forklift` and `pallet` has already said what
+      it cares about, and making somebody retype it is friction for nothing. Sending no
+      classes at all would return nothing, which reads as a broken model.
+    * **Anything else** is taken as given.
+    """
+    cleaned = [name.strip() for name in requested if name and name.strip()]
+    if not open_vocabulary:
+        if cleaned:
+            known = ", ".join(model_labels) if model_labels else "nothing it has declared"
+            raise ValidationError(
+                f"{model_name} has a fixed label space and cannot be asked for "
+                f"{cleaned[:5]}. It detects: {known}. Register an open-vocabulary model "
+                "(YOLO-World, Grounding DINO, OWL-ViT) to search for arbitrary classes."
+            )
+        return []
+
+    if cleaned:
+        # Duplicates cost the model work and return duplicate boxes; order is kept because
+        # some servers weight the first prompt more heavily.
+        seen: set[str] = set()
+        unique: list[str] = []
+        for name in cleaned:
+            key = name.casefold()
+            if key not in seen:
+                seen.add(key)
+                unique.append(name)
+        return unique
+
+    if project_labels:
+        return list(project_labels)
+    raise ValidationError(
+        f"{model_name} takes the classes to look for as text, and neither this request nor "
+        "the project's label schema names any. Add labels to the project, or pass `classes`."
+    )
+
+
 async def run_inference(
     session: AsyncSession,
     settings: Settings,
@@ -81,6 +151,8 @@ async def run_inference(
     frames: list[int],
     confidence_threshold: float,
     prompts: dict[str, Any],
+    classes: list[str] | None = None,
+    project_labels: list[str] | None = None,
 ) -> InferenceResult:
     if not frames:
         frames = list(range(job.start_frame, job.stop_frame + 1))
@@ -99,6 +171,13 @@ async def run_inference(
         model=str(model.config.get("model", model.slug)),
         frames=inference_frames,
         confidence_threshold=confidence_threshold,
+        classes=resolve_classes(
+            list(classes or []),
+            open_vocabulary=bool(model.open_vocabulary),
+            project_labels=list(project_labels or []),
+            model_labels=list(model.output_labels or []),
+            model_name=model.name or model.slug,
+        ),
         prompts=prompts,
         options=dict(model.config.get("options", {})),
     )

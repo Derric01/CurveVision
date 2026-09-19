@@ -142,6 +142,14 @@ class ModelRegistration(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     config: Mapped[dict[str, Any]] = mapped_column(JSONDocument, default=dict, nullable=False)
     #: Labels the model emits, used to build the model-label -> project-label mapping UI.
     output_labels: Mapped[list[str]] = mapped_column(JSONDocument, default=list, nullable=False)
+    #: The model takes the classes to look for as text, at inference time.
+    #:
+    #: A first-class column rather than a key in `config`, which is documented as provider
+    #: *connection* settings -- endpoint, headers, timeouts. Whether a model has a fixed
+    #: label space is a property of the model, not of how CurveVision reaches it, and it
+    #: sits next to `output_labels` because the two describe the same thing from opposite
+    #: ends: what a closed model can find, and that an open one has no such boundary.
+    open_vocabulary: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
 
 

@@ -536,9 +536,21 @@ Planned: LabelMe, Open Images, TFRecord, Datumaro bridge.
   Geometry is exact rather than bbox-approximate: polygons are clipped
   (Sutherland–Hodgman) and measured by the shoelace formula, and matching is greedy on
   descending IoU, which is COCO's rule. The task page creates the ground-truth job and
-  shows each job's latest F1; the editor shows the report. What is not built: running the
-  comparison as a background job — it runs inline, which a very large ground truth would
-  change.
+  shows each job's latest F1; the editor shows the report.
+
+  **It runs inline, and that is now a measured decision rather than an assumption.** This
+  plan said for several iterations that a very large ground truth would force the comparison
+  onto the unused `quality` queue. Measuring it
+  (`tests/benchmarks/test_comparison_scale.py`) showed the worry was aimed at the wrong
+  dimension: frames are free — 100,000 of them with two objects each score in 4.6 seconds,
+  perfectly linear — while *objects per frame* was quadratic, because the matcher ran a full
+  polygon clip for every (annotated, truth) pair on a frame, including the overwhelming
+  majority nowhere near each other. Two hundred objects a side over a hundred frames took
+  **34 seconds**. An exact axis-aligned bounding-box rejection ahead of the clip took the
+  same case to **0.7 seconds**, and the busy-street case — 200,000 shapes a side over 10,000
+  frames — from 37 seconds to 4.4. Throughput is now roughly flat at ~40,000 shapes/s
+  whatever the crowding, so the request path is comfortable and a queue would only have
+  hidden the quadratic.
 
 ---
 
