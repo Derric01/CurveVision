@@ -383,6 +383,46 @@ POST /api/v1/models?organization_id={id}
 }
 ```
 
+### Fixed-head and open-vocabulary models
+
+A detector trained on a fixed set of classes can only find those, and `output_labels` is the
+whole of it. **Open-vocabulary** detectors — YOLO-World, Grounding DINO, OWL-ViT — take the
+class names as *text at inference time* instead, so they can find "forklift" without anybody
+training a forklift detector. Say so when you register one:
+
+```http
+POST /api/v1/models?organization_id={id}
+{
+  "slug": "yolo-world",
+  "name": "YOLO-World",
+  "kind": "detector",
+  "provider": "http",
+  "config": { "endpoint": "http://my-inference:9000/infer" },
+  "output_labels": ["person", "car"],
+  "open_vocabulary": true
+}
+```
+
+For such a model `output_labels` is a **default, not a boundary**. The flag defaults to
+`false`, which is the safe reading: a prompt sent to a fixed-head server is dropped without
+comment.
+
+The two kinds fail in opposite directions, so CurveVision treats them differently rather
+than passing everything through:
+
+| | fixed head | open vocabulary |
+| --- | --- | --- |
+| `classes` requested | **422**, naming what the model *can* find | sent as given |
+| no `classes` requested | `classes: []` | falls back to **the project's own label names** |
+
+That fallback is the everyday path: a project that has declared `forklift` and `pallet` has
+already said what it is looking for, so *auto-annotate this job* needs no extra input. An
+open-vocabulary model with neither requested classes nor a project schema is a 422 too —
+asking such a model for nothing returns nothing, which reads as a broken model.
+
+Joints of a skeleton label are excluded from that fallback: "left wrist" is part of an
+object, not an object to go looking for.
+
 ### The inference contract
 
 Any service implementing this works — Triton, TorchServe, BentoML, Ray Serve, a hosted
@@ -390,14 +430,19 @@ vendor, or a script. **Request:**
 
 ```json
 {
-  "model": "yolo-v8n",
+  "model": "yolo-world",
   "confidence_threshold": 0.5,
+  "classes": ["forklift", "pallet", "hi-vis vest"],
   "frames": [
     { "frame": 0, "width": 1920, "height": 1080,
       "content_type": "image/jpeg", "image": "<base64>" }
   ]
 }
 ```
+
+`classes` is empty for a fixed-head model, and a server that does not read open-vocabulary
+prompts can ignore the key entirely. `GET <endpoint>/models` may advertise
+`"open_vocabulary": true` per model for discovery.
 
 **Response:**
 

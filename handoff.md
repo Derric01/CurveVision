@@ -5,7 +5,7 @@
 > [`AGENTS.md`](./AGENTS.md) first; it is the working contract. Update this file after every
 > iteration, including the ones that mostly failed.
 >
-> **Last updated:** 2026-09-15 (iteration 32) · branch `claude/curvevision-platform-build-n1g71n` · PRs [#1](https://github.com/Derric01/CurveVision/pull/1)–[#15](https://github.com/Derric01/CurveVision/pull/15) **all merged**. [#14](https://github.com/Derric01/CurveVision/pull/14) carried iterations 27–29 (the Node 20 bump, the provisional frame count, the skeleton tool); [#15](https://github.com/Derric01/CurveVision/pull/15) carried 30–31 (the two mask iterations). The branch was restarted from `main` after each merge — a merged PR cannot track new work, so follow-up commits belong on a branch rebased onto the default, never stacked on merged history. Iteration 32 is unmerged on the branch with no PR open yet.
+> **Last updated:** 2026-09-15 (iteration 33) · branch `claude/curvevision-platform-build-n1g71n` · PRs [#1](https://github.com/Derric01/CurveVision/pull/1)–[#15](https://github.com/Derric01/CurveVision/pull/15) **all merged**. [#14](https://github.com/Derric01/CurveVision/pull/14) carried iterations 27–29 (the Node 20 bump, the provisional frame count, the skeleton tool); [#15](https://github.com/Derric01/CurveVision/pull/15) carried 30–31 (the two mask iterations). The branch was restarted from `main` after each merge — a merged PR cannot track new work, so follow-up commits belong on a branch rebased onto the default, never stacked on merged history. Iterations 32–33 are unmerged on the branch with no PR open yet.
 
 ---
 
@@ -30,6 +30,12 @@ nightly and on every push to `main`.
 estimate; where it cannot be replaced by a decoded one — the task already carries annotations,
 or the file is truncated or undecodable — the task page says so, names the file, and offers to
 recount. That matters because an overstated count offers frames that do not exist.
+
+**A model can be asked to find things by name.** The inference contract assumed every model
+has a fixed label space, so there was no way to say *find forklifts* unless somebody had
+trained a forklift detector. A registration now declares `open_vocabulary`, a run carries
+`classes`, and an open-vocabulary run with none falls back to the project's own label
+schema — a project that declared `forklift` and `pallet` has already said what it wants.
 
 **Scoring a job against a ground truth is fast, and that is measured.** This file said for
 several iterations that the comparison should move to the unused `quality` queue because a
@@ -106,7 +112,20 @@ was the last unconnected piece of the desktop application.
 
 ## Next best action
 
-**The mask brush.** Everything around it is now in place — the encoding is stated on
+**A reference open-vocabulary model server, in its own repository.** The contract can now
+express *find these classes*, and nothing exists to point it at — which is the onboarding
+cost ADR 0005 accepted and explicitly planned to mitigate with "documented reference
+implementations… as separate repositories rather than bundled weights". YOLO-World is
+**GPL-v3** (AILab-CVC, on MMDetection/MMYOLO; Ultralytics' own build is AGPL-3.0), so it
+must stay outside this repository — which is exactly what ADR 0005 already decided, and no
+part of it needs revisiting. A FastAPI wrapper speaking the documented contract is perhaps a
+day's work; it needs the user's go-ahead because it is a new repository.
+
+**Then: an auto-annotate surface in the editor.** Nothing in the UI calls the inference
+endpoint at all. With the fallback above, the minimum useful surface is a button and an
+optional class box — the project schema supplies the rest.
+
+**Then: the mask brush.** Everything around it is now in place — the encoding is stated on
 both sides and pinned by a shared fixture, two formats carry a mask, and the editor draws one
 pixel for pixel and picks it by its pixels. `canvas/mask.ts` already exports `encodeRle`,
 which is what a brush commits with, and the scissors tool already reads frame pixels through
@@ -340,18 +359,82 @@ being updated and this one was not. Check it against* Completed *before trusting
 
 ## Remaining high-priority work
 
-1. **Mask brush.** Everything around it is done: the encoding is written down on both
+1. **No model ships, so auto-annotate cannot be tried.** ADR 0005 accepted this
+   deliberately ("No out-of-the-box models… a genuine onboarding cost") and planned
+   reference servers in separate repositories. The contract is now ready for one.
+2. **Nothing in the editor calls the inference endpoint.** The API and the contract exist;
+   the UI has no auto-annotate affordance at all.
+3. **Mask brush.** Everything around it is done: the encoding is written down on both
    sides, two formats carry a mask, and the editor draws and picks one. `canvas/mask.ts`
    already exports `encodeRle`, which is what a brush commits with.
-2. **`choose_files` is still unused.** The shell can open a native *file* picker as well as a
+4. **`choose_files` is still unused.** The shell can open a native *file* picker as well as a
    folder one, and `/tasks/{id}/local-import` accepts a file path. Connecting it is small, and
    deliberately left until someone wants it — the folder case is the one that matters.
-3. **Signed installers in CI** — *blocked outside the repository*: one runner per platform
+5. **Signed installers in CI** — *blocked outside the repository*: one runner per platform
    (PyInstaller does not cross-compile) and signing certificates the project does not have.
 
 ---
 
 ## Last iteration
+
+### 33 — a model can be asked to find things by name
+
+Prompted by a direct question: *"if we wanna detect whatever is there in a given image we
+need to use yolo world internally and google cv models right?"* The category was right, and
+looking for the blocker found one in the contract rather than in the model choice.
+
+`ml/base.py` documented `ModelDescriptor.labels` as *"the model's own label space"* — a
+closed-vocabulary assumption — and `InferenceRequest.prompts` was specified for interactive
+geometry: *"click points, a box, a previous mask."* So **there was no way to say "detect:
+forklift, pallet, hi-vis vest"**. Open-vocabulary detectors — YOLO-World, Grounding DINO,
+OWL-ViT — take the class names as text at inference time and are exactly what "detect
+whatever is there" needs, and the contract could not express them.
+
+**The two kinds fail in opposite directions, which is why the difference is declared rather
+than guessed.** Sending classes to a fixed-head model does nothing: the server drops the
+key, the caller gets an ordinary empty result, and nothing says why. Sending none to an
+open-vocabulary model returns nothing at all, which reads as a broken model rather than an
+empty prompt. So:
+
+| | fixed head | open vocabulary |
+| --- | --- | --- |
+| `classes` requested | **422**, naming what the model *can* find | sent as given |
+| no `classes` requested | `classes: []` | falls back to **the project's own label names** |
+
+That fallback is the product decision worth keeping. A project that has declared `forklift`
+and `pallet` has already said what it is looking for, so *auto-annotate this job* needs no
+extra input at all. Skeleton joints are excluded from it: "left wrist" is part of an object,
+not an object to go looking for.
+
+`open_vocabulary` is a **first-class column** with a migration, not a key in `config` —
+`config` is documented as provider *connection* settings (endpoint, headers, timeouts), and
+whether a model has a fixed label space is a property of the model. It sits next to
+`output_labels` because the two describe the same thing from opposite ends. It defaults to
+false, which is the safe reading for every model registered before it existed.
+
+Five tests were confirmed to bite by ignoring the flag and watching the refusals disappear.
+
+**On Google Cloud Vision, since it was asked about in the same breath.** It can be an option
+an operator opts into — the HTTP contract already allows it with zero core changes — but it
+must never be a default. README line 10 is *"your images never leave your infrastructure"*
+and line 66 *"no phone-home, no telemetry"*; a cloud provider that silently became the
+default would make the product's headline claim false. If one is ever wired up, the UI has
+to say plainly that the chosen model ships images off the machine.
+
+**What is still missing, and it is the thing a user would notice first:** nothing ships to
+point this at. ADR 0005 accepted that deliberately and planned the mitigation — reference
+implementations as *separate repositories rather than bundled weights*. YOLO-World is
+**GPL-v3** (AILab-CVC, built on MMDetection/MMYOLO — not Ultralytics, whose own build is
+AGPL-3.0), verified from the project's own README rather than assumed. That copyleft is
+precisely what ADR 0005 exists to keep out of the MIT core, and its separate-repository
+answer handles it without revisiting anything.
+
+Verified: `./scripts/check.sh` green — 515 server tests (18 new), 13 SDK, 424 web; the
+migration applied, rolled back and re-applied against a real SQLite database with a
+pre-existing model registration in it, which came back `open_vocabulary = 0`.
+
+
+## Iteration 32
 
 ### 32 — the comparison did not need a queue; it needed a bounding box
 

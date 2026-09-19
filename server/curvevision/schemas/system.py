@@ -184,6 +184,9 @@ class ModelRegistrationCreate(StrictModel):
     kind: ModelKind
     config: dict[str, Any] = Field(default_factory=dict)
     output_labels: list[str] = Field(default_factory=list)
+    #: True for a model that takes its classes as text -- YOLO-World, Grounding DINO,
+    #: OWL-ViT. `output_labels` is then a default rather than the limit.
+    open_vocabulary: bool = False
 
 
 class ModelRegistrationUpdate(StrictModel):
@@ -191,6 +194,7 @@ class ModelRegistrationUpdate(StrictModel):
     description: str | None = None
     config: dict[str, Any] | None = None
     output_labels: list[str] | None = None
+    open_vocabulary: bool | None = None
     is_active: bool | None = None
 
 
@@ -203,6 +207,7 @@ class ModelRegistrationOut(ORMModel):
     provider: str
     kind: ModelKind
     output_labels: list[str]
+    open_vocabulary: bool = False
     is_active: bool
     created_at: datetime
 
@@ -215,6 +220,13 @@ class InferenceRunRequest(StrictModel):
     #: Maps a model output label to a project label id. Unmapped outputs are dropped.
     label_mapping: dict[str, uuid.UUID] = Field(default_factory=dict)
     confidence_threshold: float = Field(default=0.5, ge=0.0, le=1.0)
+    #: What to look for, by name, for an open-vocabulary model.
+    #:
+    #: Left empty, an open-vocabulary run falls back to the project's own label names — a
+    #: project that declared `forklift` and `pallet` has already said what it cares about.
+    #: Passing these to a model with a fixed label space is refused rather than ignored,
+    #: because a silently dropped prompt returns nothing and looks like a broken model.
+    classes: list[str] = Field(default_factory=list, max_length=200)
     #: Write predictions straight into the job as `source="model"` suggestions.
     persist: bool = True
     #: Interactive segmentation prompts, for `interactor` models.

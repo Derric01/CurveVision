@@ -96,6 +96,7 @@ async def register_model(
         kind=payload.kind,
         config=payload.config,
         output_labels=payload.output_labels,
+        open_vocabulary=payload.open_vocabulary,
     )
     session.add(model)
     await session.commit()
@@ -120,7 +121,7 @@ async def update_model(
     elif not identity.principal.is_superuser:
         raise NotFoundError("Model not found")
 
-    for field in ("name", "description", "config", "output_labels", "is_active"):
+    for field in ("name", "description", "config", "output_labels", "open_vocabulary", "is_active"):
         value = getattr(payload, field)
         if value is not None:
             setattr(model, field, value)
@@ -175,6 +176,11 @@ async def run_inference(
         frames=payload.frames,
         confidence_threshold=payload.confidence_threshold,
         prompts=payload.prompts,
+        classes=payload.classes,
+        # The project's schema is the fallback vocabulary. Somebody who has declared
+        # `forklift` and `pallet` has already said what they are looking for, and an
+        # open-vocabulary run that made them retype it would be friction for nothing.
+        project_labels=await inference_service.project_label_names(session, scope.project.id),
     )
 
     if not payload.persist:
