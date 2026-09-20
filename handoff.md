@@ -5,7 +5,7 @@
 > [`AGENTS.md`](./AGENTS.md) first; it is the working contract. Update this file after every
 > iteration, including the ones that mostly failed.
 >
-> **Last updated:** 2026-09-19 (iteration 35) · branch `claude/curvevision-platform-build-n1g71n` · PRs [#1](https://github.com/Derric01/CurveVision/pull/1)–[#16](https://github.com/Derric01/CurveVision/pull/16) **all merged**. [#14](https://github.com/Derric01/CurveVision/pull/14) carried iterations 27–29 (the Node 20 bump, the provisional frame count, the skeleton tool); [#15](https://github.com/Derric01/CurveVision/pull/15) carried 30–31 (the two mask iterations); [#16](https://github.com/Derric01/CurveVision/pull/16) carried 32–33 (the comparison bounding box, open vocabulary). The branch was restarted from `main` after each merge — a merged PR cannot track new work, so follow-up commits belong on a branch rebased onto the default, never stacked on merged history. Iterations 34–35 are unmerged on the branch with no PR open yet.
+> **Last updated:** 2026-09-20 (iteration 36) · branch `claude/curvevision-platform-build-n1g71n` · PRs [#1](https://github.com/Derric01/CurveVision/pull/1)–[#16](https://github.com/Derric01/CurveVision/pull/16) **all merged**, [#17](https://github.com/Derric01/CurveVision/pull/17) **open** (iterations 34–35). [#14](https://github.com/Derric01/CurveVision/pull/14) carried iterations 27–29 (the Node 20 bump, the provisional frame count, the skeleton tool); [#15](https://github.com/Derric01/CurveVision/pull/15) carried 30–31 (the two mask iterations); [#16](https://github.com/Derric01/CurveVision/pull/16) carried 32–33 (the comparison bounding box, open vocabulary). The branch was restarted from `main` after each merge — a merged PR cannot track new work, so follow-up commits belong on a branch rebased onto the default, never stacked on merged history. Iteration 36 is unmerged with no PR open yet, on top of the unmerged #17 commits.
 
 ---
 
@@ -23,13 +23,24 @@ The desktop shape works: a packaged single-executable server, a Tauri shell that
 it, and folders annotated in place without copying a byte.
 
 **The tree is green.** `./scripts/check.sh` passes all nine steps: 515 server tests, 13 SDK,
-480 web. Twelve browser harnesses drive the packaged desktop application in a real Chromium,
+484 web. Thirteen browser harnesses drive the packaged desktop application in a real Chromium,
 nightly and on every push to `main`.
 
 **A number the platform is not sure about says so.** A video task's frame count starts as an
 estimate; where it cannot be replaced by a decoded one — the task already carries annotations,
 or the file is truncated or undecodable — the task page says so, names the file, and offers to
 recount. That matters because an overstated count offers frames that do not exist.
+
+**A shape drawn on any frame but a job's first now lands on the frame it was drawn on.**
+It did not before: `AnnotationEngine` had no concept of "current frame", every tool stamped a
+new shape's `frame` with a hardcoded placeholder of `0`, and nothing corrected it. The failure
+was silent — no error, no warning, the shape was simply gone the next time that frame was
+opened — and every browser harness before this one used a single-frame task, the one case
+where frame 0 is also the only frame. Fixed centrally in `AnnotationEngine.applyResult`
+(`setFrame`, called from `AnnotationCanvas`), which is what makes it fix every drawing tool
+at once rather than one at a time. Confirmed with a live browser probe before the fix and
+after it, and pinned by a new unit test and a new browser harness that draws with two
+different tools on two different frames and reads the result back over a full page reload.
 
 **What a model proposes can be accepted or rejected.** Accepting keeps the annotation and
 keeps `source="model"` — the dataset still records that a machine drew it and a human agreed
@@ -397,6 +408,73 @@ being updated and this one was not. Check it against* Completed *before trusting
 ---
 
 ## Last iteration
+
+### 36 — every drawing tool silently saved a new shape to frame 0
+
+Found while orienting for the mask brush, before writing a line of brush code: `AnnotationEngine`
+has no notion of "current frame" at all. `Scene` holds whatever `setAnnotations` last loaded
+— which the caller has already filtered to one frame — but every tool builds its draft
+through `draftAnnotation`, which sets `frame: 0` as a placeholder, and nothing corrected it.
+
+**Confirmed with a live browser probe before touching anything**, per the project's own
+rule of measuring before building: seed a 3-frame task, navigate to frame 2, draw a
+rectangle with Playwright, save, read the annotation back over the API. It came back stored
+at frame 0. No error, no warning — the shape was simply not there the next time frame 2 was
+opened. Every browser harness written before this one used a single-frame task, which is the
+one case where frame 0 is also the *only* frame, so nothing could have caught it, and this
+almost certainly means **every shape ever drawn on a non-first frame of a multi-frame job in
+this product's history landed on the wrong frame.**
+
+The fix is centralised rather than per-tool, on purpose: `AnnotationEngine.applyResult` is
+the one place every tool's `created` result already passes through, so a `setFrame(frame)`
+method plus one line there fixes rectangle, polygon, polyline, ellipse, points, scissors and
+skeleton at once, with no tool needing to know what frame it is on. `AnnotationCanvas` calls
+`setFrame` whenever `currentFrame` changes, in its own effect next to the existing
+`setAnnotations` one — two different calls for two different things, which is exactly the gap
+that let this happen: loading the right frame's *existing* shapes was always correct, and
+telling the engine which frame a *new* one belongs to had no path at all.
+
+**Testing this needed a first**: `AnnotationEngine` has never had a unit test, because it
+schedules its repaint through `requestAnimationFrame`, which plain Node does not define, and
+painting needs a 2D context this environment has no DOM to produce. Neither turns out to be
+necessary: `applyResult` runs synchronously inside `pointerUp`, before any repaint is
+scheduled, so `engine.test.ts` stubs `requestAnimationFrame` with a callback that is recorded
+and never invoked — nothing ever reaches the fake layer contexts, which is what lets them be
+empty objects. Four tests, one of which stamps two different frames across two draws and
+checks the created events differ, specifically to catch a fix that stamps every new shape
+with the same wrong constant instead of reading the real current frame.
+
+Also added `scripts/verify_shape_frame.py`, since the unit test proves the logic but not the
+wiring — that `AnnotationCanvas` actually calls `setFrame`, that the value survives a save and
+a full page reload, and that it is not a constant that happens to match one test's number.
+Draws with **two different tools** (rectangle and ellipse) on two different non-zero frames,
+because the fix lives in one shared place specifically so it would not need to be added
+per-tool, and a fix that only patched `RectangleTool` should not be able to pass this.
+
+**A harness-design lesson, recorded because it wasted the most time this iteration.** The
+harness's first version checked the on-screen object count immediately after drawing and
+failed on a passing build. The object list is deliberately *not* optimistic — it renders
+`annotations.data`, the React Query cache, which only changes once a write round-trips and
+the query is invalidated; drawing alone does not touch it. The fix was not to weaken the
+check but to make the harness match the product: click the existing manual "Save" button and
+wait for the round trip, rather than either trusting the 4-second periodic autosave or
+asserting against a value the UI was never designed to update immediately.
+
+**And a repeat of last iteration's exact mistake, this time on purpose, to get past it
+correctly.** Reverting the engine fix to confirm the harness bites left `currentFrame`
+write-only, which `tsc` correctly flagged — and a failed `tsc` means `vite build` never runs,
+so a stale (fixed) `dist` would have been embedded in the sidecar, and the harness would have
+"passed" against code it was not actually testing, exactly as the mask-review harness did in
+iteration 35. Checked the build's exit status this time before trusting the run: added a
+throwaway getter that reads `currentFrame` so the revert compiles, confirmed `tsc` succeeded,
+*then* ran the harness — which failed with both shapes on frame 0, as expected. Removed the
+getter and restored the real fix afterward.
+
+Verified: `./scripts/check.sh` green — 515 server tests, 13 SDK, 484 web (4 new); thirteen
+browser harnesses, the new one included, all passing against the packaged application.
+
+
+## Iteration 35
 
 ### 35 — accepting a suggestion used to change nothing anybody could see
 

@@ -22,6 +22,8 @@ interface Props {
   imageUrl: string | null;
   activeLabelId: string | null;
   tool: ToolName;
+  /** The frame being viewed, so a newly drawn shape is stamped with it rather than 0. */
+  currentFrame: number;
   onChange: (change: AnnotationChange) => void;
   onSelectionChange: (ids: string[]) => void;
   onViewportChange?: (scale: number) => void;
@@ -41,6 +43,7 @@ export const AnnotationCanvas = forwardRef<CanvasHandle, Props>(function Annotat
     imageUrl,
     activeLabelId,
     tool,
+    currentFrame,
     onChange,
     onSelectionChange,
     onViewportChange,
@@ -174,6 +177,13 @@ export const AnnotationCanvas = forwardRef<CanvasHandle, Props>(function Annotat
   useEffect(() => {
     engineRef.current?.setAnnotations(annotations);
   }, [annotations]);
+
+  // The engine has no other way to know which frame a newly drawn shape belongs to --
+  // `annotations` is already filtered to one frame by the time it arrives here, but a
+  // *new* shape starts with a placeholder frame that only this tells it how to correct.
+  useEffect(() => {
+    engineRef.current?.setFrame(currentFrame);
+  }, [currentFrame]);
 
   useEffect(() => {
     engineRef.current?.setActiveLabel(activeLabelId);

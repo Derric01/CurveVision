@@ -52,6 +52,20 @@ export class AnnotationEngine {
 
   private viewportState: ViewportState = createViewport();
   private media: SceneMedia = { width: 0, height: 0, image: null };
+  /**
+   * The frame number newly created shapes are stamped with.
+   *
+   * The engine otherwise has no notion of "frame" at all -- `Scene` holds whatever
+   * `setAnnotations` last loaded, which the caller has already filtered to one frame, and
+   * every tool builds its draft through `draftAnnotation`, which sets `frame: 0` as a
+   * placeholder. Without this, drawing anything on any frame but a job's first silently
+   * saved it to frame 0 instead: the shape did not error, did not warn, and simply was not
+   * there the next time that frame was viewed. `setFrame` is how `AnnotationCanvas` tells
+   * the engine which frame that placeholder should become, and `applyResult` is the one
+   * place every tool's `created` result passes through, so the correction lives once
+   * rather than once per tool.
+   */
+  private currentFrame = 0;
   /** Frame pixels, rasterised lazily for tools that read the image. See `frameImageData`. */
   private cachedImageData: ImageData | null = null;
   private cachedImageDataSource: CanvasImageSource | null = null;
@@ -117,6 +131,11 @@ export class AnnotationEngine {
     this.scene.load(annotations);
     this.commands.clear();
     this.invalidate('shapes', 'overlay');
+  }
+
+  /** Which frame a shape drawn from now on belongs to. See `currentFrame`. */
+  setFrame(frame: number): void {
+    this.currentFrame = frame;
   }
 
   setLabels(labels: readonly LabelStyle[]): void {
@@ -498,11 +517,15 @@ export class AnnotationEngine {
 
   private applyResult(result: ReturnType<Tool['onPointerDown']>): void {
     if (result.created) {
-      this.commands.execute(createAddCommand(this.commandTarget(), result.created));
-      this.scene.select([result.created.id]);
-      this.listeners.created?.(result.created);
+      // Every tool builds its draft with `frame: 0` as a placeholder (see `currentFrame`);
+      // this is the one place that placeholder becomes the frame actually being viewed,
+      // so no tool has to know the current frame to get this right.
+      const created = { ...result.created, frame: this.currentFrame };
+      this.commands.execute(createAddCommand(this.commandTarget(), created));
+      this.scene.select([created.id]);
+      this.listeners.created?.(created);
       this.listeners.annotationsChanged?.({
-        created: [result.created],
+        created: [created],
         updated: [],
         deletedIds: [],
       });

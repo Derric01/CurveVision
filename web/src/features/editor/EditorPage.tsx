@@ -394,6 +394,7 @@ export function EditorPage() {
             imageUrl={imageUrl}
             activeLabelId={activeLabelId}
             tool={tool}
+            currentFrame={currentFrame}
             onChange={handleChange}
             onSelectionChange={setSelection}
             onViewportChange={setZoom}
