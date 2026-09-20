@@ -78,7 +78,8 @@ def main() -> int:
         path = OUT / f"{name}.jpg"
         image.save(path, format="JPEG", quality=92, optimize=True)
         rows.append((name, image.size, licence, credit, purpose))
-        print(f"  {path.relative_to(OUT.parents[2])}  {image.size}  {path.stat().st_size // 1024} KB")
+        size_kb = path.stat().st_size // 1024
+        print(f"  {path.relative_to(OUT.parents[2])}  {image.size}  {size_kb} KB")
 
     credits = [
         "# Sample photographs",
@@ -96,7 +97,9 @@ def main() -> int:
         "| --- | --- | --- | --- |",
     ]
     for name, size, licence, credit, _ in rows:
-        credits.append(f"| `{name}.jpg` | {size[0]}×{size[1]} | {licence} | {credit} |")
+        # A real multiplication sign, not `x`: this is prose in a generated Markdown table.
+        dimensions = f"{size[0]}×{size[1]}"  # noqa: RUF001
+        credits.append(f"| `{name}.jpg` | {dimensions} | {licence} | {credit} |")
     credits += [
         "",
         "## Why these",

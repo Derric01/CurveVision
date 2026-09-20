@@ -1,0 +1,9 @@
+# Not a `pyproject.toml`: this directory is a bag of standalone harness scripts, not an
+# installable package, so a bare ruff config is what's actually true about it. Mirrors
+# server/pyproject.toml's and sdk/python/pyproject.toml's [tool.ruff] sections -- same
+# style, minus ASYNC (nothing here is async).
+line-length = 100
+target-version = "py311"
+
+[lint]
+select = ["E", "F", "I", "UP", "B", "C4", "SIM", "RUF"]

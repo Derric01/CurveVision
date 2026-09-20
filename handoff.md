@@ -38,11 +38,11 @@ shapes (detection/segmentation, OBB, pose, classification), each declaring in it
 The desktop shape works: a packaged single-executable server, a Tauri shell that supervises
 it, and folders annotated in place without copying a byte.
 
-**The tree is green.** `./scripts/check.sh` passes all eleven steps (it gained ruff and mypy
-for the SDK this iteration, closing a gap where CI checked the SDK's typing and lint and the
-local script silently did not): 525 server tests, 15 SDK, 564 web. Eighteen browser
-harnesses drive the packaged desktop application in a real Chromium, nightly and on every
-push to `main`.
+**The tree is green.** `./scripts/check.sh` passes all twelve steps (this session added ruff
+and mypy for the SDK, and ruff for `scripts/`, closing gaps where CI checked things the local
+script silently did not): 525 server tests, 15 SDK, 564 web, and `scripts/` itself is now
+lint-clean under its own `ruff.toml`. Eighteen browser harnesses drive the packaged desktop
+application in a real Chromium, nightly and on every push to `main`.
 
 **A large file can now be uploaded a chunk at a time, and resumed if the connection drops.**
 The `UploadSession` model, its schemas and `Storage.append` had existed since early in the
@@ -221,20 +221,9 @@ was the last unconnected piece of the desktop application.
 
 ## Next best action
 
-**Lint `scripts/`.** Found while adding this session's own new harness, not fixed: `ruff
-check scripts/` reports 42 real, pre-existing issues across roughly a third of the
-directory's files — a missing executable bit, unused `noqa` comments (targeting rules that
-are not actually enabled, because nothing configures ruff for this directory), a mutable
-class default, an f-string with no placeholders. Neither `check.sh` nor either CI workflow
-lints this directory at all: `ci.yml`'s two `ruff check .` calls are scoped to `server/` and
-`sdk/python` by their own `working-directory`, and `browser.yml` never lints, only runs the
-harnesses. Nearly every issue is mechanical (`ruff check scripts/ --fix` would clear most of
-them), but the real decision — what config `scripts/` should be checked against, given there
-is no root `pyproject.toml`/`ruff.toml` tying it to `server/`'s — is worth making
-deliberately rather than accepting whatever ruff's own bundled defaults happen to flag. Small,
-self-contained, and unblocked: no user decision needed, unlike the two below.
-
-**Then, still blocked on the user, unchanged from before this iteration:**
+**Both remaining items need the user**, and nothing unblocked and in-repo turned up this
+time — the last one found (`scripts/` had no lint coverage anywhere) was fixed in the same
+session it was found; see iteration 44 below.
 
 * **A reference open-vocabulary model server, in its own repository.** The contract can
   express *find these classes*, and nothing exists to point it at — which is the onboarding
@@ -247,6 +236,14 @@ self-contained, and unblocked: no user decision needed, unlike the two below.
   no access to create.
 * **Signed installers in CI** — one runner per platform and signing certificates the project
   does not have.
+
+Past those two, the honest next candidates are all 1.0-list infrastructure with no specific
+gap pulling any one of them forward — Redis-backed rate limiting, OpenTelemetry tracing, the
+ClamAV hook, OIDC/SSO, a Helm chart, backup/restore tooling, a published TypeScript client,
+a Datumaro bridge, an external security review. Picking one without a reason beyond "it is
+on the list" is exactly the "next unchecked box" `AGENTS.md` says not to default to; a future
+session should look for a real gap the way this one found the resumable-upload docstring's
+false claim, rather than start one of these cold.
 
 *This section previously listed an auto-annotate editor surface, the mask brush, a
 ground-truth UI, dragging a keyframe along its lane, an issues panel and a browser harness
@@ -493,6 +490,78 @@ being updated and this one was not. Check it against* Completed *before trusting
 ---
 
 ## Last iteration
+
+### 44 — `scripts/` gets a real ruff config, and its 42 pre-existing issues
+
+The item this file itself named as next: iteration 43 found that `ruff check scripts/`
+reports real, pre-existing violations, and that neither `check.sh` nor either CI workflow
+lints the directory at all — `ci.yml`'s two `ruff check .` calls are scoped to `server/` and
+`sdk/python` by their own `working-directory`. Small, self-contained, unblocked, exactly the
+kind of task this session's own SDK-linting fix (iteration 42) already established a pattern
+for: find a coverage gap, close it, fix what it finds.
+
+**The config had to come before the fixes, not after, because the two interact.** Running
+`ruff check` with no config at all uses ruff's own bundled defaults, which is a different
+rule set than this project uses anywhere else — that is what made several of the existing
+`# noqa: E402`/`# noqa: ANN001`/`# noqa: N802` comments look "unused" in the first pass.
+Blindly accepting `RUF100`'s fix-it suggestion and deleting all of them would have been
+wrong: once a real config selecting `E` (which includes E402) is in place, ruff's own
+analysis says the E402 ones are still genuinely unused — this codebase's particular
+`sys.path.insert` + import pattern does not trip E402 either way — but only *after* checking
+under the real config, not before. `scripts/ruff.toml` (a bare ruff config, not a
+`pyproject.toml` — this directory is a bag of scripts, not an installable package) mirrors
+`server/pyproject.toml`'s and `sdk/python/pyproject.toml`'s `[tool.ruff]` sections:
+`select = ["E", "F", "I", "UP", "B", "C4", "SIM", "RUF"]`, no `ASYNC` since nothing here is
+async.
+
+**`ruff format` was deliberately not added, only `ruff check`.** `ruff format --check
+scripts/` reports 21 of 21 files would be reformatted — it would rewrite the hand-aligned
+`check(condition, "passed", "failed")` multi-line call style used throughout every harness
+into ruff's own one-argument-per-line convention. That style is clearly deliberate, not
+sloppy, and consistent across the whole directory; enforcing the formatter here would mean
+either living with a wholesale, unrelated reformatting of eighteen files or fighting the
+formatter with `# fmt: off` everywhere. Lint catches real issues without opinion on layout;
+format has an opinion this codebase has already, deliberately, chosen not to share.
+
+**The 42 issues, once the real config was in place, were 9 categories of a much smaller
+set than they first looked**: `RUF100` (16, unused `noqa` — safe once E402 was confirmed
+still inapplicable), `E501` (9, lines a few characters over 100 — wrapped by hand, in two
+cases by extracting a named variable that also removed real duplication:
+`verify_mask_brush.py` computed the identical RLE-area expression three times across
+`first_area`/`grown_area`/`shrunk_area`, now one `mask_area()` helper), `RUF012` (1, a
+`BaseHTTPRequestHandler` subclass's shared class-level list -- `ClassVar[list[dict]]`, not a
+behaviour change, since the docstring already said the sharing was intentional), `F541` (1,
+a stray `f` prefix on a string with no placeholders), `E741` (1, a comprehension variable
+named `l`, renamed `row`), `I001` (1, `tomllib` sorted into the wrong import group),
+`RUF001` (1, an intentional `×` in a generated Markdown table, silenced with a comment
+saying why rather than replaced with `x`).
+
+**Every touched harness was re-run against a real packaged server**, not trusted from the
+diff alone, because two of the fixes were genuine (if tiny) refactors rather than pure
+formatting: `verify_mask_brush.py` (`mask_area` extraction), `verify_shape_frame.py`,
+`verify_skeleton_tool.py`, `verify_view_settings.py`, `verify_auto_annotate.py` (the
+`ClassVar` annotation and the `do_POST` naming-convention comment removal), plus
+`check_notices.py` and `verify_local_import.py` (already re-run in iteration 43 for an
+unrelated reason). All still pass. `extract_sample_images.py` is the one exception: it is a
+one-time extraction that overwrites the committed sample photographs and their credits file
+on every run, so it was reviewed by reading the diff rather than executed — the edit is a
+two-variable extraction with no changed output, and running it risks a real side effect
+(rewriting checked-in images) for a check that reading the diff already settles.
+
+**Wired into both `check.sh` and CI, matching how the SDK gap was closed last iteration.**
+A new `ruff (scripts)` step in `check.sh`, and a new `Ruff (scripts/)` step in `ci.yml`'s
+`server` job (already has `ruff` installed via `server[dev]`; the step just runs without
+`working-directory: server` so it resolves from the repo root instead).
+
+Verified: `./scripts/check.sh` green, all twelve steps now (`ruff (scripts)` is the twelfth)
+— 525 server tests, 15 SDK, 564 web, all unchanged; this iteration touched only `scripts/`,
+`scripts/check.sh` and `.github/workflows/ci.yml`. `ruff check scripts/` and
+`ruff check sdk/python`/`server` all clean; `verify_local_import.py`,
+`verify_mask_brush.py`, `verify_shape_frame.py`, `verify_skeleton_tool.py`,
+`verify_view_settings.py` and `verify_auto_annotate.py` all pass against a rebuilt sidecar
+after their edits.
+
+## Iteration 43
 
 ### 43 — a browser user can now add media to a task after creating it, and a large file survives a dropped connection
 

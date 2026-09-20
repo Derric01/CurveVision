@@ -39,7 +39,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent))
 
-from screenshot import api, find_chromium, start_server  # noqa: E402
+from screenshot import api, find_chromium, start_server
 
 IMAGE_WIDTH = 480
 IMAGE_HEIGHT = 320
@@ -65,6 +65,11 @@ def png_bytes(width: int = IMAGE_WIDTH, height: int = IMAGE_HEIGHT) -> bytes:
     buffer = io.BytesIO()
     Image.new("RGB", (width, height), "#1e293b").save(buffer, format="PNG")
     return buffer.getvalue()
+
+
+def mask_area(rle: list[int]) -> int:
+    """Pixels covered, from alternating background/foreground run lengths."""
+    return sum(run for i, run in enumerate(rle) if i % 2 == 1)
 
 
 def seed(base: str, token: str) -> str:
@@ -123,7 +128,9 @@ def main() -> int:
 
                 canvas = page.locator("canvas").nth(1)  # the shapes layer
 
-                def draw(x1: float, y1: float, x2: float, y2: float, *, erase: bool = False) -> None:
+                def draw(
+                    x1: float, y1: float, x2: float, y2: float, *, erase: bool = False
+                ) -> None:
                     box = canvas.bounding_box()
                     assert box is not None
                     if erase:
@@ -174,7 +181,7 @@ def main() -> int:
                 check(shape["label_id"] is not None and mask["width"] > 0 and mask["height"] > 0,
                       "with a real box, not an empty placeholder",
                       f"the stored mask box is {mask['width']}x{mask['height']}")
-                first_area = sum(run for i, run in enumerate(mask["rle"]) if i % 2 == 1)
+                first_area = mask_area(mask["rle"])
                 check(first_area > 0, "and covers a real number of pixels",
                       f"the stored mask covers {first_area} pixels")
 
@@ -200,7 +207,7 @@ def main() -> int:
                 check(len(shapes) == 1,
                       "painting elsewhere while it is selected edits it rather than adding a shape",
                       f"expected 1 shape after growing, found {len(shapes)}")
-                grown_area = sum(run for i, run in enumerate(shapes[0]["mask"]["rle"]) if i % 2 == 1)
+                grown_area = mask_area(shapes[0]["mask"]["rle"])
                 print(f"  area: {first_area} -> {grown_area} after growing")
                 check(grown_area > first_area, "and the mask grew",
                       f"the mask did not grow ({first_area} -> {grown_area})")
@@ -213,7 +220,7 @@ def main() -> int:
                 shapes = stored()
                 check(len(shapes) == 1, "erasing part of it leaves the object in place",
                       f"expected 1 shape after erasing part of it, found {len(shapes)}")
-                shrunk_area = sum(run for i, run in enumerate(shapes[0]["mask"]["rle"]) if i % 2 == 1)
+                shrunk_area = mask_area(shapes[0]["mask"]["rle"])
                 print(f"  area: {grown_area} -> {shrunk_area} after erasing part of it")
                 check(shrunk_area < grown_area, "and the mask shrank",
                       f"the mask did not shrink ({grown_area} -> {shrunk_area})")

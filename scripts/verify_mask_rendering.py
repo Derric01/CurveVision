@@ -41,7 +41,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent))
 
-from screenshot import api, find_chromium, start_server  # noqa: E402
+from screenshot import api, find_chromium, start_server
 
 IMAGE_WIDTH = 480
 IMAGE_HEIGHT = 320
