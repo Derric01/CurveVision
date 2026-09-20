@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import uuid
 
-from fastapi import APIRouter, File, Query, Response, UploadFile, status
+from fastapi import APIRouter, File, Header, Query, Request, Response, UploadFile, status
 from fastapi.responses import StreamingResponse
 from sqlalchemy import func, select
 from sqlalchemy.orm import selectinload
@@ -39,6 +39,8 @@ from curvevision.schemas.task import (
     TaskOut,
     TaskProgress,
     TaskUpdate,
+    UploadInit,
+    UploadSessionOut,
 )
 from curvevision.services import background as background_service
 from curvevision.services import media as media_service
@@ -176,24 +178,7 @@ async def upload_assets(
         )
         created.append(asset)
 
-    await task_service.recount_frames(session, scope.task)
-    await task_service.rebuild_jobs(session, scope.task)
-    if scope.task.status is TaskStatus.DRAFT and scope.task.frame_count:
-        scope.task.status = TaskStatus.READY
-    await session.commit()
-
-    # A video task's frame count is an estimate until something decodes the file. Correct
-    # it in the background rather than making the upload wait for a two-hour clip; the task
-    # is usable with the estimate meanwhile, and the job fixes it in place.
-    if await media_service.needs_exact_count(session, scope.task.id):
-        await background_service.enqueue(
-            session,
-            kind="media.probe_task",
-            payload={"task_id": str(scope.task.id)},
-            resource_type="task",
-            resource_id=scope.task.id,
-        )
-
+    await media_service.finish_ingestion(session, scope.task)
     return [AssetOut.model_validate(asset) for asset in created]
 
 
@@ -210,6 +195,105 @@ async def delete_asset(asset_id: uuid.UUID, scope: TaskScopeDep, session: Sessio
     await media_service.delete_asset(session, asset)
     await task_service.recount_frames(session, scope.task)
     await task_service.rebuild_jobs(session, scope.task)
+    await session.commit()
+
+
+# ------------------------------------------------------------------- resumable uploads
+#
+# An offset-based ``PATCH`` protocol: create a session declaring a filename and size, send
+# the bytes in as many chunks as the client likes, each stating the offset it believes it
+# is resuming from, then complete it. A dropped connection loses at most the chunk in
+# flight -- `GET` reports how much has actually landed so a client that lost track of its
+# own progress can ask rather than guess.
+
+
+@router.post(
+    "/tasks/{task_id}/uploads",
+    response_model=UploadSessionOut,
+    status_code=status.HTTP_201_CREATED,
+)
+async def create_upload(
+    payload: UploadInit,
+    scope: TaskScopeDep,
+    session: SessionDep,
+    settings: SettingsDep,
+) -> UploadSessionOut:
+    scope.authorize(Action.CREATE, ResourceType.ASSET)
+    upload_session = await media_service.create_upload_session(
+        session,
+        settings,
+        scope.task,
+        filename=payload.filename,
+        size=payload.size,
+        created_by_id=scope.identity.user.id,
+    )
+    await session.commit()
+    return UploadSessionOut.model_validate(upload_session)
+
+
+@router.get("/tasks/{task_id}/uploads/{upload_id}", response_model=UploadSessionOut)
+async def get_upload(
+    upload_id: uuid.UUID, scope: TaskScopeDep, session: SessionDep
+) -> UploadSessionOut:
+    """How many bytes this session has actually received, for a client resuming after a
+    dropped connection or a restart to learn where it left off rather than guess.
+    """
+    scope.authorize(Action.CREATE, ResourceType.ASSET)
+    upload_session = await media_service.get_upload_session(session, scope.task.id, upload_id)
+    return UploadSessionOut.model_validate(upload_session)
+
+
+@router.patch("/tasks/{task_id}/uploads/{upload_id}", response_model=UploadSessionOut)
+async def append_upload(
+    upload_id: uuid.UUID,
+    request: Request,
+    scope: TaskScopeDep,
+    session: SessionDep,
+    settings: SettingsDep,
+    upload_offset: int = Header(..., alias="Upload-Offset"),
+) -> UploadSessionOut:
+    """Append one chunk. ``Upload-Offset`` must equal the number of bytes already received;
+    a mismatch is a 409 naming the real offset rather than a silent corruption or a
+    duplicated chunk.
+    """
+    scope.authorize(Action.CREATE, ResourceType.ASSET)
+    storage = get_storage(settings)
+    upload_session = await media_service.get_upload_session(session, scope.task.id, upload_id)
+    data = await request.body()
+    await media_service.append_upload_chunk(
+        storage, upload_session, offset=upload_offset, data=data
+    )
+    await session.commit()
+    return UploadSessionOut.model_validate(upload_session)
+
+
+@router.post(
+    "/tasks/{task_id}/uploads/{upload_id}/complete",
+    response_model=AssetOut,
+    status_code=status.HTTP_201_CREATED,
+)
+async def complete_upload(
+    upload_id: uuid.UUID, scope: TaskScopeDep, session: SessionDep, settings: SettingsDep
+) -> AssetOut:
+    """Finalise a fully-received upload and attach it to the task as the next asset."""
+    scope.authorize(Action.CREATE, ResourceType.ASSET)
+    storage = get_storage(settings)
+    upload_session = await media_service.get_upload_session(session, scope.task.id, upload_id)
+    asset = await media_service.complete_upload(
+        session, settings, storage, scope.task, upload_session
+    )
+    await media_service.finish_ingestion(session, scope.task)
+    return AssetOut.model_validate(asset)
+
+
+@router.delete("/tasks/{task_id}/uploads/{upload_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def abort_upload(
+    upload_id: uuid.UUID, scope: TaskScopeDep, session: SessionDep, settings: SettingsDep
+) -> None:
+    scope.authorize(Action.DELETE, ResourceType.ASSET)
+    storage = get_storage(settings)
+    upload_session = await media_service.get_upload_session(session, scope.task.id, upload_id)
+    await media_service.abort_upload(session, storage, upload_session)
     await session.commit()
 
 

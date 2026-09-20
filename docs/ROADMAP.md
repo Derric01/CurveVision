@@ -65,7 +65,8 @@ application — and produce a real dataset with it.
 | Mask brush tool | **Done** — a stroke paints a filled disc, dragging leaves a continuous line, right-click or Alt erases, `[`/`]` resizes, and painting into the current selection edits that mask instead of starting a new one. Erasing every pixel deletes the object rather than leaving the invalid empty mask the server would refuse to store. Driven end to end in a browser: a real stroke visibly paints the shapes layer, the resulting mask is stored, grown, shrunk and finally deleted through the same tool. Masks are no longer the one shape type this platform could carry but not create. |
 | Skeleton / keypoint editing UI | **Done** — a tool that places a label's declared joints in order, skips the ones nobody can see rather than dropping them, and draws the bones. Verified end to end in a browser, through to the exported `yolo_pose` rows |
 | Ground-truth quality reports | **Done** — a task can hold a ground-truth job; scoring an annotation job against it gives precision/recall/F1 per label plus classified conflicts (missing, extra, wrong label, poor overlap), and the editor shows the report beside the frames, where clicking a conflict seeks to it. A report records which version of the job it scored, so a stale one is marked stale rather than read as current. The comparison runs inline, and stays inline deliberately: Measured rather than assumed: 200,000 shapes a side over 10,000 frames of 20 objects each score in **4.4 seconds**, and 100,000 frames of two objects in 4.6 — see `tests/benchmarks/test_comparison_scale.py`. A ground-truth job is created from the task page, which also shows each job's latest F1 and marks a stale one |
-| Resumable uploads | *Planned* — the storage model exists; there are no endpoints yet |
+| Cuboid (2D wireframe box) | **Done** — a two-stage tool draws the front face then a depth offset; the renderer draws it as 12 wireframe edges, never filled; CVAT XML exports and imports it using CVAT's own 16-attribute convention, so a box drawn here reads back as the same box in real CVAT |
+| Resumable uploads | **Done** — the API half: `POST /tasks/{id}/uploads` declares a filename and size, `PATCH` appends chunks at a stated offset (a mismatch is a 409 naming the real one, so a retried chunk cannot duplicate bytes), and `POST .../complete` finalises through the same dedupe path a direct upload uses. Not yet reachable from the SDK, the CLI or the web upload panel, which all still use the single-request path |
 
 **Beta's criteria are met.** Video annotation, the track timeline and webhook retries are
 all Done and tested. Whether to *call* a release Beta is a judgement about maturity rather
@@ -135,7 +136,7 @@ Redis and no object store.
 | Annotating local folders in place, with nothing copied | **Done** |
 | The editor served by the app itself, same-origin with its API | **Done** |
 | Frontend reads the injected connection and skips sign-in | **Done** |
-| Open-folder flow wired to the shell's native picker | **In Progress** |
+| Open-folder and choose-files flows wired to the shell's native pickers | **Done** — *Add media from this computer* and File ▸ Open Folder… call the folder picker; a second button calls the file picker for individual files, one `local-import` call per file, a failed one reported without aborting the rest |
 | Signed installers for macOS and Windows, built per platform in CI | **Planned** |
 | Auto-update | **Planned** |
 | Pointing the desktop app at a shared team server | **Planned** — the app is already same-origin-agnostic; this is UI work |

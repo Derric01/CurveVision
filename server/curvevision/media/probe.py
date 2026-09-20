@@ -77,8 +77,14 @@ def classify(filename: str, content_type: str, settings: Settings) -> MediaKind:
     )
 
 
-def validate_upload(filename: str, header: bytes, size: int, settings: Settings) -> str:
-    """Validate an upload by name, magic bytes and size. Returns the content type."""
+def validate_declared_upload(filename: str, size: int, settings: Settings) -> None:
+    """Validate what is knowable before a single byte exists: name and declared size.
+
+    Split out of `validate_upload` for the resumable-upload protocol, which has to reject
+    an oversized or wrongly-named file at session creation -- before the client spends any
+    bandwidth on it -- rather than only once every chunk has arrived and there is content
+    to sniff.
+    """
     if size > settings.max_upload_bytes:
         raise ValidationError(
             f"File is {size} bytes; the limit is {settings.max_upload_bytes} bytes"
@@ -87,6 +93,11 @@ def validate_upload(filename: str, header: bytes, size: int, settings: Settings)
     allowed = set(settings.allowed_image_extensions) | set(settings.allowed_video_extensions)
     if suffix not in allowed:
         raise ValidationError(f"File extension {suffix!r} is not accepted")
+
+
+def validate_upload(filename: str, header: bytes, size: int, settings: Settings) -> str:
+    """Validate an upload by name, magic bytes and size. Returns the content type."""
+    validate_declared_upload(filename, size, settings)
 
     content_type = sniff_content_type(header, filename)
     if content_type == "application/octet-stream":

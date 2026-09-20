@@ -16,11 +16,13 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from curvevision.core.config import Settings
-from curvevision.core.errors import NotFoundError, ValidationError
-from curvevision.domain.enums import MediaKind
-from curvevision.domain.media import Asset, MediaBlob, MediaChunk
+from curvevision.core.errors import ConflictError, NotFoundError, ValidationError
+from curvevision.domain.enums import MediaKind, TaskStatus
+from curvevision.domain.media import Asset, MediaBlob, MediaChunk, UploadSession
 from curvevision.domain.task import Task
 from curvevision.media import probe as media_probe
+from curvevision.services import background as background_service
+from curvevision.services import tasks as task_service
 from curvevision.storage import ObjectNotFoundError, Storage
 
 
@@ -47,6 +49,24 @@ async def ingest_upload(
 
     Identical bytes uploaded into three tasks are stored once: the blob is keyed by its
     SHA-256, so re-uploading is cheap and idempotent.
+    """
+    return await _ingest_bytes(session, settings, storage, task, filename=filename, data=data)
+
+
+async def _ingest_bytes(
+    session: AsyncSession,
+    settings: Settings,
+    storage: Storage,
+    task: Task,
+    *,
+    filename: str,
+    data: bytes,
+) -> Asset:
+    """The common half of ``ingest_upload`` and a completed resumable upload: given the
+    whole file's bytes, dedupe by hash and attach an asset.
+
+    Split out so the two callers cannot drift -- a resumable upload's finished bytes are
+    exactly a direct upload's bytes, just assembled from several requests instead of one.
     """
     content_type = media_probe.validate_upload(filename, data[:32], len(data), settings)
     kind = media_probe.classify(filename, content_type, settings)
@@ -578,6 +598,170 @@ async def needs_exact_count(session: AsyncSession, task_id: uuid.UUID) -> bool:
         .limit(1)
     )
     return found.first() is not None
+
+
+async def finish_ingestion(session: AsyncSession, task: Task, *, created: bool = True) -> None:
+    """Recount frames, rebuild jobs and mark the task ready once media has landed.
+
+    Every upload path -- direct multipart, local-folder import, and a completed resumable
+    upload -- ends with the same sequence. It used to be copied at each call site; a third
+    copy for the resumable path was the "the next feature needs a fourth" case that earns
+    pulling it out.
+
+    ``created`` is False when a batch imported nothing at all (an empty folder, every file
+    skipped) -- recounting and rebuilding jobs off zero new assets would be pure overhead,
+    and a task with no media at all must not flip from draft to ready.
+    """
+    if created:
+        await task_service.recount_frames(session, task)
+        await task_service.rebuild_jobs(session, task)
+        if task.status is TaskStatus.DRAFT and task.frame_count:
+            task.status = TaskStatus.READY
+    await session.commit()
+
+    # A video's frame count is an estimate until something decodes it; correct it in the
+    # background rather than making this request wait for a two-hour clip.
+    if created and await needs_exact_count(session, task.id):
+        await background_service.enqueue(
+            session,
+            kind="media.probe_task",
+            payload={"task_id": str(task.id)},
+            resource_type="task",
+            resource_id=task.id,
+        )
+
+
+def _upload_key(upload_session_id: uuid.UUID) -> str:
+    return f"uploads/{upload_session_id}.part"
+
+
+async def create_upload_session(
+    session: AsyncSession,
+    settings: Settings,
+    task: Task,
+    *,
+    filename: str,
+    size: int,
+    created_by_id: uuid.UUID | None,
+) -> UploadSession:
+    """Start a resumable upload: an offset-based ``PATCH`` protocol for large media over a
+    flaky connection, where a single multipart request either buffers the whole file in
+    memory or dies with the connection and forces a full restart.
+
+    Only what is knowable before any bytes exist is validated here -- name and declared
+    size. The rest (magic bytes, actual content) is validated once the bytes are in hand,
+    at `complete_upload`.
+    """
+    media_probe.validate_declared_upload(filename, size, settings)
+    upload_session = UploadSession(
+        id=uuid.uuid4(),
+        task_id=task.id,
+        created_by_id=created_by_id,
+        filename=filename,
+        declared_size=size,
+        received_bytes=0,
+        storage_key="",
+        completed=False,
+    )
+    upload_session.storage_key = _upload_key(upload_session.id)
+    session.add(upload_session)
+    await session.flush()
+    return upload_session
+
+
+async def get_upload_session(
+    session: AsyncSession, task_id: uuid.UUID, upload_id: uuid.UUID
+) -> UploadSession:
+    upload_session = await session.get(UploadSession, upload_id)
+    if upload_session is None or upload_session.task_id != task_id:
+        raise NotFoundError("Upload session not found")
+    return upload_session
+
+
+async def append_upload_chunk(
+    storage: Storage,
+    upload_session: UploadSession,
+    *,
+    offset: int,
+    data: bytes,
+) -> UploadSession:
+    """Append one chunk at ``offset``, the byte position the client believes it is resuming
+    from.
+
+    Requiring the caller to state the offset it thinks it is at -- rather than trusting a
+    lost connection's last acknowledged write -- is what makes the protocol safe to retry:
+    a chunk resent after a dropped response is rejected as a mismatch instead of appended
+    twice, and a client that lost track of its own progress is told the real one rather than
+    silently corrupting the object.
+    """
+    if upload_session.completed:
+        raise ConflictError("This upload has already completed")
+    if offset != upload_session.received_bytes:
+        raise ConflictError(
+            f"Offset mismatch: sent {offset}, upload is at {upload_session.received_bytes}",
+            received_bytes=upload_session.received_bytes,
+        )
+    if upload_session.received_bytes + len(data) > upload_session.declared_size:
+        raise ValidationError(
+            f"Chunk would exceed the declared size of {upload_session.declared_size} bytes"
+        )
+
+    upload_session.received_bytes = await storage.append(upload_session.storage_key, data)
+    return upload_session
+
+
+async def complete_upload(
+    session: AsyncSession,
+    settings: Settings,
+    storage: Storage,
+    task: Task,
+    upload_session: UploadSession,
+) -> Asset:
+    """Finalise a resumable upload once every declared byte has arrived.
+
+    Reads the assembled bytes back and hands them to the same dedupe/probe path a direct
+    upload uses, so the two can never validate or store a file differently. The temporary
+    upload key is removed once the content-addressed blob owns the bytes (or already did,
+    for a file whose hash matches one already stored).
+    """
+    if upload_session.completed:
+        raise ConflictError("This upload has already completed")
+    if upload_session.received_bytes != upload_session.declared_size:
+        raise ValidationError(
+            f"Upload incomplete: {upload_session.received_bytes} of "
+            f"{upload_session.declared_size} bytes received"
+        )
+
+    try:
+        data = await storage.get(upload_session.storage_key)
+    except ObjectNotFoundError:
+        # A declared size of 0 is "complete" the instant the session is created, with no
+        # chunk ever appended and so no key ever written. Falling through with empty bytes
+        # reuses `_ingest_bytes`'s own rejection of an empty file (the same one a direct
+        # upload gets) instead of a storage error escaping as an unhandled 500.
+        data = b""
+    asset = await _ingest_bytes(
+        session, settings, storage, task, filename=upload_session.filename, data=data
+    )
+    await storage.delete(upload_session.storage_key)
+    upload_session.completed = True
+    return asset
+
+
+async def abort_upload(
+    session: AsyncSession, storage: Storage, upload_session: UploadSession
+) -> None:
+    """Cancel an in-progress upload: reclaim its partial bytes and drop the session record.
+
+    Mirrors `delete_asset`'s explicit flush, for the same reason -- nothing else recounts
+    frames off the back of this one, but leaving the delete unflushed would let a caller
+    that immediately re-queries upload sessions for this task still see it.
+    """
+    if upload_session.completed:
+        raise ConflictError("This upload has already completed")
+    await storage.delete(upload_session.storage_key)
+    await session.delete(upload_session)
+    await session.flush()
 
 
 async def estimated_assets(session: AsyncSession, task_id: uuid.UUID) -> list[Asset]:
