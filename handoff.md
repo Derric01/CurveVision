@@ -40,7 +40,7 @@ it, and folders annotated in place without copying a byte.
 
 **The tree is green.** `./scripts/check.sh` passes all eleven steps (it gained ruff and mypy
 for the SDK this iteration, closing a gap where CI checked the SDK's typing and lint and the
-local script silently did not): 525 server tests, 15 SDK, 554 web. Seventeen browser
+local script silently did not): 525 server tests, 15 SDK, 564 web. Eighteen browser
 harnesses drive the packaged desktop application in a real Chromium, nightly and on every
 push to `main`.
 
@@ -221,18 +221,18 @@ was the last unconnected piece of the desktop application.
 
 ## Next best action
 
-**Wire the resumable-upload protocol into the web upload panel.** The protocol is done
-(this iteration) and now reachable from the SDK and CLI too
-(`CurveVision.upload_resumable`, `curvevision task upload-resumable`), which was the
-smaller, better-scoped half — a script has no progress UI to build and can just read a file
-in fixed-size pieces. The browser is the half actually left: chunking a `File` with
-`.slice()`, a progress bar, and resuming after a page reload means persisting the session id
-and received-offset somewhere the tab can find them again (e.g. `localStorage`, keyed by the
-file's name and size, since there is nothing else stable to key it by before the first byte
-lands). The task page's *Add media from this computer* panel
-(`web/src/features/tasks/localImport.ts` and its caller) is the natural home — it already
-knows how to report a per-file outcome without aborting a whole batch, which a chunked
-upload will also want when one file in a multi-file drop is the one large enough to need it.
+**Lint `scripts/`.** Found while adding this session's own new harness, not fixed: `ruff
+check scripts/` reports 42 real, pre-existing issues across roughly a third of the
+directory's files — a missing executable bit, unused `noqa` comments (targeting rules that
+are not actually enabled, because nothing configures ruff for this directory), a mutable
+class default, an f-string with no placeholders. Neither `check.sh` nor either CI workflow
+lints this directory at all: `ci.yml`'s two `ruff check .` calls are scoped to `server/` and
+`sdk/python` by their own `working-directory`, and `browser.yml` never lints, only runs the
+harnesses. Nearly every issue is mechanical (`ruff check scripts/ --fix` would clear most of
+them), but the real decision — what config `scripts/` should be checked against, given there
+is no root `pyproject.toml`/`ruff.toml` tying it to `server/`'s — is worth making
+deliberately rather than accepting whatever ruff's own bundled defaults happen to flag. Small,
+self-contained, and unblocked: no user decision needed, unlike the two below.
 
 **Then, still blocked on the user, unchanged from before this iteration:**
 
@@ -254,13 +254,13 @@ in CI as upcoming work. All of that has since shipped — see* Completed *— an
 had drifted into repeating some of it as "next" long after it was done. Trimmed to what is
 actually outstanding.*
 
-> **A note for whoever writes the next browser harness.** The seventeen in `scripts/` have
-> now found every defect the unit suites missed, most recently a deleted asset whose frames
-> the task went on counting and a pose exporter that collapsed a straight-armed skeleton's
-> box to zero area. They need a packaged sidecar and a Chromium, so nightly rather than
-> per-push (see `.github/workflows/browser.yml`), and the sidecar **embeds `web/dist`** — a
-> run needs `npm --prefix web run build` *and* a sidecar rebuild, or it silently tests the
-> previous frontend.
+> **A note for whoever writes the next browser harness.** The eighteen in `scripts/` have
+> now found every defect the unit suites missed, most recently a resumable upload that
+> restarted from zero instead of resuming and a deleted asset whose frames the task went on
+> counting. They need a packaged sidecar and a Chromium, so nightly rather than per-push (see
+> `.github/workflows/browser.yml`), and the sidecar **embeds `web/dist`** — a run needs
+> `npm --prefix web run build` *and* a sidecar rebuild, or it silently tests the previous
+> frontend.
 
 <details><summary>What that took, for whoever wires the next pointer interaction</summary>
 
@@ -437,7 +437,7 @@ desktop app one executable and `curvevision-local` a complete CurveVision in a b
 seeds a project, draws with real pointer events and photographs the result. It produces the
 README's screenshots and found two release-blocking bugs on its first run.
 
-**Resumable uploads** — `POST /tasks/{id}/uploads` declares a filename and
+**Resumable uploads, end to end** — `POST /tasks/{id}/uploads` declares a filename and
 size, `PATCH /tasks/{id}/uploads/{upload_id}` appends a chunk at a stated offset (a mismatch
 is a 409 naming the real one), `GET` reports the current offset, and
 `POST .../complete` finalises through the same dedupe/probe path (`_ingest_bytes`) a direct
@@ -445,9 +445,13 @@ upload uses. `Storage.append` and the `UploadSession` model/migration/schemas ha
 since early in the project for exactly this and were unused; only the service functions and
 routes were missing. Reachable from the SDK (`CurveVision.upload_resumable`) and the CLI
 (`curvevision task upload-resumable`), which read a local file in fixed-size pieces and can
-resume a session by id after a crash. The web upload panel does not call it yet — a browser
-`File`, a progress bar and resuming across a page reload are a bigger unit of work than a
-script reading bytes off disk.
+resume a session by id after a crash, and from a new "Upload media" panel on the task page —
+visible in both shapes, unlike the desktop-only local-import panel — which sends a file at
+or over 20 MB in chunks (with a progress bar) and everything smaller in the single-request
+batch path that already existed. Resuming across a page reload works by re-selecting the
+same file: its name and size key a remembered session id in `localStorage`. Driven end to
+end in a browser, including a chunk deliberately dropped mid-transfer and a resume proven to
+continue from the server's real offset rather than restart.
 
 **Also** — Python SDK and CLI, Docker Compose deployment, CI, issue/PR templates, and the
 full docs set including seven ADRs.
@@ -470,7 +474,7 @@ full docs set including seven ADRs.
 | View settings (label chips, suggestions, fill opacity) | Complete and measured in a browser: three `Scene` fields that had always been read by the renderer but never written to from anywhere now have a getter/setter pair and a control each in the Labels panel. |
 | Choosing individual files (desktop) | Complete and measured in a browser: `choose_files` now has a caller, one `local-import` call per chosen file, a failed file reported in `skipped` without aborting the others, and the results of a whole batch merged into one summary. |
 | Cuboid (2D wireframe box) | Complete and measured in a browser: a two-stage tool (drag the front face, then move and click to set the depth), a wireframe renderer, and CVAT XML export/import using CVAT's own real attribute names. The backend needed no new code at all — `ShapeType.CUBOID`, its minimum-points entry, its IoU comparison and its track interpolation were already there, unused. **Not** the 3D/point-cloud kind — see `docs/ROADMAP.md`'s honestly-unchanged limitation on that. |
-| Resumable uploads | API, SDK and CLI complete and tested: create a session, `PATCH` chunks at a stated offset, read the current offset back, complete, resume by id after a crash. The web upload panel still sends a file in one request — chunking a browser `File` and persisting progress across a page reload is the one piece left. |
+| Resumable uploads | Complete and tested end to end — API, SDK, CLI and the web upload panel: create a session, `PATCH` chunks at a stated offset, read the current offset back, complete, resume by id after a crash or a page reload. Driven in a browser through a deliberately dropped chunk and a real resume. Nothing outstanding. |
 
 *This table went stale once — it still listed the open-folder flow and chunked delivery as
 unbuilt several iterations after both shipped, because the narrative sections above were
@@ -489,6 +493,108 @@ being updated and this one was not. Check it against* Completed *before trusting
 ---
 
 ## Last iteration
+
+### 43 — a browser user can now add media to a task after creating it, and a large file survives a dropped connection
+
+Continued straight from iteration 42 in the same session: the SDK and CLI could resume an
+upload, but the protocol still had no way to reach it from the actual product. Looking for
+where it should plug in turned up something bigger than "wire it into the existing panel" —
+**there was no existing panel**. `TaskPage.tsx`'s only upload control, "Add media from this
+computer," is desktop-only local-import; the only place a browser session could ever attach
+a file to a task was the create-task form on the project page, which is a one-time step.
+After that, a server user had no UI path to add another photograph to an existing task —
+only the SDK's `upload()` could. That is a real gap in the manual-first workflow this file's
+own Status paragraph calls "complete end to end," not only a missing wire-up of the
+resumable protocol, and it is fixed by the same change: a new "Upload media" panel, visible
+in both shapes, not gated behind `isDesktop()`.
+
+**Small and large files take different paths, on purpose.** `partitionBySize` (new,
+`resumableUpload.ts`) routes anything at or over 20 MB through the resumable protocol and
+everything else through the existing single-request `uploadAssets` batch call. Sending every
+file through a chunked session regardless of size was the first instinct and the wrong one:
+the SDK's own `upload()` batches for the identical reason stated in its own docstring — a
+handful of ordinary photos is cheaper as one request than as several sessions each paying
+for their own create/complete round trip. Only a file large enough that restarting it from
+zero would actually cost something goes through the more expensive protocol.
+
+**Resuming across a page reload needs somewhere to keep the session id that survives the
+reload, and the in-memory `File` object does not.** `localStorage`, keyed by the file's name
+and size — there is nothing more stable to key it by before the first byte has landed — is
+what lets a person who re-selects the same file (the natural way to retry a failed upload)
+be recognised as continuing rather than starting over. `recallUploadId`/`rememberUploadId`/
+`forgetUploadId` wrap it in the same try/catch-and-degrade pattern `client.ts`'s `tokenStore`
+already uses, for the same reason: losing the pointer in private-mode Safari costs a restart
+from zero, never correctness, so every access degrades to "nothing remembered" rather than
+throwing.
+
+**The file input is reset after every attempt, deliberately**, because a browser does not
+fire `change` for selecting the exact same file twice in a row unless the input's value was
+cleared first — and selecting the same file again is exactly how a person retries a failed
+upload here. Missing this would have made the whole resumption story invisible: the id would
+be remembered correctly, but nothing would ever call `uploadResumable` again to use it.
+
+**The harness's own first version proved nothing about resuming, the same trap this
+session's SDK test fell into first.** Interrupting an upload and calling it again with the
+right `uploadId` produces a correct final asset even from a client that silently starts a
+fresh session and ignores the one it was given — a full re-upload succeeds too. Learned once
+already this session (the SDK's resume test), so this time the harness was written to check
+the *mechanism*, not just the outcome, from the start: `scripts/verify_resumable_upload.py`
+intercepts every `PATCH` to the uploads endpoint, records each one's `Upload-Offset` header,
+lets the first through, and aborts the second with `connectionreset` — standing in for a
+dropped connection rather than a server-side rejection. It then asserts the retry's first
+recorded offset is the chunk size, not zero, and that the retry sends only the three
+remaining chunks of four, not the whole file again. Confirmed both new checks actually bite:
+disabled the `recallUploadId` lookup, rebuilt (confirmed the bundle hash changed), watched
+the retry restart from offset 0 and send all four chunks, restored it, rebuilt again
+(confirmed the bundle hash came back byte-identical), and reran green.
+
+The large test file is 3000×3000 pixels of `os.urandom` saved as PNG — true random noise
+rather than a photograph, because PNG's lossless compression cannot shrink it, which is what
+makes the resulting byte count (and therefore the exact chunk boundaries the harness asserts
+against) predictable rather than "however well a real photo happened to compress."
+
+**Also proved in the same harness**, since it was already driving a plain browser session:
+the new panel is present for a browser session and the desktop-only local-import panel is
+correctly absent from it (the actual gap this iteration closes); an ordinary small image
+triggers zero `PATCH` calls, confirming the size-based routing does not chunk something that
+should not be; exactly one asset lands from the interrupted-then-resumed large upload, not
+two; and the task's frame count and job list are correct afterward.
+
+**A real regression this iteration introduced, caught by running someone else's harness
+rather than only its own.** The new button was first labelled "Choose files to upload…";
+`scripts/verify_local_import.py` — unrelated to this change, on the same page — started
+failing with a Playwright strict-mode violation, because `get_by_role(name="Choose files")`
+does substring matching by default and both that harness's own desktop-only button and the
+new one now contained the phrase "Choose files". Fixed by renaming the new button to "Upload
+files…", which shares no substring with the existing one, rather than patching the
+unrelated harness's locator — the two buttons do different things and should not read as
+almost the same label regardless of whether a test happens to notice. Reran every harness
+that touches this page (`verify_local_import.py`, `verify_frame_count_warning.py`,
+`verify_ground_truth_setup.py`, and this iteration's own) to confirm nothing else on
+`TaskPage.tsx` was disturbed.
+
+**Found, not fixed: `scripts/*.py` has no lint coverage anywhere**, not in `check.sh`, not
+in either CI workflow (`ci.yml`'s two `ruff check .` calls are both scoped to `server/` and
+`sdk/python` by their own `working-directory`). Running `ruff check` against a script in
+that directory directly turns up real, pre-existing violations in at least one other
+harness (`verify_auto_annotate.py`: an unused `noqa`, a missing executable bit, a mutable
+class default). This iteration's own new script was made clean by hand rather than by a
+check that would have caught it. Left alone rather than folded into this change — fixing
+every existing script's lint debt is a separate, larger cleanup with its own blast radius,
+not something this diff's stated goal covers — but recorded here so it is not lost, and
+worth its own small iteration.
+
+Verified: `./scripts/check.sh` green, all eleven steps — 525 server tests (unchanged; no
+server code touched), 15 SDK (unchanged), 564 web (10 new: `resumableUpload.test.ts`'s pure
+`partitionBySize`/`summariseUpload` tests — the localStorage- and network-touching functions
+are verified by the harness instead, matching how `chooseFiles`/`localImport` are already
+handled in this codebase). `scripts/verify_resumable_upload.py` added to
+`.github/workflows/browser.yml`'s list; its nine checks pass locally against a rebuilt
+sidecar, both before and after the sabotage-and-restore above, and `verify_local_import.py`,
+`verify_frame_count_warning.py` and `verify_ground_truth_setup.py` all still pass against
+the same rebuilt sidecar after the button rename.
+
+## Iteration 42
 
 ### 42 — a large upload can now be resumed instead of restarted
 

@@ -190,6 +190,16 @@ export interface LocalImportResult {
   frame_count: number;
 }
 
+/** The state of one resumable upload: how much of the declared file has actually landed. */
+export interface UploadSession {
+  id: string;
+  task_id: string;
+  filename: string;
+  declared_size: number;
+  received_bytes: number;
+  completed: boolean;
+}
+
 export interface Job {
   id: string;
   task_id: string;

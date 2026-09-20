@@ -14,6 +14,7 @@ import { desktopToken } from '@/desktop';
 import type {
   AnnotationDocument,
   AnnotationWriteResult,
+  Asset,
   BackgroundTaskBrief,
   DatasetFormat,
   FrameInfo,
@@ -33,6 +34,7 @@ import type {
   TaskMediaMeta,
   TaskProgress,
   TokenPair,
+  UploadSession,
   User,
 } from './types';
 
@@ -138,6 +140,10 @@ interface RequestOptions {
   body?: unknown;
   params?: Record<string, string | number | boolean | undefined | null>;
   formData?: FormData;
+  /** A pre-built body (e.g. a `Blob` chunk) sent as-is, bypassing JSON serialisation. */
+  raw?: BodyInit;
+  /** Extra headers, for a `raw` request that needs one `formData`/`body` do not. */
+  headers?: Record<string, string>;
   signal?: AbortSignal;
   /** Internal: prevents a refresh loop. */
   retry?: boolean;
@@ -149,7 +155,7 @@ export async function request<T>(path: string, options: RequestOptions = {}): Pr
     if (value !== undefined && value !== null) url.searchParams.set(key, String(value));
   }
 
-  const headers: Record<string, string> = {};
+  const headers: Record<string, string> = { ...options.headers };
   // The desktop shell's token wins when there is one: it is the credential for this
   // launch, and there is no stored session to prefer over it. In a browser this is null
   // and nothing about the existing path changes.
@@ -160,7 +166,10 @@ export async function request<T>(path: string, options: RequestOptions = {}): Pr
   const response = await fetch(url.toString(), {
     method: options.method ?? 'GET',
     headers,
-    body: options.formData ?? (options.body !== undefined ? JSON.stringify(options.body) : undefined),
+    body:
+      options.raw ??
+      options.formData ??
+      (options.body !== undefined ? JSON.stringify(options.body) : undefined),
     signal: options.signal,
   });
 
@@ -273,6 +282,58 @@ export const api = {
     return request<{ id: string; name: string }[]>(`/tasks/${taskId}/assets`, {
       method: 'POST',
       formData: form,
+    });
+  },
+
+  /**
+   * Upload one file through the resumable protocol: create a session (or resume one by
+   * `uploadId`), send it in `chunkSize` pieces, then complete. For a file large enough, or a
+   * connection flaky enough, that `uploadAssets`'s single request is a poor fit — a dropped
+   * connection there means restarting a multi-gigabyte transfer from zero.
+   *
+   * `onProgress` fires once per chunk with the bytes received so far and the session id,
+   * the latter so a caller can persist it *before* the next chunk might fail — that is what
+   * lets a retry resume instead of starting over.
+   */
+  async uploadResumable(
+    taskId: string,
+    file: File,
+    options: {
+      uploadId?: string;
+      chunkSize?: number;
+      signal?: AbortSignal;
+      onProgress?: (receivedBytes: number, totalBytes: number, uploadId: string) => void;
+    } = {},
+  ): Promise<Asset> {
+    const chunkSize = options.chunkSize ?? 8 * 1024 * 1024;
+    let session = options.uploadId
+      ? await request<UploadSession>(`/tasks/${taskId}/uploads/${options.uploadId}`, {
+          signal: options.signal,
+        })
+      : await request<UploadSession>(`/tasks/${taskId}/uploads`, {
+          method: 'POST',
+          body: { filename: file.name, size: file.size },
+          signal: options.signal,
+        });
+
+    let offset = session.received_bytes;
+    options.onProgress?.(offset, file.size, session.id);
+
+    while (offset < file.size) {
+      const chunk = file.slice(offset, offset + chunkSize);
+      session = await request<UploadSession>(`/tasks/${taskId}/uploads/${session.id}`, {
+        method: 'PATCH',
+        raw: chunk,
+        headers: { 'upload-offset': String(offset) },
+        signal: options.signal,
+      });
+      offset = session.received_bytes;
+      options.onProgress?.(offset, file.size, session.id);
+    }
+
+    return request<Asset>(`/tasks/${taskId}/uploads/${session.id}/complete`, {
+      method: 'POST',
+      signal: options.signal,
     });
   },
 
