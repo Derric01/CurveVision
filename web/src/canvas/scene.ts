@@ -8,6 +8,7 @@
 import { annotationBounds } from './geometry';
 import { SpatialIndex } from './spatial';
 import type { SkeletonSchema } from './skeleton';
+import { isUnreviewed } from './types';
 import type { Annotation, Box, LabelStyle, Point } from './types';
 
 export interface SceneOptions {
@@ -138,7 +139,10 @@ export class Scene {
   }
 
   isVisible(annotation: Annotation): boolean {
-    if (!this.showSuggestions && annotation.source === 'model') return false;
+    // Same predicate as the dashing, for the same reason: a suggestion a human has
+    // accepted is an ordinary annotation and must not vanish with the pending ones.
+    // (`showSuggestions` has no control wired to it yet -- see handoff.md.)
+    if (!this.showSuggestions && isUnreviewed(annotation)) return false;
     const label = this.labels.get(annotation.labelId);
     return label ? label.visible : true;
   }

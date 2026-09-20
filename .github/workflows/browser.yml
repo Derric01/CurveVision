@@ -113,6 +113,7 @@ jobs:
               scripts/verify_frame_count_warning.py
               scripts/verify_skeleton_tool.py
               scripts/verify_mask_rendering.py
+              scripts/verify_auto_annotate.py
             )
           fi
 

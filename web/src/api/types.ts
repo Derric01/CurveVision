@@ -335,6 +335,14 @@ export interface ModelRegistration {
   provider: string;
   kind: 'detector' | 'segmenter' | 'interactor' | 'tracker' | 'classifier' | 'ocr';
   output_labels: string[];
+  /**
+   * The model takes the classes to look for as text, at inference time — YOLO-World,
+   * Grounding DINO, OWL-ViT. `output_labels` is then a default rather than the limit.
+   *
+   * Optional because a server older than the field omits it; absent reads as false, which
+   * is what that server meant.
+   */
+  open_vocabulary?: boolean;
   is_active: boolean;
   created_at: string;
 }

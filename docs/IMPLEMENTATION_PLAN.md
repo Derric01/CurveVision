@@ -575,9 +575,23 @@ Providers:
 * Hosted vendors — **Planned**, as separate optional packages so the core never imports a
   vendor SDK.
 
+Running a model over a job — **Done.** The editor's right rail has an auto-annotate panel:
+pick a model, and for an open-vocabulary one type the classes to look for. It states before
+the run what it will search for and where those classes came from, and names any that no
+project label can receive, since the server can only report that afterwards. Driven end to
+end against a real model server by `scripts/verify_auto_annotate.py`. The kinds that need a
+different interaction (`interactor`, `tracker`) are listed with the reason rather than hidden.
+
 Predictions land as **suggestions**: annotations with `source = "model"` and a confidence,
-shown distinctly in the editor, and individually acceptable/rejectable/editable. Accepting
-flips `source` to `"model_corrected"` so dataset provenance survives to export.
+drawn dashed in the editor and editable or deletable like any other annotation — **Done**.
+They can be accepted or rejected in bulk from the editor's review panel — **Done**.
+Accepting keeps the annotation and keeps `source = "model"`, clearing only the confidence,
+so the dataset still records that a machine drew it and a human agreed; rejecting deletes
+it. That pair is what the canvas, the object list and the panel all read to tell a
+suggestion awaiting review from one already accepted. Editing one flips `source` to
+`"model_corrected"`, so dataset provenance survives to export either way. Per-object
+accept/reject controls are **Planned**: an individual suggestion is accepted today by
+editing it and rejected by deleting it.
 
 ---
 

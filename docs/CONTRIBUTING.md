@@ -85,18 +85,19 @@ typo at the point it was made.
 ## Browser harnesses
 
 `./scripts/check.sh` covers everything CI runs on a push, and it does not open a browser.
-Eleven scripts in `scripts/` do — they launch the **packaged desktop application**, drive it in
+Twelve scripts in `scripts/` do — they launch the **packaged desktop application**, drive it in
 Chromium, and assert against the **API** rather than the DOM, because the question is not "did
 the page look right" but "is the data now what the user asked for".
 
 They earn their keep. Between them they have found every defect the unit suites missed: a
 Content-Security-Policy that blocked the app's own scripts, frame images that never rendered,
 a swallowed decode error that threw on fast scrubbing, a `useImperativeHandle` that captured
-`null` and left seven editor controls wired to nothing, and an issue anchored to a row in the
-wrong table.
+`null` and left seven editor controls wired to nothing, an issue anchored to a row in the
+wrong table, and a model picker that disabled its own run button over text it had just
+unmounted the box for.
 
 They run **nightly and on every push to `main`** (`.github/workflows/browser.yml`), not on
-pull requests: a PyInstaller build plus eleven end-to-end runs is twenty minutes, and CI that
+pull requests: a PyInstaller build plus twelve end-to-end runs is twenty minutes, and CI that
 slow stops being run. Trigger one by hand from the Actions tab — the workflow takes a single
 harness name — or run one locally:
 
@@ -107,6 +108,7 @@ python scripts/verify_issues_panel.py
 python scripts/verify_frame_count_warning.py
 python scripts/verify_skeleton_tool.py
 python scripts/verify_mask_rendering.py
+python scripts/verify_auto_annotate.py
 ```
 
 **Both build steps, in that order, every time.** The packaged sidecar embeds `web/dist`, so a

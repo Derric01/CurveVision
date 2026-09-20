@@ -35,6 +35,7 @@ import {
 } from 'lucide-react';
 import clsx from 'clsx';
 import { api } from '@/api/client';
+import { isUnreviewed } from '@/canvas/types';
 import type { AnnotationChange, LabelStyle, ToolName } from '@/canvas/types';
 import type { ApiTrack } from '@/api/types';
 import { Badge, Button, ErrorNotice, Kbd, Spinner, jobStateTone } from '@/ui/primitives';
@@ -48,6 +49,8 @@ import { QualityPanel } from './QualityPanel';
 import { IssuesPanel } from './IssuesPanel';
 import { issuePins } from './issues';
 import { skeletonHint } from './skeletonHint';
+import { AutoAnnotatePanel } from './AutoAnnotatePanel';
+import { SuggestionsPanel } from './SuggestionsPanel';
 import { useAutosave } from './useAutosave';
 
 const TOOLS: { name: ToolName; icon: typeof Square; label: string; key: string }[] = [
@@ -447,6 +450,24 @@ export function EditorPage() {
             onFocus={(id) => engine?.focusAnnotation(id)}
           />
 
+          <AutoAnnotatePanel
+            jobId={jobId}
+            labels={drawableLabels(labelStyles)}
+            // Predictions are annotations on the frame, so the canvas has to be told the
+            // frame changed underneath it.
+            onRan={() => void queryClient.invalidateQueries({ queryKey: ['annotations', jobId] })}
+          />
+
+          {/* Renders nothing unless this job holds suggestions nobody has ruled on, so it
+              costs an ordinary hand-annotated job no space. */}
+          <SuggestionsPanel
+            jobId={jobId}
+            document={annotations.data}
+            onDecided={() =>
+              void queryClient.invalidateQueries({ queryKey: ['annotations', jobId] })
+            }
+          />
+
           <IssuesPanel
             jobId={jobId}
             currentFrame={currentFrame}
@@ -693,8 +714,16 @@ function ObjectList({
                 />
                 <span className="truncate">{nameOf(annotation.labelId)}</span>
                 <span className="ml-auto text-ink-600">{annotation.shapeType}</span>
-                {annotation.source === 'model' && (
-                  <Wand2 size={11} className="text-amber-400" aria-label="Model suggestion" />
+                {/* Marks what still wants a decision, matching the dashed stroke on the
+                    canvas. An accepted suggestion keeps `source = "model"` for provenance
+                    but is an ordinary annotation, so it is not flagged here either. */}
+                {isUnreviewed(annotation) && (
+                  <Wand2
+                    size={11}
+                    className="text-amber-400"
+                    aria-label="Awaiting review"
+                    data-unreviewed=""
+                  />
                 )}
               </button>
             </li>
