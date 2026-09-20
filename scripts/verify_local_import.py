@@ -13,10 +13,14 @@ What this proves:
 
 * the browser build is **not** offered a native folder picker (it has no way to open one);
 * the desktop build is, and mounting the page with no shell behind it does not raise;
-* pressing the button when the shell is missing shows an error rather than white-screening
-  — the state this harness is in, and also what a broken shell looks like;
+* pressing either button when the shell is missing shows an error rather than
+  white-screening — the state this harness is in, and also what a broken shell looks like;
 * a real folder is attached: the right number of files imported, a corrupt one reported in
-  `skipped` rather than failing the import, jobs built, and the page showing the new count.
+  `skipped` rather than failing the import, jobs built, and the page showing the new count;
+* a handful of **individually chosen files** are attached the same way — one call per
+  file, since the endpoint takes a single path — with a file that cannot be read reported
+  in `skipped` exactly as a corrupt file inside a folder is, rather than aborting the rest
+  of the chosen files.
 
 What it cannot prove, and does not pretend to: that `invoke()` reaches the shell. Playwright
 drives Chromium, not the Tauri webview. ADR 0008 explains why the seam is kept to three
@@ -50,10 +54,10 @@ def build_folder(root: Path) -> Path:
     return folder
 
 
-def seed_empty_task(base: str, token: str) -> str:
+def seed_empty_task(base: str, token: str, *, slug: str, name: str) -> str:
     org = api(base, token, "/organizations")[0]
     project = api(base, token, "/projects", {
-        "organization_id": org["id"], "slug": "local-folder", "name": "Local folder",
+        "organization_id": org["id"], "slug": slug, "name": name,
         "description": "Annotated in place, with nothing copied.", "labels": LABELS,
     })
     task = api(base, token, "/tasks", {
@@ -83,7 +87,8 @@ def main() -> int:
         process, handshake = start_server(root / "data")
         base, token = handshake["url"], handshake["token"]
         try:
-            task_id = seed_empty_task(base, token)
+            task_id = seed_empty_task(base, token, slug="local-folder", name="Local folder")
+            files_task_id = seed_empty_task(base, token, slug="local-files", name="Local files")
             injection = json.dumps({
                 "url": base, "token": token, "data_dir": handshake["data_dir"],
                 "version": handshake["version"], "desktop": True,
@@ -134,6 +139,14 @@ def main() -> int:
                       "the page fell over when the shell was missing")
                 check(reported > 0, "a failed shell call is reported to the user",
                       "a failed shell call was silent")
+
+                # The files picker is the same missing-shell story: a different button, a
+                # different Tauri command, the identical failure mode to survive.
+                page.get_by_role("button", name="Choose files").click()
+                page.wait_for_timeout(2500)
+                check(page.get_by_text("Add media from this computer").count() == 1,
+                      "the page survives the files picker with no shell either",
+                      "the page fell over when clicking Choose files with no shell")
                 page.close()
 
                 # ------------------------------------------- the whole flow, clicked
@@ -181,6 +194,55 @@ def main() -> int:
                 check(bool(api(base, token, f"/tasks/{task_id}/jobs")),
                       "a job was built from the folder",
                       "no job was built for the imported folder")
+                clicked.close()
+
+                # ------------------------------------------- individually chosen files
+                # `choose_files` returns several paths at once; the endpoint takes one. One
+                # of the three does not exist on disk, standing in for a file that could
+                # not be read -- the same case a folder import reports in `skipped`, this
+                # time surfacing as a whole failed request for that one path rather than
+                # one entry the server found while walking a directory.
+                good_a = SAMPLES / f"{FRAMES[0]}.jpg"
+                good_b = SAMPLES / f"{FRAMES[1]}.jpg"
+                missing = root / "does-not-exist.jpg"
+                chosen_paths = [str(good_a), str(missing), str(good_b)]
+
+                files_clicked = browser.new_page(viewport=viewport)
+                files_raised: list[str] = []
+                files_clicked.on("pageerror", lambda exc: files_raised.append(str(exc)))
+                files_clicked.add_init_script(f"window.__CURVEVISION__ = {injection};")
+                files_clicked.add_init_script(
+                    "window.__TAURI_INTERNALS__ = { invoke: (cmd) => "
+                    f"cmd === 'choose_files' ? Promise.resolve({json.dumps(chosen_paths)})"
+                    " : Promise.reject(new Error('unexpected command: ' + cmd)) };"
+                )
+                files_clicked.goto(f"{base}/tasks/{files_task_id}", wait_until="networkidle")
+                files_clicked.get_by_role("button", name="Choose files").click()
+                files_clicked.wait_for_selector("text=/Imported \\d/", timeout=60_000)
+                files_headline = files_clicked.locator("text=/Imported \\d/").first.inner_text()
+                print(f"\n  choosing 3 individual files, one missing: {files_headline!r}")
+                check("Imported 2 files" in files_headline,
+                      "both readable files are attached, one call per file",
+                      f"unexpected headline: {files_headline!r}")
+                check("skipped 1 file" in files_headline,
+                      "the missing file is reported rather than aborting the other two",
+                      f"the missing file was not mentioned: {files_headline!r}")
+                check("2 frames" in files_headline,
+                      "the new frame count reflects only what was actually attached",
+                      f"unexpected frame count in: {files_headline!r}")
+
+                files_clicked.get_by_text("could not be read").click()
+                files_clicked.wait_for_timeout(300)
+                check(files_clicked.get_by_text("does-not-exist.jpg", exact=False).count() > 0,
+                      "the missing file is named by its own filename, not its full path or the other two",
+                      "the skipped list did not name the missing file")
+                check(not files_raised, "choosing individual files raises nothing",
+                      f"page error: {files_raised}")
+
+                check(bool(api(base, token, f"/tasks/{files_task_id}/jobs")),
+                      "a job was built from the individually chosen files",
+                      "no job was built for the individually imported files")
+                files_clicked.close()
 
                 browser.close()
         finally:

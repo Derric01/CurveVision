@@ -8,7 +8,7 @@
  */
 
 import { describe, expect, it } from 'vitest';
-import { summariseImport } from '../localImport';
+import { mergeImportResults, summariseImport } from '../localImport';
 import type { Asset, LocalImportResult } from '@/api/types';
 
 function asset(name: string): Asset {
@@ -89,5 +89,46 @@ describe('summariseImport', () => {
 
     expect(summary.headline).toContain('1,200 files');
     expect(summary.headline).toContain('1,200 frames');
+  });
+});
+
+describe('mergeImportResults', () => {
+  it('concatenates imported and skipped across every call, in order', () => {
+    const merged = mergeImportResults([
+      result({ imported: [asset('a.jpg')], skipped: [], frame_count: 1 }),
+      result({ imported: [], skipped: ['b.heic: unsupported'], frame_count: 1 }),
+      result({ imported: [asset('c.jpg')], skipped: [], frame_count: 2 }),
+    ]);
+
+    expect(merged.imported.map((a) => a.name)).toEqual(['a.jpg', 'c.jpg']);
+    expect(merged.skipped).toEqual(['b.heic: unsupported']);
+  });
+
+  // `frame_count` is the task's running total as of each call, not a per-call delta -- an
+  // earlier result's is a correct snapshot of a moment that has already passed, and only
+  // the last one is still true once every file has landed.
+  it('takes the frame count from the last result, not the largest or the sum', () => {
+    const merged = mergeImportResults([
+      result({ frame_count: 5 }),
+      result({ frame_count: 6 }),
+      result({ frame_count: 7 }),
+    ]);
+    expect(merged.frame_count).toBe(7);
+  });
+
+  it('is what a whole batch of chosen files reads as one summary through', () => {
+    const merged = mergeImportResults([
+      result({ imported: [asset('a.jpg')], frame_count: 3 }),
+      result({ imported: [], skipped: ['b.txt: not a media file'], frame_count: 3 }),
+    ]);
+    const summary = summariseImport(merged);
+    expect(summary.tone).toBe('warning');
+    expect(summary.headline).toContain('Imported 1 file');
+    expect(summary.headline).toContain('skipped 1 file');
+    expect(summary.skipped).toEqual(['b.txt: not a media file']);
+  });
+
+  it('refuses to summarise nothing', () => {
+    expect(() => mergeImportResults([])).toThrow(/at least one result/);
   });
 });

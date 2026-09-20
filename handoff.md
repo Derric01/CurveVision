@@ -5,7 +5,7 @@
 > [`AGENTS.md`](./AGENTS.md) first; it is the working contract. Update this file after every
 > iteration, including the ones that mostly failed.
 >
-> **Last updated:** 2026-09-20 (iteration 39) · branch `claude/curvevision-platform-build-n1g71n` · PRs [#1](https://github.com/Derric01/CurveVision/pull/1)–[#17](https://github.com/Derric01/CurveVision/pull/17) **all merged**. [#14](https://github.com/Derric01/CurveVision/pull/14) carried iterations 27–29 (the Node 20 bump, the provisional frame count, the skeleton tool); [#15](https://github.com/Derric01/CurveVision/pull/15) carried 30–31 (the two mask iterations); [#16](https://github.com/Derric01/CurveVision/pull/16) carried 32–33 (the comparison bounding box, open vocabulary); [#17](https://github.com/Derric01/CurveVision/pull/17) carried 34–35 (auto-annotate, suggestion review) — it merged mid-session, while 36–39 were still in flight on the same branch, so those four commits were rebased onto the post-merge `main` rather than left stacked on merged history. Iterations 36–39 are unmerged with no PR open yet.
+> **Last updated:** 2026-09-20 (iteration 40) · branch `claude/curvevision-platform-build-n1g71n` · PRs [#1](https://github.com/Derric01/CurveVision/pull/1)–[#17](https://github.com/Derric01/CurveVision/pull/17) **all merged**. [#14](https://github.com/Derric01/CurveVision/pull/14) carried iterations 27–29 (the Node 20 bump, the provisional frame count, the skeleton tool); [#15](https://github.com/Derric01/CurveVision/pull/15) carried 30–31 (the two mask iterations); [#16](https://github.com/Derric01/CurveVision/pull/16) carried 32–33 (the comparison bounding box, open vocabulary); [#17](https://github.com/Derric01/CurveVision/pull/17) carried 34–35 (auto-annotate, suggestion review) — it merged mid-session, while 36–39 were still in flight on the same branch, so those four commits were rebased onto the post-merge `main` rather than left stacked on merged history. Iterations 36–39 were carried by PR #18 (open); iteration 40 is unmerged on top of that with no PR open yet.
 
 ---
 
@@ -23,13 +23,21 @@ The desktop shape works: a packaged single-executable server, a Tauri shell that
 it, and folders annotated in place without copying a byte.
 
 **The tree is green.** `./scripts/check.sh` passes all nine steps: 515 server tests, 13 SDK,
-529 web. Sixteen browser harnesses drive the packaged desktop application in a real Chromium,
+534 web. Sixteen browser harnesses drive the packaged desktop application in a real Chromium,
 nightly and on every push to `main`.
 
 **A number the platform is not sure about says so.** A video task's frame count starts as an
 estimate; where it cannot be replaced by a decoded one — the task already carries annotations,
 or the file is truncated or undecodable — the task page says so, names the file, and offers to
 recount. That matters because an overstated count offers frames that do not exist.
+
+**Individual files can be attached to a task, not only a whole folder.** `choose_files` —
+the shell's native file dialog — was registered with no menu entry and no web-side caller
+at all. `chooseFiles()` now mirrors `chooseFolder()`, and the panel gained a second button:
+one HTTP call per chosen file, sequentially (the endpoint would race two concurrent calls
+for the same task's next frame position), with a file that cannot be attached reported
+rather than aborting the rest — the same principle the folder import already lived by,
+extended to a whole failed request rather than one bad entry in a directory listing.
 
 **The view settings that already existed can now be turned off.** `Scene.showLabels`,
 `showSuggestions` and `fillOpacity` were plain public fields nothing outside `Scene` ever
@@ -406,6 +414,7 @@ full docs set including seven ADRs.
 | Auto-annotate | Complete for the "run over these frames" kinds and driven in a browser against a real model server: model picker, class box for an open-vocabulary model, the plan stated before the run, unmatched classes named before the run, predictions stored as reviewable suggestions. Interactive kinds (`interactor`, `tracker`) are listed with the reason this panel cannot drive them rather than hidden. |
 | Quality reports | Complete end to end and driven in a browser: the task page creates the answer key and shows each job's latest F1, the editor shows the report and seeks to a conflict on click, and a stale report is marked stale. The comparison runs **inline, deliberately and measurably** — 200,000 shapes a side over 10,000 frames score in 4.4s. Nothing outstanding. |
 | View settings (label chips, suggestions, fill opacity) | Complete and measured in a browser: three `Scene` fields that had always been read by the renderer but never written to from anywhere now have a getter/setter pair and a control each in the Labels panel. |
+| Choosing individual files (desktop) | Complete and measured in a browser: `choose_files` now has a caller, one `local-import` call per chosen file, a failed file reported in `skipped` without aborting the others, and the results of a whole batch merged into one summary. |
 
 *This table went stale once — it still listed the open-folder flow and chunked delivery as
 unbuilt several iterations after both shipped, because the narrative sections above were
@@ -418,15 +427,59 @@ being updated and this one was not. Check it against* Completed *before trusting
 1. **No model ships, so auto-annotate cannot be tried.** ADR 0005 accepted this
    deliberately ("No out-of-the-box models… a genuine onboarding cost") and planned
    reference servers in separate repositories. The contract is now ready for one.
-2. **`choose_files` is still unused.** The shell can open a native *file* picker as well as a
-   folder one, and `/tasks/{id}/local-import` accepts a file path. Connecting it is small, and
-   deliberately left until someone wants it — the folder case is the one that matters.
-3. **Signed installers in CI** — *blocked outside the repository*: one runner per platform
+2. **Signed installers in CI** — *blocked outside the repository*: one runner per platform
    (PyInstaller does not cross-compile) and signing certificates the project does not have.
 
 ---
 
 ## Last iteration
+
+### 40 — individual files can be attached, not only a whole folder
+
+The last unblocked item in the remaining-work list. `choose_files` — the Tauri command
+that opens a native *file* dialog rather than a folder one — had been registered on the
+shell's invoke handler with no menu entry and no web-side caller at all: genuinely unused,
+confirmed by grep before starting rather than assumed from the name alone.
+
+**No server change was needed.** `media_service.import_targets` already resolves a single
+file path (`if resolved.is_file(): return [resolved]`), so `/tasks/{id}/local-import`
+could already attach one file; only the *client* side had nothing calling it that way.
+`chooseFiles()` mirrors `chooseFolder()` exactly — same dynamic import, same "no shell
+means an empty result rather than an exception" contract, save that empty is a `[]` and not
+`null`, since "several files" and "one folder" are naturally different shapes of nothing.
+
+**One request per file, sequentially, not in parallel.** The endpoint computes each file's
+frame position by calling `media_service.next_position` at the start of the request; two
+requests for the same task running concurrently would both read the same "next" position
+and collide. A folder import does not have this problem because the server walks the whole
+folder inside one request. So choosing five files costs five round trips — an acceptable
+cost for the case this exists for, a handful of stray images, not thousands.
+
+**One failed file must not cost the others**, extending a principle the folder import
+already lived by (one corrupt file inside a folder is reported in `skipped`, not a failed
+import) to a case the folder path never had to handle: a whole *request* failing outright,
+because the endpoint takes one path and rejects a nonexistent one with a 422. Caught
+per-file and turned into a `skipped` entry naming the file, rather than aborting whatever
+was left to try. `mergeImportResults`, new in `localImport.ts`, combines the sequence of
+per-file results into the one `ImportSummary` the panel already knew how to render — a
+person who chose five files sees one outcome, not five notices flashing past. Its one
+subtlety: `frame_count` is the task's *running total* as of each call, not a delta, so only
+the last result's is still true once everything has landed.
+
+Extended `verify_local_import.py` rather than writing a new harness: it already proved the
+browser/desktop split and the missing-shell survival story for the folder picker, and the
+files picker needed exactly the same three things proved, plus the new per-file-failure
+path. Three real files chosen at once, one of them nonexistent: two attached, one named in
+`skipped`, the frame count reflecting only what actually landed, a job built from the two
+that did. Confirmed the harness bites by stubbing `chooseFiles` to always return nothing —
+the click then reads as a cancel and the harness times out waiting for a result that never
+comes, exactly as it should.
+
+Verified: `./scripts/check.sh` green — 515 server tests, 13 SDK, 534 web (5 new); the
+extended local-import harness passing 20 checks against the packaged application.
+
+
+## Iteration 39
 
 ### 39 — the view settings that already existed can now be turned off
 
