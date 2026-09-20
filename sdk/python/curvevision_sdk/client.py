@@ -297,6 +297,57 @@ class CurveVision:
     def task_progress(self, task_id: uuid.UUID) -> dict[str, Any]:
         return dict(self._json("GET", f"/tasks/{task_id}/progress"))
 
+    def upload_resumable(
+        self,
+        task_id: uuid.UUID,
+        path: str | Path,
+        *,
+        upload_id: uuid.UUID | str | None = None,
+        chunk_size: int = 8 * 1024 * 1024,
+    ) -> dict[str, Any]:
+        """Upload one file through the offset-based resumable protocol, chunk by chunk.
+
+        For a large file over a connection that might drop -- `upload()` buffers the whole
+        file in one request and has to restart from zero if it fails partway through; this
+        sends it in pieces of ``chunk_size`` and can pick back up after a crash.
+
+        Pass ``upload_id`` to resume a session started by an earlier, interrupted call: the
+        current offset is read back from the server rather than assumed, so resuming after a
+        crash picks up from what actually landed, not from what the last log line claimed.
+        """
+        path = Path(path)
+        size = path.stat().st_size
+        if upload_id is not None:
+            upload = dict(self._json("GET", f"/tasks/{task_id}/uploads/{upload_id}"))
+        else:
+            upload = dict(
+                self._json(
+                    "POST",
+                    f"/tasks/{task_id}/uploads",
+                    json={"filename": path.name, "size": size},
+                )
+            )
+        session_id = upload["id"]
+        offset = int(upload["received_bytes"])
+
+        with path.open("rb") as handle:
+            handle.seek(offset)
+            while offset < size:
+                chunk = handle.read(chunk_size)
+                if not chunk:
+                    break
+                upload = dict(
+                    self._json(
+                        "PATCH",
+                        f"/tasks/{task_id}/uploads/{session_id}",
+                        content=chunk,
+                        headers={"upload-offset": str(offset)},
+                    )
+                )
+                offset = int(upload["received_bytes"])
+
+        return dict(self._json("POST", f"/tasks/{task_id}/uploads/{session_id}/complete"))
+
     @staticmethod
     def _task(payload: dict[str, Any]) -> Task:
         return Task._from(

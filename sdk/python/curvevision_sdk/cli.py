@@ -233,6 +233,29 @@ def task_upload(task_id: str, paths: list[Path]) -> None:
         typer.secho(f"Uploaded {len(assets)} file(s)", fg=typer.colors.GREEN)
 
 
+@task_app.command("upload-resumable")
+def task_upload_resumable(
+    task_id: str,
+    path: Path,
+    chunk_size: Annotated[int, typer.Option(help="Bytes per PATCH request")] = 8 * 1024 * 1024,
+    resume: Annotated[
+        str | None, typer.Option(help="An upload id from a previous, interrupted attempt")
+    ] = None,
+) -> None:
+    """Upload one large file in chunks, resumable if the connection drops.
+
+    Prefer plain `upload` for ordinary batches; this is for a file large enough, or a
+    connection flaky enough, that restarting from zero on failure is not acceptable.
+    """
+    with client() as cv:
+        asset = handle(
+            lambda: cv.upload_resumable(
+                uuid.UUID(task_id), path, upload_id=resume, chunk_size=chunk_size
+            )
+        )
+        typer.secho(f"Uploaded {asset['name']} as asset {asset['id']}", fg=typer.colors.GREEN)
+
+
 @task_app.command("progress")
 def task_progress(task_id: str) -> None:
     """Show annotation progress for a task."""

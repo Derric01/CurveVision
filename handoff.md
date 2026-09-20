@@ -38,9 +38,11 @@ shapes (detection/segmentation, OBB, pose, classification), each declaring in it
 The desktop shape works: a packaged single-executable server, a Tauri shell that supervises
 it, and folders annotated in place without copying a byte.
 
-**The tree is green.** `./scripts/check.sh` passes all nine steps: 517 server tests, 13 SDK,
-554 web. Seventeen browser harnesses drive the packaged desktop application in a real Chromium,
-nightly and on every push to `main`.
+**The tree is green.** `./scripts/check.sh` passes all eleven steps (it gained ruff and mypy
+for the SDK this iteration, closing a gap where CI checked the SDK's typing and lint and the
+local script silently did not): 525 server tests, 15 SDK, 554 web. Seventeen browser
+harnesses drive the packaged desktop application in a real Chromium, nightly and on every
+push to `main`.
 
 **A large file can now be uploaded a chunk at a time, and resumed if the connection drops.**
 The `UploadSession` model, its schemas and `Storage.append` had existed since early in the
@@ -219,15 +221,18 @@ was the last unconnected piece of the desktop application.
 
 ## Next best action
 
-**Reach the resumable-upload API from somewhere that can use it — the SDK and CLI first.**
-The protocol itself is done (this iteration): create a session, `PATCH` chunks in, complete.
-Nothing calls it yet. The SDK is the smaller, better-scoped half: a script uploading a large
-local file can read it in fixed-size pieces and retry a dropped chunk with no progress UI to
-build, which is most of what a contributor would actually reach for this over the direct
-`POST /tasks/{id}/assets` for. The web upload panel is the bigger half — chunking a
-`File` in the browser, a progress bar, and resuming after a page reload means persisting the
-session id and received-offset somewhere the tab can find them again — and can follow once
-the SDK path has proven the protocol against something other than its own tests.
+**Wire the resumable-upload protocol into the web upload panel.** The protocol is done
+(this iteration) and now reachable from the SDK and CLI too
+(`CurveVision.upload_resumable`, `curvevision task upload-resumable`), which was the
+smaller, better-scoped half — a script has no progress UI to build and can just read a file
+in fixed-size pieces. The browser is the half actually left: chunking a `File` with
+`.slice()`, a progress bar, and resuming after a page reload means persisting the session id
+and received-offset somewhere the tab can find them again (e.g. `localStorage`, keyed by the
+file's name and size, since there is nothing else stable to key it by before the first byte
+lands). The task page's *Add media from this computer* panel
+(`web/src/features/tasks/localImport.ts` and its caller) is the natural home — it already
+knows how to report a per-file outcome without aborting a whole batch, which a chunked
+upload will also want when one file in a multi-file drop is the one large enough to need it.
 
 **Then, still blocked on the user, unchanged from before this iteration:**
 
@@ -432,13 +437,17 @@ desktop app one executable and `curvevision-local` a complete CurveVision in a b
 seeds a project, draws with real pointer events and photographs the result. It produces the
 README's screenshots and found two release-blocking bugs on its first run.
 
-**Resumable uploads, at the API layer** — `POST /tasks/{id}/uploads` declares a filename and
+**Resumable uploads** — `POST /tasks/{id}/uploads` declares a filename and
 size, `PATCH /tasks/{id}/uploads/{upload_id}` appends a chunk at a stated offset (a mismatch
 is a 409 naming the real one), `GET` reports the current offset, and
 `POST .../complete` finalises through the same dedupe/probe path (`_ingest_bytes`) a direct
 upload uses. `Storage.append` and the `UploadSession` model/migration/schemas had existed
 since early in the project for exactly this and were unused; only the service functions and
-routes were missing. Not yet called from the SDK, the CLI or the web upload panel.
+routes were missing. Reachable from the SDK (`CurveVision.upload_resumable`) and the CLI
+(`curvevision task upload-resumable`), which read a local file in fixed-size pieces and can
+resume a session by id after a crash. The web upload panel does not call it yet — a browser
+`File`, a progress bar and resuming across a page reload are a bigger unit of work than a
+script reading bytes off disk.
 
 **Also** — Python SDK and CLI, Docker Compose deployment, CI, issue/PR templates, and the
 full docs set including seven ADRs.
@@ -461,7 +470,7 @@ full docs set including seven ADRs.
 | View settings (label chips, suggestions, fill opacity) | Complete and measured in a browser: three `Scene` fields that had always been read by the renderer but never written to from anywhere now have a getter/setter pair and a control each in the Labels panel. |
 | Choosing individual files (desktop) | Complete and measured in a browser: `choose_files` now has a caller, one `local-import` call per chosen file, a failed file reported in `skipped` without aborting the others, and the results of a whole batch merged into one summary. |
 | Cuboid (2D wireframe box) | Complete and measured in a browser: a two-stage tool (drag the front face, then move and click to set the depth), a wireframe renderer, and CVAT XML export/import using CVAT's own real attribute names. The backend needed no new code at all — `ShapeType.CUBOID`, its minimum-points entry, its IoU comparison and its track interpolation were already there, unused. **Not** the 3D/point-cloud kind — see `docs/ROADMAP.md`'s honestly-unchanged limitation on that. |
-| Resumable uploads | API layer complete and tested: create a session, `PATCH` chunks at a stated offset, read the current offset back, complete. Not reachable yet from the SDK, the CLI or the web upload panel — all three still send a file in one request. |
+| Resumable uploads | API, SDK and CLI complete and tested: create a session, `PATCH` chunks at a stated offset, read the current offset back, complete, resume by id after a crash. The web upload panel still sends a file in one request — chunking a browser `File` and persisting progress across a page reload is the one piece left. |
 
 *This table went stale once — it still listed the open-folder flow and chunked delivery as
 unbuilt several iterations after both shipped, because the narrative sections above were
@@ -557,9 +566,43 @@ Confirmed by temporarily removing the guard and watching the traceback, then fix
 catching that one exception and falling through with empty bytes, which reuses
 `_ingest_bytes`'s own rejection of empty content instead of adding a second one.
 
-Verified: `./scripts/check.sh` green — 525 server tests (8 new), 13 SDK, 554 web (unchanged;
-this iteration touched no TypeScript). The full suite, not a subset, including the notices
-gate (no new dependency) and both linters.
+**Continued in the same iteration: the SDK and CLI can now use the protocol.** This file's
+own *Next best action*, written earlier in this same iteration, named the SDK as the
+smaller, better-scoped half of reaching the new API from somewhere that could actually use
+it — no progress UI to build, just a script reading a file in fixed-size pieces and being
+able to retry. `CurveVision.upload_resumable(task_id, path, *, upload_id=None,
+chunk_size=8MiB)` does that: create a session (or `GET` an existing one by
+`upload_id` to learn where it really left off, rather than trusting a caller's own memory
+of how far it got), seek the file to that offset, `PATCH` chunk by chunk, then complete. The
+CLI gained `curvevision task upload-resumable <task_id> <path> [--chunk-size] [--resume
+<id>]` as a thin shell over it, matching every other CLI command's shape.
+
+**The resume test's first draft did not actually test resuming.** It called
+`upload_resumable(..., upload_id=session_id)` after hand-driving half an upload against that
+session, and asserted the final asset came out right — which passed even after deliberately
+breaking the `upload_id is not None` branch, because a version that ignores `upload_id` and
+starts a brand-new session still produces a correct asset (a full re-upload succeeds too).
+The meaningful assertion is that the *original* session is the one left `completed`, which a
+version that silently abandons it for a fresh one fails. Confirmed both ways: broke the
+branch, watched the strengthened assertion fail (`False is True`) where the weak one had
+passed; restored it.
+
+**The web upload panel is not touched.** Chunking a browser `File`, a progress bar, and
+resuming across a page reload are a meaningfully bigger unit of work than the SDK path was,
+and are exactly what is left in *Next best action* below.
+
+**Also: `./scripts/check.sh` was not actually "everything CI runs."** While adding SDK code,
+`.github/workflows/ci.yml`'s `sdk` job turned out to run `ruff check` and `mypy
+curvevision_sdk` scoped to `sdk/python` — neither of which `check.sh` ran locally, despite
+its own header comment and `AGENTS.md`'s table both claiming it covers everything CI does.
+The new SDK code happened to pass both already, but the gap meant a future change could
+break CI's SDK job while `check.sh` stayed green. Added both steps (`ruff (sdk)`, `mypy
+(sdk)`) to `scripts/check.sh`, mirroring the server's own two steps.
+
+Verified: `./scripts/check.sh` green, all eleven steps now including the two just added —
+525 server tests (8 new), 15 SDK (2 new), 554 web (unchanged; no TypeScript touched this
+iteration). The full suite, not a subset, including the notices gate (no new dependency)
+and both linters for both Python packages.
 
 ## Iteration 41
 
