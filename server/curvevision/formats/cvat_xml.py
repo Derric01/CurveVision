@@ -66,8 +66,33 @@ TO_XML: dict[ShapeType, str] = {
     ShapeType.POINTS: "points",
     ShapeType.ELLIPSE: "ellipse",
     ShapeType.MASK: "mask",
+    ShapeType.CUBOID: "cuboid",
 }
 FROM_XML: dict[str, ShapeType] = {value: key for key, value in TO_XML.items()}
+
+#: CVAT's own 16 named attributes for a `<cuboid>`, in the order its `points` list carries
+#: them: front face (top-left, bottom-left, top-right, bottom-right), then the same four
+#: corners of the back face. Written down once so export and import cannot silently disagree
+#: about which index is which corner -- this is CVAT's real on-disk convention, not a guess,
+#: which is what lets a cuboid drawn here round-trip through actual CVAT unchanged.
+CUBOID_ATTRS: tuple[str, ...] = (
+    "xtl1",
+    "ytl1",
+    "xbl1",
+    "ybl1",
+    "xtr1",
+    "ytr1",
+    "xbr1",
+    "ybr1",
+    "xtl2",
+    "ytl2",
+    "xbl2",
+    "ybl2",
+    "xtr2",
+    "ytr2",
+    "xbr2",
+    "ybr2",
+)
 
 
 def _points_attr(points: list[float]) -> str:
@@ -136,6 +161,7 @@ class CvatXmlFormat:
             ShapeType.POINTS,
             ShapeType.ELLIPSE,
             ShapeType.MASK,
+            ShapeType.CUBOID,
         ),
         supports_import=True,
         supports_export=True,
@@ -145,9 +171,11 @@ class CvatXmlFormat:
         notes=(
             "The most expressive format here, and the one to use when moving a project "
             "between CurveVision and CVAT in either direction. Carries boxes, polygons, "
-            "polylines, points, ellipses, masks, tags, per-object attributes and tracks "
-            "with keyframes. Skeletons are written as their element points and lose the "
-            "parent/child structure, which is the one real gap."
+            "polylines, points, ellipses, masks, cuboids, tags, per-object attributes and "
+            "tracks with keyframes. The cuboid's 16 coordinates round-trip through CVAT's "
+            "own xtl1/ytl1.../ybr2 attributes, not a generic points list, so a box drawn "
+            "here reads back as the same box in real CVAT. Skeletons are written as their "
+            "element points and lose the parent/child structure, which is the one real gap."
         ),
     )
 
@@ -296,6 +324,17 @@ class CvatXmlFormat:
             if attributes is None:
                 return []
             parts.append(attributes)
+        elif shape.shape_type is ShapeType.CUBOID:
+            # CVAT writes a cuboid as 16 named attributes, not a `points=` list -- real CVAT
+            # does not understand a `<cuboid points="...">`, and a generic writer that fell
+            # through to the `else` branch below would produce a file real CVAT rejects while
+            # this format's own capabilities claimed the round trip worked.
+            if len(shape.points) < 16:
+                return []
+            coords = shape.points[:16]
+            parts.extend(
+                f' {name}="{value:.2f}"' for name, value in zip(CUBOID_ATTRS, coords, strict=True)
+            )
         else:
             parts.append(f' points="{_points_attr(shape.points)}"')
 
@@ -432,6 +471,8 @@ class CvatXmlFormat:
                 # The corners as well as the runs: bounds, hit-testing and the label chip all
                 # read `points`, and a mask with none of them would be selectable nowhere.
                 points = [float(left), float(top), float(right), float(bottom)]
+            elif shape_type is ShapeType.CUBOID:
+                points = [float(element.get(name, "0")) for name in CUBOID_ATTRS]
             else:
                 points = _parse_points(element.get("points", ""))
         except (ValueError, ValidationError):

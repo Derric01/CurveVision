@@ -5,7 +5,7 @@
 > [`AGENTS.md`](./AGENTS.md) first; it is the working contract. Update this file after every
 > iteration, including the ones that mostly failed.
 >
-> **Last updated:** 2026-09-20 (iteration 40) · branch `claude/curvevision-platform-build-n1g71n` · PRs [#1](https://github.com/Derric01/CurveVision/pull/1)–[#17](https://github.com/Derric01/CurveVision/pull/17) **all merged**. [#14](https://github.com/Derric01/CurveVision/pull/14) carried iterations 27–29 (the Node 20 bump, the provisional frame count, the skeleton tool); [#15](https://github.com/Derric01/CurveVision/pull/15) carried 30–31 (the two mask iterations); [#16](https://github.com/Derric01/CurveVision/pull/16) carried 32–33 (the comparison bounding box, open vocabulary); [#17](https://github.com/Derric01/CurveVision/pull/17) carried 34–35 (auto-annotate, suggestion review) — it merged mid-session, while 36–39 were still in flight on the same branch, so those four commits were rebased onto the post-merge `main` rather than left stacked on merged history. Iterations 36–39 were carried by PR #18 (open); iteration 40 is unmerged on top of that with no PR open yet.
+> **Last updated:** 2026-09-20 (iteration 41) · branch `claude/curvevision-platform-build-n1g71n` · PRs [#1](https://github.com/Derric01/CurveVision/pull/1)–[#18](https://github.com/Derric01/CurveVision/pull/18) **all merged**. [#14](https://github.com/Derric01/CurveVision/pull/14) carried iterations 27–29 (the Node 20 bump, the provisional frame count, the skeleton tool); [#15](https://github.com/Derric01/CurveVision/pull/15) carried 30–31 (the two mask iterations); [#16](https://github.com/Derric01/CurveVision/pull/16) carried 32–33 (the comparison bounding box, open vocabulary); [#17](https://github.com/Derric01/CurveVision/pull/17) carried 34–35 (auto-annotate, suggestion review) — it merged mid-session, while 36–39 were still in flight on the same branch, so those four commits were rebased onto the post-merge `main`. [#18](https://github.com/Derric01/CurveVision/pull/18) carried 36–39 and merged in turn while iteration 40's commit was still landing on the branch, one commit behind — rebased the same way. [#19](https://github.com/Derric01/CurveVision/pull/19) (open) carries iteration 40 (individually chosen files) and, as of this update, iteration 41 (the cuboid tool) pushed onto the same branch.
 
 ---
 
@@ -22,9 +22,17 @@ shapes (detection/segmentation, OBB, pose, classification), each declaring in it
 The desktop shape works: a packaged single-executable server, a Tauri shell that supervises
 it, and folders annotated in place without copying a byte.
 
-**The tree is green.** `./scripts/check.sh` passes all nine steps: 515 server tests, 13 SDK,
-534 web. Sixteen browser harnesses drive the packaged desktop application in a real Chromium,
+**The tree is green.** `./scripts/check.sh` passes all nine steps: 517 server tests, 13 SDK,
+554 web. Seventeen browser harnesses drive the packaged desktop application in a real Chromium,
 nightly and on every push to `main`.
+
+**A cuboid can now be drawn, not only carried.** `ShapeType.CUBOID` has been in the domain
+model since early in the project — the comparison/merge IoU logic, track interpolation and
+the minimum-points table all already knew about it — but nothing let a human draw one, paint
+it, or export it. All three now exist: a two-stage tool (drag the front face, then move and
+click to set the depth), a wireframe renderer, and CVAT XML support using CVAT's own real
+`xtl1,ytl1,...,ybr2` attribute convention rather than a generic points list, so a box drawn
+here reads back as the same box in real CVAT.
 
 **A number the platform is not sure about says so.** A video task's frame count starts as an
 estimate; where it cannot be replaced by a decoded one — the task already carries annotations,
@@ -326,8 +334,11 @@ it. Removing the last keyframe deletes the track rather than leaving an empty on
 OBB, pose, classification), Pascal VOC, KITTI, MOTChallenge, CVAT XML, segmentation masks and
 the lossless native one. Each declares what it can represent and warns before an export drops
 anything. **CVAT XML round-trips both directions**; **YOLO OBB and CVAT XML are the only two
-that keep a rotated box's angle**. Round-tripped through their own readers in
-`tests/unit/test_formats_robotics.py` and `test_formats_yolo_variants.py`.
+that keep a rotated box's angle**. CVAT XML also carries the cuboid shape, using CVAT's own
+16 named attributes (`xtl1,ytl1,...,ybr2`) rather than a generic points list — the other ten
+formats have no box-with-depth primitive and correctly declare it unsupported. Round-tripped
+through their own readers in `tests/unit/test_formats_robotics.py` and
+`test_formats_yolo_variants.py`.
 
 **Superseded:** **Eight dataset formats** — COCO, YOLO, Pascal VOC, KITTI, MOTChallenge, CVAT XML,
 segmentation masks and the lossless native one. Each declares what it can represent and
@@ -415,6 +426,7 @@ full docs set including seven ADRs.
 | Quality reports | Complete end to end and driven in a browser: the task page creates the answer key and shows each job's latest F1, the editor shows the report and seeks to a conflict on click, and a stale report is marked stale. The comparison runs **inline, deliberately and measurably** — 200,000 shapes a side over 10,000 frames score in 4.4s. Nothing outstanding. |
 | View settings (label chips, suggestions, fill opacity) | Complete and measured in a browser: three `Scene` fields that had always been read by the renderer but never written to from anywhere now have a getter/setter pair and a control each in the Labels panel. |
 | Choosing individual files (desktop) | Complete and measured in a browser: `choose_files` now has a caller, one `local-import` call per chosen file, a failed file reported in `skipped` without aborting the others, and the results of a whole batch merged into one summary. |
+| Cuboid (2D wireframe box) | Complete and measured in a browser: a two-stage tool (drag the front face, then move and click to set the depth), a wireframe renderer, and CVAT XML export/import using CVAT's own real attribute names. The backend needed no new code at all — `ShapeType.CUBOID`, its minimum-points entry, its IoU comparison and its track interpolation were already there, unused. **Not** the 3D/point-cloud kind — see `docs/ROADMAP.md`'s honestly-unchanged limitation on that. |
 
 *This table went stale once — it still listed the open-folder flow and chunked delivery as
 unbuilt several iterations after both shipped, because the narrative sections above were
@@ -433,6 +445,111 @@ being updated and this one was not. Check it against* Completed *before trusting
 ---
 
 ## Last iteration
+
+### 41 — a cuboid can be drawn, not only carried
+
+Prompted by a direct question: *"we have all the features cvat has right... if not we must
+have."* Answering it honestly meant actually checking, not assuming: `WebSearch`/`WebFetch`
+against CVAT's real README and its own `cvat-canvas`/`dataset_manager` source (`docs.cvat.ai`
+itself is blocked by this environment's egress proxy, so GitHub's raw source was the primary
+route), cross-referenced against what CurveVision's code *actually* does rather than what
+`docs/ROADMAP.md` claims. Most of the gap that turned up is not a gap at all: 3D/point-cloud
+annotation, LDAP/SSO and honeypot QA are all already, honestly documented as deliberately out
+of scope (`docs/ROADMAP.md`'s own *Future* and *Limitations* sections say so in plain words,
+and 3D point-cloud annotation is a large enough body of work that revisiting the decision
+without being asked would be the wrong call). The one real, well-scoped, **not**
+already-declined gap: `ShapeType.CUBOID`.
+
+**It was already wired everywhere except where a human could reach it.** `grep` across the
+codebase found it in `domain/enums.py` (`SHAPE_MIN_POINTS[CUBOID] = 8`), `services/comparison.py`
+(compared as an area shape for quality scoring), `services/merge.py` (mergeable at job seams
+by the same IoU rule), `services/interpolation.py` (a fixed-length geometry, so no arc-length
+resampling needed) and the identical set on the TypeScript side. Nothing in any of those files
+needed to change. What was missing was a tool to draw one, a renderer to paint it, and a
+format that could carry it — the platform could store and score a cuboid it had no way to
+produce.
+
+**The point order is CVAT's own, not invented here.** A 2D-image cuboid is 8 corners: a front
+face and a back face. Rather than pick an arbitrary order, `raw.githubusercontent.com` was
+fetched for CVAT's actual `dataset_manager/formats/cvat.py`, which dumps a `<cuboid>` element
+as 16 named attributes — `xtl1,ytl1,xbl1,ybl1,xtr1,ytr1,xbr1,ybr1,xtl2,ytl2,xbl2,ybl2,xtr2,
+ytr2,xbr2,ybr2` — straight from `shape.points[0..15]`. That is now CurveVision's own internal
+point order too: front top-left, front bottom-left, front top-right, front bottom-right, then
+the same four corners of the back face. The payoff is real interop, not a coincidence of
+having 8 points each: a cuboid drawn in CurveVision and exported through `cvat_xml` reads back
+as the identical box in real CVAT, and `geometry.ts`'s `cuboidFromFrontFace` says so in its own
+docstring rather than leaving the convention to be rediscovered later. This is the same
+"independent implementation from the published format, no code copied" stance the rest of
+`cvat_xml.py` already takes, and the same category as ADR 0009's live-wire scissors — CVAT's
+own vanishing-point perspective math was read about, not adapted, because it needs a second
+reference edge this project's gesture does not collect (see below).
+
+**Drawing one is two gestures, because one drag cannot give both faces.** `CuboidTool` (new
+in `tools.ts`) drags out the front face exactly like `RectangleTool` does, then a second
+stage — move to preview, click to commit, matching how `PathTool` and `SkeletonTool` already
+commit a step on `onPointerDown` rather than a release — sets a uniform depth offset. The
+back face is the front face translated by `(dx, dy)`, a parallel projection rather than
+CVAT's true vanishing-point perspective: real perspective needs a second reference edge to
+compute a vanishing point from, which is a lot of machinery for a shape most annotators reach
+for as "a box with a depth," not a photogrammetry aid. Every corner is an ordinary,
+independently-draggable vertex afterward — `handlePoints`' and `dragHandle`'s existing generic
+fallbacks already treat any 8-point shape this way, so a cuboid needing true perspective can
+still be hand-corrected with no new code. `Escape` abandons either stage; a degenerate front
+face (a click, not a drag) is discarded the same way `RectangleTool` discards one.
+
+**The renderer draws 12 disjoint edges, and must never fill them.** `Renderer.tracePath` gets
+a `cuboid` branch that walks `CUBOID_EDGES` (front face, back face, four connectors) as
+separate `moveTo`/`lineTo` pairs sharing one path — fine to `stroke()`, but filling it would
+implicitly close and shade each pair, painting the gaps between edges. `isFillable`
+deliberately leaves `cuboid` out for exactly that reason, mirroring how `points` and
+`skeleton` are drawn but never filled either.
+
+**Two things broke in this iteration's own verification, both found the way this project asks
+for — measuring rather than assuming, including about a harness five minutes old.** First: a
+480×320 sample image on a 1280×1000 viewport is not shown at 1:1 — `fitToImage` (`viewport.ts`)
+scaled it to roughly 1.888× and centred it, which the harness's first draft did not account
+for (it copied the brush and skeleton harnesses' raw-pixel-offset style, whose own coordinate
+choices happen not to expose the assumption: a fraction-based click always lands on the image
+centre regardless of scale, and the brush harness's claims are relative, not absolute-pixel).
+The result: a 120×80-pixel drag landed as a few image-pixels wide, read as a degenerate front
+face, and was silently discarded — reported as "0 pixels lit" and an idle hint that never
+changed. Fixed by replicating `fitToImage`'s actual formula in the harness (`image_to_screen`)
+rather than assuming any particular scale. Second, worse, and only caught because the first
+fix was verified by deliberately breaking the renderer rather than trusted on sight: a coarse
+"how many pixels are lit in total" check passed at **5,279 lit pixels** with the cuboid's own
+wireframic rendering entirely disabled (`if (shapeType === 'cuboid' && false)`), because
+`Renderer.paintLabel`'s name chip is unconditional once `showLabels` is on and lights far more
+of the shapes layer than a 1.75px wireframe does — and because the renderer's generic
+point-by-point fallback for an unhandled shape type draws *something* (the wrong something: a
+zigzag connecting consecutive indices) rather than nothing. A check that cannot fail is worse
+than no check, so it was replaced with two probes at specific mid-edge pixels the generic
+fallback provably cannot produce (`front-top` and `back-top`, worked out by hand against the
+fallback's own connectivity), plus a hidden-labels step and a check that the shape's own
+interior stays unlit. Re-broke the renderer to confirm both new checks fail, restored it, and
+confirmed a byte-identical rebuilt bundle (same hash) before trusting the green run.
+
+**Verified with actual numbers, not a pass/fail alone.** The harness draws a front face at
+`(60,60)-(180,140)` and a depth click at `(220,110)`, expects the 8 corners by hand
+(`(60,60),(60,140),(180,60),(180,140),(100,30),(100,110),(220,30),(220,110)`), and checks the
+*stored* API points and the *exported* `cvat_xml` attributes both land within a pixel of that
+by-hand computation — not merely that a shape of the right type exists. It genuinely does:
+stored points came back accurate to five decimal places, and the exported `xtl1..ybr2`
+attributes matched exactly.
+
+Verified: `./scripts/check.sh` green — 517 server tests (2 new: writing CVAT's own 16
+attributes, and round-tripping them), 13 SDK, 554 web (20 new: `cuboidTool.test.ts`'s 11,
+7 in `geometry.test.ts` for `cuboidFromFrontFace`/`CUBOID_EDGES`, 2 in `cuboidHint.test.ts`);
+seventeen browser harnesses, the new `verify_cuboid.py` included, all passing against the
+packaged application.
+
+**Also this iteration:** resolved a git-state contradiction from the previous session boundary
+— PR #18 had merged with 5 of that session's 6 commits, leaving one (`choose_files`) genuinely
+unmerged on the branch. Rebased it onto the new `origin/main` (clean, since the merge base was
+content-identical), confirmed green, force-pushed, and opened **PR #19** for it, onto which
+this iteration's cuboid work was then pushed as well.
+
+
+## Iteration 40
 
 ### 40 — individual files can be attached, not only a whole folder
 

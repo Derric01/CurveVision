@@ -9,6 +9,7 @@
 import {
   boundsOf,
   clampToImage,
+  cuboidFromFrontFace,
   distance,
   normalizeRectangle,
   snapToVertex,
@@ -1059,6 +1060,147 @@ export class BrushTool implements Tool {
   }
 }
 
+// ------------------------------------------------------------------------- cuboid
+
+/**
+ * A cuboid, drawn in two stages: drag the front face, then move and click to set the depth.
+ *
+ * The last shape type the platform's domain model, IoU comparison and interpolation all
+ * already knew about — `ShapeType.CUBOID` is fully wired on both sides, `MIN_VERTICES.cuboid`
+ * has always said 8 — with nothing to draw one. **A single drag cannot give both faces of a
+ * box**, which is why every other tool here that produces one shape from one gesture does not
+ * fit: a box needs its footprint (a rectangle, exactly what `RectangleTool` already collects)
+ * and a direction and distance for the depth, which is a second, independent measurement. So
+ * the front face is a drag, matching how any annotator already draws a box, and the depth is
+ * a second click, matching how `PathTool` and `SkeletonTool` already commit a step on
+ * `onPointerDown` rather than waiting for a release.
+ *
+ * **The projection is a uniform offset, not true perspective.** See `cuboidFromFrontFace` for
+ * why: real vanishing-point perspective needs a second reference edge this gesture does not
+ * collect, for a shape most annotators reach for as "a box with a depth." Every corner is an
+ * ordinary vertex afterward — `handlePoints`' generic fallback and `dragHandle`'s generic
+ * branch already make all 8 independently draggable with no code added here — so a shape that
+ * needs true perspective can still be hand-corrected after the fact.
+ */
+export class CuboidTool implements Tool {
+  readonly name = 'cuboid' as const;
+  readonly cursor = 'crosshair';
+
+  private stage: 'front' | 'depth' = 'front';
+  private origin: Point | null = null;
+  private front: number[] | null = null;
+  private depthAnchor: Point | null = null;
+  private labelId: string | null = null;
+
+  private static readonly FRONT_STATUS = 'Drag to draw the front face';
+  private static readonly DEPTH_STATUS = 'Move to set the depth, then click to place the back face';
+  /** Minimum drag distance, in image pixels, before a depth click is taken as real rather
+   *  than the pointer not having moved yet since the front face was released. */
+  private static readonly MIN_DEPTH = 2;
+
+  onPointerDown(input: PointerInput, context: ToolContext): ToolResult {
+    if (this.stage === 'front') {
+      if (this.origin) return {};
+      const labelId = context.activeLabelId();
+      if (!labelId) return {};
+      this.labelId = labelId;
+      this.origin = input.image;
+      return { draft: this.frontDraft(input.image), status: CuboidTool.FRONT_STATUS };
+    }
+
+    // stage === 'depth': a click commits, the same way a vertex click already does in
+    // `PathTool` and a joint click already does in `SkeletonTool`.
+    if (!this.front || !this.labelId || !this.depthAnchor) return {};
+    const dx = input.image.x - this.depthAnchor.x;
+    const dy = input.image.y - this.depthAnchor.y;
+    if (Math.hypot(dx, dy) < CuboidTool.MIN_DEPTH) return {};
+
+    const { width, height } = context.imageSize();
+    const points = clampToImage(cuboidFromFrontFace(this.front, dx, dy), width, height);
+    const created = draftAnnotation(this.labelId, 'cuboid', points);
+    this.reset();
+    return { created, draft: null, status: null };
+  }
+
+  onPointerMove(input: PointerInput, context: ToolContext): ToolResult {
+    if (this.stage === 'front') {
+      if (!this.origin) return {};
+      return { draft: this.frontDraft(input.image) };
+    }
+
+    if (!this.front || !this.labelId || !this.depthAnchor) return {};
+    const { width, height } = context.imageSize();
+    const points = clampToImage(
+      cuboidFromFrontFace(
+        this.front,
+        input.image.x - this.depthAnchor.x,
+        input.image.y - this.depthAnchor.y,
+      ),
+      width,
+      height,
+    );
+    return { draft: draftAnnotation(this.labelId, 'cuboid', points) };
+  }
+
+  onPointerUp(input: PointerInput, context: ToolContext): ToolResult {
+    if (this.stage !== 'front') return {};
+    if (!this.origin || !this.labelId) {
+      this.reset();
+      return { draft: null };
+    }
+
+    const { width, height } = context.imageSize();
+    const rect = clampToImage(
+      normalizeRectangle([this.origin.x, this.origin.y, input.image.x, input.image.y]),
+      width,
+      height,
+    );
+    const [x1 = 0, y1 = 0, x2 = 0, y2 = 0] = rect;
+    // Reject a click that produced a degenerate front face, matching `RectangleTool` --
+    // there is no useful cuboid to extrude depth from a point.
+    if (Math.abs(x2 - x1) < 2 || Math.abs(y2 - y1) < 2) {
+      this.reset();
+      return { draft: null, status: null };
+    }
+
+    this.front = rect;
+    this.depthAnchor = input.image;
+    this.origin = null;
+    this.stage = 'depth';
+    return { status: CuboidTool.DEPTH_STATUS };
+  }
+
+  onKey(key: string): ToolResult | null {
+    if (key === 'Escape') return this.cancel();
+    return null;
+  }
+
+  cancel(): ToolResult {
+    this.reset();
+    return { draft: null, status: null };
+  }
+
+  private frontDraft(to: Point): Annotation | null {
+    if (!this.origin || !this.labelId) return null;
+    const rect = normalizeRectangle([this.origin.x, this.origin.y, to.x, to.y]);
+    return draftAnnotation(this.labelId, 'cuboid', cuboidFromFrontFace(rect, 0, 0));
+  }
+
+  private reset(): void {
+    this.stage = 'front';
+    this.origin = null;
+    this.front = null;
+    this.depthAnchor = null;
+    this.labelId = null;
+  }
+
+  /** Which stage of the two-step gesture is active, for tests and for the panel. */
+  get drawing(): 'front' | 'depth' | 'idle' {
+    if (this.stage === 'depth') return 'depth';
+    return this.origin ? 'front' : 'idle';
+  }
+}
+
 export function createTool(name: ToolName): Tool {
   switch (name) {
     case 'scissors':
@@ -1067,6 +1209,8 @@ export function createTool(name: ToolName): Tool {
       return new SkeletonTool();
     case 'brush':
       return new BrushTool();
+    case 'cuboid':
+      return new CuboidTool();
     case 'rectangle':
       return new RectangleTool();
     case 'ellipse':
@@ -1095,6 +1239,7 @@ export const TOOL_SHORTCUTS: Record<string, ToolName> = {
   // `k` is the editor's add-keyframe and `n` is the point tool, so joints get `j`.
   j: 'skeleton',
   b: 'brush',
+  c: 'cuboid',
 };
 
 export { boundsOf };

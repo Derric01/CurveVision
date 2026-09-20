@@ -351,6 +351,50 @@ class TestCvatXml:
         )
         assert result.tags == [(0, "daytime")]
 
+    def test_a_cuboid_writes_cvats_own_named_attributes(self) -> None:
+        """Real CVAT does not understand `<cuboid points="...">` -- it reads 16 named
+        attributes (`xtl1,ytl1,xbl1,ybl1,xtr1,ytr1,xbr1,ybr1,xtl2,...`), independently
+        confirmed from CVAT's own `dataset_manager/formats/cvat.py`. Writing a generic
+        `points=` list here would produce a file this format's own capabilities claimed
+        round-tripped, but that real CVAT would silently fail to read."""
+        points = [10, 20, 10, 60, 30, 20, 30, 60, 15, 25, 15, 65, 35, 25, 35, 65]
+        frames = [
+            FrameRecord(
+                index=0,
+                name="a.jpg",
+                width=800,
+                height=600,
+                shapes=[ShapeRecord(label="car", shape_type=ShapeType.CUBOID, points=points)],
+            )
+        ]
+        sink = MemoryExportSink()
+        get_format("cvat_xml").export(dataset(frames), sink)
+        root = ET.fromstring(text(sink, "annotations.xml"))
+
+        cuboid = root.find("./image/cuboid")
+        assert cuboid is not None
+        assert (cuboid.get("xtl1"), cuboid.get("ytl1")) == ("10.00", "20.00")
+        assert (cuboid.get("xbr2"), cuboid.get("ybr2")) == ("35.00", "65.00")
+
+    def test_a_cuboid_round_trips_all_16_coordinates(self) -> None:
+        cvat = get_format("cvat_xml")
+        points = [10, 20, 10, 60, 30, 20, 30, 60, 15, 25, 15, 65, 35, 25, 35, 65]
+        frames = [
+            FrameRecord(
+                index=0,
+                name="a.jpg",
+                width=800,
+                height=600,
+                shapes=[ShapeRecord(label="car", shape_type=ShapeType.CUBOID, points=points)],
+            )
+        ]
+        sink = MemoryExportSink()
+        cvat.export(dataset(frames), sink)
+
+        result = cvat.import_(MemoryImportSource(sink.files), context(count=1, names={"a.jpg": 0}))
+        cuboid = next(s for _, s in result.shapes if s.shape_type is ShapeType.CUBOID)
+        assert cuboid.points == [float(p) for p in points]
+
     def test_a_tracked_dataset_is_written_as_tracks(self) -> None:
         """Exporting tracked work as loose per-frame shapes throws away the identity."""
         frames = [

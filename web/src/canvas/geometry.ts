@@ -282,6 +282,43 @@ export function snapToVertex(
   return best;
 }
 
+/**
+ * An 8-point cuboid from a front-face rectangle and a depth offset.
+ *
+ * The point order — front top-left, front bottom-left, front top-right, front bottom-right,
+ * then the same four corners of the back face — is not arbitrary: it is CVAT's own on-disk
+ * convention (`xtl1,ytl1,xbl1,ybl1,xtr1,ytr1,xbr1,ybr1,xtl2,...`), so a cuboid drawn here and
+ * exported through `cvat_xml` reads back as the same box in real CVAT, and one imported from
+ * there needs no reordering to render or edit. The projection itself is deliberately not
+ * CVAT's true vanishing-point perspective — that needs a second reference edge to compute a
+ * vanishing point from, which is a lot of machinery for a shape most annotators use as "a
+ * box with a depth," not a photogrammetry aid. A uniform offset (parallel projection, the
+ * convention block diagrams and CAD sketches use) draws an unambiguous 3D box with one
+ * number pair, and every corner stays independently draggable afterward for anyone who wants
+ * the true perspective by hand.
+ */
+export function cuboidFromFrontFace(front: number[], dx: number, dy: number): number[] {
+  const [x1 = 0, y1 = 0, x2 = 0, y2 = 0] = front;
+  return [
+    x1, y1, // front top-left
+    x1, y2, // front bottom-left
+    x2, y1, // front top-right
+    x2, y2, // front bottom-right
+    x1 + dx, y1 + dy, // back top-left
+    x1 + dx, y2 + dy, // back bottom-left
+    x2 + dx, y1 + dy, // back top-right
+    x2 + dx, y2 + dy, // back bottom-right
+  ];
+}
+
+/** The 12 wireframe edges of a cuboid's 8 points, as vertex-index pairs. Shared by the
+ *  renderer (draws them) and anything that needs the same box read back the same way. */
+export const CUBOID_EDGES: readonly (readonly [number, number])[] = [
+  [0, 2], [2, 3], [3, 1], [1, 0], // front face
+  [4, 6], [6, 7], [7, 5], [5, 4], // back face
+  [0, 4], [2, 6], [1, 5], [3, 7], // connecting edges
+];
+
 export function shapeIsClosed(shapeType: ShapeType): boolean {
   return shapeType === 'polygon';
 }

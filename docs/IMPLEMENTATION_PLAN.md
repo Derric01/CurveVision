@@ -311,7 +311,9 @@ Three annotation kinds, all scoped to a job:
 | `Tag` | frame-level or job-level classification | single `frame` or null |
 
 Geometry types: `rectangle`, `rotated_rectangle`, `polygon`, `polyline`, `points`,
-`ellipse`, `mask`, `cuboid` (*Planned*), `skeleton` (keypoints with an edge graph).
+`ellipse`, `mask`, `cuboid` (a 2D wireframe box — front face plus a depth offset, in CVAT's
+own on-disk point order so it round-trips through `cvat_xml`; not the 3D/point-cloud kind),
+`skeleton` (keypoints with an edge graph).
 
 Points are stored as a flat `float[]` (`[x1,y1,x2,y2,…]`) in a JSON column. Masks are stored
 RLE-encoded with a bounding box, which keeps a 4K instance mask in the low kilobytes. The
@@ -369,10 +371,12 @@ polygon, polyline, point, ellipse, mask brush; select/transform; zoom/pan; undo/
 keyboard map), frame navigation, label sidebar, object list, autosave to the API. **Done
 since:** the skeleton tool (joints placed in the label's declared order, a joint nobody can
 see recorded as invisible rather than dropped, and the bones drawn), track keyframe editing,
-and the mask brush (paints a filled disc, erases with right-click or Alt, edits the selected
+the mask brush (paints a filled disc, erases with right-click or Alt, edits the selected
 mask instead of starting a new one, and deletes the object outright when a stroke erases it
-down to no pixels).
-**Planned:** cuboid, magnetic lasso, multi-user presence cursors.
+down to no pixels), and the cuboid tool (drag the front face, then move and click to set the
+depth; the 8 corners land in CVAT's own on-disk order, so a box drawn here exports through
+`cvat_xml` as the same box real CVAT would write).
+**Planned:** magnetic lasso, multi-user presence cursors.
 
 ---
 
