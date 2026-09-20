@@ -7,7 +7,7 @@
  */
 
 import { describe, expect, it } from 'vitest';
-import { chooseFolder, isDesktop, onOpenFolder, parseConnection } from '@/desktop';
+import { chooseFiles, chooseFolder, isDesktop, onOpenFolder, parseConnection } from '@/desktop';
 
 const valid = {
   url: 'http://127.0.0.1:49312',
@@ -92,6 +92,13 @@ describe('the shell seam without a shell', () => {
     // Same value as a cancelled dialog: callers have one "nothing was chosen" path.
     await expect(chooseFolder()).resolves.toBeNull();
     await expect(chooseFolder('Pick something')).resolves.toBeNull();
+  });
+
+  it('resolves the files picker to an empty list rather than throwing', async () => {
+    // Same shape as a cancelled dialog: one "nothing was chosen" value, an empty array
+    // rather than `chooseFolder`'s null, because zero files and one cancelled pick are the
+    // same outcome for a caller that is about to loop over whatever comes back.
+    await expect(chooseFiles()).resolves.toEqual([]);
   });
 
   it('never loads the shell API in a browser', async () => {

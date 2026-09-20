@@ -118,6 +118,23 @@ export async function chooseFolder(title?: string): Promise<string | null> {
 }
 
 /**
+ * Ask the shell for one or more individual image or video files, via the operating
+ * system's own dialog.
+ *
+ * Returns the chosen paths, or an empty array when the user cancelled — and also when
+ * there is no shell. The shell's own filter already limits the dialog to media
+ * extensions, so what comes back is not re-validated here; a file it cannot actually read
+ * is the server's `local-import` endpoint's problem to report, the same as it already is
+ * for one that turns up inside a chosen folder.
+ */
+export async function chooseFiles(): Promise<string[]> {
+  if (!isDesktop()) return [];
+  const { invoke } = await import('@tauri-apps/api/core');
+  const chosen = await invoke<string[]>('choose_files', {});
+  return Array.isArray(chosen) ? chosen.filter((path) => typeof path === 'string' && path.length > 0) : [];
+}
+
+/**
  * Run `handler` when the shell's Open Folder menu item is used. Returns an unsubscribe.
  *
  * Subscribing is asynchronous and unmounting is not, so a component that unmounts before

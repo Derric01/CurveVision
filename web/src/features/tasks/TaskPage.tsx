@@ -2,10 +2,11 @@ import { useCallback, useEffect, useState } from 'react';
 import clsx from 'clsx';
 import { Link, useParams } from 'react-router-dom';
 import { useQueryClient, useQuery } from '@tanstack/react-query';
-import { ArrowLeft, FolderOpen, PenLine } from 'lucide-react';
+import { ArrowLeft, Files, FolderOpen, PenLine } from 'lucide-react';
 import { api } from '@/api/client';
-import { chooseFolder, isDesktop, onOpenFolder } from '@/desktop';
-import { summariseImport, type ImportSummary } from './localImport';
+import type { LocalImportResult } from '@/api/types';
+import { chooseFiles, chooseFolder, isDesktop, onOpenFolder } from '@/desktop';
+import { mergeImportResults, summariseImport, type ImportSummary } from './localImport';
 import { GroundTruthPanel } from './GroundTruthPanel';
 import { FrameCountNotice } from './FrameCountNotice';
 import { latestReportByJob, splitJobs } from './groundTruth';
@@ -47,6 +48,20 @@ export function TaskPage() {
   const [summary, setSummary] = useState<ImportSummary | null>(null);
   const [importError, setImportError] = useState<unknown>(null);
 
+  // The frame count, the job list and the project's statistics all move when media is
+  // attached, so none of them may be left showing the state from before. Shared by both
+  // import paths below rather than duplicated.
+  const invalidateAfterImport = useCallback(
+    () =>
+      Promise.all([
+        queryClient.invalidateQueries({ queryKey: ['task', taskId] }),
+        queryClient.invalidateQueries({ queryKey: ['jobs', taskId] }),
+        queryClient.invalidateQueries({ queryKey: ['task-media', taskId] }),
+        queryClient.invalidateQueries({ queryKey: ['project'] }),
+      ]),
+    [queryClient, taskId],
+  );
+
   const importFolder = useCallback(async () => {
     if (!taskId) return;
     setImportError(null);
@@ -64,20 +79,56 @@ export function TaskPage() {
     try {
       const result = await api.localImport(taskId, { path, recursive: true });
       setSummary(summariseImport(result));
-      // The frame count, the job list and the project's statistics all move when media
-      // is attached, so none of them may be left showing the state from before.
-      await Promise.all([
-        queryClient.invalidateQueries({ queryKey: ['task', taskId] }),
-        queryClient.invalidateQueries({ queryKey: ['jobs', taskId] }),
-        queryClient.invalidateQueries({ queryKey: ['task-media', taskId] }),
-        queryClient.invalidateQueries({ queryKey: ['project'] }),
-      ]);
+      await invalidateAfterImport();
     } catch (error) {
       setImportError(error);
     } finally {
       setImporting(false);
     }
-  }, [queryClient, taskId]);
+  }, [invalidateAfterImport, taskId]);
+
+  const importFiles = useCallback(async () => {
+    if (!taskId) return;
+    setImportError(null);
+    let paths: string[];
+    try {
+      paths = await chooseFiles();
+    } catch (error) {
+      setImportError(error);
+      return;
+    }
+    if (paths.length === 0) return; // Cancelled, or no shell. Neither is an error.
+
+    setImporting(true);
+    setSummary(null);
+    try {
+      // One call per file, sequentially: the endpoint assigns each file the task's next
+      // free frame position when it is called, and calling it concurrently for the same
+      // task would let two files race for the same one. A folder import does not have
+      // this problem because the server walks the whole folder inside one request.
+      const results: LocalImportResult[] = [];
+      let frameCount = task.data?.frame_count ?? 0;
+      for (const path of paths) {
+        try {
+          const result = await api.localImport(taskId, { path, recursive: false });
+          frameCount = result.frame_count;
+          results.push(result);
+        } catch (error) {
+          // One file failing outright must not cost the others -- the same principle
+          // that already applies to a corrupt file found inside a chosen folder,
+          // extended to a hand-picked selection where the failure is a whole request
+          // rather than one entry in a directory listing.
+          const name = path.split(/[/\\]/).pop() ?? path;
+          const reason = error instanceof Error ? error.message : 'could not be imported';
+          results.push({ task_id: taskId, imported: [], skipped: [`${name}: ${reason}`], frame_count: frameCount });
+        }
+      }
+      setSummary(summariseImport(mergeImportResults(results)));
+      await invalidateAfterImport();
+    } finally {
+      setImporting(false);
+    }
+  }, [invalidateAfterImport, task.data?.frame_count, taskId]);
 
   // File ▸ Open Folder… (Cmd/Ctrl+O) does exactly what the button does. In a browser this
   // subscribes to nothing and unsubscribes from nothing.
@@ -123,10 +174,19 @@ export function TaskPage() {
         <Panel
           title="Add media from this computer"
           actions={
-            <Button variant="secondary" size="sm" onClick={() => void importFolder()} disabled={importing}>
-              <FolderOpen size={13} />
-              {importing ? 'Importing…' : 'Choose folder…'}
-            </Button>
+            <div className="flex gap-2">
+              <Button variant="secondary" size="sm" onClick={() => void importFolder()} disabled={importing}>
+                <FolderOpen size={13} />
+                {importing ? 'Importing…' : 'Choose folder…'}
+              </Button>
+              {/* The folder case is the one that matters for a real dataset; this is for
+                  the smaller case of adding a handful of specific files without first
+                  organising them into one. */}
+              <Button variant="secondary" size="sm" onClick={() => void importFiles()} disabled={importing}>
+                <Files size={13} />
+                {importing ? 'Importing…' : 'Choose files…'}
+              </Button>
+            </div>
           }
         >
           <p className="text-sm text-ink-400">

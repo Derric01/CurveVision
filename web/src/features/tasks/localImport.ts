@@ -21,6 +21,32 @@ function plural(count: number, noun: string): string {
   return `${count.toLocaleString()} ${noun}${count === 1 ? '' : 's'}`;
 }
 
+/**
+ * Combine several sequential imports into one result `summariseImport` can describe.
+ *
+ * Choosing individual files, unlike a folder, means one server call per file — the
+ * endpoint takes a single path, and calling it concurrently for the same task would race
+ * on the position each file is assigned. Without this, five chosen files would flash five
+ * separate notices past the user instead of reading as the one action they took.
+ *
+ * `frame_count` is the task's running total as of each call, not a per-call delta, so only
+ * the *last* result's is still true once every file has landed — an earlier one is a
+ * correct snapshot of a moment that has already passed. Callers must not pass an empty
+ * list; there is no result to summarise before anything has been attempted.
+ */
+export function mergeImportResults(results: readonly LocalImportResult[]): LocalImportResult {
+  const last = results[results.length - 1];
+  if (!last) {
+    throw new Error('mergeImportResults: nothing to merge — at least one result is required');
+  }
+  return {
+    task_id: last.task_id,
+    imported: results.flatMap((result) => result.imported),
+    skipped: results.flatMap((result) => result.skipped),
+    frame_count: last.frame_count,
+  };
+}
+
 export function summariseImport(result: LocalImportResult): ImportSummary {
   const imported = result.imported.length;
   const skipped = result.skipped;
