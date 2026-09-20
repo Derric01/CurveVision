@@ -5,7 +5,7 @@
 > [`AGENTS.md`](./AGENTS.md) first; it is the working contract. Update this file after every
 > iteration, including the ones that mostly failed.
 >
-> **Last updated:** 2026-09-19 (iteration 35) · branch `claude/curvevision-platform-build-n1g71n` · PRs [#1](https://github.com/Derric01/CurveVision/pull/1)–[#16](https://github.com/Derric01/CurveVision/pull/16) **all merged**. [#14](https://github.com/Derric01/CurveVision/pull/14) carried iterations 27–29 (the Node 20 bump, the provisional frame count, the skeleton tool); [#15](https://github.com/Derric01/CurveVision/pull/15) carried 30–31 (the two mask iterations); [#16](https://github.com/Derric01/CurveVision/pull/16) carried 32–33 (the comparison bounding box, open vocabulary). The branch was restarted from `main` after each merge — a merged PR cannot track new work, so follow-up commits belong on a branch rebased onto the default, never stacked on merged history. Iterations 34–35 are unmerged on the branch with no PR open yet.
+> **Last updated:** 2026-09-20 (iteration 39) · branch `claude/curvevision-platform-build-n1g71n` · PRs [#1](https://github.com/Derric01/CurveVision/pull/1)–[#17](https://github.com/Derric01/CurveVision/pull/17) **all merged**. [#14](https://github.com/Derric01/CurveVision/pull/14) carried iterations 27–29 (the Node 20 bump, the provisional frame count, the skeleton tool); [#15](https://github.com/Derric01/CurveVision/pull/15) carried 30–31 (the two mask iterations); [#16](https://github.com/Derric01/CurveVision/pull/16) carried 32–33 (the comparison bounding box, open vocabulary); [#17](https://github.com/Derric01/CurveVision/pull/17) carried 34–35 (auto-annotate, suggestion review) — it merged mid-session, while 36–39 were still in flight on the same branch, so those four commits were rebased onto the post-merge `main` rather than left stacked on merged history. Iterations 36–39 are unmerged with no PR open yet.
 
 ---
 
@@ -23,13 +23,50 @@ The desktop shape works: a packaged single-executable server, a Tauri shell that
 it, and folders annotated in place without copying a byte.
 
 **The tree is green.** `./scripts/check.sh` passes all nine steps: 515 server tests, 13 SDK,
-480 web. Twelve browser harnesses drive the packaged desktop application in a real Chromium,
+529 web. Sixteen browser harnesses drive the packaged desktop application in a real Chromium,
 nightly and on every push to `main`.
 
 **A number the platform is not sure about says so.** A video task's frame count starts as an
 estimate; where it cannot be replaced by a decoded one — the task already carries annotations,
 or the file is truncated or undecodable — the task page says so, names the file, and offers to
 recount. That matters because an overstated count offers frames that do not exist.
+
+**The view settings that already existed can now be turned off.** `Scene.showLabels`,
+`showSuggestions` and `fillOpacity` were plain public fields nothing outside `Scene` ever
+wrote to — flipping one directly would have changed nothing on screen, since nothing called
+`invalidate()` for a raw field write. Now a getter/setter pair each, wired as controlled
+props on `AnnotationCanvas`, with two toggle buttons and a slider in the Labels panel. The
+harness written to prove this caught its own first draft's wrong assumption first: hiding
+"labels" hides only the small name chip drawn above a shape, never the shape itself, which
+its own first run correctly reported as a failure before the harness was fixed to match.
+
+**A keyboard tool shortcut updates the toolbar and its hints, not only the engine.**
+A toolbar click and a shortcut key updated different sources of truth — React's `tool`
+state, and the engine's own tool, respectively — with no event connecting the second back to
+the first. The engine always ran the right tool; the toolbar highlight and any `tool === 'x'`
+hint (the skeleton one, and the brush one this session added) simply stayed on whatever was
+active before the key was pressed. Fixed with one new event, `EngineEvents.toolChanged`, and
+one shared `activateTool` function so a click and a shortcut can no longer diverge.
+
+**A mask can be painted, not only placed vertex by vertex.** A stroke paints a filled disc
+into a frame-sized buffer; dragging leaves a continuous line; right-click or Alt erases;
+`[`/`]` resize the brush. Painting into the current *selection* edits that mask instead of
+starting a new one, and the selected mask is hidden from the shapes layer for the length of
+the edit so an eraser is not left looking like it does nothing underneath its own draft.
+Erasing every pixel deletes the object outright, on commit, since the server refuses to
+store a mask with no payload. Masks are no longer the one shape type this platform could
+carry but not create.
+
+**A shape drawn on any frame but a job's first now lands on the frame it was drawn on.**
+It did not before: `AnnotationEngine` had no concept of "current frame", every tool stamped a
+new shape's `frame` with a hardcoded placeholder of `0`, and nothing corrected it. The failure
+was silent — no error, no warning, the shape was simply gone the next time that frame was
+opened — and every browser harness before this one used a single-frame task, the one case
+where frame 0 is also the only frame. Fixed centrally in `AnnotationEngine.applyResult`
+(`setFrame`, called from `AnnotationCanvas`), which is what makes it fix every drawing tool
+at once rather than one at a time. Confirmed with a live browser probe before the fix and
+after it, and pinned by a new unit test and a new browser harness that draws with two
+different tools on two different frames and reads the result back over a full page reload.
 
 **What a model proposes can be accepted or rejected.** Accepting keeps the annotation and
 keeps `source="model"` — the dataset still records that a machine drew it and a human agreed
@@ -364,10 +401,11 @@ full docs set including seven ADRs.
 | Surfacing an uncorrected frame count | Complete and driven in a browser. `Asset.frame_count_exact` records whether a count was established by decoding; `GET /tasks/{id}/media` reports it and names the estimated files; the task page warns and offers `POST /tasks/{id}/media/recount`. Both ways a count stays provisional are covered — the declined correction and the file nothing could decode. |
 | Webhooks | Complete: signed delivery, capped exponential backoff with jitter, and a retry policy that distinguishes "the receiver is struggling" from "the receiver said no". |
 | Keypoint (skeleton) tool | Complete and driven in a browser, through to the exported `yolo_pose` rows: joints placed in declared order, `X` skips one, `Enter` finishes early, `Alt`-click marks a joint occluded, and the bones are drawn. |
-| Masks | Stored, **exported** (`cvat_xml` writes CVAT's real mask element and reads it back; `segmentation_mask` paints the pixels) and **drawn** — the editor renders the pixels and picks by them, verified by reading the canvas back in a browser. What is left is the brush: masks are the last shape type the platform can carry and not create. |
+| Masks | Stored, **exported** (`cvat_xml` writes CVAT's real mask element and reads it back; `segmentation_mask` paints the pixels), **drawn** — the editor renders the pixels and picks by them — and now **paintable**: the brush creates, grows, shrinks and (by erasing every pixel) deletes one, driven end to end in a browser. Nothing outstanding. |
 | Reviewing suggestions | Complete and measured in a browser: a job-wide count, accept and reject in bulk over shapes, tracks and tags, and an accepted suggestion drawn solid rather than dashed. Per-object accept/reject buttons do not exist — an individual suggestion is accepted by editing it and rejected by deleting it, which is what the editor already does. |
 | Auto-annotate | Complete for the "run over these frames" kinds and driven in a browser against a real model server: model picker, class box for an open-vocabulary model, the plan stated before the run, unmatched classes named before the run, predictions stored as reviewable suggestions. Interactive kinds (`interactor`, `tracker`) are listed with the reason this panel cannot drive them rather than hidden. |
 | Quality reports | Complete end to end and driven in a browser: the task page creates the answer key and shows each job's latest F1, the editor shows the report and seeks to a conflict on click, and a stale report is marked stale. The comparison runs **inline, deliberately and measurably** — 200,000 shapes a side over 10,000 frames score in 4.4s. Nothing outstanding. |
+| View settings (label chips, suggestions, fill opacity) | Complete and measured in a browser: three `Scene` fields that had always been read by the renderer but never written to from anywhere now have a getter/setter pair and a control each in the Labels panel. |
 
 *This table went stale once — it still listed the open-folder flow and chunked delivery as
 unbuilt several iterations after both shipped, because the narrative sections above were
@@ -380,23 +418,257 @@ being updated and this one was not. Check it against* Completed *before trusting
 1. **No model ships, so auto-annotate cannot be tried.** ADR 0005 accepted this
    deliberately ("No out-of-the-box models… a genuine onboarding cost") and planned
    reference servers in separate repositories. The contract is now ready for one.
-2. **Mask brush.** Everything around it is done: the encoding is written down on both
-   sides, two formats carry a mask, and the editor draws and picks one. `canvas/mask.ts`
-   already exports `encodeRle`, which is what a brush commits with.
-3. **`Scene.showSuggestions` has no control wired to it.** The filter works and now hides
-   only *unreviewed* suggestions, so an accepted one stays visible; nothing sets it to
-   false. `Scene.fillOpacity` is in the same position. Both are scene-level display
-   settings and neither has a plumbing path from React yet, which is the actual work — a
-   toggle each is the easy part.
-4. **`choose_files` is still unused.** The shell can open a native *file* picker as well as a
+2. **`choose_files` is still unused.** The shell can open a native *file* picker as well as a
    folder one, and `/tasks/{id}/local-import` accepts a file path. Connecting it is small, and
    deliberately left until someone wants it — the folder case is the one that matters.
-5. **Signed installers in CI** — *blocked outside the repository*: one runner per platform
+3. **Signed installers in CI** — *blocked outside the repository*: one runner per platform
    (PyInstaller does not cross-compile) and signing certificates the project does not have.
 
 ---
 
 ## Last iteration
+
+### 39 — the view settings that already existed can now be turned off
+
+`Scene.showLabels`, `Scene.showSuggestions` and `Scene.fillOpacity` are as old as the
+renderer — `isVisible` and the fill colour have always read them — but were plain public
+fields nothing outside `Scene` ever wrote to. Two of the three were named explicitly in this
+file as a known gap; the third (`showLabels`) had the identical problem and was simply never
+flagged, found while wiring the other two. Fixing two of three identical, adjacent bugs and
+leaving the third would have been the kind of inconsistency a reviewer asks about on sight,
+so all three were done together.
+
+**A wrong assumption caught by the harness meant to catch wrong assumptions.** The first
+version of `verify_view_settings.py` asserted that toggling `showLabels` off hid *both*
+shapes on the frame — that is not what it has ever done. Reading the renderer closely
+(`Renderer.drawShapes`) showed `showLabels` gates only `paintLabel`, the small name and
+confidence chip drawn above a shape's corner; the shape itself is drawn unconditionally,
+filtered only by each label's own per-label visibility. The harness's own first run reported
+this correctly as a failure — "something is still painted with labels hidden" — which is
+exactly the discipline this project asks for: measure before believing, including about your
+own code from five minutes ago. Fixed by correcting the harness to probe the chip's own
+15px-tall band rather than the shape's centre, and by fixing the UI control's title text
+("Hide label names on shapes"), which had made the identical wrong assumption the harness did.
+
+**The fields became a getter/setter pair**, matching how `labels` is already held rather
+than the raw public fields these three used to be — a plain field write does not call
+`invalidate()`, so assigning one directly would have silently changed nothing on screen, and
+`setShowLabels`/`setShowSuggestions`/`setFillOpacity` are what a UI control now has to go
+through, each calling `Scene`'s existing `onChange` hook that the engine already wires to a
+repaint. `setFillOpacity` clamps to `[0, 1]`; all three are no-ops when the value does not
+actually change, so a control that fires on every render does not force a repaint for nothing.
+
+**Wired as controlled props on `AnnotationCanvas`**, the same shape as `activeLabelId` and
+`tool` rather than a direct `engine.scene.setX()` call from a click handler — three new
+`useEffect`s next to the ones `currentFrame` and `tool` already have, so the engine is
+correct from the very first render rather than only after the first click. The controls
+themselves sit in the Labels panel header: two small toggle buttons and a fill-opacity
+slider, all reporting through the exact same `Scene` methods a future keyboard shortcut or
+menu item would.
+
+**`scene.test.ts` is `Scene`'s first dedicated unit test file** — nine tests on the
+getter/setter contract: read-back, repaint-on-real-change, no repaint on a no-op, clamping,
+and that `setShowSuggestions` genuinely feeds `isVisible`'s predicate. `verify_view_settings.py`
+proves the wiring the unit test cannot: two shapes seeded directly over the API — one
+manual, one an unreviewed suggestion — probed by reading actual canvas pixels rather than
+component state, including the fill-opacity claim (18% vs. 100% alpha, 46 vs. 255).
+Confirmed that harness bites the usual way this session has: removed the fill-opacity effect,
+checked `tsc`'s exit status before trusting the rebuild, watched exactly that one check fail,
+restored.
+
+Verified: `./scripts/check.sh` green — 515 server tests, 13 SDK, 529 web (9 new); sixteen
+browser harnesses, the new one included, all passing against the packaged application.
+
+
+## Iteration 38
+
+### 38 — a keyboard tool shortcut now updates the toolbar and its hints
+
+Logged during the mask brush iteration as a separable finding, and confirmed with a live
+browser probe before touching anything, per this session's own rule: press `r`, and the
+engine genuinely switched to `RectangleTool` — a drag right after it produced a rectangle —
+while the toolbar stayed highlighted on Select. Not a drawing bug; the correct tool always
+ran. But real, and general: it holds for every tool's shortcut, not only the ones added
+recently, because a toolbar click and a keyboard shortcut have always updated **different
+sources of truth**. A click sets React's own `tool` state, which an effect in
+`AnnotationCanvas` propagates down to the engine. A shortcut key calls
+`AnnotationEngine.handleKey` directly, which switches the engine's tool with no path back to
+React — `EngineEvents` had no event for "the active tool changed."
+
+Fixed by adding one: `toolChanged`, fired from every real `setTool` call (the guard against
+switching to the tool already active means it never fires for a no-op), wired through
+`AnnotationCanvas`'s existing callback-ref pattern to a new `onToolChange` prop.
+`EditorPage`'s toolbar click and the new engine event now both funnel through one
+`activateTool` function — set the tool, clear the status line — so a shortcut and a click
+produce the identical outcome instead of one of the two paths being the only one anybody
+remembered to keep in sync.
+
+Why this mattered beyond cosmetics: the tool-specific hint bars this session added to the
+brush (iteration 37) and the one already there for the skeleton tool both gate on
+`tool === 'x'` — React's state, not the engine's. Before this fix, switching to either by
+keyboard would have left the hint showing nothing at all, or the *previous* tool's line,
+silently undermining the exact feature those hints exist for.
+
+`engine.test.ts` gained four tests pinning `toolChanged`'s contract directly — that it fires
+for `handleKey`, that it also fires for a direct `setTool` call, that it does not fire for a
+no-op, and that a sequence of shortcuts each fire exactly once — confirmed to bite by
+reverting the one-line emission and watching three of the four go red.
+`scripts/verify_tool_sync.py` proves the wiring the unit test cannot: that
+`AnnotationCanvas` forwards the event, that `EditorPage` acts on it, and that the toolbar
+highlight and the skeleton hint bar actually repaint on the packaged application. Confirmed
+that harness bites too, the same way as always this session — revert, check `tsc`'s exit
+status before trusting the rebuild, watch four of its eight checks fail, restore.
+
+Verified: `./scripts/check.sh` green — 515 server tests, 13 SDK, 520 web (4 new); fifteen
+browser harnesses, the new one included, all passing against the packaged application.
+
+
+## Iteration 37
+
+### 37 — a mask can be painted, not only placed vertex by vertex
+
+Masks were the last shape type this platform could carry but not create. Storage, both
+export formats and pixel-accurate rendering all existed; nothing let an annotator draw one.
+The pieces were already positioned for it — `canvas/mask.ts`'s docstring for `encodeRle`
+literally said "the encoder a brush will need" — so this iteration built the brush.
+
+**A stroke paints into a buffer the size of the whole frame**, not a box that grows as the
+stroke wanders: re-deriving a tight box on every pointer-move would cost more than a
+frame-sized `Uint8Array` does, and a new pure function, `paintedBounds`, finds the real box
+once, when the stroke ends. Only that cropped box is ever encoded or committed. `paintDisc`
+and `paintStroke` (a disc at every point along a segment, so a fast drag leaves no gaps) are
+the primitives; `cropFlags` and `paintMaskInto` (stamping a stored mask into the buffer at
+its absolute position) are what let a stroke read from and write back to the real encoding.
+All four are pure and tested in `mask.test.ts` without a DOM, next to the encoding they build
+on.
+
+**Editing an existing mask is choosing the selection, not clicking on the canvas.** A single
+selected mask of the active label is what the brush paints into; anything else — nothing
+selected, several things, a different label — starts a new one. Painting "whatever is under
+the cursor" would let a stray stroke silently absorb an unrelated mask; requiring a
+deliberate selection first does not, at the cost of one extra click to start an edit.
+
+**The selected mask is hidden from the shapes layer for the length of the stroke.** Without
+this, erasing part of it would look like it did nothing: the shapes layer would keep
+painting the *original*, unedited mask underneath the shrinking overlay draft, since the
+draft only paints where it now covers and does not erase what is beneath it. The hide is a
+direct, unrecorded scene mutation — the same move `SelectTool`'s live drag already makes —
+and `cancel()` puts it back if a stroke is aborted before it commits.
+
+**Erasing every pixel deletes the object, on commit, never mid-stroke.** The server refuses
+to store a mask shape with no payload, and there is no valid "empty mask" for a client to
+hold even transiently, so a frame that has been erased to nothing mid-drag simply keeps
+showing the last non-empty state rather than mutating anything; only the final state at
+pointer-up decides between an update and a deletion. That decision needed a small,
+previously nonexistent capability: `ToolResult` gained a `deleted` field, and
+`AnnotationEngine.applyResult` gained a branch for it, mirroring the delete command
+`deleteSelection` already used — the first tool ever to need to say "this stroke removed the
+object outright" rather than "here is what it created or changed."
+
+**A real, previously-invisible defect turned up before a line of brush code was written.**
+Orienting for this task meant reading `AnnotationEngine` closely enough to see that it has no
+concept of "current frame" at all — iteration 36, in this same session, fixed every drawing
+tool silently saving new shapes to frame 0. Building the brush on top of a corrected engine
+meant it inherited the fix for free; `brushTool.test.ts` pins that inheritance explicitly
+(`'leaves the frame at 0, for the engine to correct'`) rather than assuming it.
+
+**A second defect, smaller, logged rather than fixed here.** Wiring the brush's status hint
+(mirroring the skeleton tool's) surfaced that a keyboard shortcut and a toolbar click update
+different sources of truth: a button click sets React state, which an effect propagates to
+the engine; a shortcut key calls `engine.handleKey` directly, which switches the engine's
+tool with no path back to React at all. So after pressing `b`, the engine is genuinely on the
+brush tool, but the toolbar's highlighted button and any `tool === 'x'` conditional hint stay
+on whatever was active before. Real, but general — every tool's shortcut has always had it —
+and separable from finishing the brush, so it is `handoff.md`'s next item rather than folded
+into this diff.
+
+**Testing this needed a live browser probe of its own kind**, since nothing before this
+harness had ever driven a real pointer drag through a raster tool. `verify_mask_brush.py`
+reads the shapes-layer canvas to prove a stroke visibly paints something (an API record
+alone cannot distinguish "painted" from "the request silently never reached the canvas"),
+then drives the full lifecycle over the wire: paint, grow by editing the selection, shrink by
+erasing, resize with `]`, and finally erase everything and watch the object disappear.
+Re-selecting between edits is a plain canvas click through the Select tool rather than a
+click on the object-list row — a row click calls `focusAnnotation`, which recentres the
+viewport, and would have silently invalidated every fixed screen coordinate the rest of the
+harness depends on. Confirmed the harness bites by unregistering `BrushTool` from
+`createTool` (checking `tsc`'s exit status before trusting the rebuild, learned the hard way
+twice already this session) and watching the very first stroke fail to produce anything to
+save.
+
+Verified: `./scripts/check.sh` green — 515 server tests, 13 SDK, 516 web (60 new, including
+`brushTool.test.ts`'s 17 and 20 new pixel-function tests in `mask.test.ts`); fourteen browser
+harnesses, the new one included, all passing against the packaged application.
+
+
+## Iteration 36
+
+### 36 — every drawing tool silently saved a new shape to frame 0
+
+Found while orienting for the mask brush, before writing a line of brush code: `AnnotationEngine`
+has no notion of "current frame" at all. `Scene` holds whatever `setAnnotations` last loaded
+— which the caller has already filtered to one frame — but every tool builds its draft
+through `draftAnnotation`, which sets `frame: 0` as a placeholder, and nothing corrected it.
+
+**Confirmed with a live browser probe before touching anything**, per the project's own
+rule of measuring before building: seed a 3-frame task, navigate to frame 2, draw a
+rectangle with Playwright, save, read the annotation back over the API. It came back stored
+at frame 0. No error, no warning — the shape was simply not there the next time frame 2 was
+opened. Every browser harness written before this one used a single-frame task, which is the
+one case where frame 0 is also the *only* frame, so nothing could have caught it, and this
+almost certainly means **every shape ever drawn on a non-first frame of a multi-frame job in
+this product's history landed on the wrong frame.**
+
+The fix is centralised rather than per-tool, on purpose: `AnnotationEngine.applyResult` is
+the one place every tool's `created` result already passes through, so a `setFrame(frame)`
+method plus one line there fixes rectangle, polygon, polyline, ellipse, points, scissors and
+skeleton at once, with no tool needing to know what frame it is on. `AnnotationCanvas` calls
+`setFrame` whenever `currentFrame` changes, in its own effect next to the existing
+`setAnnotations` one — two different calls for two different things, which is exactly the gap
+that let this happen: loading the right frame's *existing* shapes was always correct, and
+telling the engine which frame a *new* one belongs to had no path at all.
+
+**Testing this needed a first**: `AnnotationEngine` has never had a unit test, because it
+schedules its repaint through `requestAnimationFrame`, which plain Node does not define, and
+painting needs a 2D context this environment has no DOM to produce. Neither turns out to be
+necessary: `applyResult` runs synchronously inside `pointerUp`, before any repaint is
+scheduled, so `engine.test.ts` stubs `requestAnimationFrame` with a callback that is recorded
+and never invoked — nothing ever reaches the fake layer contexts, which is what lets them be
+empty objects. Four tests, one of which stamps two different frames across two draws and
+checks the created events differ, specifically to catch a fix that stamps every new shape
+with the same wrong constant instead of reading the real current frame.
+
+Also added `scripts/verify_shape_frame.py`, since the unit test proves the logic but not the
+wiring — that `AnnotationCanvas` actually calls `setFrame`, that the value survives a save and
+a full page reload, and that it is not a constant that happens to match one test's number.
+Draws with **two different tools** (rectangle and ellipse) on two different non-zero frames,
+because the fix lives in one shared place specifically so it would not need to be added
+per-tool, and a fix that only patched `RectangleTool` should not be able to pass this.
+
+**A harness-design lesson, recorded because it wasted the most time this iteration.** The
+harness's first version checked the on-screen object count immediately after drawing and
+failed on a passing build. The object list is deliberately *not* optimistic — it renders
+`annotations.data`, the React Query cache, which only changes once a write round-trips and
+the query is invalidated; drawing alone does not touch it. The fix was not to weaken the
+check but to make the harness match the product: click the existing manual "Save" button and
+wait for the round trip, rather than either trusting the 4-second periodic autosave or
+asserting against a value the UI was never designed to update immediately.
+
+**And a repeat of last iteration's exact mistake, this time on purpose, to get past it
+correctly.** Reverting the engine fix to confirm the harness bites left `currentFrame`
+write-only, which `tsc` correctly flagged — and a failed `tsc` means `vite build` never runs,
+so a stale (fixed) `dist` would have been embedded in the sidecar, and the harness would have
+"passed" against code it was not actually testing, exactly as the mask-review harness did in
+iteration 35. Checked the build's exit status this time before trusting the run: added a
+throwaway getter that reads `currentFrame` so the revert compiles, confirmed `tsc` succeeded,
+*then* ran the harness — which failed with both shapes on frame 0, as expected. Removed the
+getter and restored the real fix afterward.
+
+Verified: `./scripts/check.sh` green — 515 server tests, 13 SDK, 484 web (4 new); thirteen
+browser harnesses, the new one included, all passing against the packaged application.
+
+
+## Iteration 35
 
 ### 35 — accepting a suggestion used to change nothing anybody could see
 

@@ -85,7 +85,7 @@ typo at the point it was made.
 ## Browser harnesses
 
 `./scripts/check.sh` covers everything CI runs on a push, and it does not open a browser.
-Twelve scripts in `scripts/` do — they launch the **packaged desktop application**, drive it in
+Sixteen scripts in `scripts/` do — they launch the **packaged desktop application**, drive it in
 Chromium, and assert against the **API** rather than the DOM, because the question is not "did
 the page look right" but "is the data now what the user asked for".
 
@@ -93,11 +93,18 @@ They earn their keep. Between them they have found every defect the unit suites 
 Content-Security-Policy that blocked the app's own scripts, frame images that never rendered,
 a swallowed decode error that threw on fast scrubbing, a `useImperativeHandle` that captured
 `null` and left seven editor controls wired to nothing, an issue anchored to a row in the
-wrong table, and a model picker that disabled its own run button over text it had just
-unmounted the box for.
+wrong table, a model picker that disabled its own run button over text it had just
+unmounted the box for, every drawing tool silently saving a new shape to frame 0 whenever it
+was actually drawn anywhere else, and a keyboard tool shortcut that genuinely switched the
+engine's tool while leaving the toolbar highlighted on the old one. It also caught its own
+author's mistake before the fact: the first version of `verify_view_settings.py` asserted
+that hiding "labels" hid whole shapes, which is not what `Scene.showLabels` has ever done —
+it only gates the small name chip drawn above one. The mask brush harness has not yet found
+a defect of its own, but it is the only thing that has ever driven a real pointer drag
+through `BrushTool` at all.
 
 They run **nightly and on every push to `main`** (`.github/workflows/browser.yml`), not on
-pull requests: a PyInstaller build plus twelve end-to-end runs is twenty minutes, and CI that
+pull requests: a PyInstaller build plus sixteen end-to-end runs is twenty minutes, and CI that
 slow stops being run. Trigger one by hand from the Actions tab — the workflow takes a single
 harness name — or run one locally:
 
@@ -109,6 +116,10 @@ python scripts/verify_frame_count_warning.py
 python scripts/verify_skeleton_tool.py
 python scripts/verify_mask_rendering.py
 python scripts/verify_auto_annotate.py
+python scripts/verify_shape_frame.py
+python scripts/verify_mask_brush.py
+python scripts/verify_tool_sync.py
+python scripts/verify_view_settings.py
 ```
 
 **Both build steps, in that order, every time.** The packaged sidecar embeds `web/dist`, so a

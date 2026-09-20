@@ -169,6 +169,144 @@ export function maskRgba(
   return bytes;
 }
 
+// ------------------------------------------------------------------------ painting a stroke
+//
+// The brush works against a buffer sized to the whole *frame*, not to a growing box: a
+// stroke can wander in any direction, and re-deriving the box on every pointer-move to keep
+// a smaller buffer in step would cost more than the frame-sized `Uint8Array` does. A 4K
+// frame is 16 million cells -- a few MB, held only for the length of one stroke, not stored.
+// `paintedBounds` finds the box actually worth keeping once the stroke ends, and that
+// smaller box is what gets encoded and saved; the frame-sized buffer never leaves the tool.
+
+/**
+ * Paint (or erase) a filled disc into a flat `width * height` buffer, clipped to its edges.
+ *
+ * The `+ 0.5` centres each cell on its pixel rather than its top-left corner, which is what
+ * keeps a one-cell brush from reading as an off-centre square instead of a dot.
+ */
+export function paintDisc(
+  flags: Uint8Array,
+  width: number,
+  height: number,
+  cx: number,
+  cy: number,
+  radius: number,
+  value: 0 | 1,
+): void {
+  const top = Math.max(0, Math.floor(cy - radius));
+  const bottom = Math.min(height - 1, Math.ceil(cy + radius));
+  const left = Math.max(0, Math.floor(cx - radius));
+  const right = Math.min(width - 1, Math.ceil(cx + radius));
+  const radiusSquared = radius * radius;
+  for (let y = top; y <= bottom; y += 1) {
+    const dy = y + 0.5 - cy;
+    const row = y * width;
+    for (let x = left; x <= right; x += 1) {
+      const dx = x + 0.5 - cx;
+      if (dx * dx + dy * dy <= radiusSquared) flags[row + x] = value;
+    }
+  }
+}
+
+/**
+ * A disc at every point along a segment, so a fast drag between two pointer-move events
+ * leaves a continuous stroke rather than a dotted line of discs with gaps between them.
+ */
+export function paintStroke(
+  flags: Uint8Array,
+  width: number,
+  height: number,
+  from: { x: number; y: number },
+  to: { x: number; y: number },
+  radius: number,
+  value: 0 | 1,
+): void {
+  const distance = Math.hypot(to.x - from.x, to.y - from.y);
+  // A step every half-radius keeps consecutive discs overlapping rather than leaving gaps
+  // between their edges; at least one step so a from === to call still paints something.
+  const steps = Math.max(1, Math.ceil(distance / Math.max(1, radius / 2)));
+  for (let i = 0; i <= steps; i += 1) {
+    const t = i / steps;
+    paintDisc(
+      flags,
+      width,
+      height,
+      from.x + (to.x - from.x) * t,
+      from.y + (to.y - from.y) * t,
+      radius,
+      value,
+    );
+  }
+}
+
+/**
+ * The smallest box containing every set pixel of a flat `width * height` buffer, or `null`
+ * when it holds none. `null` is what tells a brush stroke's caller "there is nothing left to
+ * save here" -- an empty box would have to be a special box rather than a plain absence.
+ */
+export function paintedBounds(
+  flags: Uint8Array,
+  width: number,
+  height: number,
+): [number, number, number, number] | null {
+  let minX = Infinity;
+  let minY = Infinity;
+  let maxX = -Infinity;
+  let maxY = -Infinity;
+  for (let y = 0; y < height; y += 1) {
+    const row = y * width;
+    for (let x = 0; x < width; x += 1) {
+      if (!flags[row + x]) continue;
+      if (x < minX) minX = x;
+      if (x > maxX) maxX = x;
+      if (y < minY) minY = y;
+      if (y > maxY) maxY = y;
+    }
+  }
+  return minX === Infinity ? null : [minX, minY, maxX, maxY];
+}
+
+/** A frame-sized buffer's `[minX, minY, maxX, maxY]` (inclusive) sub-rectangle, row-major. */
+export function cropFlags(
+  flags: Uint8Array,
+  width: number,
+  box: readonly [number, number, number, number],
+): Uint8Array {
+  const [minX, minY, maxX, maxY] = box;
+  const boxWidth = maxX - minX + 1;
+  const boxHeight = maxY - minY + 1;
+  const out = new Uint8Array(boxWidth * boxHeight);
+  for (let y = 0; y < boxHeight; y += 1) {
+    const sourceStart = (minY + y) * width + minX;
+    out.set(flags.subarray(sourceStart, sourceStart + boxWidth), y * boxWidth);
+  }
+  return out;
+}
+
+/**
+ * Stamp a stored mask's own pixels into a frame-sized buffer, at their absolute position.
+ *
+ * What lets the brush *edit* an existing mask rather than only draw new ones: seed the
+ * working buffer with what is already there, so painting or erasing over it starts from the
+ * real shape instead of from blank.
+ */
+export function paintMaskInto(
+  flags: Uint8Array,
+  width: number,
+  mask: MaskData | undefined | null,
+): void {
+  const decoded = decodeMask(mask);
+  if (!decoded) return;
+  for (let y = 0; y < decoded.height; y += 1) {
+    const sourceStart = y * decoded.width;
+    const destinationStart = (decoded.top + y) * width + decoded.left;
+    flags.set(
+      decoded.flags.subarray(sourceStart, sourceStart + decoded.width),
+      destinationStart,
+    );
+  }
+}
+
 /** `#rrggbb` (or `#rgb`) to the three channels `maskRgba` wants. */
 export function rgbOf(color: string): [number, number, number] {
   const hex = color.replace('#', '');

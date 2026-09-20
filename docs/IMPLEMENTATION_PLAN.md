@@ -365,9 +365,13 @@ filtering, frame navigation with prefetch, and snapping to nearby vertices.
 ### Status
 
 **Done:** engine core (scene, R-tree index, renderer, command stack, tools for rectangle,
-polygon, polyline, point, ellipse; select/transform; zoom/pan; undo/redo; keyboard map),
-frame navigation, label sidebar, object list, autosave to the API.
-**In Progress:** mask brush tool. **Done since:** the skeleton tool (joints placed in the label's declared order, a joint nobody can see recorded as invisible rather than dropped, and the bones drawn) and track keyframe editing.
+polygon, polyline, point, ellipse, mask brush; select/transform; zoom/pan; undo/redo;
+keyboard map), frame navigation, label sidebar, object list, autosave to the API. **Done
+since:** the skeleton tool (joints placed in the label's declared order, a joint nobody can
+see recorded as invisible rather than dropped, and the bones drawn), track keyframe editing,
+and the mask brush (paints a filled disc, erases with right-click or Alt, edits the selected
+mask instead of starting a new one, and deletes the object outright when a stroke erases it
+down to no pixels).
 **Planned:** cuboid, magnetic lasso, multi-user presence cursors.
 
 ---

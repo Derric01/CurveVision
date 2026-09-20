@@ -24,10 +24,53 @@ export class Scene {
   private readonly onChange?: () => void;
   private readonly onSelectionChange?: (ids: string[]) => void;
 
-  /** Global visibility toggles, applied on top of per-label ones. */
-  showLabels = true;
-  showSuggestions = true;
-  fillOpacity = 0.18;
+  /**
+   * Global visibility toggles, applied on top of per-label ones.
+   *
+   * Private with a getter/setter pair, matching how `labels` is held rather than the plain
+   * public fields these three used to be. A plain field can be *read* from outside without
+   * incident, but a caller that assigned it directly (`scene.fillOpacity = 0.3`) would change
+   * nothing on screen: nothing calls `invalidate()` for a raw field write, and for a long
+   * time nothing called these at all -- `showSuggestions` had no control wired to it, `git
+   * blame` on this comment is where that was written down. The setters are what a UI control
+   * has to go through, and `onChange()` is what makes flipping one actually repaint.
+   */
+  private _showLabels = true;
+  private _showSuggestions = true;
+  private _fillOpacity = 0.18;
+
+  get showLabels(): boolean {
+    return this._showLabels;
+  }
+
+  get showSuggestions(): boolean {
+    return this._showSuggestions;
+  }
+
+  get fillOpacity(): number {
+    return this._fillOpacity;
+  }
+
+  setShowLabels(show: boolean): void {
+    if (this._showLabels === show) return;
+    this._showLabels = show;
+    this.onChange?.();
+  }
+
+  /** Hides every *unreviewed* suggestion; an accepted one is an ordinary annotation and
+   *  stays visible regardless -- see `isUnreviewed` in `types.ts` for why that pair matters. */
+  setShowSuggestions(show: boolean): void {
+    if (this._showSuggestions === show) return;
+    this._showSuggestions = show;
+    this.onChange?.();
+  }
+
+  setFillOpacity(opacity: number): void {
+    const clamped = Math.max(0, Math.min(1, opacity));
+    if (this._fillOpacity === clamped) return;
+    this._fillOpacity = clamped;
+    this.onChange?.();
+  }
 
   constructor(options: SceneOptions = {}) {
     this.onChange = options.onChange;
@@ -141,7 +184,6 @@ export class Scene {
   isVisible(annotation: Annotation): boolean {
     // Same predicate as the dashing, for the same reason: a suggestion a human has
     // accepted is an ordinary annotation and must not vanish with the pending ones.
-    // (`showSuggestions` has no control wired to it yet -- see handoff.md.)
     if (!this.showSuggestions && isUnreviewed(annotation)) return false;
     const label = this.labels.get(annotation.labelId);
     return label ? label.visible : true;

@@ -14,12 +14,21 @@ import {
   snapToVertex,
   translatePoints,
 } from './geometry';
+import {
+  cropFlags,
+  encodeRle,
+  paintDisc,
+  paintMaskInto,
+  paintStroke,
+  paintedBounds,
+} from './mask';
 import { handlePoints } from './renderer';
 import type { Scene } from './scene';
 import { screenTolerance } from './viewport';
 import type {
   Annotation,
   Box,
+  MaskData,
   Point,
   PointerInput,
   ShapeType,
@@ -61,6 +70,15 @@ export interface ToolResult {
   created?: Annotation;
   /** Objects whose geometry changed, with their pre-edit state for undo. */
   updated?: { before: Annotation[]; after: Annotation[] };
+  /**
+   * Objects this result removed outright, snapshotted for undo.
+   *
+   * Only the brush needs this: erasing an existing mask down to no pixels at all is a
+   * deletion, not an update to an empty one -- the server refuses to store a mask shape
+   * with no payload, and a client-only "empty mask" would be an invalid state to leave the
+   * scene in even briefly.
+   */
+  deleted?: Annotation[];
   /** The object being drawn right now, for the overlay. */
   draft?: Annotation | null;
   marquee?: Box | null;
@@ -836,12 +854,219 @@ export class SkeletonTool implements Tool {
   }
 }
 
+// ---------------------------------------------------------------------------- brush
+
+/**
+ * A mask, painted rather than placed vertex by vertex.
+ *
+ * Everything else a mask needs already existed: the encoding is stated once in `mask.ts`,
+ * two export formats carry it, and the renderer draws and picks a mask by its pixels. This
+ * is the tool that finally lets one be *created* — the last shape type the platform could
+ * carry but not draw.
+ *
+ * **A stroke paints into a buffer the size of the whole frame**, not a box that grows as the
+ * stroke wanders: re-deriving a tight box on every pointer-move would cost more than a
+ * frame-sized `Uint8Array` does, and `paintedBounds` finds the real box once, when the
+ * stroke ends. Only that cropped box is ever encoded or committed.
+ *
+ * **Editing an existing mask is choosing the current selection, not clicking on canvas.**
+ * A single selected mask of the active label is what this tool paints into; anything else —
+ * nothing selected, several things selected, a different label — starts a new one. Painting
+ * "whatever is under the cursor" would make a stray stroke silently absorb an unrelated
+ * mask; requiring a deliberate selection first does not.
+ *
+ * **The selected mask is hidden from the shapes layer for the length of the stroke**, and
+ * the overlay draft stands in for it. Without that, erasing part of an existing mask would
+ * look like it did nothing: the shapes layer would keep painting the *original*, unedited
+ * pixels underneath the shrinking draft, since the draft only paints where it now covers and
+ * does not erase what is drawn beneath it. The hide is a direct, un-recorded scene mutation
+ * — like `SelectTool`'s live drag — and `cancel` is what puts it back if the stroke never
+ * reaches a pointer-up.
+ *
+ * **Erasing every pixel deletes the object, on commit, not mid-stroke.** The server refuses
+ * to store a mask shape with no payload, and there is no valid "empty mask" a client could
+ * hold either, even transiently — so a mid-stroke frame that has been erased to nothing
+ * simply keeps showing the last non-empty state rather than mutating anything, and only the
+ * *final* state, at pointer-up, decides between an update and a deletion.
+ */
+export class BrushTool implements Tool {
+  readonly name = 'brush' as const;
+  readonly cursor = 'crosshair';
+
+  private static readonly MIN_RADIUS = 2;
+  private static readonly MAX_RADIUS = 150;
+  private static readonly RADIUS_STEP = 2;
+
+  /**
+   * Image pixels. Persists across strokes while this tool stays active, so drawing several
+   * masks in a row does not mean re-picking a size for each one. Switching away and back
+   * creates a fresh `BrushTool` (the engine builds a new instance per `setTool` call, like
+   * every other tool), so the size does not survive that -- lifting it higher would need
+   * somewhere above any one tool to hold it, which nothing else needs yet.
+   */
+  private radius = 14;
+  private erase = false;
+  private labelId: string | null = null;
+  private frameWidth = 0;
+  private frameHeight = 0;
+  private flags: Uint8Array | null = null;
+  private last: Point | null = null;
+  /** The mask this stroke is editing, or `null` when it is starting a new one. */
+  private editing: Annotation | null = null;
+  /** Captured at pointer-down, so `cancel` can restore `editing` without a `context` of its
+   *  own — the `Tool` interface does not give `cancel` one. Reused precisely because it is
+   *  the same long-lived scene for the whole editor session, not because the tool is meant
+   *  to hold onto React state. */
+  private scene: Scene | null = null;
+
+  onPointerDown(input: PointerInput, context: ToolContext): ToolResult {
+    const labelId = context.activeLabelId();
+    if (!labelId) return {};
+    const { width, height } = context.imageSize();
+    if (width <= 0 || height <= 0) return {};
+
+    // A modifier rather than a second tool, matching how every other "undo a bit of what I
+    // just did" gesture in this editor works. Right-click needs no modifier at all.
+    this.erase = input.button === 2 || input.altKey;
+    this.labelId = labelId;
+    this.frameWidth = width;
+    this.frameHeight = height;
+    this.flags = new Uint8Array(width * height);
+    this.scene = context.scene;
+
+    const selected = context.scene.selected;
+    const candidate = selected.length === 1 ? selected[0] : undefined;
+    this.editing =
+      candidate && candidate.shapeType === 'mask' && candidate.labelId === labelId
+        ? candidate
+        : null;
+    if (this.editing) {
+      paintMaskInto(this.flags, width, this.editing.mask);
+      context.scene.remove(this.editing.id);
+    }
+
+    this.last = input.image;
+    paintDisc(this.flags, width, height, input.image.x, input.image.y, this.radius, this.erase ? 0 : 1);
+    return { draft: this.buildDraft(), invalidateShapes: true, status: this.statusLine() };
+  }
+
+  onPointerMove(input: PointerInput): ToolResult {
+    if (!this.flags || !this.last) return {};
+    paintStroke(
+      this.flags,
+      this.frameWidth,
+      this.frameHeight,
+      this.last,
+      input.image,
+      this.radius,
+      this.erase ? 0 : 1,
+    );
+    this.last = input.image;
+    return { draft: this.buildDraft() };
+  }
+
+  onPointerUp(): ToolResult {
+    const result = this.commit();
+    this.reset();
+    return result;
+  }
+
+  onKey(key: string): ToolResult | null {
+    if (key === '[') {
+      this.radius = Math.max(BrushTool.MIN_RADIUS, this.radius - BrushTool.RADIUS_STEP);
+      return { status: this.statusLine() };
+    }
+    if (key === ']') {
+      this.radius = Math.min(BrushTool.MAX_RADIUS, this.radius + BrushTool.RADIUS_STEP);
+      return { status: this.statusLine() };
+    }
+    return null;
+  }
+
+  cancel(): ToolResult {
+    // Only reachable mid-stroke -- Escape or a tool switch while the pointer is still down,
+    // which `onPointerUp` normally pre-empts by committing first. Put back what was hidden
+    // rather than leaving an edited mask permanently invisible.
+    if (this.editing && this.scene) this.scene.add({ ...this.editing });
+    this.reset();
+    return { draft: null, invalidateShapes: true };
+  }
+
+  /** Brush radius in image pixels, for the status line and for tests. */
+  get brushRadius(): number {
+    return this.radius;
+  }
+
+  private commit(): ToolResult {
+    if (!this.flags || !this.labelId) return { draft: null };
+    const box = paintedBounds(this.flags, this.frameWidth, this.frameHeight);
+    if (!box) {
+      // Nothing survived the stroke. A new stroke that never painted anything is simply
+      // discarded, matching how `RectangleTool` drops a degenerate click; an edit that
+      // erased its mask down to nothing removes the object outright, because painting over
+      // the whole of something means "this should not exist" and there is no valid empty
+      // mask to leave behind instead.
+      return this.editing ? { draft: null, deleted: [this.editing] } : { draft: null };
+    }
+
+    const mask = this.buildMaskData(box);
+    const points = [box[0], box[1], box[2], box[3]];
+    if (this.editing) {
+      const after: Annotation = { ...this.editing, points, mask };
+      return { draft: null, updated: { before: [this.editing], after: [after] } };
+    }
+    const created: Annotation = { ...draftAnnotation(this.labelId, 'mask', points), mask };
+    return { draft: null, created };
+  }
+
+  private buildMaskData(box: readonly [number, number, number, number]): MaskData {
+    const [minX, minY, maxX, maxY] = box;
+    const cropped = cropFlags(this.flags!, this.frameWidth, box);
+    return {
+      rle: encodeRle(cropped),
+      left: minX,
+      top: minY,
+      width: maxX - minX + 1,
+      height: maxY - minY + 1,
+    };
+  }
+
+  /** The overlay stand-in for whatever the stroke has painted so far, or none of it yet. */
+  private buildDraft(): Annotation | null {
+    if (!this.flags || !this.labelId) return null;
+    const box = paintedBounds(this.flags, this.frameWidth, this.frameHeight);
+    if (!box) return null;
+    const base = this.editing ?? draftAnnotation(this.labelId, 'mask', []);
+    return { ...base, points: [box[0], box[1], box[2], box[3]], mask: this.buildMaskData(box) };
+  }
+
+  private statusLine(): string {
+    const size = `${this.radius}px`;
+    return this.editing
+      ? `Editing the selected mask · ${size} (] / [) · right-click or Alt to erase`
+      : `New mask · ${size} (] / [) · right-click or Alt to erase`;
+  }
+
+  private reset(): void {
+    this.erase = false;
+    this.labelId = null;
+    this.flags = null;
+    this.last = null;
+    this.editing = null;
+    this.scene = null;
+    // `radius` is deliberately kept: a brush that forgot its size on every stroke would be
+    // unusable for repeated work at the same scale.
+  }
+}
+
 export function createTool(name: ToolName): Tool {
   switch (name) {
     case 'scissors':
       return new ScissorsTool();
     case 'skeleton':
       return new SkeletonTool();
+    case 'brush':
+      return new BrushTool();
     case 'rectangle':
       return new RectangleTool();
     case 'ellipse':
@@ -869,6 +1094,7 @@ export const TOOL_SHORTCUTS: Record<string, ToolName> = {
   s: 'scissors',
   // `k` is the editor's add-keyframe and `n` is the point tool, so joints get `j`.
   j: 'skeleton',
+  b: 'brush',
 };
 
 export { boundsOf };

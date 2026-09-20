@@ -154,7 +154,8 @@ export type ToolName =
   | 'points'
   | 'ellipse'
   | 'scissors'
-  | 'skeleton';
+  | 'skeleton'
+  | 'brush';
 
 export interface PointerInput {
   /** Position in image space. */
@@ -187,6 +188,20 @@ export interface EngineEvents {
    * through a seventeen-joint pose.
    */
   toolStatusChanged: (status: string | null) => void;
+  /**
+   * The active tool changed, however it changed.
+   *
+   * `setTool` is called two ways: a toolbar click sets React's own `tool` state, which an
+   * effect in `AnnotationCanvas` propagates down to the engine — and a keyboard shortcut
+   * calls `AnnotationEngine.handleKey` directly, switching the engine's tool with no path
+   * back to React at all. Before this, that second path left the toolbar highlighted on
+   * whatever was active before the key was pressed, and any `tool === 'x'` conditional UI
+   * (a hint bar) stale with it, even though the engine had genuinely switched and a stroke
+   * drawn right after behaved as the new tool. This is what closes that gap: fired from
+   * every `setTool`, so React's state is a mirror of the engine's rather than one of two
+   * inputs to it.
+   */
+  toolChanged: (tool: ToolName) => void;
 }
 
 export interface AnnotationChange {
