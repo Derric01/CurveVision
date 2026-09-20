@@ -81,6 +81,14 @@ export function EditorPage() {
   // it today: its joint order is invisible on the canvas, so clicking through a
   // seventeen-joint pose without it is clicking blind.
   const [toolStatus, setToolStatus] = useState<string | null>(null);
+  // A status line belongs to whoever set it; switching away without clearing it would show,
+  // say, skeleton joint text under the brush. Shared by the toolbar's own click and by
+  // `onToolChange` below -- the same event a keyboard shortcut produces -- so both paths to
+  // "the active tool changed" clear it the same way rather than one of them forgetting to.
+  const activateTool = useCallback((next: ToolName) => {
+    setTool(next);
+    setToolStatus(null);
+  }, []);
   const [zoom, setZoom] = useState(1);
   // Placing an issue pin: armed from the panel, spent by one canvas click.
   const [picking, setPicking] = useState(false);
@@ -357,12 +365,7 @@ export function EditorPage() {
               key={name}
               type="button"
               title={`${label} (${key})`}
-              onClick={() => {
-                setTool(name);
-                // A status line belongs to whoever set it; leaving the previous tool's
-                // behind would show, say, skeleton joint text under the brush.
-                setToolStatus(null);
-              }}
+              onClick={() => activateTool(name)}
               className={clsx(
                 'flex h-9 w-9 items-center justify-center rounded-md transition-colors',
                 tool === name
@@ -413,6 +416,12 @@ export function EditorPage() {
               setPicking(false);
             }}
             onToolStatus={setToolStatus}
+            // The engine is the source of truth for which tool is active: a keyboard
+            // shortcut calls `engine.handleKey` directly, with no other path back to this
+            // component's own `tool` state. Without this, the toolbar highlight and any
+            // `tool === 'x'` hint stayed on whatever was active before the key was pressed,
+            // even though the engine -- and a stroke drawn right after -- had switched.
+            onToolChange={activateTool}
           />
 
           {tool === 'skeleton' && (

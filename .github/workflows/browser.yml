@@ -116,6 +116,7 @@ jobs:
               scripts/verify_auto_annotate.py
               scripts/verify_shape_frame.py
               scripts/verify_mask_brush.py
+              scripts/verify_tool_sync.py
             )
           fi
 

@@ -179,6 +179,9 @@ export class AnnotationEngine {
     this.applyResult(this.tool.cancel());
     this.tool = createTool(name);
     this.invalidate('overlay');
+    // Fired unconditionally on every real switch, whichever of the two paths caused it
+    // (a toolbar click's React state, or `handleKey`'s direct call) -- see `EngineEvents`.
+    this.listeners.toolChanged?.(name);
   }
 
   private context(): ToolContext {

@@ -5,7 +5,7 @@
 > [`AGENTS.md`](./AGENTS.md) first; it is the working contract. Update this file after every
 > iteration, including the ones that mostly failed.
 >
-> **Last updated:** 2026-09-20 (iteration 37) · branch `claude/curvevision-platform-build-n1g71n` · PRs [#1](https://github.com/Derric01/CurveVision/pull/1)–[#16](https://github.com/Derric01/CurveVision/pull/16) **all merged**, [#17](https://github.com/Derric01/CurveVision/pull/17) **open** (iterations 34–35). [#14](https://github.com/Derric01/CurveVision/pull/14) carried iterations 27–29 (the Node 20 bump, the provisional frame count, the skeleton tool); [#15](https://github.com/Derric01/CurveVision/pull/15) carried 30–31 (the two mask iterations); [#16](https://github.com/Derric01/CurveVision/pull/16) carried 32–33 (the comparison bounding box, open vocabulary). The branch was restarted from `main` after each merge — a merged PR cannot track new work, so follow-up commits belong on a branch rebased onto the default, never stacked on merged history. Iterations 36–37 are unmerged with no PR open yet, on top of the unmerged #17 commits.
+> **Last updated:** 2026-09-20 (iteration 38) · branch `claude/curvevision-platform-build-n1g71n` · PRs [#1](https://github.com/Derric01/CurveVision/pull/1)–[#16](https://github.com/Derric01/CurveVision/pull/16) **all merged**, [#17](https://github.com/Derric01/CurveVision/pull/17) **open** (iterations 34–35). [#14](https://github.com/Derric01/CurveVision/pull/14) carried iterations 27–29 (the Node 20 bump, the provisional frame count, the skeleton tool); [#15](https://github.com/Derric01/CurveVision/pull/15) carried 30–31 (the two mask iterations); [#16](https://github.com/Derric01/CurveVision/pull/16) carried 32–33 (the comparison bounding box, open vocabulary). The branch was restarted from `main` after each merge — a merged PR cannot track new work, so follow-up commits belong on a branch rebased onto the default, never stacked on merged history. Iterations 36–38 are unmerged with no PR open yet, on top of the unmerged #17 commits.
 
 ---
 
@@ -23,13 +23,21 @@ The desktop shape works: a packaged single-executable server, a Tauri shell that
 it, and folders annotated in place without copying a byte.
 
 **The tree is green.** `./scripts/check.sh` passes all nine steps: 515 server tests, 13 SDK,
-516 web. Fourteen browser harnesses drive the packaged desktop application in a real Chromium,
+520 web. Fifteen browser harnesses drive the packaged desktop application in a real Chromium,
 nightly and on every push to `main`.
 
 **A number the platform is not sure about says so.** A video task's frame count starts as an
 estimate; where it cannot be replaced by a decoded one — the task already carries annotations,
 or the file is truncated or undecodable — the task page says so, names the file, and offers to
 recount. That matters because an overstated count offers frames that do not exist.
+
+**A keyboard tool shortcut updates the toolbar and its hints, not only the engine.**
+A toolbar click and a shortcut key updated different sources of truth — React's `tool`
+state, and the engine's own tool, respectively — with no event connecting the second back to
+the first. The engine always ran the right tool; the toolbar highlight and any `tool === 'x'`
+hint (the skeleton one, and the brush one this session added) simply stayed on whatever was
+active before the key was pressed. Fixed with one new event, `EngineEvents.toolChanged`, and
+one shared `activateTool` function so a click and a shortcut can no longer diverge.
 
 **A mask can be painted, not only placed vertex by vertex.** A stroke paints a filled disc
 into a frame-sized buffer; dragging leaves a continuous line; right-click or Alt erases;
@@ -400,26 +408,63 @@ being updated and this one was not. Check it against* Completed *before trusting
 1. **No model ships, so auto-annotate cannot be tried.** ADR 0005 accepted this
    deliberately ("No out-of-the-box models… a genuine onboarding cost") and planned
    reference servers in separate repositories. The contract is now ready for one.
-2. **A keyboard tool shortcut does not update the toolbar highlight or the active tool's
-   hint.** A toolbar click sets React state, which an effect propagates to the engine; a
-   shortcut key calls `engine.handleKey` directly, switching the engine's tool with no path
-   back to React. Real for every tool, not only the ones added recently — found while
-   wiring the brush's status hint. Needs an `EngineEvents.toolChanged` callback fired from
-   `setTool`, wired to the `tool` state setter, and confirmed live before trusting it.
-3. **`Scene.showSuggestions` has no control wired to it.** The filter works and now hides
+2. **`Scene.showSuggestions` has no control wired to it.** The filter works and now hides
    only *unreviewed* suggestions, so an accepted one stays visible; nothing sets it to
    false. `Scene.fillOpacity` is in the same position. Both are scene-level display
    settings and neither has a plumbing path from React yet, which is the actual work — a
    toggle each is the easy part.
-4. **`choose_files` is still unused.** The shell can open a native *file* picker as well as a
+3. **`choose_files` is still unused.** The shell can open a native *file* picker as well as a
    folder one, and `/tasks/{id}/local-import` accepts a file path. Connecting it is small, and
    deliberately left until someone wants it — the folder case is the one that matters.
-5. **Signed installers in CI** — *blocked outside the repository*: one runner per platform
+4. **Signed installers in CI** — *blocked outside the repository*: one runner per platform
    (PyInstaller does not cross-compile) and signing certificates the project does not have.
 
 ---
 
 ## Last iteration
+
+### 38 — a keyboard tool shortcut now updates the toolbar and its hints
+
+Logged during the mask brush iteration as a separable finding, and confirmed with a live
+browser probe before touching anything, per this session's own rule: press `r`, and the
+engine genuinely switched to `RectangleTool` — a drag right after it produced a rectangle —
+while the toolbar stayed highlighted on Select. Not a drawing bug; the correct tool always
+ran. But real, and general: it holds for every tool's shortcut, not only the ones added
+recently, because a toolbar click and a keyboard shortcut have always updated **different
+sources of truth**. A click sets React's own `tool` state, which an effect in
+`AnnotationCanvas` propagates down to the engine. A shortcut key calls
+`AnnotationEngine.handleKey` directly, which switches the engine's tool with no path back to
+React — `EngineEvents` had no event for "the active tool changed."
+
+Fixed by adding one: `toolChanged`, fired from every real `setTool` call (the guard against
+switching to the tool already active means it never fires for a no-op), wired through
+`AnnotationCanvas`'s existing callback-ref pattern to a new `onToolChange` prop.
+`EditorPage`'s toolbar click and the new engine event now both funnel through one
+`activateTool` function — set the tool, clear the status line — so a shortcut and a click
+produce the identical outcome instead of one of the two paths being the only one anybody
+remembered to keep in sync.
+
+Why this mattered beyond cosmetics: the tool-specific hint bars this session added to the
+brush (iteration 37) and the one already there for the skeleton tool both gate on
+`tool === 'x'` — React's state, not the engine's. Before this fix, switching to either by
+keyboard would have left the hint showing nothing at all, or the *previous* tool's line,
+silently undermining the exact feature those hints exist for.
+
+`engine.test.ts` gained four tests pinning `toolChanged`'s contract directly — that it fires
+for `handleKey`, that it also fires for a direct `setTool` call, that it does not fire for a
+no-op, and that a sequence of shortcuts each fire exactly once — confirmed to bite by
+reverting the one-line emission and watching three of the four go red.
+`scripts/verify_tool_sync.py` proves the wiring the unit test cannot: that
+`AnnotationCanvas` forwards the event, that `EditorPage` acts on it, and that the toolbar
+highlight and the skeleton hint bar actually repaint on the packaged application. Confirmed
+that harness bites too, the same way as always this session — revert, check `tsc`'s exit
+status before trusting the rebuild, watch four of its eight checks fail, restore.
+
+Verified: `./scripts/check.sh` green — 515 server tests, 13 SDK, 520 web (4 new); fifteen
+browser harnesses, the new one included, all passing against the packaged application.
+
+
+## Iteration 37
 
 ### 37 — a mask can be painted, not only placed vertex by vertex
 

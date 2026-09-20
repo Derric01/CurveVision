@@ -34,6 +34,13 @@ interface Props {
   onPointPicked?: (point: Point) => void;
   /** What the active tool is waiting for, for tools with a multi-step interaction. */
   onToolStatus?: (status: string | null) => void;
+  /**
+   * The engine's tool changed. Fires for a keyboard shortcut exactly as it does for the
+   * `tool` prop causing `setTool` below -- the parent should treat this as the source of
+   * truth for which tool is active, not only its own `tool` state, or a shortcut key leaves
+   * the toolbar highlighted on whatever was active before it was pressed.
+   */
+  onToolChange?: (tool: ToolName) => void;
 }
 
 export const AnnotationCanvas = forwardRef<CanvasHandle, Props>(function AnnotationCanvas(
@@ -51,6 +58,7 @@ export const AnnotationCanvas = forwardRef<CanvasHandle, Props>(function Annotat
     picking = false,
     onPointPicked,
     onToolStatus,
+    onToolChange,
   },
   ref,
 ) {
@@ -68,6 +76,7 @@ export const AnnotationCanvas = forwardRef<CanvasHandle, Props>(function Annotat
     onViewportChange,
     onPointPicked,
     onToolStatus,
+    onToolChange,
   });
   callbacks.current = {
     onChange,
@@ -75,6 +84,7 @@ export const AnnotationCanvas = forwardRef<CanvasHandle, Props>(function Annotat
     onViewportChange,
     onPointPicked,
     onToolStatus,
+    onToolChange,
   };
 
   // A getter, not a snapshot. `useImperativeHandle` runs as a layout effect and is declared
@@ -108,6 +118,7 @@ export const AnnotationCanvas = forwardRef<CanvasHandle, Props>(function Annotat
         viewportChanged: (viewport) => callbacks.current.onViewportChange?.(viewport.scale),
         pointPicked: (point) => callbacks.current.onPointPicked?.(point),
         toolStatusChanged: (status) => callbacks.current.onToolStatus?.(status),
+        toolChanged: (nextTool) => callbacks.current.onToolChange?.(nextTool),
       },
     });
     engineRef.current = engine;

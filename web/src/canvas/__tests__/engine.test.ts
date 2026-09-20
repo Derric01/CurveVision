@@ -156,3 +156,64 @@ describe('AnnotationEngine: which frame a new shape belongs to', () => {
     expect(updates[0]?.frame).toBe(5);
   });
 });
+
+describe('AnnotationEngine: which tool React is told is active', () => {
+  beforeEach(stubAnimationFrame);
+  afterEach(() => vi.unstubAllGlobals());
+
+  /**
+   * The regression this pins. A toolbar click sets React's own `tool` state, which an
+   * effect in `AnnotationCanvas` propagates down here via `setTool` -- but a keyboard
+   * shortcut calls `handleKey` directly, switching the engine's tool with no path back to
+   * React at all. A live browser probe confirmed it: pressing 'r' actually switched the
+   * engine to `RectangleTool` (a drag right after produced a rectangle), while the toolbar
+   * stayed highlighted on Select. `toolChanged` is what closes that gap -- fired from every
+   * real `setTool`, whichever of the two callers caused it.
+   */
+  it('fires toolChanged when a keyboard shortcut switches tools, not only a direct setTool call', () => {
+    const seen: string[] = [];
+    const engine = new AnnotationEngine({
+      layers: fakeLayers(),
+      listeners: { toolChanged: (tool) => seen.push(tool) },
+    });
+
+    engine.handleKey('r'); // the keyboard path -- no React state anywhere in this call
+    expect(seen).toEqual(['rectangle']);
+    expect(engine.activeTool).toBe('rectangle');
+  });
+
+  it('also fires for a direct setTool call, the toolbar-click path', () => {
+    const seen: string[] = [];
+    const engine = new AnnotationEngine({
+      layers: fakeLayers(),
+      listeners: { toolChanged: (tool) => seen.push(tool) },
+    });
+
+    engine.setTool('ellipse');
+    expect(seen).toEqual(['ellipse']);
+  });
+
+  it('does not fire for a no-op switch to the tool already active', () => {
+    const seen: string[] = [];
+    const engine = new AnnotationEngine({
+      layers: fakeLayers(),
+      listeners: { toolChanged: (tool) => seen.push(tool) },
+    });
+
+    engine.setTool('select'); // already the default -- nothing actually changed
+    expect(seen).toEqual([]);
+  });
+
+  it('fires once per real switch across a sequence of keyboard shortcuts', () => {
+    const seen: string[] = [];
+    const engine = new AnnotationEngine({
+      layers: fakeLayers(),
+      listeners: { toolChanged: (tool) => seen.push(tool) },
+    });
+
+    engine.handleKey('r');
+    engine.handleKey('e');
+    engine.handleKey('v');
+    expect(seen).toEqual(['rectangle', 'ellipse', 'select']);
+  });
+});
