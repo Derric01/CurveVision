@@ -11,6 +11,7 @@ import { Link, useParams } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   ArrowLeft,
+  Box,
   Brush,
   Check,
   ChevronLeft,
@@ -51,6 +52,7 @@ import { IssuesPanel } from './IssuesPanel';
 import { issuePins } from './issues';
 import { skeletonHint } from './skeletonHint';
 import { brushHint } from './brushHint';
+import { cuboidHint } from './cuboidHint';
 import { AutoAnnotatePanel } from './AutoAnnotatePanel';
 import { SuggestionsPanel } from './SuggestionsPanel';
 import { useAutosave } from './useAutosave';
@@ -62,6 +64,7 @@ const TOOLS: { name: ToolName; icon: typeof Square; label: string; key: string }
   { name: 'polygon', icon: Pentagon, label: 'Polygon', key: 'P' },
   { name: 'polyline', icon: Spline, label: 'Polyline', key: 'L' },
   { name: 'ellipse', icon: CircleDashed, label: 'Ellipse', key: 'E' },
+  { name: 'cuboid', icon: Box, label: 'Cuboid (front face, then depth)', key: 'C' },
   { name: 'scissors', icon: Scissors, label: 'Scissors (snaps to edges)', key: 'S' },
   { name: 'skeleton', icon: PersonStanding, label: 'Skeleton (joints, in order)', key: 'J' },
   { name: 'brush', icon: Brush, label: 'Brush (paint a mask)', key: 'B' },
@@ -448,6 +451,15 @@ export function EditorPage() {
               data-brush-status=""
             >
               {brushHint(toolStatus)}
+            </div>
+          )}
+
+          {tool === 'cuboid' && (
+            <div
+              className="pointer-events-none absolute left-1/2 top-3 -translate-x-1/2 rounded-md border border-curve-500/40 bg-ink-900/90 px-3 py-1.5 text-xs text-ink-200 shadow-lg"
+              data-cuboid-status=""
+            >
+              {cuboidHint(toolStatus)}
             </div>
           )}
 

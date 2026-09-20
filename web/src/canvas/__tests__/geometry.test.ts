@@ -3,6 +3,8 @@ import {
   annotationBounds,
   boundsOf,
   clampToImage,
+  CUBOID_EDGES,
+  cuboidFromFrontFace,
   distanceToSegment,
   findVertex,
   hitTest,
@@ -134,6 +136,70 @@ describe('hitTest', () => {
     const points = shape('points', [10, 10, 80, 80]);
     expect(hitTest(points, { x: 12, y: 12 }, 2)).toBe(true);
     expect(hitTest(points, { x: 45, y: 45 }, 2)).toBe(false);
+  });
+
+  it('picks a cuboid by its bounding box, front and back face together', () => {
+    // (0,0)-(50,50) front face, offset (20,-10) back face: the box spans x[0,70], y[-10,50].
+    const cuboid = shape('cuboid', cuboidFromFrontFace([0, 0, 50, 50], 20, -10));
+    expect(hitTest(cuboid, { x: 60, y: -5 }, 0)).toBe(true); // over the back face only
+    expect(hitTest(cuboid, { x: 90, y: 25 }, 0)).toBe(false); // past either face
+  });
+});
+
+describe('cuboidFromFrontFace', () => {
+  it('places the front face at the given rectangle and the back face offset by (dx, dy)', () => {
+    const points = cuboidFromFrontFace([0, 0, 10, 20], 5, -5);
+    expect(points).toEqual([
+      0, 0, // front top-left
+      0, 20, // front bottom-left
+      10, 0, // front top-right
+      10, 20, // front bottom-right
+      5, -5, // back top-left
+      5, 15, // back bottom-left
+      15, -5, // back top-right
+      15, 15, // back bottom-right
+    ]);
+  });
+
+  it('collapses to a flat front-and-back pair at zero depth', () => {
+    const points = cuboidFromFrontFace([0, 0, 10, 10], 0, 0);
+    expect(points.slice(0, 8)).toEqual(points.slice(8, 16));
+  });
+
+  it('matches CVAT XML\'s own point order, so a round trip needs no reordering', () => {
+    // CVAT's cuboid.py dumps xtl1,ytl1,xbl1,ybl1,xtr1,ytr1,xbr1,ybr1,xtl2,... straight from
+    // shape.points[0..15] -- this is that same order, not an independent convention that
+    // happens to also have 8 points.
+    const [x1, y1, x2, y2] = [3, 4, 30, 40];
+    const points = cuboidFromFrontFace([x1, y1, x2, y2], 8, 9);
+    expect([points[0], points[1]]).toEqual([x1, y1]); // xtl1, ytl1
+    expect([points[2], points[3]]).toEqual([x1, y2]); // xbl1, ybl1
+    expect([points[4], points[5]]).toEqual([x2, y1]); // xtr1, ytr1
+    expect([points[6], points[7]]).toEqual([x2, y2]); // xbr1, ybr1
+  });
+});
+
+describe('CUBOID_EDGES', () => {
+  it('describes exactly 12 edges, one for every side of a wireframe box', () => {
+    expect(CUBOID_EDGES.length).toBe(12);
+  });
+
+  it('references only the 8 valid vertex indices', () => {
+    for (const [a, b] of CUBOID_EDGES) {
+      expect(a).toBeGreaterThanOrEqual(0);
+      expect(a).toBeLessThan(8);
+      expect(b).toBeGreaterThanOrEqual(0);
+      expect(b).toBeLessThan(8);
+    }
+  });
+
+  it('touches every vertex exactly three times, as a box requires', () => {
+    const counts = new Array(8).fill(0);
+    for (const [a, b] of CUBOID_EDGES) {
+      counts[a] += 1;
+      counts[b] += 1;
+    }
+    expect(counts).toEqual([3, 3, 3, 3, 3, 3, 3, 3]);
   });
 });
 

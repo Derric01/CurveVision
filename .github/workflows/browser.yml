@@ -1,6 +1,6 @@
 # Browser harnesses.
 #
-# Eleven scripts in `scripts/` drive the packaged desktop application in a real Chromium and
+# Seventeen scripts in `scripts/` drive the packaged desktop application in a real Chromium and
 # assert against the API rather than the DOM. Between them they have found every defect the
 # unit suites missed: a Content-Security-Policy that blocked the app's own scripts, frame
 # images that never rendered, a swallowed decode error that threw on fast scrubbing, a
@@ -44,7 +44,7 @@ jobs:
   harnesses:
     name: Drive the packaged app in Chromium
     runs-on: ubuntu-latest
-    # A PyInstaller build plus eleven end-to-end runs. Generous, but bounded: a hang should
+    # A PyInstaller build plus seventeen end-to-end runs. Generous, but bounded: a hang should
     # fail the run rather than burn an hour of somebody's minutes.
     timeout-minutes: 45
 
@@ -118,6 +118,7 @@ jobs:
               scripts/verify_mask_brush.py
               scripts/verify_tool_sync.py
               scripts/verify_view_settings.py
+              scripts/verify_cuboid.py
             )
           fi
 

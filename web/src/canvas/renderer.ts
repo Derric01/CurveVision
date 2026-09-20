@@ -13,7 +13,7 @@
  * tracks what is on screen rather than what is in the dataset.
  */
 
-import { annotationBounds } from './geometry';
+import { annotationBounds, CUBOID_EDGES } from './geometry';
 import { decodeMask, maskRgba, rgbOf, type DecodedMask } from './mask';
 import { bones, drawableJoints } from './skeleton';
 import type { Scene } from './scene';
@@ -434,6 +434,20 @@ export class Renderer {
         0,
         Math.PI * 2,
       );
+      return;
+    }
+
+    if (shapeType === 'cuboid') {
+      // A wireframe, not a closed outline: `beginPath` above lets these 12 disjoint
+      // segments share one path, which is fine to `stroke()` but must never be filled --
+      // filling would connect each `moveTo` back to its `lineTo` and shade the gaps between
+      // edges. `isFillable` deliberately leaves `cuboid` out for exactly that reason.
+      for (const [a, b] of CUBOID_EDGES) {
+        const from = imageToScreen(viewport, { x: points[a * 2] ?? 0, y: points[a * 2 + 1] ?? 0 });
+        const to = imageToScreen(viewport, { x: points[b * 2] ?? 0, y: points[b * 2 + 1] ?? 0 });
+        context.moveTo(from.x, from.y);
+        context.lineTo(to.x, to.y);
+      }
       return;
     }
 

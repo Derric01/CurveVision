@@ -85,7 +85,7 @@ typo at the point it was made.
 ## Browser harnesses
 
 `./scripts/check.sh` covers everything CI runs on a push, and it does not open a browser.
-Sixteen scripts in `scripts/` do — they launch the **packaged desktop application**, drive it in
+Seventeen scripts in `scripts/` do — they launch the **packaged desktop application**, drive it in
 Chromium, and assert against the **API** rather than the DOM, because the question is not "did
 the page look right" but "is the data now what the user asked for".
 
@@ -101,10 +101,14 @@ author's mistake before the fact: the first version of `verify_view_settings.py`
 that hiding "labels" hid whole shapes, which is not what `Scene.showLabels` has ever done —
 it only gates the small name chip drawn above one. The mask brush harness has not yet found
 a defect of its own, but it is the only thing that has ever driven a real pointer drag
-through `BrushTool` at all.
+through `BrushTool` at all. `verify_cuboid.py`'s own first draft caught a coarser version of
+the same trap: it counted lit pixels on the whole shapes layer as proof the wireframe was
+drawn, which stayed well above threshold even with the wireframe rendering deliberately
+disabled — the label chip alone lit enough pixels to hide a completely broken renderer.
+Replaced with two probes at specific edges no fallback rendering path would produce.
 
 They run **nightly and on every push to `main`** (`.github/workflows/browser.yml`), not on
-pull requests: a PyInstaller build plus sixteen end-to-end runs is twenty minutes, and CI that
+pull requests: a PyInstaller build plus seventeen end-to-end runs is twenty minutes, and CI that
 slow stops being run. Trigger one by hand from the Actions tab — the workflow takes a single
 harness name — or run one locally:
 
@@ -120,6 +124,7 @@ python scripts/verify_shape_frame.py
 python scripts/verify_mask_brush.py
 python scripts/verify_tool_sync.py
 python scripts/verify_view_settings.py
+python scripts/verify_cuboid.py
 ```
 
 **Both build steps, in that order, every time.** The packaged sidecar embeds `web/dist`, so a

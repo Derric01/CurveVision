@@ -303,12 +303,14 @@ describe('createTool', () => {
     expect(createTool('ellipse').name).toBe('ellipse');
     expect(createTool('pan').name).toBe('pan');
     expect(createTool('select').name).toBe('select');
+    expect(createTool('cuboid').name).toBe('cuboid');
   });
 
   it('maps single-key shortcuts to tools', () => {
     expect(TOOL_SHORTCUTS.r).toBe('rectangle');
     expect(TOOL_SHORTCUTS.v).toBe('select');
     expect(TOOL_SHORTCUTS.p).toBe('polygon');
+    expect(TOOL_SHORTCUTS.c).toBe('cuboid');
   });
 });
 
