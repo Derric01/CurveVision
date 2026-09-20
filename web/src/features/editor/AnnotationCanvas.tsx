@@ -34,6 +34,13 @@ interface Props {
   onPointPicked?: (point: Point) => void;
   /** What the active tool is waiting for, for tools with a multi-step interaction. */
   onToolStatus?: (status: string | null) => void;
+  /** Global visibility toggles and fill opacity. See `Scene`'s getter/setter pair for each
+   *  — controlled props, the same shape as `activeLabelId` and `tool`, rather than a direct
+   *  `engine.scene.setX()` call from a click handler, so the engine stays in sync with
+   *  whatever set these even before it exists on the very first render. */
+  showLabels?: boolean;
+  showSuggestions?: boolean;
+  fillOpacity?: number;
   /**
    * The engine's tool changed. Fires for a keyboard shortcut exactly as it does for the
    * `tool` prop causing `setTool` below -- the parent should treat this as the source of
@@ -59,6 +66,9 @@ export const AnnotationCanvas = forwardRef<CanvasHandle, Props>(function Annotat
     onPointPicked,
     onToolStatus,
     onToolChange,
+    showLabels = true,
+    showSuggestions = true,
+    fillOpacity = 0.18,
   },
   ref,
 ) {
@@ -211,6 +221,18 @@ export const AnnotationCanvas = forwardRef<CanvasHandle, Props>(function Annotat
   useEffect(() => {
     engineRef.current?.setTool(tool);
   }, [tool]);
+
+  useEffect(() => {
+    engineRef.current?.scene.setShowLabels(showLabels);
+  }, [showLabels]);
+
+  useEffect(() => {
+    engineRef.current?.scene.setShowSuggestions(showSuggestions);
+  }, [showSuggestions]);
+
+  useEffect(() => {
+    engineRef.current?.scene.setFillOpacity(fillOpacity);
+  }, [fillOpacity]);
 
   // Keyboard handling is bound to the window rather than the canvas: annotators expect
   // shortcuts to work while their focus is on the object list or the label picker.

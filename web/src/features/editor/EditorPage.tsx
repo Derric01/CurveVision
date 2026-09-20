@@ -75,6 +75,12 @@ export function EditorPage() {
   const [frame, setFrame] = useState<number | null>(null);
   const [tool, setTool] = useState<ToolName>('select');
   const [activeLabelId, setActiveLabelId] = useState<string | null>(null);
+  // View settings, not annotation data: local to this session, reset on reload rather than
+  // saved anywhere. `Scene` has always had these three; nothing before this iteration ever
+  // called their setters, so they could not actually be turned off from the UI.
+  const [showLabels, setShowLabels] = useState(true);
+  const [showSuggestions, setShowSuggestions] = useState(true);
+  const [fillOpacity, setFillOpacity] = useState(0.18);
   const [selection, setSelection] = useState<string[]>([]);
   const [labelStyles, setLabelStyles] = useState<LabelStyle[]>([]);
   // What a multi-step tool is waiting for. The skeleton tool is the only one that sets
@@ -422,6 +428,9 @@ export function EditorPage() {
             // `tool === 'x'` hint stayed on whatever was active before the key was pressed,
             // even though the engine -- and a stroke drawn right after -- had switched.
             onToolChange={activateTool}
+            showLabels={showLabels}
+            showSuggestions={showSuggestions}
+            fillOpacity={fillOpacity}
           />
 
           {tool === 'skeleton' && (
@@ -468,6 +477,12 @@ export function EditorPage() {
               );
               engine?.scene.setLabelLocked(id, locked);
             }}
+            showLabels={showLabels}
+            onToggleShowLabels={() => setShowLabels((current) => !current)}
+            showSuggestions={showSuggestions}
+            onToggleShowSuggestions={() => setShowSuggestions((current) => !current)}
+            fillOpacity={fillOpacity}
+            onFillOpacityChange={setFillOpacity}
           />
 
           <ObjectList
@@ -630,16 +645,77 @@ function LabelPanel({
   onSelect,
   onToggleVisible,
   onToggleLocked,
+  showLabels,
+  onToggleShowLabels,
+  showSuggestions,
+  onToggleShowSuggestions,
+  fillOpacity,
+  onFillOpacityChange,
 }: {
   labels: LabelStyle[];
   activeLabelId: string | null;
   onSelect: (id: string) => void;
   onToggleVisible: (id: string, visible: boolean) => void;
   onToggleLocked: (id: string, locked: boolean) => void;
+  /** Every label at once, layered under each label's own toggle above. */
+  showLabels: boolean;
+  onToggleShowLabels: () => void;
+  /** A suggestion nobody has reviewed yet -- an accepted one stays visible regardless. */
+  showSuggestions: boolean;
+  onToggleShowSuggestions: () => void;
+  fillOpacity: number;
+  onFillOpacityChange: (opacity: number) => void;
 }) {
   return (
     <div className="border-b border-ink-800">
-      <h3 className="px-3 py-2 text-xs font-medium uppercase tracking-wide text-ink-500">Labels</h3>
+      <div className="flex items-center justify-between px-3 py-2">
+        <h3 className="text-xs font-medium uppercase tracking-wide text-ink-500">Labels</h3>
+        <div className="flex items-center gap-1">
+          <button
+            type="button"
+            // `showLabels` only gates the little name/confidence chip drawn above each
+            // shape (`Renderer.paintLabel`) -- the shapes themselves are unaffected, and
+            // stay governed by each label's own visibility toggle in the list below.
+            title={showLabels ? 'Hide label names on shapes' : 'Show label names on shapes'}
+            onClick={onToggleShowLabels}
+            className="rounded p-1 text-ink-500 hover:bg-ink-800 hover:text-ink-200"
+            data-view-show-labels=""
+          >
+            {showLabels ? <Eye size={13} /> : <EyeOff size={13} />}
+          </button>
+          <button
+            type="button"
+            title={showSuggestions ? 'Hide unreviewed suggestions' : 'Show unreviewed suggestions'}
+            onClick={onToggleShowSuggestions}
+            className="rounded p-1 text-ink-500 hover:bg-ink-800 hover:text-ink-200"
+            data-view-show-suggestions=""
+          >
+            <Wand2 size={13} className={showSuggestions ? undefined : 'opacity-40'} />
+          </button>
+        </div>
+      </div>
+
+      <div className="flex items-center gap-2 px-3 pb-2">
+        <label htmlFor="fill-opacity" className="text-[11px] text-ink-500">
+          Fill
+        </label>
+        <input
+          id="fill-opacity"
+          type="range"
+          min={0}
+          max={1}
+          step={0.02}
+          value={fillOpacity}
+          onChange={(event) => onFillOpacityChange(Number(event.target.value))}
+          className="h-1 flex-1 cursor-pointer appearance-none rounded-full bg-ink-800 accent-curve-500"
+          aria-label="Fill opacity"
+          data-view-fill-opacity=""
+        />
+        <span className="w-8 text-right text-[11px] tabular-nums text-ink-500">
+          {Math.round(fillOpacity * 100)}%
+        </span>
+      </div>
+
       {/* Proportional rather than a fixed 13rem: six labels overflowed that cap and the
           list was cut through the middle of a row. It still scrolls on a short window —
           the object list below has to keep its share — but a normal window shows the

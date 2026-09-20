@@ -5,7 +5,7 @@
 > [`AGENTS.md`](./AGENTS.md) first; it is the working contract. Update this file after every
 > iteration, including the ones that mostly failed.
 >
-> **Last updated:** 2026-09-20 (iteration 38) · branch `claude/curvevision-platform-build-n1g71n` · PRs [#1](https://github.com/Derric01/CurveVision/pull/1)–[#16](https://github.com/Derric01/CurveVision/pull/16) **all merged**, [#17](https://github.com/Derric01/CurveVision/pull/17) **open** (iterations 34–35). [#14](https://github.com/Derric01/CurveVision/pull/14) carried iterations 27–29 (the Node 20 bump, the provisional frame count, the skeleton tool); [#15](https://github.com/Derric01/CurveVision/pull/15) carried 30–31 (the two mask iterations); [#16](https://github.com/Derric01/CurveVision/pull/16) carried 32–33 (the comparison bounding box, open vocabulary). The branch was restarted from `main` after each merge — a merged PR cannot track new work, so follow-up commits belong on a branch rebased onto the default, never stacked on merged history. Iterations 36–38 are unmerged with no PR open yet, on top of the unmerged #17 commits.
+> **Last updated:** 2026-09-20 (iteration 39) · branch `claude/curvevision-platform-build-n1g71n` · PRs [#1](https://github.com/Derric01/CurveVision/pull/1)–[#16](https://github.com/Derric01/CurveVision/pull/16) **all merged**, [#17](https://github.com/Derric01/CurveVision/pull/17) **open** (iterations 34–35). [#14](https://github.com/Derric01/CurveVision/pull/14) carried iterations 27–29 (the Node 20 bump, the provisional frame count, the skeleton tool); [#15](https://github.com/Derric01/CurveVision/pull/15) carried 30–31 (the two mask iterations); [#16](https://github.com/Derric01/CurveVision/pull/16) carried 32–33 (the comparison bounding box, open vocabulary). The branch was restarted from `main` after each merge — a merged PR cannot track new work, so follow-up commits belong on a branch rebased onto the default, never stacked on merged history. Iterations 36–39 are unmerged with no PR open yet, on top of the unmerged #17 commits.
 
 ---
 
@@ -23,13 +23,22 @@ The desktop shape works: a packaged single-executable server, a Tauri shell that
 it, and folders annotated in place without copying a byte.
 
 **The tree is green.** `./scripts/check.sh` passes all nine steps: 515 server tests, 13 SDK,
-520 web. Fifteen browser harnesses drive the packaged desktop application in a real Chromium,
+529 web. Sixteen browser harnesses drive the packaged desktop application in a real Chromium,
 nightly and on every push to `main`.
 
 **A number the platform is not sure about says so.** A video task's frame count starts as an
 estimate; where it cannot be replaced by a decoded one — the task already carries annotations,
 or the file is truncated or undecodable — the task page says so, names the file, and offers to
 recount. That matters because an overstated count offers frames that do not exist.
+
+**The view settings that already existed can now be turned off.** `Scene.showLabels`,
+`showSuggestions` and `fillOpacity` were plain public fields nothing outside `Scene` ever
+wrote to — flipping one directly would have changed nothing on screen, since nothing called
+`invalidate()` for a raw field write. Now a getter/setter pair each, wired as controlled
+props on `AnnotationCanvas`, with two toggle buttons and a slider in the Labels panel. The
+harness written to prove this caught its own first draft's wrong assumption first: hiding
+"labels" hides only the small name chip drawn above a shape, never the shape itself, which
+its own first run correctly reported as a failure before the harness was fixed to match.
 
 **A keyboard tool shortcut updates the toolbar and its hints, not only the engine.**
 A toolbar click and a shortcut key updated different sources of truth — React's `tool`
@@ -396,6 +405,7 @@ full docs set including seven ADRs.
 | Reviewing suggestions | Complete and measured in a browser: a job-wide count, accept and reject in bulk over shapes, tracks and tags, and an accepted suggestion drawn solid rather than dashed. Per-object accept/reject buttons do not exist — an individual suggestion is accepted by editing it and rejected by deleting it, which is what the editor already does. |
 | Auto-annotate | Complete for the "run over these frames" kinds and driven in a browser against a real model server: model picker, class box for an open-vocabulary model, the plan stated before the run, unmatched classes named before the run, predictions stored as reviewable suggestions. Interactive kinds (`interactor`, `tracker`) are listed with the reason this panel cannot drive them rather than hidden. |
 | Quality reports | Complete end to end and driven in a browser: the task page creates the answer key and shows each job's latest F1, the editor shows the report and seeks to a conflict on click, and a stale report is marked stale. The comparison runs **inline, deliberately and measurably** — 200,000 shapes a side over 10,000 frames score in 4.4s. Nothing outstanding. |
+| View settings (label chips, suggestions, fill opacity) | Complete and measured in a browser: three `Scene` fields that had always been read by the renderer but never written to from anywhere now have a getter/setter pair and a control each in the Labels panel. |
 
 *This table went stale once — it still listed the open-folder flow and chunked delivery as
 unbuilt several iterations after both shipped, because the narrative sections above were
@@ -408,20 +418,69 @@ being updated and this one was not. Check it against* Completed *before trusting
 1. **No model ships, so auto-annotate cannot be tried.** ADR 0005 accepted this
    deliberately ("No out-of-the-box models… a genuine onboarding cost") and planned
    reference servers in separate repositories. The contract is now ready for one.
-2. **`Scene.showSuggestions` has no control wired to it.** The filter works and now hides
-   only *unreviewed* suggestions, so an accepted one stays visible; nothing sets it to
-   false. `Scene.fillOpacity` is in the same position. Both are scene-level display
-   settings and neither has a plumbing path from React yet, which is the actual work — a
-   toggle each is the easy part.
-3. **`choose_files` is still unused.** The shell can open a native *file* picker as well as a
+2. **`choose_files` is still unused.** The shell can open a native *file* picker as well as a
    folder one, and `/tasks/{id}/local-import` accepts a file path. Connecting it is small, and
    deliberately left until someone wants it — the folder case is the one that matters.
-4. **Signed installers in CI** — *blocked outside the repository*: one runner per platform
+3. **Signed installers in CI** — *blocked outside the repository*: one runner per platform
    (PyInstaller does not cross-compile) and signing certificates the project does not have.
 
 ---
 
 ## Last iteration
+
+### 39 — the view settings that already existed can now be turned off
+
+`Scene.showLabels`, `Scene.showSuggestions` and `Scene.fillOpacity` are as old as the
+renderer — `isVisible` and the fill colour have always read them — but were plain public
+fields nothing outside `Scene` ever wrote to. Two of the three were named explicitly in this
+file as a known gap; the third (`showLabels`) had the identical problem and was simply never
+flagged, found while wiring the other two. Fixing two of three identical, adjacent bugs and
+leaving the third would have been the kind of inconsistency a reviewer asks about on sight,
+so all three were done together.
+
+**A wrong assumption caught by the harness meant to catch wrong assumptions.** The first
+version of `verify_view_settings.py` asserted that toggling `showLabels` off hid *both*
+shapes on the frame — that is not what it has ever done. Reading the renderer closely
+(`Renderer.drawShapes`) showed `showLabels` gates only `paintLabel`, the small name and
+confidence chip drawn above a shape's corner; the shape itself is drawn unconditionally,
+filtered only by each label's own per-label visibility. The harness's own first run reported
+this correctly as a failure — "something is still painted with labels hidden" — which is
+exactly the discipline this project asks for: measure before believing, including about your
+own code from five minutes ago. Fixed by correcting the harness to probe the chip's own
+15px-tall band rather than the shape's centre, and by fixing the UI control's title text
+("Hide label names on shapes"), which had made the identical wrong assumption the harness did.
+
+**The fields became a getter/setter pair**, matching how `labels` is already held rather
+than the raw public fields these three used to be — a plain field write does not call
+`invalidate()`, so assigning one directly would have silently changed nothing on screen, and
+`setShowLabels`/`setShowSuggestions`/`setFillOpacity` are what a UI control now has to go
+through, each calling `Scene`'s existing `onChange` hook that the engine already wires to a
+repaint. `setFillOpacity` clamps to `[0, 1]`; all three are no-ops when the value does not
+actually change, so a control that fires on every render does not force a repaint for nothing.
+
+**Wired as controlled props on `AnnotationCanvas`**, the same shape as `activeLabelId` and
+`tool` rather than a direct `engine.scene.setX()` call from a click handler — three new
+`useEffect`s next to the ones `currentFrame` and `tool` already have, so the engine is
+correct from the very first render rather than only after the first click. The controls
+themselves sit in the Labels panel header: two small toggle buttons and a fill-opacity
+slider, all reporting through the exact same `Scene` methods a future keyboard shortcut or
+menu item would.
+
+**`scene.test.ts` is `Scene`'s first dedicated unit test file** — nine tests on the
+getter/setter contract: read-back, repaint-on-real-change, no repaint on a no-op, clamping,
+and that `setShowSuggestions` genuinely feeds `isVisible`'s predicate. `verify_view_settings.py`
+proves the wiring the unit test cannot: two shapes seeded directly over the API — one
+manual, one an unreviewed suggestion — probed by reading actual canvas pixels rather than
+component state, including the fill-opacity claim (18% vs. 100% alpha, 46 vs. 255).
+Confirmed that harness bites the usual way this session has: removed the fill-opacity effect,
+checked `tsc`'s exit status before trusting the rebuild, watched exactly that one check fail,
+restored.
+
+Verified: `./scripts/check.sh` green — 515 server tests, 13 SDK, 529 web (9 new); sixteen
+browser harnesses, the new one included, all passing against the packaged application.
+
+
+## Iteration 38
 
 ### 38 — a keyboard tool shortcut now updates the toolbar and its hints
 
