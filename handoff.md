@@ -5,7 +5,7 @@
 > [`AGENTS.md`](./AGENTS.md) first; it is the working contract. Update this file after every
 > iteration, including the ones that mostly failed.
 >
-> **Last updated:** 2026-09-20 (iteration 41) · branch `claude/curvevision-platform-build-n1g71n` · PRs [#1](https://github.com/Derric01/CurveVision/pull/1)–[#18](https://github.com/Derric01/CurveVision/pull/18) **all merged**. [#14](https://github.com/Derric01/CurveVision/pull/14) carried iterations 27–29 (the Node 20 bump, the provisional frame count, the skeleton tool); [#15](https://github.com/Derric01/CurveVision/pull/15) carried 30–31 (the two mask iterations); [#16](https://github.com/Derric01/CurveVision/pull/16) carried 32–33 (the comparison bounding box, open vocabulary); [#17](https://github.com/Derric01/CurveVision/pull/17) carried 34–35 (auto-annotate, suggestion review) — it merged mid-session, while 36–39 were still in flight on the same branch, so those four commits were rebased onto the post-merge `main`. [#18](https://github.com/Derric01/CurveVision/pull/18) carried 36–39 and merged in turn while iteration 40's commit was still landing on the branch, one commit behind — rebased the same way. [#19](https://github.com/Derric01/CurveVision/pull/19) (open) carries iteration 40 (individually chosen files) and, as of this update, iteration 41 (the cuboid tool) pushed onto the same branch.
+> **Last updated:** 2026-09-20 (iteration 41) · branch `claude/curvevision-platform-build-n1g71n` · PRs [#1](https://github.com/Derric01/CurveVision/pull/1)–[#19](https://github.com/Derric01/CurveVision/pull/19) **all merged**. [#14](https://github.com/Derric01/CurveVision/pull/14) carried iterations 27–29 (the Node 20 bump, the provisional frame count, the skeleton tool); [#15](https://github.com/Derric01/CurveVision/pull/15) carried 30–31 (the two mask iterations); [#16](https://github.com/Derric01/CurveVision/pull/16) carried 32–33 (the comparison bounding box, open vocabulary); [#17](https://github.com/Derric01/CurveVision/pull/17) carried 34–35 (auto-annotate, suggestion review) — it merged mid-session, while 36–39 were still in flight on the same branch, so those four commits were rebased onto the post-merge `main`. [#18](https://github.com/Derric01/CurveVision/pull/18) carried 36–39 and merged in turn while iteration 40's commit was still landing on the branch, one commit behind — rebased the same way. **[#19](https://github.com/Derric01/CurveVision/pull/19) carried iteration 40 and merged in turn while iteration 41's cuboid commit was still landing on the branch — rebased the same way, a third time in one session.** Iteration 41 is unmerged on the branch with no PR open yet.
 
 ---
 
@@ -545,8 +545,14 @@ packaged application.
 **Also this iteration:** resolved a git-state contradiction from the previous session boundary
 — PR #18 had merged with 5 of that session's 6 commits, leaving one (`choose_files`) genuinely
 unmerged on the branch. Rebased it onto the new `origin/main` (clean, since the merge base was
-content-identical), confirmed green, force-pushed, and opened **PR #19** for it, onto which
-this iteration's cuboid work was then pushed as well.
+content-identical), confirmed green, force-pushed, and opened **PR #19** for it. **PR #19
+itself then merged** while the cuboid commit above was still being built and verified — caught
+by the same `git merge-base --is-ancestor` check as the #17 and #18 cases, and fixed the same
+way: rebase the one unmerged commit onto the new `origin/main`, confirm green, force-push.
+Three mid-session merges of the same branch in one session is not a coincidence to shrug off:
+it means whoever (or whatever) is approving these PRs is doing so faster than one iteration
+takes, and every future iteration on this branch should assume the same and check before
+pushing rather than after something looks wrong.
 
 
 ## Iteration 40
