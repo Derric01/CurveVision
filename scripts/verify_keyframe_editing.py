@@ -26,8 +26,8 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent))
 
-from screenshot import api, find_chromium, start_server  # noqa: E402
-from verify_chunked_frames import make_video  # noqa: E402
+from screenshot import api, find_chromium, start_server
+from verify_chunked_frames import make_video
 
 FRAMES = 24
 #: A car at x=20 on frame 0 and x=200 on frame 20. Frame 10 interpolates to x=110.

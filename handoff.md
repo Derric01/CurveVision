@@ -5,7 +5,23 @@
 > [`AGENTS.md`](./AGENTS.md) first; it is the working contract. Update this file after every
 > iteration, including the ones that mostly failed.
 >
-> **Last updated:** 2026-09-20 (iteration 41) · branch `claude/curvevision-platform-build-n1g71n` · PRs [#1](https://github.com/Derric01/CurveVision/pull/1)–[#19](https://github.com/Derric01/CurveVision/pull/19) **all merged**. [#14](https://github.com/Derric01/CurveVision/pull/14) carried iterations 27–29 (the Node 20 bump, the provisional frame count, the skeleton tool); [#15](https://github.com/Derric01/CurveVision/pull/15) carried 30–31 (the two mask iterations); [#16](https://github.com/Derric01/CurveVision/pull/16) carried 32–33 (the comparison bounding box, open vocabulary); [#17](https://github.com/Derric01/CurveVision/pull/17) carried 34–35 (auto-annotate, suggestion review) — it merged mid-session, while 36–39 were still in flight on the same branch, so those four commits were rebased onto the post-merge `main`. [#18](https://github.com/Derric01/CurveVision/pull/18) carried 36–39 and merged in turn while iteration 40's commit was still landing on the branch, one commit behind — rebased the same way. **[#19](https://github.com/Derric01/CurveVision/pull/19) carried iteration 40 and merged in turn while iteration 41's cuboid commit was still landing on the branch — rebased the same way, a third time in one session.** Iteration 41 is unmerged on the branch with no PR open yet.
+> **Last updated:** 2026-09-20 (iteration 42) · branch `claude/start-work-v84c3b` · PRs
+> [#1](https://github.com/Derric01/CurveVision/pull/1)–[#20](https://github.com/Derric01/CurveVision/pull/20)
+> **all merged**. [#14](https://github.com/Derric01/CurveVision/pull/14) carried iterations
+> 27–29 (the Node 20 bump, the provisional frame count, the skeleton tool);
+> [#15](https://github.com/Derric01/CurveVision/pull/15) carried 30–31 (the two mask
+> iterations); [#16](https://github.com/Derric01/CurveVision/pull/16) carried 32–33 (the
+> comparison bounding box, open vocabulary); [#17](https://github.com/Derric01/CurveVision/pull/17)
+> carried 34–35 (auto-annotate, suggestion review) — it merged mid-session, while 36–39 were
+> still in flight on the same branch, so those four commits were rebased onto the post-merge
+> `main`. [#18](https://github.com/Derric01/CurveVision/pull/18) carried 36–39 and merged in
+> turn while iteration 40's commit was still landing on the branch, one commit behind —
+> rebased the same way. [#19](https://github.com/Derric01/CurveVision/pull/19) carried
+> iteration 40 and merged in turn while iteration 41's cuboid commit was still landing on the
+> branch — rebased the same way, a third time in one session.
+> [#20](https://github.com/Derric01/CurveVision/pull/20) carried iteration 41 and merged
+> before this session started, on the new `claude/start-work-v84c3b` branch built fresh off
+> `main` — the mid-session-merge streak from the previous session did not repeat here.
 
 ---
 
@@ -22,9 +38,31 @@ shapes (detection/segmentation, OBB, pose, classification), each declaring in it
 The desktop shape works: a packaged single-executable server, a Tauri shell that supervises
 it, and folders annotated in place without copying a byte.
 
-**The tree is green.** `./scripts/check.sh` passes all nine steps: 517 server tests, 13 SDK,
-554 web. Seventeen browser harnesses drive the packaged desktop application in a real Chromium,
-nightly and on every push to `main`.
+**The tree is green.** `./scripts/check.sh` passes all twelve steps (this session added ruff
+and mypy for the SDK, and ruff for `scripts/`, closing gaps where CI checked things the local
+script silently did not): 525 server tests, 15 SDK, 564 web, and `scripts/` itself is now
+lint-clean under its own `ruff.toml`. Eighteen browser harnesses drive the packaged desktop
+application in a real Chromium, nightly and on every push to `main`.
+
+**A large file can now be uploaded a chunk at a time, and resumed if the connection drops.**
+The `UploadSession` model, its schemas and `Storage.append` had existed since early in the
+project, explicitly documented as prepared for "the resumable-upload protocol" — and
+`upload_assets`'s own docstring already claimed "files larger than the request-size limit
+use the resumable upload endpoints instead," which was false: no such endpoints existed.
+Four now do: `POST /tasks/{id}/uploads` declares a filename and size and is validated
+against the same rules a direct upload uses, before any bytes exist; `PATCH .../{id}`
+appends a chunk at the offset the client believes it is resuming from, rejecting a mismatch
+with a 409 naming the real offset so a chunk resent after a dropped response cannot
+duplicate bytes; `GET .../{id}` reports the current offset for a client that lost track of
+its own progress; and `POST .../{id}/complete` reads the assembled bytes back and hands them
+to the exact dedupe/probe path (`_ingest_bytes`, extracted from `ingest_upload` for this)
+a direct multipart upload already uses, so the two can never validate or store a file
+differently. The same "recount, rebuild jobs, mark ready, maybe enqueue a probe" sequence
+was already duplicated between the direct-upload and local-import routes; a third copy for
+this path was the "the next feature needs a fourth" case `AGENTS.md` names as the reason to
+pull something out, so it is now one function, `finish_ingestion`, called by all three.
+Reachable today only at the API layer — the SDK, the CLI and the web upload panel all still
+send a file in one request, which is honest and unchanged in this iteration.
 
 **A cuboid can now be drawn, not only carried.** `ShapeType.CUBOID` has been in the domain
 model since early in the project — the comparison/merge IoU logic, track interpolation and
@@ -130,8 +168,10 @@ than dropped — which is what keeps `yolo_pose`'s positional triples lined up �
 are drawn. That closes the last case of the platform exporting a dataset shape it could not
 produce.
 
-Honestly incomplete, and marked as such everywhere: the mask brush, resumable uploads, and
-signed desktop installers.
+Honestly incomplete, and marked as such everywhere: signed desktop installers (blocked
+outside the repository) and reaching the resumable-upload API from the SDK, the CLI and the
+web upload panel, all of which still send a file in one request. The mask brush, mentioned
+here in an earlier iteration as also incomplete, was finished in iteration 37, below.
 
 **Annotation quality is measured rather than declared, and a reviewer can now see it.** A
 task holds a ground-truth job; scoring an annotation job against it produces per-label
@@ -181,43 +221,43 @@ was the last unconnected piece of the desktop application.
 
 ## Next best action
 
-**A reference open-vocabulary model server, in its own repository.** The contract can now
-express *find these classes*, and nothing exists to point it at — which is the onboarding
-cost ADR 0005 accepted and explicitly planned to mitigate with "documented reference
-implementations… as separate repositories rather than bundled weights". YOLO-World is
-**GPL-v3** (AILab-CVC, on MMDetection/MMYOLO; Ultralytics' own build is AGPL-3.0), so it
-must stay outside this repository — which is exactly what ADR 0005 already decided, and no
-part of it needs revisiting. A FastAPI wrapper speaking the documented contract is perhaps a
-day's work; it needs the user's go-ahead because it is a new repository.
+**Both remaining items need the user**, and nothing unblocked and in-repo turned up this
+time — the last one found (`scripts/` had no lint coverage anywhere) was fixed in the same
+session it was found; see iteration 44 below.
 
-**Then: an auto-annotate surface in the editor.** Nothing in the UI calls the inference
-endpoint at all. With the fallback above, the minimum useful surface is a button and an
-optional class box — the project schema supplies the rest.
+* **A reference open-vocabulary model server, in its own repository.** The contract can
+  express *find these classes*, and nothing exists to point it at — which is the onboarding
+  cost ADR 0005 accepted and explicitly planned to mitigate with "documented reference
+  implementations… as separate repositories rather than bundled weights". YOLO-World is
+  **GPL-v3** (AILab-CVC, on MMDetection/MMYOLO; Ultralytics' own build is AGPL-3.0), so it
+  must stay outside this repository — which is exactly what ADR 0005 already decided, and no
+  part of it needs revisiting. A FastAPI wrapper speaking the documented contract is perhaps
+  a day's work; it needs the user's go-ahead because it is a new repository this session has
+  no access to create.
+* **Signed installers in CI** — one runner per platform and signing certificates the project
+  does not have.
 
-**Then: the mask brush.** Everything around it is now in place — the encoding is stated on
-both sides and pinned by a shared fixture, two formats carry a mask, and the editor draws one
-pixel for pixel and picks it by its pixels. `canvas/mask.ts` already exports `encodeRle`,
-which is what a brush commits with, and the scissors tool already reads frame pixels through
-`ToolContext.imageData`, which is the awkward part of a brush solved once already.
+Past those two, the honest next candidates are all 1.0-list infrastructure with no specific
+gap pulling any one of them forward — Redis-backed rate limiting, OpenTelemetry tracing, the
+ClamAV hook, OIDC/SSO, a Helm chart, backup/restore tooling, a published TypeScript client,
+a Datumaro bridge, an external security review. Picking one without a reason beyond "it is
+on the list" is exactly the "next unchecked box" `AGENTS.md` says not to default to; a future
+session should look for a real gap the way this one found the resumable-upload docstring's
+false claim, rather than start one of these cold.
 
-Two things to decide before starting. **A brush edits an existing mask as often as it starts
-a new one**, so the tool needs a notion of "the mask I am editing" that the other tools do
-not have — probably the current selection when it is a mask of the active label. And **a
-stroke is not a shape**: dragging paints into a scratch bitmap, and only the pointer-up
-commits. Keeping that bitmap the size of the *frame* and cropping to its filled extent on
-commit is simpler than growing a box as the stroke wanders, and a frame-sized `Uint8Array` is
-a few hundred kilobytes.
+*This section previously listed an auto-annotate editor surface, the mask brush, a
+ground-truth UI, dragging a keyframe along its lane, an issues panel and a browser harness
+in CI as upcoming work. All of that has since shipped — see* Completed *— and the section
+had drifted into repeating some of it as "next" long after it was done. Trimmed to what is
+actually outstanding.*
 
-*Superseded: "a UI for creating a ground-truth job", "drag a keyframe along its lane",
-"show issues in the editor", "put a browser harness in CI" and "surface a task whose frame
-count could not be corrected" — all done. This section had also fused two paragraphs into one
-unreadable one; that is repaired.*
-
-> **A note for whoever writes the next harness.** The ten in `scripts/` have now found every
-> defect the unit suites missed, most recently a deleted asset whose frames the task went on
-> counting and a pose exporter that collapsed a straight-armed skeleton's box to zero area. They need a packaged sidecar and a Chromium, so nightly rather than per-push, and
-> the sidecar **embeds `web/dist`** — a run needs `npm --prefix web run build` *and* a sidecar
-> rebuild, or it silently tests the previous frontend.
+> **A note for whoever writes the next browser harness.** The eighteen in `scripts/` have
+> now found every defect the unit suites missed, most recently a resumable upload that
+> restarted from zero instead of resuming and a deleted asset whose frames the task went on
+> counting. They need a packaged sidecar and a Chromium, so nightly rather than per-push (see
+> `.github/workflows/browser.yml`), and the sidecar **embeds `web/dist`** — a run needs
+> `npm --prefix web run build` *and* a sidecar rebuild, or it silently tests the previous
+> frontend.
 
 <details><summary>What that took, for whoever wires the next pointer interaction</summary>
 
@@ -242,18 +282,6 @@ a mutation that flushes the shape buffer, re-reads `annotation_version`, then wr
 `updated_tracks`.*
 
 </details>
-
-**Then, in rough order:**
-
-* **Surface a task whose frame count could not be corrected.** The job reports "this task
-  already has annotation work"; nothing shows it to anyone.
-* **Put a browser harness in CI.** Nine now exist (`screenshot.py`, `verify_local_import.py`,
-  `verify_chunked_frames.py`, `verify_track_timeline.py`, `verify_scissors.py`,
-  `verify_keyframe_editing.py`, `verify_quality_panel.py`) and between them they have found
-  every defect the unit suites missed — including this iteration's. Nightly or pre-release;
-  each needs a packaged sidecar and a Chromium. Note the sidecar embeds `web/dist`, so a
-  harness run needs `npm --prefix web run build` **and** a sidecar rebuild, or it silently
-  tests the previous frontend.
 
 ## Completed
 
@@ -406,6 +434,22 @@ desktop app one executable and `curvevision-local` a complete CurveVision in a b
 seeds a project, draws with real pointer events and photographs the result. It produces the
 README's screenshots and found two release-blocking bugs on its first run.
 
+**Resumable uploads, end to end** — `POST /tasks/{id}/uploads` declares a filename and
+size, `PATCH /tasks/{id}/uploads/{upload_id}` appends a chunk at a stated offset (a mismatch
+is a 409 naming the real one), `GET` reports the current offset, and
+`POST .../complete` finalises through the same dedupe/probe path (`_ingest_bytes`) a direct
+upload uses. `Storage.append` and the `UploadSession` model/migration/schemas had existed
+since early in the project for exactly this and were unused; only the service functions and
+routes were missing. Reachable from the SDK (`CurveVision.upload_resumable`) and the CLI
+(`curvevision task upload-resumable`), which read a local file in fixed-size pieces and can
+resume a session by id after a crash, and from a new "Upload media" panel on the task page —
+visible in both shapes, unlike the desktop-only local-import panel — which sends a file at
+or over 20 MB in chunks (with a progress bar) and everything smaller in the single-request
+batch path that already existed. Resuming across a page reload works by re-selecting the
+same file: its name and size key a remembered session id in `localStorage`. Driven end to
+end in a browser, including a chunk deliberately dropped mid-transfer and a resume proven to
+continue from the server's real offset rather than restart.
+
 **Also** — Python SDK and CLI, Docker Compose deployment, CI, issue/PR templates, and the
 full docs set including seven ADRs.
 
@@ -427,6 +471,7 @@ full docs set including seven ADRs.
 | View settings (label chips, suggestions, fill opacity) | Complete and measured in a browser: three `Scene` fields that had always been read by the renderer but never written to from anywhere now have a getter/setter pair and a control each in the Labels panel. |
 | Choosing individual files (desktop) | Complete and measured in a browser: `choose_files` now has a caller, one `local-import` call per chosen file, a failed file reported in `skipped` without aborting the others, and the results of a whole batch merged into one summary. |
 | Cuboid (2D wireframe box) | Complete and measured in a browser: a two-stage tool (drag the front face, then move and click to set the depth), a wireframe renderer, and CVAT XML export/import using CVAT's own real attribute names. The backend needed no new code at all — `ShapeType.CUBOID`, its minimum-points entry, its IoU comparison and its track interpolation were already there, unused. **Not** the 3D/point-cloud kind — see `docs/ROADMAP.md`'s honestly-unchanged limitation on that. |
+| Resumable uploads | Complete and tested end to end — API, SDK, CLI and the web upload panel: create a session, `PATCH` chunks at a stated offset, read the current offset back, complete, resume by id after a crash or a page reload. Driven in a browser through a deliberately dropped chunk and a real resume. Nothing outstanding. |
 
 *This table went stale once — it still listed the open-folder flow and chunked delivery as
 unbuilt several iterations after both shipped, because the narrative sections above were
@@ -445,6 +490,296 @@ being updated and this one was not. Check it against* Completed *before trusting
 ---
 
 ## Last iteration
+
+### 44 — `scripts/` gets a real ruff config, and its 42 pre-existing issues
+
+The item this file itself named as next: iteration 43 found that `ruff check scripts/`
+reports real, pre-existing violations, and that neither `check.sh` nor either CI workflow
+lints the directory at all — `ci.yml`'s two `ruff check .` calls are scoped to `server/` and
+`sdk/python` by their own `working-directory`. Small, self-contained, unblocked, exactly the
+kind of task this session's own SDK-linting fix (iteration 42) already established a pattern
+for: find a coverage gap, close it, fix what it finds.
+
+**The config had to come before the fixes, not after, because the two interact.** Running
+`ruff check` with no config at all uses ruff's own bundled defaults, which is a different
+rule set than this project uses anywhere else — that is what made several of the existing
+`# noqa: E402`/`# noqa: ANN001`/`# noqa: N802` comments look "unused" in the first pass.
+Blindly accepting `RUF100`'s fix-it suggestion and deleting all of them would have been
+wrong: once a real config selecting `E` (which includes E402) is in place, ruff's own
+analysis says the E402 ones are still genuinely unused — this codebase's particular
+`sys.path.insert` + import pattern does not trip E402 either way — but only *after* checking
+under the real config, not before. `scripts/ruff.toml` (a bare ruff config, not a
+`pyproject.toml` — this directory is a bag of scripts, not an installable package) mirrors
+`server/pyproject.toml`'s and `sdk/python/pyproject.toml`'s `[tool.ruff]` sections:
+`select = ["E", "F", "I", "UP", "B", "C4", "SIM", "RUF"]`, no `ASYNC` since nothing here is
+async.
+
+**`ruff format` was deliberately not added, only `ruff check`.** `ruff format --check
+scripts/` reports 21 of 21 files would be reformatted — it would rewrite the hand-aligned
+`check(condition, "passed", "failed")` multi-line call style used throughout every harness
+into ruff's own one-argument-per-line convention. That style is clearly deliberate, not
+sloppy, and consistent across the whole directory; enforcing the formatter here would mean
+either living with a wholesale, unrelated reformatting of eighteen files or fighting the
+formatter with `# fmt: off` everywhere. Lint catches real issues without opinion on layout;
+format has an opinion this codebase has already, deliberately, chosen not to share.
+
+**The 42 issues, once the real config was in place, were 9 categories of a much smaller
+set than they first looked**: `RUF100` (16, unused `noqa` — safe once E402 was confirmed
+still inapplicable), `E501` (9, lines a few characters over 100 — wrapped by hand, in two
+cases by extracting a named variable that also removed real duplication:
+`verify_mask_brush.py` computed the identical RLE-area expression three times across
+`first_area`/`grown_area`/`shrunk_area`, now one `mask_area()` helper), `RUF012` (1, a
+`BaseHTTPRequestHandler` subclass's shared class-level list -- `ClassVar[list[dict]]`, not a
+behaviour change, since the docstring already said the sharing was intentional), `F541` (1,
+a stray `f` prefix on a string with no placeholders), `E741` (1, a comprehension variable
+named `l`, renamed `row`), `I001` (1, `tomllib` sorted into the wrong import group),
+`RUF001` (1, an intentional `×` in a generated Markdown table, silenced with a comment
+saying why rather than replaced with `x`).
+
+**Every touched harness was re-run against a real packaged server**, not trusted from the
+diff alone, because two of the fixes were genuine (if tiny) refactors rather than pure
+formatting: `verify_mask_brush.py` (`mask_area` extraction), `verify_shape_frame.py`,
+`verify_skeleton_tool.py`, `verify_view_settings.py`, `verify_auto_annotate.py` (the
+`ClassVar` annotation and the `do_POST` naming-convention comment removal), plus
+`check_notices.py` and `verify_local_import.py` (already re-run in iteration 43 for an
+unrelated reason). All still pass. `extract_sample_images.py` is the one exception: it is a
+one-time extraction that overwrites the committed sample photographs and their credits file
+on every run, so it was reviewed by reading the diff rather than executed — the edit is a
+two-variable extraction with no changed output, and running it risks a real side effect
+(rewriting checked-in images) for a check that reading the diff already settles.
+
+**Wired into both `check.sh` and CI, matching how the SDK gap was closed last iteration.**
+A new `ruff (scripts)` step in `check.sh`, and a new `Ruff (scripts/)` step in `ci.yml`'s
+`server` job (already has `ruff` installed via `server[dev]`; the step just runs without
+`working-directory: server` so it resolves from the repo root instead).
+
+Verified: `./scripts/check.sh` green, all twelve steps now (`ruff (scripts)` is the twelfth)
+— 525 server tests, 15 SDK, 564 web, all unchanged; this iteration touched only `scripts/`,
+`scripts/check.sh` and `.github/workflows/ci.yml`. `ruff check scripts/` and
+`ruff check sdk/python`/`server` all clean; `verify_local_import.py`,
+`verify_mask_brush.py`, `verify_shape_frame.py`, `verify_skeleton_tool.py`,
+`verify_view_settings.py` and `verify_auto_annotate.py` all pass against a rebuilt sidecar
+after their edits.
+
+## Iteration 43
+
+### 43 — a browser user can now add media to a task after creating it, and a large file survives a dropped connection
+
+Continued straight from iteration 42 in the same session: the SDK and CLI could resume an
+upload, but the protocol still had no way to reach it from the actual product. Looking for
+where it should plug in turned up something bigger than "wire it into the existing panel" —
+**there was no existing panel**. `TaskPage.tsx`'s only upload control, "Add media from this
+computer," is desktop-only local-import; the only place a browser session could ever attach
+a file to a task was the create-task form on the project page, which is a one-time step.
+After that, a server user had no UI path to add another photograph to an existing task —
+only the SDK's `upload()` could. That is a real gap in the manual-first workflow this file's
+own Status paragraph calls "complete end to end," not only a missing wire-up of the
+resumable protocol, and it is fixed by the same change: a new "Upload media" panel, visible
+in both shapes, not gated behind `isDesktop()`.
+
+**Small and large files take different paths, on purpose.** `partitionBySize` (new,
+`resumableUpload.ts`) routes anything at or over 20 MB through the resumable protocol and
+everything else through the existing single-request `uploadAssets` batch call. Sending every
+file through a chunked session regardless of size was the first instinct and the wrong one:
+the SDK's own `upload()` batches for the identical reason stated in its own docstring — a
+handful of ordinary photos is cheaper as one request than as several sessions each paying
+for their own create/complete round trip. Only a file large enough that restarting it from
+zero would actually cost something goes through the more expensive protocol.
+
+**Resuming across a page reload needs somewhere to keep the session id that survives the
+reload, and the in-memory `File` object does not.** `localStorage`, keyed by the file's name
+and size — there is nothing more stable to key it by before the first byte has landed — is
+what lets a person who re-selects the same file (the natural way to retry a failed upload)
+be recognised as continuing rather than starting over. `recallUploadId`/`rememberUploadId`/
+`forgetUploadId` wrap it in the same try/catch-and-degrade pattern `client.ts`'s `tokenStore`
+already uses, for the same reason: losing the pointer in private-mode Safari costs a restart
+from zero, never correctness, so every access degrades to "nothing remembered" rather than
+throwing.
+
+**The file input is reset after every attempt, deliberately**, because a browser does not
+fire `change` for selecting the exact same file twice in a row unless the input's value was
+cleared first — and selecting the same file again is exactly how a person retries a failed
+upload here. Missing this would have made the whole resumption story invisible: the id would
+be remembered correctly, but nothing would ever call `uploadResumable` again to use it.
+
+**The harness's own first version proved nothing about resuming, the same trap this
+session's SDK test fell into first.** Interrupting an upload and calling it again with the
+right `uploadId` produces a correct final asset even from a client that silently starts a
+fresh session and ignores the one it was given — a full re-upload succeeds too. Learned once
+already this session (the SDK's resume test), so this time the harness was written to check
+the *mechanism*, not just the outcome, from the start: `scripts/verify_resumable_upload.py`
+intercepts every `PATCH` to the uploads endpoint, records each one's `Upload-Offset` header,
+lets the first through, and aborts the second with `connectionreset` — standing in for a
+dropped connection rather than a server-side rejection. It then asserts the retry's first
+recorded offset is the chunk size, not zero, and that the retry sends only the three
+remaining chunks of four, not the whole file again. Confirmed both new checks actually bite:
+disabled the `recallUploadId` lookup, rebuilt (confirmed the bundle hash changed), watched
+the retry restart from offset 0 and send all four chunks, restored it, rebuilt again
+(confirmed the bundle hash came back byte-identical), and reran green.
+
+The large test file is 3000×3000 pixels of `os.urandom` saved as PNG — true random noise
+rather than a photograph, because PNG's lossless compression cannot shrink it, which is what
+makes the resulting byte count (and therefore the exact chunk boundaries the harness asserts
+against) predictable rather than "however well a real photo happened to compress."
+
+**Also proved in the same harness**, since it was already driving a plain browser session:
+the new panel is present for a browser session and the desktop-only local-import panel is
+correctly absent from it (the actual gap this iteration closes); an ordinary small image
+triggers zero `PATCH` calls, confirming the size-based routing does not chunk something that
+should not be; exactly one asset lands from the interrupted-then-resumed large upload, not
+two; and the task's frame count and job list are correct afterward.
+
+**A real regression this iteration introduced, caught by running someone else's harness
+rather than only its own.** The new button was first labelled "Choose files to upload…";
+`scripts/verify_local_import.py` — unrelated to this change, on the same page — started
+failing with a Playwright strict-mode violation, because `get_by_role(name="Choose files")`
+does substring matching by default and both that harness's own desktop-only button and the
+new one now contained the phrase "Choose files". Fixed by renaming the new button to "Upload
+files…", which shares no substring with the existing one, rather than patching the
+unrelated harness's locator — the two buttons do different things and should not read as
+almost the same label regardless of whether a test happens to notice. Reran every harness
+that touches this page (`verify_local_import.py`, `verify_frame_count_warning.py`,
+`verify_ground_truth_setup.py`, and this iteration's own) to confirm nothing else on
+`TaskPage.tsx` was disturbed.
+
+**Found, not fixed: `scripts/*.py` has no lint coverage anywhere**, not in `check.sh`, not
+in either CI workflow (`ci.yml`'s two `ruff check .` calls are both scoped to `server/` and
+`sdk/python` by their own `working-directory`). Running `ruff check` against a script in
+that directory directly turns up real, pre-existing violations in at least one other
+harness (`verify_auto_annotate.py`: an unused `noqa`, a missing executable bit, a mutable
+class default). This iteration's own new script was made clean by hand rather than by a
+check that would have caught it. Left alone rather than folded into this change — fixing
+every existing script's lint debt is a separate, larger cleanup with its own blast radius,
+not something this diff's stated goal covers — but recorded here so it is not lost, and
+worth its own small iteration.
+
+Verified: `./scripts/check.sh` green, all eleven steps — 525 server tests (unchanged; no
+server code touched), 15 SDK (unchanged), 564 web (10 new: `resumableUpload.test.ts`'s pure
+`partitionBySize`/`summariseUpload` tests — the localStorage- and network-touching functions
+are verified by the harness instead, matching how `chooseFiles`/`localImport` are already
+handled in this codebase). `scripts/verify_resumable_upload.py` added to
+`.github/workflows/browser.yml`'s list; its nine checks pass locally against a rebuilt
+sidecar, both before and after the sabotage-and-restore above, and `verify_local_import.py`,
+`verify_frame_count_warning.py` and `verify_ground_truth_setup.py` all still pass against
+the same rebuilt sidecar after the button rename.
+
+## Iteration 42
+
+### 42 — a large upload can now be resumed instead of restarted
+
+Chosen after orienting fresh on a new branch (`claude/start-work-v84c3b`, built off `main`
+after PR #20 merged iteration 41): `./scripts/check.sh` was already green, so the search was
+for a false claim or a nearly-finished thing rather than a break. `grep` for `UploadSession`
+found it had a full domain model, a migration, and two schemas (`UploadInit`,
+`UploadSessionOut`) — and `Storage.append`, implemented in both the local and S3 backends,
+whose own docstring says "Used by the resumable-upload protocol." None of it was called from
+anywhere. Worse, `upload_assets`'s docstring in `api/v1/tasks.py` already asserted "files
+larger than the request-size limit use the resumable upload endpoints instead" — a claim
+about an existing capability that did not exist, which is the "claimed but false" category
+`AGENTS.md` ranks above ordinary new work.
+
+**Four endpoints close the gap**, all under `/tasks/{id}/uploads`: `POST` declares a
+filename and size, validated against the same extension/size rules a direct upload uses
+(split into `validate_declared_upload`, since those are the only two things knowable before
+any bytes exist); `PATCH` appends one chunk, requiring the caller to state the offset it
+believes it is resuming from — a mismatch is a 409 that reports the real offset in the
+response body, rather than either silently duplicating bytes or corrupting the object, which
+is what makes a resend after a dropped connection safe; `GET` reports the current offset for
+a client that lost track of its own progress after a restart; `POST .../complete` reads the
+assembled bytes back with `storage.get` and hands them to the exact dedupe/probe path a
+direct upload uses. `DELETE` cancels a partial upload and reclaims its storage key.
+
+**The finished bytes go through the same code a direct upload already uses, not a second
+implementation of it.** `ingest_upload`'s body was extracted into `_ingest_bytes` (hash,
+dedupe by SHA-256, probe, thumbnail, attach as the next asset); both the direct-upload route
+and `complete_upload` call it with the whole file's bytes in hand. A resumable upload of the
+same bytes a direct upload already stored dedupes to the same blob —
+`test_identical_bytes_resumed_and_sent_directly_dedupe_to_one_blob` asserts exactly that.
+
+**A third copy of "recount, rebuild jobs, mark ready, maybe enqueue a probe job" was the
+signal to stop copying it.** `upload_assets` and `local_import` each already had their own
+copy of that exact sequence; adding a third for `complete_upload` is the precise situation
+`AGENTS.md` names as worth pulling out ("called from three places... the next feature needs
+a fourth"). Both existing routes now call the new `finish_ingestion`, which preserved each
+one's own edge case: `upload_assets` always ran the sequence unconditionally, `local_import`
+skipped it when nothing was actually imported (an empty folder, every file unreadable) —
+kept as a `created: bool = True` parameter rather than silently unifying two routes that
+disagree on purpose.
+
+**Verified with a real dropped-connection scenario, not just a happy path.** A new test file,
+`server/tests/api/test_resumable_uploads.py`: a file split across two chunks and reassembled
+correctly, the offset readable mid-upload, a resent chunk at a stale offset rejected with a
+409 naming the real one, completion refused while bytes are still missing, a declared size
+over `max_upload_bytes` refused before any bytes move, an abort freeing both the storage key
+and the session row, and the dedupe test above. Confirmed the offset-mismatch check bites by
+deleting it and watching that one test fail with `200` where `409` was expected, then
+restored it.
+
+**Also this iteration:** three known-issues entries in this file had been overtaken by later
+work and never removed — "a keyframe cannot be dragged along its lane" (it can, since the
+keyframe-editing iteration), "a quality report has no UI" (it does, since the quality-panel
+iteration), and "the browser harnesses are not in CI" (`.github/workflows/browser.yml` runs
+all seventeen nightly and on every push to `main`). Removed rather than left to mislead the
+next reader. The *Next best action* section had drifted further: it still named the
+auto-annotate editor surface and the mask brush as upcoming work several iterations after
+both shipped, alongside a `*Superseded: ...*` note that only caught some of the drift and a
+"Then, in rough order" list repeating two items *Completed* already had. Rewritten to state
+what is actually next. `docs/ROADMAP.md` and `docs/IMPLEMENTATION_PLAN.md` are updated in
+the same change for the same reason `AGENTS.md` requires it: a plan that has drifted from
+the code is the failure mode this file exists to prevent, and `docs/ROADMAP.md` had two
+matching gaps of its own — the desktop table still called the open-folder/choose-files flow
+*In Progress* after both shipped, and the Beta table never gained a row for the cuboid tool
+that iteration 41 shipped without a docs pass over that particular file.
+
+**Self-review turned up one real gap: a declared size of 0.** A session with `size=0` is
+"complete" the instant it is created — `received_bytes` starts at 0, which already equals
+`declared_size` — with no chunk ever appended and so no storage key ever written.
+`complete_upload` would have called `storage.get` on a key that does not exist, and
+`ObjectNotFoundError` is a `StorageError`, not a `CurveVisionError`, so it would have escaped
+as an unhandled 500 rather than the 422 a direct upload of an empty file already gets.
+Confirmed by temporarily removing the guard and watching the traceback, then fixed by
+catching that one exception and falling through with empty bytes, which reuses
+`_ingest_bytes`'s own rejection of empty content instead of adding a second one.
+
+**Continued in the same iteration: the SDK and CLI can now use the protocol.** This file's
+own *Next best action*, written earlier in this same iteration, named the SDK as the
+smaller, better-scoped half of reaching the new API from somewhere that could actually use
+it — no progress UI to build, just a script reading a file in fixed-size pieces and being
+able to retry. `CurveVision.upload_resumable(task_id, path, *, upload_id=None,
+chunk_size=8MiB)` does that: create a session (or `GET` an existing one by
+`upload_id` to learn where it really left off, rather than trusting a caller's own memory
+of how far it got), seek the file to that offset, `PATCH` chunk by chunk, then complete. The
+CLI gained `curvevision task upload-resumable <task_id> <path> [--chunk-size] [--resume
+<id>]` as a thin shell over it, matching every other CLI command's shape.
+
+**The resume test's first draft did not actually test resuming.** It called
+`upload_resumable(..., upload_id=session_id)` after hand-driving half an upload against that
+session, and asserted the final asset came out right — which passed even after deliberately
+breaking the `upload_id is not None` branch, because a version that ignores `upload_id` and
+starts a brand-new session still produces a correct asset (a full re-upload succeeds too).
+The meaningful assertion is that the *original* session is the one left `completed`, which a
+version that silently abandons it for a fresh one fails. Confirmed both ways: broke the
+branch, watched the strengthened assertion fail (`False is True`) where the weak one had
+passed; restored it.
+
+**The web upload panel is not touched.** Chunking a browser `File`, a progress bar, and
+resuming across a page reload are a meaningfully bigger unit of work than the SDK path was,
+and are exactly what is left in *Next best action* below.
+
+**Also: `./scripts/check.sh` was not actually "everything CI runs."** While adding SDK code,
+`.github/workflows/ci.yml`'s `sdk` job turned out to run `ruff check` and `mypy
+curvevision_sdk` scoped to `sdk/python` — neither of which `check.sh` ran locally, despite
+its own header comment and `AGENTS.md`'s table both claiming it covers everything CI does.
+The new SDK code happened to pass both already, but the gap meant a future change could
+break CI's SDK job while `check.sh` stayed green. Added both steps (`ruff (sdk)`, `mypy
+(sdk)`) to `scripts/check.sh`, mirroring the server's own two steps.
+
+Verified: `./scripts/check.sh` green, all eleven steps now including the two just added —
+525 server tests (8 new), 15 SDK (2 new), 554 web (unchanged; no TypeScript touched this
+iteration). The full suite, not a subset, including the notices gate (no new dependency)
+and both linters for both Python packages.
+
+## Iteration 41
 
 ### 41 — a cuboid can be drawn, not only carried
 
@@ -2614,11 +2949,10 @@ missing, and it is the reason this iteration found anything):
   annotators' boxes. Averaging is defensible and is what a consensus pass would do; picking
   one is predictable, which matters more when nobody is watching. `consensus/intersect_merge.py`
   upstream is the piece to adapt if averaging is ever wanted.
-- **A keyframe cannot be dragged along its lane yet.** `moveKeyframe` is written and tested
-  but nothing calls it; it needs a pointer-drag rather than a shortcut.
-- **Keyframe edits are one write each, not batched.** Each `K` or `O` flushes the shape
-  buffer, re-reads the version and PATCHes. That is right for deliberate discrete edits and
-  would be wrong for a drag, which is the other reason dragging is not wired yet.
+- **Keyframe edits are one write each, not batched.** Each `K`, `O`, or a completed drag
+  flushes the shape buffer, re-reads the version and PATCHes once, on drop rather than per
+  pointer-move. Right for deliberate discrete edits; would need rethinking for something
+  that streamed writes continuously, which nothing here does.
 - **YOLO Pose and Classification are export-only.** Pose because `data.yaml` records how
   many keypoints there are but not what they are called, so an import would attach every
   joint to the wrong name; classification because the directory tree *is* the annotation, so
@@ -2638,10 +2972,6 @@ missing, and it is the reason this iteration found anything):
 - **The scissors search grid caps at 1024 on the long side.** On a 4K frame that is a 4x
   downscale, so the wire lands within a few source pixels of the true edge rather than on it
   exactly. Raising it is a constant, and costs time quadratically.
-- **A quality report has no UI.** Creating a ground-truth job and scoring against it are
-  API, SDK and CLI only. A reviewer working in the editor cannot see any of it, which means
-  the feature is currently for scripted workflows. The conflict list is frame- and
-  shape-addressed already, so a panel that seeks to a conflict is the obvious next step.
 - **The comparison runs inline, not on the queue.** It is arithmetic over rows already in
   the database and a reviewer asking "how did this go" should get an answer rather than a
   task id to poll — but a ground truth of many thousands of frames would make that a slow
@@ -2650,11 +2980,6 @@ missing, and it is the reason this iteration found anything):
   `stop_frame` and no per-job frame list, so ground-truth frames cannot be *sprinkled*
   through a task the way a honeypot scheme wants. Checking a contiguous slice is the honest
   version of the feature that fits the model; anything finer needs a schema change first.
-- **The browser harnesses are not in CI.** `scripts/screenshot.py` found two
-  release-blocking bugs in one run, and `scripts/verify_local_import.py` is the only check on
-  the desktop import flow; nothing stops either regressing automatically. Both need a
-  packaged sidecar and a Chromium, so neither is a cheap CI job — but they are the only
-  things that test the product as a user meets it. Worth a nightly or pre-release job.
 - **Playwright drives Chromium, not the Tauri webview.** The React half is now testable end
   to end; an actual `invoke()` across the IPC bridge still is not.
 - **The screenshots are generated, not committed by hand** — re-run `scripts/screenshot.py`

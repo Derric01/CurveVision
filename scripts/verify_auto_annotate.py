@@ -58,10 +58,11 @@ import tempfile
 import threading
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from pathlib import Path
+from typing import ClassVar
 
 sys.path.insert(0, str(Path(__file__).parent))
 
-from screenshot import api, find_chromium, start_server  # noqa: E402
+from screenshot import api, find_chromium, start_server
 
 IMAGE_WIDTH = 480
 IMAGE_HEIGHT = 320
@@ -162,9 +163,9 @@ class ModelServer(BaseHTTPRequestHandler):
     """
 
     #: Shared, because `HTTPServer` builds a fresh handler per request.
-    received: list[dict] = []
+    received: ClassVar[list[dict]] = []
 
-    def do_POST(self) -> None:  # noqa: N802 - BaseHTTPRequestHandler's spelling
+    def do_POST(self) -> None:
         length = int(self.headers.get("Content-Length", "0"))
         request = json.loads(self.rfile.read(length) or b"{}")
         ModelServer.received.append(request)

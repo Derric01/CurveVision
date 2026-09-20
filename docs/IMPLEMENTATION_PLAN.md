@@ -460,8 +460,22 @@ depth; the 8 corners land in CVAT's own on-disk order, so a box drawn here expor
 * **Progressive loading** — *Planned*. A low-resolution proxy chunk served first so the
   annotator can start immediately, with the full-resolution chunk swapping in when decoded.
 * **Large-file handling** — a size limit expressed in config rather than code is **Done**.
-  Resumable uploads are *Planned*: the `UploadSession` model is designed for an
-  offset-based `PATCH` protocol, but no endpoints implement it yet.
+  Resumable uploads are **Done**: `POST /tasks/{id}/uploads` declares a
+  filename and size (validated against the same size/extension rules a direct upload uses,
+  before any bytes exist), `PATCH .../{id}` appends a chunk at the offset the client
+  believes it is resuming from -- a mismatch is a 409 naming the real offset, so a chunk
+  resent after a dropped response cannot duplicate bytes -- and `POST .../{id}/complete`
+  reads the assembled bytes back and hands them to the exact same dedupe/probe path
+  (`_ingest_bytes`) a direct multipart upload uses, so the two can never validate or store a
+  file differently. `Storage.append` and both backends already existed for this; only the
+  service functions and routes were missing. The SDK (`upload_resumable`) and CLI
+  (`task upload-resumable`) read a local file in fixed-size pieces and can resume a session
+  by id. The task page's "Upload media" panel -- new this iteration, and not gated to the
+  desktop build the way local-import is -- routes a file at or over 20 MB through the same
+  chunked path with a progress bar, and everything smaller through the pre-existing
+  single-request `uploadAssets` batch call; resuming after a crash or a reload works by
+  re-selecting the same file, which is matched by name and size to a session id remembered
+  in `localStorage`.
 
 ---
 
@@ -702,7 +716,7 @@ Design targets and how they are met:
 | Long videos | chunked frame delivery + client LRU + prefetch; never a per-frame request |
 | Concurrent annotators | jobs are the concurrency unit; annotation writes use optimistic versioning on `job.annotation_version` (a stale write is rejected, never merged) |
 | Heavy operations | everything slow (frame extraction, export, import, inference, quality reports) is a background job with idempotency keys |
-| Resumable uploads | offset-based `PATCH` protocol — *Planned*, model designed, endpoints not built |
+| Resumable uploads | offset-based `PATCH` protocol — **Done** end to end: API, SDK, CLI and the web upload panel; see Phase 3 |
 
 Benchmarks live in `server/tests/benchmarks/` (annotation write/read at 1k/10k/100k) and
 `web/src/canvas/__bench__/` (index build, viewport query, render frame time).

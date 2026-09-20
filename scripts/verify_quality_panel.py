@@ -34,7 +34,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent))
 
-from screenshot import api, find_chromium, start_server  # noqa: E402
+from screenshot import api, find_chromium, start_server
 
 FRAMES = 6
 #: The frame the third conflict sits on, and the one the click must land the editor on.
@@ -194,7 +194,7 @@ def main() -> int:
                 frame_readout = page.locator("footer span.font-mono")
                 before = frame_readout.inner_text() if frame_readout.count() else "?"
 
-                target = page.locator("li button", has_text=f"Loose geometry")
+                target = page.locator("li button", has_text="Loose geometry")
                 if target.count() == 0:
                     target = rows
                 target.first.click()

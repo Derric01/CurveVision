@@ -26,12 +26,9 @@ from fastapi import APIRouter
 from curvevision.api.deps import SessionDep, SettingsDep, TaskScopeDep
 from curvevision.core.config import Settings
 from curvevision.core.errors import NotFoundError, ValidationError
-from curvevision.domain.enums import TaskStatus
 from curvevision.policy import Action, ResourceType
 from curvevision.schemas.task import AssetOut, LocalImportRequest, LocalImportResult
-from curvevision.services import background as background_service
 from curvevision.services import media as media_service
-from curvevision.services import tasks as task_service
 
 router = APIRouter(tags=["local"])
 
@@ -78,22 +75,7 @@ async def import_local_path(
         created.append(AssetOut.model_validate(asset))
         position += 1
 
-    if created:
-        await task_service.recount_frames(session, scope.task)
-        await task_service.rebuild_jobs(session, scope.task)
-        if scope.task.status is TaskStatus.DRAFT and scope.task.frame_count:
-            scope.task.status = TaskStatus.READY
-    await session.commit()
-
-    # As with an upload: a video's frame count is an estimate until something decodes it.
-    if created and await media_service.needs_exact_count(session, scope.task.id):
-        await background_service.enqueue(
-            session,
-            kind="media.probe_task",
-            payload={"task_id": str(scope.task.id)},
-            resource_type="task",
-            resource_id=scope.task.id,
-        )
+    await media_service.finish_ingestion(session, scope.task, created=bool(created))
 
     return LocalImportResult(
         task_id=scope.task.id,

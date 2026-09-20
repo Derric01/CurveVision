@@ -45,7 +45,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent))
 
-from screenshot import api, find_chromium, start_server  # noqa: E402
+from screenshot import api, find_chromium, start_server
 
 #: The joints, in the order the label declares them. The order is the contract.
 JOINTS = ["shoulder", "elbow", "wrist"]
@@ -130,7 +130,10 @@ def main() -> int:
             failures.append(failed)
             print(f"  FAIL {failed}")
 
-    print(f"a label whose joints are {' -> '.join(JOINTS)}, on a {IMAGE_WIDTH}x{IMAGE_HEIGHT} frame\n")
+    print(
+        f"a label whose joints are {' -> '.join(JOINTS)}, "
+        f"on a {IMAGE_WIDTH}x{IMAGE_HEIGHT} frame\n"
+    )
 
     with tempfile.TemporaryDirectory(prefix="curvevision-pose-") as workspace:
         process, handshake = start_server(Path(workspace) / "data")
@@ -237,7 +240,9 @@ def main() -> int:
 
                 xs = [e["points"][0] for e in elements]
                 ys = [e["points"][1] for e in elements]
-                print(f"  joints landed at x={[round(x, 1) for x in xs]} y={[round(y, 1) for y in ys]}")
+                rounded_xs = [round(x, 1) for x in xs]
+                rounded_ys = [round(y, 1) for y in ys]
+                print(f"  joints landed at x={rounded_xs} y={rounded_ys}")
                 check(xs[0] < xs[1] < xs[2],
                       "the joints keep the left-to-right order they were clicked in",
                       f"the joints came back out of order: {xs}")
@@ -315,7 +320,7 @@ def main() -> int:
 
             lines = [line for line in text.splitlines() if line.strip()]
             print(f"\n  data.yaml declares: "
-                  f"{[l for l in data_yaml.splitlines() if 'kpt_shape' in l]}")
+                  f"{[row for row in data_yaml.splitlines() if 'kpt_shape' in row]}")
             for line in lines:
                 print(f"  {line}")
 

@@ -35,7 +35,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent))
 
-from screenshot import api, find_chromium, start_server  # noqa: E402
+from screenshot import api, find_chromium, start_server
 
 IMAGE_WIDTH = 480
 IMAGE_HEIGHT = 320
@@ -169,7 +169,8 @@ def main() -> int:
                 draw(120, 90, 260, 210)
                 save()
                 check(object_count() == 1,
-                      f"the rectangle appears in the object list on frame {RECTANGLE_FRAME} once saved",
+                      f"the rectangle appears in the object list on frame "
+                      f"{RECTANGLE_FRAME} once saved",
                       f"frame {RECTANGLE_FRAME} shows {object_count()} object(s) after saving")
 
                 # --------------------------------------------------- ellipse, a different frame

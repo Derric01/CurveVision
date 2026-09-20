@@ -53,7 +53,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent))
 
-from screenshot import api, find_chromium, start_server  # noqa: E402
+from screenshot import api, find_chromium, start_server
 
 #: 7 frames at 3 fps gives a duration of 2.333s, so the estimate `int(duration * rate)` is
 #: 6. Matroska declares no frame count, which is what forces an estimate at all.

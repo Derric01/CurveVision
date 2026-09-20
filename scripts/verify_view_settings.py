@@ -37,7 +37,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent))
 
-from screenshot import api, find_chromium, start_server  # noqa: E402
+from screenshot import api, find_chromium, start_server
 
 IMAGE_WIDTH = 480
 IMAGE_HEIGHT = 320
@@ -219,7 +219,8 @@ def main() -> int:
                       f"suggestion={after_hide_suggestions[1]}")
                 check(after_hide_suggestions[0] > 0,
                       "the manually drawn shape stays visible",
-                      f"the manual shape vanished when hiding suggestions: {after_hide_suggestions}")
+                      "the manual shape vanished when hiding suggestions: "
+                      f"{after_hide_suggestions}")
                 check(after_hide_suggestions[1] == 0,
                       "and only the unreviewed suggestion disappears",
                       f"the suggestion is still painted: {after_hide_suggestions}")

@@ -21,8 +21,13 @@ fi
 run_py() { "$PY" -m "$@"; }
 
 step "ruff (server)"    run_py ruff check server
+step "ruff (sdk)"       run_py ruff check sdk/python
+# Lint only, not format: these harness scripts use a deliberate, hand-aligned multi-line
+# call style `ruff format` would rewrite wholesale.
+step "ruff (scripts)"   run_py ruff check scripts
 step "ruff format"      run_py ruff format --check server sdk/python
 step "mypy (server)"    run_py mypy --config-file server/pyproject.toml server/curvevision
+step "mypy (sdk)"       run_py mypy --config-file sdk/python/pyproject.toml sdk/python/curvevision_sdk
 step "pytest (server)"  run_py pytest server/tests -q
 step "pytest (sdk)"     run_py pytest sdk/python/tests -q
 step "notices"          "$PY" scripts/check_notices.py

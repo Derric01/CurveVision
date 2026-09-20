@@ -1,12 +1,19 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState, type ChangeEvent } from 'react';
 import clsx from 'clsx';
 import { Link, useParams } from 'react-router-dom';
 import { useQueryClient, useQuery } from '@tanstack/react-query';
-import { ArrowLeft, Files, FolderOpen, PenLine } from 'lucide-react';
+import { ArrowLeft, Files, FolderOpen, PenLine, UploadCloud } from 'lucide-react';
 import { api } from '@/api/client';
 import type { LocalImportResult } from '@/api/types';
 import { chooseFiles, chooseFolder, isDesktop, onOpenFolder } from '@/desktop';
 import { mergeImportResults, summariseImport, type ImportSummary } from './localImport';
+import {
+  RESUMABLE_UPLOAD_THRESHOLD_BYTES,
+  partitionBySize,
+  summariseUpload,
+  uploadLargeFileResumable,
+  type UploadEntry,
+} from './resumableUpload';
 import { GroundTruthPanel } from './GroundTruthPanel';
 import { FrameCountNotice } from './FrameCountNotice';
 import { latestReportByJob, splitJobs } from './groundTruth';
@@ -60,6 +67,78 @@ export function TaskPage() {
         queryClient.invalidateQueries({ queryKey: ['project'] }),
       ]),
     [queryClient, taskId],
+  );
+
+  const uploadInput = useRef<HTMLInputElement>(null);
+  const [uploading, setUploading] = useState(false);
+  const [uploadSummary, setUploadSummary] = useState<ReturnType<typeof summariseUpload> | null>(
+    null,
+  );
+  const [uploadFailures, setUploadFailures] = useState<UploadEntry[]>([]);
+  // Bytes received so far, per filename, for the files large enough to go through the
+  // resumable path -- a plain batch upload has no useful mid-flight progress to show.
+  const [uploadProgress, setUploadProgress] = useState<Record<string, number>>({});
+
+  const uploadMedia = useCallback(
+    async (files: File[]) => {
+      if (files.length === 0 || !taskId) return;
+      setUploading(true);
+      setUploadSummary(null);
+      setUploadFailures([]);
+      setUploadProgress({});
+
+      // A handful of ordinary photos are cheaper as the one request `uploadAssets` already
+      // sends than as several chunked sessions each paying for their own round trips; only
+      // a file large enough that restarting it from zero would actually hurt goes through
+      // the resumable protocol. See `resumableUpload.ts`.
+      const { small, large } = partitionBySize(files);
+      const entries: UploadEntry[] = [];
+
+      if (small.length > 0) {
+        try {
+          await api.uploadAssets(taskId, small);
+          entries.push(...small.map((file) => ({ name: file.name, ok: true })));
+        } catch (error) {
+          // One request for the whole small batch means one failure covers all of them --
+          // still reported per file, so the summary reads the same way a partial large-file
+          // failure does.
+          const reason = error instanceof Error ? error.message : 'upload failed';
+          entries.push(...small.map((file) => ({ name: file.name, ok: false, reason })));
+        }
+      }
+
+      // Sequential, not parallel: two resumable completions finishing for the same task at
+      // once would race for the same "next" asset position, the identical reason the
+      // desktop file picker already uploads one file at a time.
+      for (const file of large) {
+        try {
+          await uploadLargeFileResumable(taskId, file, (received, total) => {
+            setUploadProgress((prev) => ({ ...prev, [file.name]: total > 0 ? received / total : 1 }));
+          });
+          entries.push({ name: file.name, ok: true });
+        } catch (error) {
+          const reason = error instanceof Error ? error.message : 'upload failed';
+          entries.push({ name: file.name, ok: false, reason });
+        }
+      }
+
+      setUploadSummary(summariseUpload(entries));
+      setUploadFailures(entries.filter((entry) => !entry.ok));
+      await invalidateAfterImport();
+      setUploading(false);
+    },
+    [invalidateAfterImport, taskId],
+  );
+
+  const handleUploadInput = useCallback(
+    (event: ChangeEvent<HTMLInputElement>) => {
+      const files = Array.from(event.target.files ?? []);
+      // Reset so choosing the exact same file again -- the natural way to retry a failed
+      // upload -- fires `change` a second time. Without this the browser sees no change.
+      event.target.value = '';
+      void uploadMedia(files);
+    },
+    [uploadMedia],
   );
 
   const importFolder = useCallback(async () => {
@@ -169,6 +248,69 @@ export function TaskPage() {
       </header>
 
       <FrameCountNotice taskId={taskId} media={media.data} />
+
+      <Panel
+        title="Upload media"
+        actions={
+          <Button
+            variant="secondary"
+            size="sm"
+            onClick={() => uploadInput.current?.click()}
+            disabled={uploading}
+          >
+            <UploadCloud size={13} />
+            {uploading ? 'Uploading…' : 'Upload files…'}
+          </Button>
+        }
+      >
+        <input
+          ref={uploadInput}
+          type="file"
+          multiple
+          accept="image/*,video/*"
+          className="hidden"
+          onChange={handleUploadInput}
+        />
+        <p className="text-sm text-ink-400">
+          Images and videos are copied into CurveVision. A file at or over{' '}
+          {(RESUMABLE_UPLOAD_THRESHOLD_BYTES / (1024 * 1024)).toFixed(0)} MB is sent in chunks
+          and can resume if the connection drops; the rest go in one request.
+        </p>
+        {Object.entries(uploadProgress).length > 0 && (
+          <ul className="mt-3 space-y-2">
+            {Object.entries(uploadProgress).map(([name, fraction]) => (
+              <li key={name}>
+                <div className="mb-1 flex items-center justify-between text-xs text-ink-400">
+                  <span className="truncate">{name}</span>
+                  <span className="tabular-nums">{Math.round(fraction * 100)}%</span>
+                </div>
+                <ProgressBar value={fraction} />
+              </li>
+            ))}
+          </ul>
+        )}
+        {uploadSummary && (
+          <div
+            className={clsx(
+              'mt-3 rounded-md border px-3 py-2 text-sm',
+              uploadSummary.tone === 'success'
+                ? 'border-emerald-500/30 bg-emerald-500/10 text-emerald-200'
+                : 'border-amber-500/30 bg-amber-500/10 text-amber-200',
+            )}
+          >
+            <p>{uploadSummary.headline}</p>
+            {uploadFailures.length > 0 && (
+              <ul className="mt-2 space-y-1 font-mono text-xs opacity-80">
+                {uploadFailures.map((failure, index) => (
+                  <li key={`${index}-${failure.name}`}>
+                    {failure.name}: {failure.reason}
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
+        )}
+      </Panel>
 
       {isDesktop() && (
         <Panel

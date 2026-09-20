@@ -38,6 +38,12 @@ jobs:
           ruff check .
           ruff format --check .
 
+      # Lint only, not format: these harness scripts use a deliberate, hand-aligned
+      # multi-line call style `ruff format` would rewrite wholesale. `scripts/ruff.toml`
+      # is a bare ruff config rather than a pyproject.toml because this is not a package.
+      - name: Ruff (scripts/)
+        run: ruff check scripts
+
       - name: Mypy
         working-directory: server
         run: mypy curvevision

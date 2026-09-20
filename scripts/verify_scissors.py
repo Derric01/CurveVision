@@ -28,7 +28,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent))
 
-from screenshot import api, canvas_point, find_chromium, start_server  # noqa: E402
+from screenshot import api, canvas_point, find_chromium, start_server
 
 WIDTH = 640
 HEIGHT = 480

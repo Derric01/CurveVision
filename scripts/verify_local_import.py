@@ -234,7 +234,8 @@ def main() -> int:
                 files_clicked.get_by_text("could not be read").click()
                 files_clicked.wait_for_timeout(300)
                 check(files_clicked.get_by_text("does-not-exist.jpg", exact=False).count() > 0,
-                      "the missing file is named by its own filename, not its full path or the other two",
+                      "the missing file is named by its own filename, not its full path "
+                      "or the other two",
                       "the skipped list did not name the missing file")
                 check(not files_raised, "choosing individual files raises nothing",
                       f"page error: {files_raised}")

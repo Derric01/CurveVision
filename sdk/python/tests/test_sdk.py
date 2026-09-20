@@ -250,3 +250,62 @@ class TestReviewAndPagination:
         by_id = {fmt["id"]: fmt for fmt in client.formats()}
         assert {"coco", "yolo", "voc", "curvevision"} <= set(by_id)
         assert by_id["curvevision"]["supports_tracks"] is True
+
+
+class TestResumableUpload:
+    def test_a_file_larger_than_the_chunk_size_is_sent_in_several_pieces(
+        self, client: CurveVision, organization: Any, tmp_path: Path
+    ) -> None:
+        project = client.create_project(
+            organization.id, slug="sdk-resumable", name="Resumable", labels=[]
+        )
+        task = client.create_task(project.id, name="Resumable batch")
+        path = write_png(tmp_path / "clip.png", width=200, height=200)
+        size = path.stat().st_size
+        assert size > 100, "the fixture needs to be big enough to actually split"
+
+        asset = client.upload_resumable(task.id, path, chunk_size=100)
+        assert asset["name"] == "clip.png"
+
+        refreshed = client.task(task.id)
+        assert refreshed.frame_count == 1
+        assert refreshed.status == "ready"
+
+    def test_an_interrupted_upload_resumes_from_the_servers_offset_not_a_guess(
+        self, client: CurveVision, organization: Any, tmp_path: Path
+    ) -> None:
+        """Simulates a script that crashed mid-upload: a session exists with some bytes
+        already landed, and a fresh call only knows its id, not how far it got."""
+        project = client.create_project(
+            organization.id, slug="sdk-resume", name="Resume", labels=[]
+        )
+        task = client.create_task(project.id, name="Resume batch")
+        path = write_png(tmp_path / "clip.png", width=200, height=200)
+        data = path.read_bytes()
+
+        # Hand-drive the protocol partway, standing in for the process that crashed.
+        session = client._json(
+            "POST", f"/tasks/{task.id}/uploads", json={"filename": path.name, "size": len(data)}
+        )
+        first_half = len(data) // 2
+        client._json(
+            "PATCH",
+            f"/tasks/{task.id}/uploads/{session['id']}",
+            content=data[:first_half],
+            headers={"upload-offset": "0"},
+        )
+
+        asset = client.upload_resumable(task.id, path, upload_id=session["id"])
+        assert asset["name"] == "clip.png"
+
+        refreshed = client.task(task.id)
+        assert refreshed.frame_count == 1
+
+        # The point of passing `upload_id` is that *this* session finishes -- not that a
+        # fresh one gets created and the half-done one is silently abandoned. A version that
+        # ignored `upload_id` and started over would still produce a working asset (a full
+        # re-upload succeeds too), so the meaningful check is that the original session is
+        # the one marked complete.
+        original = client._json("GET", f"/tasks/{task.id}/uploads/{session['id']}")
+        assert original["completed"] is True
+        assert original["received_bytes"] == len(data)
