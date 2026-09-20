@@ -543,6 +543,17 @@ export class AnnotationEngine {
       });
     }
 
+    if (result.deleted && result.deleted.length > 0) {
+      this.commands.execute(createDeleteCommand(this.commandTarget(), result.deleted));
+      this.scene.clearSelection();
+      this.listeners.annotationsChanged?.({
+        created: [],
+        updated: [],
+        deletedIds: result.deleted.map((annotation) => annotation.id),
+      });
+      this.invalidate('shapes');
+    }
+
     if (result.draft !== undefined) {
       this.overlay = { ...this.overlay, draft: result.draft };
       this.listeners.draftChanged?.(result.draft);

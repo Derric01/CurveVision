@@ -12,6 +12,7 @@
 import { describe, expect, it } from 'vitest';
 import type { Annotation, MaskData } from '../types';
 import {
+  cropFlags,
   decodeMask,
   decodeRle,
   encodeRle,
@@ -19,6 +20,10 @@ import {
   maskBounds,
   maskContains,
   maskRgba,
+  paintDisc,
+  paintMaskInto,
+  paintStroke,
+  paintedBounds,
   rgbOf,
 } from '../mask';
 import { annotationBounds, hitTest } from '../geometry';
@@ -239,5 +244,154 @@ describe('a mask in the scene', () => {
   it('falls back to the box when there is no mask to consult', () => {
     const annotation = maskAnnotation(undefined, [10, 10, 13, 12]);
     expect(hitTest(annotation, { x: 13, y: 12 }, 0)).toBe(true);
+  });
+});
+
+// -------------------------------------------------------------------- painting a stroke
+//
+// What a mask brush commits with. A 6x6 flat buffer keeps every worked example small
+// enough to read as a grid in a comment.
+
+function grid(flags: Uint8Array, width: number, height: number): string[] {
+  const rows: string[] = [];
+  for (let y = 0; y < height; y += 1) {
+    rows.push(
+      Array.from({ length: width }, (_, x) => (flags[y * width + x] ? '#' : '.')).join(''),
+    );
+  }
+  return rows;
+}
+
+describe('paintDisc', () => {
+  it('paints a filled circle centred on the given point', () => {
+    const flags = new Uint8Array(6 * 6);
+    paintDisc(flags, 6, 6, 2.5, 2.5, 1.5, 1);
+    expect(grid(flags, 6, 6)).toEqual([
+      '......',
+      '.###..',
+      '.###..',
+      '.###..',
+      '......',
+      '......',
+    ]);
+  });
+
+  it('clips to the buffer rather than reading or writing outside it', () => {
+    const flags = new Uint8Array(4 * 4);
+    // Centred one cell outside the top-left corner; must not throw, wrap around, or paint
+    // the whole buffer as a side effect of the clipped loop bounds being wrong.
+    expect(() => paintDisc(flags, 4, 4, -1, -1, 3, 1)).not.toThrow();
+    expect(flags[0]).toBe(1); // (0,0) is within the radius of a centre just off the corner
+    expect(flags[3 * 4 + 3]).toBe(0); // the far corner is not
+  });
+
+  it('erases by painting 0 over what is already there', () => {
+    const flags = new Uint8Array(6 * 6).fill(1);
+    paintDisc(flags, 6, 6, 2.5, 2.5, 1.5, 0);
+    expect(grid(flags, 6, 6)).toEqual([
+      '######',
+      '#...##',
+      '#...##',
+      '#...##',
+      '######',
+      '######',
+    ]);
+  });
+});
+
+describe('paintStroke', () => {
+  it('leaves a continuous line rather than dots with gaps between them', () => {
+    const flags = new Uint8Array(20 * 4);
+    paintStroke(flags, 20, 4, { x: 1, y: 1.5 }, { x: 18, y: 1.5 }, 1, 1);
+    // A gap would show up as a `.` inside the run between the two ends.
+    const row = grid(flags, 20, 4)[1] ?? '';
+    const span = row.slice(1, 19);
+    expect(span).not.toContain('.');
+  });
+
+  it('paints something even when the two ends are the same point', () => {
+    const flags = new Uint8Array(6 * 6);
+    paintStroke(flags, 6, 6, { x: 3, y: 3 }, { x: 3, y: 3 }, 1, 1);
+    expect(flags[3 * 6 + 3]).toBe(1);
+  });
+});
+
+describe('paintedBounds', () => {
+  it('is null for a buffer with nothing painted', () => {
+    expect(paintedBounds(new Uint8Array(4 * 4), 4, 4)).toBeNull();
+  });
+
+  it('is the smallest box containing every set pixel', () => {
+    const flags = new Uint8Array(6 * 6);
+    flags[1 * 6 + 2] = 1;
+    flags[4 * 6 + 5] = 1;
+    expect(paintedBounds(flags, 6, 6)).toEqual([2, 1, 5, 4]);
+  });
+
+  it('is a single point for one painted pixel', () => {
+    const flags = new Uint8Array(6 * 6);
+    flags[3 * 6 + 3] = 1;
+    expect(paintedBounds(flags, 6, 6)).toEqual([3, 3, 3, 3]);
+  });
+});
+
+describe('cropFlags', () => {
+  it('extracts exactly the sub-rectangle, row-major', () => {
+    // A 4x3 buffer with a 2x2 block at (1,1)..(2,2).
+    const flags = new Uint8Array(4 * 3);
+    for (const [x, y] of [
+      [1, 1],
+      [2, 1],
+      [1, 2],
+      [2, 2],
+    ] as const) {
+      flags[y * 4 + x] = 1;
+    }
+    const cropped = cropFlags(flags, 4, [1, 1, 2, 2]);
+    expect(Array.from(cropped)).toEqual([1, 1, 1, 1]);
+  });
+
+  // What `encodeRle(cropFlags(...))` has to agree with `decodeRle` about: the crop is the
+  // exact box a mask's own `left/top/width/height` will describe.
+  it('round-trips through encodeRle back to the original box', () => {
+    const flags = new Uint8Array(6 * 6);
+    paintDisc(flags, 6, 6, 3, 3, 1.5, 1);
+    const box = paintedBounds(flags, 6, 6);
+    expect(box).not.toBeNull();
+    const [minX, minY, maxX, maxY] = box!;
+    const cropped = cropFlags(flags, 6, box!);
+    const rle = encodeRle(cropped);
+    const decoded = decodeRle(rle, maxX - minX + 1, maxY - minY + 1);
+    expect(Array.from(decoded!)).toEqual(Array.from(cropped));
+  });
+});
+
+describe('paintMaskInto', () => {
+  it('stamps a stored mask at its absolute position in a frame-sized buffer', () => {
+    const flags = new Uint8Array(20 * 15);
+    paintMaskInto(flags, 20, lMask(10, 10));
+    // `lMask` is the shared L fixture at (10, 10): (10,10), (11,10), (12,10), (10,11).
+    expect(flags[10 * 20 + 10]).toBe(1);
+    expect(flags[10 * 20 + 11]).toBe(1);
+    expect(flags[10 * 20 + 12]).toBe(1);
+    expect(flags[11 * 20 + 10]).toBe(1);
+    expect(flags[11 * 20 + 11]).toBe(0);
+  });
+
+  it('does nothing for a missing or malformed mask, leaving the buffer as it was', () => {
+    const flags = new Uint8Array(4 * 4);
+    paintMaskInto(flags, 4, null);
+    paintMaskInto(flags, 4, undefined);
+    expect(Array.from(flags)).toEqual(new Array(16).fill(0));
+  });
+
+  // What lets a brush stroke edit a mask rather than only draw a new one: seeding the
+  // buffer, then erasing part of it, has to act on the real shape rather than on blank.
+  it('is what a brush edit paints over before erasing or adding to it', () => {
+    const flags = new Uint8Array(20 * 15);
+    paintMaskInto(flags, 20, lMask(10, 10));
+    paintDisc(flags, 20, 15, 10.5, 10.5, 0.5, 0); // erase just the top-left corner
+    expect(flags[10 * 20 + 10]).toBe(0);
+    expect(flags[10 * 20 + 11]).toBe(1); // its neighbour is untouched
   });
 });

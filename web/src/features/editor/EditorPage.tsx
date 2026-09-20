@@ -11,6 +11,7 @@ import { Link, useParams } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   ArrowLeft,
+  Brush,
   Check,
   ChevronLeft,
   ChevronRight,
@@ -49,6 +50,7 @@ import { QualityPanel } from './QualityPanel';
 import { IssuesPanel } from './IssuesPanel';
 import { issuePins } from './issues';
 import { skeletonHint } from './skeletonHint';
+import { brushHint } from './brushHint';
 import { AutoAnnotatePanel } from './AutoAnnotatePanel';
 import { SuggestionsPanel } from './SuggestionsPanel';
 import { useAutosave } from './useAutosave';
@@ -62,6 +64,7 @@ const TOOLS: { name: ToolName; icon: typeof Square; label: string; key: string }
   { name: 'ellipse', icon: CircleDashed, label: 'Ellipse', key: 'E' },
   { name: 'scissors', icon: Scissors, label: 'Scissors (snaps to edges)', key: 'S' },
   { name: 'skeleton', icon: PersonStanding, label: 'Skeleton (joints, in order)', key: 'J' },
+  { name: 'brush', icon: Brush, label: 'Brush (paint a mask)', key: 'B' },
 ];
 
 export function EditorPage() {
@@ -354,7 +357,12 @@ export function EditorPage() {
               key={name}
               type="button"
               title={`${label} (${key})`}
-              onClick={() => setTool(name)}
+              onClick={() => {
+                setTool(name);
+                // A status line belongs to whoever set it; leaving the previous tool's
+                // behind would show, say, skeleton joint text under the brush.
+                setToolStatus(null);
+              }}
               className={clsx(
                 'flex h-9 w-9 items-center justify-center rounded-md transition-colors',
                 tool === name
@@ -413,6 +421,15 @@ export function EditorPage() {
               data-skeleton-status=""
             >
               {skeletonHint(labelStyles, activeLabelId, toolStatus)}
+            </div>
+          )}
+
+          {tool === 'brush' && (
+            <div
+              className="pointer-events-none absolute left-1/2 top-3 -translate-x-1/2 rounded-md border border-curve-500/40 bg-ink-900/90 px-3 py-1.5 text-xs text-ink-200 shadow-lg"
+              data-brush-status=""
+            >
+              {brushHint(toolStatus)}
             </div>
           )}
 
