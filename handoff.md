@@ -5,23 +5,18 @@
 > [`AGENTS.md`](./AGENTS.md) first; it is the working contract. Update this file after every
 > iteration, including the ones that mostly failed.
 >
-> **Last updated:** 2026-09-20 (iteration 42) · branch `claude/start-work-v84c3b` · PRs
-> [#1](https://github.com/Derric01/CurveVision/pull/1)–[#20](https://github.com/Derric01/CurveVision/pull/20)
-> **all merged**. [#14](https://github.com/Derric01/CurveVision/pull/14) carried iterations
-> 27–29 (the Node 20 bump, the provisional frame count, the skeleton tool);
-> [#15](https://github.com/Derric01/CurveVision/pull/15) carried 30–31 (the two mask
-> iterations); [#16](https://github.com/Derric01/CurveVision/pull/16) carried 32–33 (the
-> comparison bounding box, open vocabulary); [#17](https://github.com/Derric01/CurveVision/pull/17)
-> carried 34–35 (auto-annotate, suggestion review) — it merged mid-session, while 36–39 were
-> still in flight on the same branch, so those four commits were rebased onto the post-merge
-> `main`. [#18](https://github.com/Derric01/CurveVision/pull/18) carried 36–39 and merged in
-> turn while iteration 40's commit was still landing on the branch, one commit behind —
-> rebased the same way. [#19](https://github.com/Derric01/CurveVision/pull/19) carried
-> iteration 40 and merged in turn while iteration 41's cuboid commit was still landing on the
-> branch — rebased the same way, a third time in one session.
-> [#20](https://github.com/Derric01/CurveVision/pull/20) carried iteration 41 and merged
-> before this session started, on the new `claude/start-work-v84c3b` branch built fresh off
-> `main` — the mid-session-merge streak from the previous session did not repeat here.
+> **Last updated:** 2026-09-21 (iteration 45) · branch `claude/start-work-v84c3b` · PRs
+> [#1](https://github.com/Derric01/CurveVision/pull/1)–[#21](https://github.com/Derric01/CurveVision/pull/21)
+> **all merged**, the last of them carrying iterations 42–44.
+>
+> *Two things worth knowing about this repository's PR rhythm, which replace the
+> PR-by-PR changelog that used to sit here and had stopped helping anybody.* **PRs are
+> approved and merged fast, sometimes mid-session** — three times in one earlier session,
+> while later commits were still landing on the same branch. Check `git merge-base
+> --is-ancestor HEAD origin/main` before pushing rather than after something looks wrong.
+> **And a merged branch is finished**: restart it from the new `origin/main` (`git checkout
+> -B <branch> origin/main`) rather than stacking new work on already-merged history, which
+> is what this session did to begin iteration 45.
 
 ---
 
@@ -38,11 +33,20 @@ shapes (detection/segmentation, OBB, pose, classification), each declaring in it
 The desktop shape works: a packaged single-executable server, a Tauri shell that supervises
 it, and folders annotated in place without copying a byte.
 
-**The tree is green.** `./scripts/check.sh` passes all twelve steps (this session added ruff
-and mypy for the SDK, and ruff for `scripts/`, closing gaps where CI checked things the local
-script silently did not): 525 server tests, 15 SDK, 564 web, and `scripts/` itself is now
-lint-clean under its own `ruff.toml`. Eighteen browser harnesses drive the packaged desktop
-application in a real Chromium, nightly and on every push to `main`.
+**The tree is green.** `./scripts/check.sh` passes all twelve steps (the previous session
+added ruff and mypy for the SDK, and ruff for `scripts/`, closing gaps where CI checked
+things the local script silently did not): 525 server tests, 15 SDK, 575 web, and `scripts/`
+is lint-clean under its own `ruff.toml`. Nineteen browser harnesses drive the packaged
+desktop application in a real Chromium, nightly and on every push to `main`.
+
+**A reviewer can finally rule on a job from the application.** `POST /jobs/{id}/review`, the
+state machine behind it and the web client's `reviewJob` had all existed since early in the
+project with **nothing calling the last of them**: an annotator could press Submit and no
+reviewer could accept or send the job back from the editor at all — the review loop
+`docs/ROADMAP.md` called Done ran only for the SDK, the CLI and curl. The editor's rail now
+carries the decision, and sending work back **requires a reason**, which the endpoint files
+as an issue on the job so the annotator meets it on the page instead of learning only that
+the work was refused.
 
 **A large file can now be uploaded a chunk at a time, and resumed if the connection drops.**
 The `UploadSession` model, its schemas and `Storage.append` had existed since early in the
@@ -221,9 +225,25 @@ was the last unconnected piece of the desktop application.
 
 ## Next best action
 
-**Both remaining items need the user**, and nothing unblocked and in-repo turned up this
-time — the last one found (`scripts/` had no lint coverage anywhere) was fixed in the same
-session it was found; see iteration 44 below.
+**Assigning a job to a person, from the application.** Iteration 45 gave the reviewer the
+*decision*; what is still missing either side of it is the *assignment*. `Job.assignee_id`
+and `Job.reviewer_id` exist, are enforced by the policy engine, and are settable through
+`PATCH /jobs/{id}` — and no screen anywhere sets either. A manager splitting a task between
+three annotators has to do it over the API. Two halves, and the first is the small one:
+
+* **A person picker on the job row** (task page, or the editor header): the organization's
+  members are already listed by `GET /organizations/{id}/members`, and `api.updateJob`
+  already takes `assignee_id`. This is wiring, not design.
+* **A reviewer's queue.** `GET /jobs?mine=true` filters on `assignee_id` alone, so "what is
+  waiting for *me* to review" cannot be asked. It wants one more `where` clause and a query
+  parameter beside `mine` — the server change is three lines; the judgement is whether the
+  queue means "jobs where I am the named reviewer" or "submitted jobs I have the rank to
+  review", and the first is the honest one to build while nothing assigns reviewers.
+
+Both are unblocked and in-repo. Do the picker first: without it `reviewer_id` is never set,
+which makes the queue an empty list with a good implementation behind it.
+
+**Then, still needing the user:**
 
 * **A reference open-vocabulary model server, in its own repository.** The contract can
   express *find these classes*, and nothing exists to point it at — which is the onboarding
@@ -237,13 +257,21 @@ session it was found; see iteration 44 below.
 * **Signed installers in CI** — one runner per platform and signing certificates the project
   does not have.
 
-Past those two, the honest next candidates are all 1.0-list infrastructure with no specific
-gap pulling any one of them forward — Redis-backed rate limiting, OpenTelemetry tracing, the
+Past those, the remaining candidates are all 1.0-list infrastructure with no specific gap
+pulling any one of them forward — Redis-backed rate limiting, OpenTelemetry tracing, the
 ClamAV hook, OIDC/SSO, a Helm chart, backup/restore tooling, a published TypeScript client,
 a Datumaro bridge, an external security review. Picking one without a reason beyond "it is
-on the list" is exactly the "next unchecked box" `AGENTS.md` says not to default to; a future
-session should look for a real gap the way this one found the resumable-upload docstring's
-false claim, rather than start one of these cold.
+on the list" is exactly the "next unchecked box" `AGENTS.md` says not to default to.
+
+> **How the last two real gaps were found, since both came from the same habit rather than
+> from this list.** Iteration 42 found a docstring that named endpoints which did not exist.
+> Iteration 45 listed every method on the web API client and grepped each for a caller:
+> `reviewJob` had none, and neither did `createLabel`, `deleteTask` or `taskProgress` (those
+> three are still uncalled — a label cannot be added to a project after it is created, and a
+> task cannot be deleted, from the application). **A client method nobody calls is this
+> codebase's most reliable tell** for a feature that is complete everywhere except where a
+> person could reach it: it is how the auto-annotate panel, the suggestion review and the
+> issues panel were each found missing, and now this.
 
 *This section previously listed an auto-annotate editor surface, the mask brush, a
 ground-truth UI, dragging a keyframe along its lane, an issues panel and a browser harness
@@ -251,10 +279,11 @@ in CI as upcoming work. All of that has since shipped — see* Completed *— an
 had drifted into repeating some of it as "next" long after it was done. Trimmed to what is
 actually outstanding.*
 
-> **A note for whoever writes the next browser harness.** The eighteen in `scripts/` have
-> now found every defect the unit suites missed, most recently a resumable upload that
-> restarted from zero instead of resuming and a deleted asset whose frames the task went on
-> counting. They need a packaged sidecar and a Chromium, so nightly rather than per-push (see
+> **A note for whoever writes the next browser harness.** The nineteen in `scripts/` have
+> now found every defect the unit suites missed, most recently a Submit button that stayed
+> enabled on an accepted job and failed silently, and a resumable upload that restarted from
+> zero instead of resuming. They need a packaged sidecar and a Chromium, so nightly rather
+> than per-push (see
 > `.github/workflows/browser.yml`), and the sidecar **embeds `web/dist`** — a run needs
 > `npm --prefix web run build` *and* a sidecar rebuild, or it silently tests the previous
 > frontend.
@@ -450,6 +479,16 @@ same file: its name and size key a remembered session id in `localStorage`. Driv
 end in a browser, including a chunk deliberately dropped mid-transfer and a resume proven to
 continue from the server's real offset rather than restart.
 
+**Reviewing a job, from the application** — the editor's rail carries the reviewer's
+decision on a submitted job: accept it, or send it back with a reason that becomes an issue
+on the job. The controls render only for a `submitted` job, because that is the only state
+the endpoint accepts. Sending back requires a reason in the UI while the API still permits a
+commentless rejection — a deliberate asymmetry, since a script that has said why elsewhere
+is not the case the requirement protects against. No client-side permission check: whether
+this caller may review is the policy engine's answer, so a 403 arrives as the server's own
+message, the same way the quality and ground-truth panels behave. Driven end to end in a
+browser through submit → send back → read the reason as an issue → resubmit → accept.
+
 **Also** — Python SDK and CLI, Docker Compose deployment, CI, issue/PR templates, and the
 full docs set including seven ADRs.
 
@@ -472,6 +511,7 @@ full docs set including seven ADRs.
 | Choosing individual files (desktop) | Complete and measured in a browser: `choose_files` now has a caller, one `local-import` call per chosen file, a failed file reported in `skipped` without aborting the others, and the results of a whole batch merged into one summary. |
 | Cuboid (2D wireframe box) | Complete and measured in a browser: a two-stage tool (drag the front face, then move and click to set the depth), a wireframe renderer, and CVAT XML export/import using CVAT's own real attribute names. The backend needed no new code at all — `ShapeType.CUBOID`, its minimum-points entry, its IoU comparison and its track interpolation were already there, unused. **Not** the 3D/point-cloud kind — see `docs/ROADMAP.md`'s honestly-unchanged limitation on that. |
 | Resumable uploads | Complete and tested end to end — API, SDK, CLI and the web upload panel: create a session, `PATCH` chunks at a stated offset, read the current offset back, complete, resume by id after a crash or a page reload. Driven in a browser through a deliberately dropped chunk and a real resume. Nothing outstanding. |
+| Job review | The **decision** is complete and driven in a browser: accept or send back with a required reason, from the editor's rail, on a submitted job. What is still API-only is **assignment** — no UI names an annotator or a reviewer for a job, and `GET /jobs?mine=true` filters on `assignee_id` alone, so a reviewer has no queue and finds submitted work through the task's job list. |
 
 *This table went stale once — it still listed the open-folder flow and chunked delivery as
 unbuilt several iterations after both shipped, because the narrative sections above were
@@ -490,6 +530,82 @@ being updated and this one was not. Check it against* Completed *before trusting
 ---
 
 ## Last iteration
+
+### 45 — a reviewer can rule on a job, from the application
+
+Found by the habit now recorded under *Next best action* rather than by working down a list:
+with the tree green and nothing named as unblocked, I listed every method on
+`web/src/api/client.ts` and grepped each for a caller. `reviewJob` had none. Neither the
+editor nor any other screen could accept a job or send one back — an annotator could press
+Submit, and from there the only way onward was the SDK, the CLI or curl. `docs/ROADMAP.md`
+said "Job assignment and the review state machine | **Done**", which was true of the API and
+false of the product, in a file whose own header defines Done as "implemented and tested".
+This is the fourth time this exact shape has turned up here (issues, auto-annotate,
+suggestion review, now this), which is why the tell is written down this time rather than
+just used.
+
+**The panel is the reviewer's, and renders only when there is a decision to make.**
+`ReviewPanel.tsx` follows `SuggestionsPanel`'s rule — nothing at all unless the job is
+`submitted` or this session has just decided one — so a job being annotated pays no rail
+space for it. It sits last, after the issues and the quality report, because that is the
+order the decision is actually made in: read the objects, read what was raised, check the
+score, then rule.
+
+**Sending work back requires a reason; accepting does not.** The endpoint takes an optional
+comment and files it as an issue on the job. The UI makes it mandatory for a rejection —
+disabled button, whitespace does not count — because a job that comes back with nothing
+attached tells the annotator only that it was refused, which is the exact failure the
+endpoint's comment support exists to prevent. The API is deliberately left permissive: a
+script that has already said why elsewhere keeps the option, a person clicking a button does
+not. Accepting needs no explanation, so it has no such gate.
+
+**No client-side permission check, on purpose.** Whether this caller may review is the
+policy engine's answer ([ADR 0002](./docs/adr/0002-in-process-policy-engine.md)), so the
+panel shows the controls and renders the server's own 403 if it comes — the same choice
+`QualityPanel` and `GroundTruthPanel` already document. A second copy of the role table in
+the browser would be a second thing to keep true.
+
+**A real defect found in the header while building beside it.** Submit was disabled only for
+a job already `submitted`, so on an `accepted` job it was enabled and sent the
+`accepted → submitted` transition the server refuses with a 409 — and the mutation had no
+error handler and nothing rendered its failure, so pressing it did nothing, visibly or
+otherwise. `canSubmit` now mirrors the server's own `ALLOWED_TRANSITIONS` for the one
+transition that button performs (`new`, `in_progress`, `rejected`), and a failed submit now
+renders in the same banner the autosave error already used — a submit can still fail for a
+reason no predicate can anticipate, and silence was the wrong answer to that too.
+
+**Two of the seven harness checks are about the gates, because the rest would pass without
+them.** `scripts/verify_job_review.py` drives the whole loop against the packaged
+application — submit, send back with a reason, read that reason back **as an issue over the
+API** rather than trusting the panel that just claimed to have filed it, find it in the
+issues panel on reload, resubmit, accept — and then checks the two things a working-looking
+implementation could still get wrong: that send-back is refused with an empty or
+whitespace-only box, and that Submit is disabled on the accepted job at the end. Confirmed
+both bite by sabotaging `canReject` and reverting `canSubmit` to the old predicate: exactly
+those three checks failed and the other thirteen passed. Restored, and confirmed the rebuilt
+bundle hash came back byte-identical (`index-lvuBOtZC.js`) before trusting the green run.
+
+**The sabotage did not compile the first time, which is the trap this file has warned about
+twice.** Stubbing `canReject` to `return true` left its parameter unused, `tsc` failed, and
+`vite build` therefore never ran — so the sidecar would have been packaged with the *fixed*
+bundle and the harness would have "passed" against code it was not testing. Caught by
+checking the build's exit status rather than assuming it, exactly as iterations 36 and 39
+say to.
+
+Also re-ran `verify_issues_panel.py` and `verify_quality_panel.py`, which drive the same
+editor page and could have been disturbed by a new panel in the rail. Both pass.
+
+**Pruned while here:** the header note had grown into a seventeen-line changelog of which PR
+carried which iteration, which helps nobody — replaced with the two facts that do (PRs here
+merge fast, sometimes mid-session; a merged branch gets restarted from `origin/main`, which
+is what this session did to start).
+
+Verified: `./scripts/check.sh` green, all twelve steps — 525 server tests and 15 SDK
+(unchanged; no Python touched), 575 web (11 new in `review.test.ts`). The new harness's
+sixteen checks pass against a rebuilt sidecar, and it is registered in
+`.github/workflows/browser.yml` and `docs/CONTRIBUTING.md`.
+
+## Iteration 44
 
 ### 44 — `scripts/` gets a real ruff config, and its 42 pre-existing issues
 

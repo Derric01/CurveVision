@@ -85,7 +85,7 @@ typo at the point it was made.
 ## Browser harnesses
 
 `./scripts/check.sh` covers everything CI runs on a push, and it does not open a browser.
-Eighteen scripts in `scripts/` do — they launch the **packaged desktop application**, drive it in
+Nineteen scripts in `scripts/` do — they launch the **packaged desktop application**, drive it in
 Chromium, and assert against the **API** rather than the DOM, because the question is not "did
 the page look right" but "is the data now what the user asked for".
 
@@ -111,10 +111,13 @@ draft would not have caught one if it had: asserting only that an interrupted-th
 upload finishes correctly does not distinguish real resumption from a client that silently
 abandons the old session and re-uploads the whole file, which also finishes correctly.
 Rewritten to assert the mechanism — the retried chunk's own offset — rather than only the
-outcome.
+outcome. `verify_job_review.py` pins a defect found by reading the header it was built
+alongside: Submit was disabled only for a job already `submitted`, so pressing it on an
+`accepted` one sent the `accepted → submitted` transition the server refuses with a 409 that
+nothing rendered — an enabled button whose only possible outcome was a silent failure.
 
 They run **nightly and on every push to `main`** (`.github/workflows/browser.yml`), not on
-pull requests: a PyInstaller build plus eighteen end-to-end runs is twenty minutes, and CI that
+pull requests: a PyInstaller build plus nineteen end-to-end runs is twenty minutes, and CI that
 slow stops being run. Trigger one by hand from the Actions tab — the workflow takes a single
 harness name — or run one locally:
 
@@ -132,6 +135,7 @@ python scripts/verify_tool_sync.py
 python scripts/verify_view_settings.py
 python scripts/verify_cuboid.py
 python scripts/verify_resumable_upload.py
+python scripts/verify_job_review.py
 ```
 
 **Both build steps, in that order, every time.** The packaged sidecar embeds `web/dist`, so a

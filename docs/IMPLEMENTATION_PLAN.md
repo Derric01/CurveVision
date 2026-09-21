@@ -515,7 +515,22 @@ Planned: LabelMe, Open Images, TFRecord, Datumaro bridge.
 ## Phase 5 — Review and quality control · **In Progress**
 
 * Job state machine: `new → in_progress → submitted → (accepted | rejected → in_progress)`.
-* Reviewer role, review assignment separate from annotation assignment.
+  **Done, and reachable from the editor**: the annotator's Submit and the reviewer's
+  accept/send-back are both in the rail. `POST /jobs/{id}/review` and the client's
+  `reviewJob` had existed from the first iterations with nothing calling them, so the
+  machine ran only for the SDK, the CLI and curl. Sending a job back **requires a reason**
+  in the UI, which the endpoint then files as an issue on the job — the API still permits a
+  commentless rejection for a script that has said why elsewhere; a person clicking a button
+  does not get that option, because work returned unexplained is the failure the comment
+  support exists to prevent. Submit is disabled on an `accepted` job rather than sending the
+  `accepted → submitted` transition the server refuses with a 409 nothing rendered.
+  `scripts/verify_job_review.py` drives submit → send back → read the reason as an issue →
+  resubmit → accept against the packaged application.
+* Reviewer role, review assignment separate from annotation assignment. The *role* and the
+  `reviewer_id` column exist and are enforced; **assigning** a named annotator or reviewer to
+  a job is API-only — no UI picks a person, and `GET /jobs?mine=true` filters on
+  `assignee_id` alone, so a reviewer has no queue of their own and reaches submitted work
+  through the task's job list.
 * **Merging overlapping jobs** (**Done**): a task with `overlap > 0` hands the same frames to
   two annotators so a track can cross a job seam. Export reconciles those frames instead of
   concatenating them — `services/merge.py`, adapted from the upstream design. Two shapes are
