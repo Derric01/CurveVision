@@ -50,7 +50,7 @@ application — and produce a real dataset with it.
 | | Status |
 | --- | --- |
 | Roles and per-organization membership | **Done** |
-| Job assignment and the review state machine | **Done** — and reachable: an annotator submits from the editor, and a reviewer accepts or sends the job back from the same rail. Sending it back **requires a reason**, which is filed as an issue on the job, so the annotator meets it on the page rather than being told only that the work was refused. A job is handed to an annotator or a reviewer from a picker on the task page, and can be unassigned again |
+| Job assignment and the review state machine | **Done** — and reachable: an annotator submits from the editor, and a reviewer accepts or sends the job back from the same rail. Sending it back **requires a reason**, which is filed as an issue on the job, so the annotator meets it on the page rather than being told only that the work was refused. A job is handed to an annotator or a reviewer from a picker on the task page, and can be unassigned again, and a named reviewer asks the My work page what is waiting on them rather than opening every task |
 | Overlapping jobs reconciled on export (no duplicated objects at a job seam; track identity survives it) | **Done** |
 | Issues and comment threads anchored to frames | **Done** — and reachable: the editor lists them, opens one on the current frame anchored to the selected object **or pinned to a point you click on the image**, replies on a thread, and resolves or reopens it |
 | Annotation history | **Done** |

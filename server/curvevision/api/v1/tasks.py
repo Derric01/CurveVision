@@ -30,6 +30,7 @@ from curvevision.schemas.task import (
     ESTIMATED_ASSET_SAMPLE,
     AssetOut,
     FrameInfo,
+    JobListing,
     JobOut,
     JobReviewRequest,
     JobUpdate,
@@ -493,15 +494,26 @@ async def list_task_jobs(scope: TaskScopeDep, session: SessionDep) -> list[JobOu
     return [JobOut.model_validate(job) for job in result.scalars().all()]
 
 
-@router.get("/jobs", response_model=Page[JobOut])
+@router.get("/jobs", response_model=Page[JobListing])
 async def list_jobs(
     identity: IdentityDep,
     session: SessionDep,
     params: PageParamsDep,
     assignee_id: uuid.UUID | None = Query(default=None),
+    reviewer_id: uuid.UUID | None = Query(default=None),
     state: JobState | None = Query(default=None),
     mine: bool = Query(default=False, description="Only jobs assigned to the caller"),
-) -> Page[JobOut]:
+    reviewing: bool = Query(
+        default=False, description="Only jobs the caller is the named reviewer of"
+    ),
+) -> Page[JobListing]:
+    """Jobs across every project the caller can see.
+
+    `mine` and `reviewing` are two different questions — *what am I drawing* and *what is
+    waiting on me to check* — and they narrow independently, so asking both gives the jobs
+    where the caller is on both ends of the loop rather than either. Combining either with
+    `state=submitted` is what a review queue actually is.
+    """
     statement = select(Job).options(selectinload(Job.task))
     if not identity.principal.is_superuser:
         member_orgs = select(OrganizationMembership.organization_id).where(
@@ -514,6 +526,10 @@ async def list_jobs(
         statement = statement.where(Job.assignee_id == identity.principal.user_id)
     elif assignee_id is not None:
         statement = statement.where(Job.assignee_id == assignee_id)
+    if reviewing:
+        statement = statement.where(Job.reviewer_id == identity.principal.user_id)
+    elif reviewer_id is not None:
+        statement = statement.where(Job.reviewer_id == reviewer_id)
     if state is not None:
         statement = statement.where(Job.state == state)
 
@@ -522,7 +538,16 @@ async def list_jobs(
         count=total,
         limit=params.limit,
         offset=params.offset,
-        results=[JobOut.model_validate(row) for row in rows],
+        # `Job.task` is eagerly loaded above for exactly this: a queue spanning every
+        # project is unreadable if each row can only say which numbered job it is.
+        results=[
+            JobListing(
+                **JobOut.model_validate(row).model_dump(),
+                task_name=row.task.name,
+                project_id=row.task.project_id,
+            )
+            for row in rows
+        ],
     )
 
 

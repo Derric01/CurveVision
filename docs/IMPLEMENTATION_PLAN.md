@@ -535,9 +535,19 @@ Planned: LabelMe, Open Images, TFRecord, Datumaro bridge.
   assigned and **never unassigned** through the API; and because the `assignee`/`reviewer`
   relationships are eagerly loaded under `expire_on_commit=False`, the response carried
   whoever held the job *before* the write — a job gaining its first assignee came back as
-  `assignee: null`. What is still missing is a reviewer's **queue**: `GET /jobs?mine=true`
-  filters on `assignee_id` alone, so "what is waiting for me to review" cannot be asked, and
-  a reviewer reaches submitted work through the task's job list.
+  `assignee: null`.
+* A reviewer's **queue**. **Done**: `GET /jobs` gained `reviewing=true` beside `mine=true`
+  — two different questions, *what am I drawing* and *what is waiting on me to check*, each
+  narrowing independently — and a `reviewer_id` parameter mirroring the `assignee_id` the
+  listing always accepted. The My work page asks both and splits the answer: only a
+  `submitted` job can be reviewed (the server's rule, imported from `review.ts` rather than
+  restated), and everything else named to that reviewer is listed apart from it, so a
+  heading never counts half-drawn work as waiting. Each row names its **task**, which
+  `GET /jobs` had eagerly loaded since it was written without ever returning: a queue
+  spanning every project cannot be read as "Job #2, frames 0–1". Indexed to match —
+  `ix_job_reviewer_state` is `ix_job_assignee_state` with one column changed, since the
+  queries are the same shape. `scripts/verify_review_queue.py` drives it against the
+  packaged application.
 * **Merging overlapping jobs** (**Done**): a task with `overlap > 0` hands the same frames to
   two annotators so a track can cross a job seam. Export reconciles those frames instead of
   concatenating them — `services/merge.py`, adapted from the upstream design. Two shapes are

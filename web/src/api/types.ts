@@ -234,6 +234,18 @@ export interface Job {
   reviewer: UserBrief | null;
 }
 
+/**
+ * A job as the cross-project listing (`GET /jobs`) returns it.
+ *
+ * The extra two fields are what make a queue spanning every project readable — see the
+ * server's `JobListing`, which carries them only here because `Job.task` is a lazy
+ * relationship every other job route would have to start loading.
+ */
+export interface JobListing extends Job {
+  task_name: string;
+  project_id: string;
+}
+
 export interface FrameInfo {
   frame: number;
   asset_id: string;

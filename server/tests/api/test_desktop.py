@@ -113,6 +113,41 @@ async def test_relaunching_reuses_the_database_and_rotates_the_token(tmp_path: P
         configure_settings(None)
 
 
+async def test_the_newest_migration_runs_in_both_directions(installation: Any) -> None:
+    """A `downgrade` nobody has ever run is a guess, and this is where it would be found.
+
+    `docs/CONTRIBUTING.md` has always asked for every model change to ship a migration
+    "tested in both directions", and until this test nothing in the suite ever moved one
+    backwards — the whole suite only ever migrated a fresh database up to head. Driving
+    the head revision down and up again on a real SQLite file is the cheapest way to keep
+    that promise honest for whatever the head revision happens to be.
+    """
+    from alembic import command
+    from sqlalchemy import create_engine, inspect, make_url
+
+    settings, _ = installation
+    await db_module.dispose_engine()
+    config = desktop.alembic_config(settings)
+    # The application's URL names the async driver; reading the schema back is ordinary
+    # blocking IO, so the same file is opened through the sync one.
+    sync_url = make_url(settings.database_url).set(drivername="sqlite")
+
+    def indexes() -> set[str]:
+        engine = create_engine(sync_url)
+        try:
+            return {index["name"] or "" for index in inspect(engine).get_indexes("jobs")}
+        finally:
+            engine.dispose()
+
+    assert "ix_job_reviewer_state" in indexes()
+    await asyncio.to_thread(command.downgrade, config, "-1")
+    assert "ix_job_reviewer_state" not in indexes()
+    # And forwards again, because a downgrade that leaves the database un-upgradable is
+    # worse than no downgrade at all.
+    await asyncio.to_thread(command.upgrade, config, "head")
+    assert "ix_job_reviewer_state" in indexes()
+
+
 async def test_the_app_is_usable_with_the_handshake_token_and_no_sign_in(
     installation: Any,
 ) -> None:

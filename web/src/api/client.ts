@@ -21,6 +21,7 @@ import type {
   InferenceResult,
   Issue,
   Job,
+  JobListing,
   Label,
   LocalImportResult,
   Membership,
@@ -393,8 +394,19 @@ export const api = {
   },
 
   // ------------------------------------------------------------------------- jobs
-  jobs: (params?: { mine?: boolean; state?: string; limit?: number }) =>
-    request<Page<Job>>('/jobs', { params }),
+  /**
+   * Jobs across every project, filtered by which end of the loop the caller is on.
+   *
+   * `mine` and `reviewing` are separate questions — what am I drawing, and what is waiting
+   * on me to check — and the server narrows on each independently, so passing both asks for
+   * the jobs where the caller is both annotator and reviewer rather than either.
+   */
+  jobs: (params?: {
+    mine?: boolean;
+    reviewing?: boolean;
+    state?: string;
+    limit?: number;
+  }) => request<Page<JobListing>>('/jobs', { params }),
 
   job: (id: string) => request<Job>(`/jobs/${id}`),
 

@@ -82,6 +82,9 @@ class Job(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     __table_args__ = (
         UniqueConstraint("task_id", "index", name="uq_job_index"),
         Index("ix_job_assignee_state", "assignee_id", "state"),
+        # The same query with one column changed: `GET /jobs?reviewing=true&state=submitted`
+        # is a reviewer's landing page, as `mine=true` is an annotator's.
+        Index("ix_job_reviewer_state", "reviewer_id", "state"),
     )
 
     task_id: Mapped[uuid.UUID] = mapped_column(

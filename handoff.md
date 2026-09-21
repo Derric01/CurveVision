@@ -5,7 +5,7 @@
 > [`AGENTS.md`](./AGENTS.md) first; it is the working contract. Update this file after every
 > iteration, including the ones that mostly failed.
 >
-> **Last updated:** 2026-09-21 (iteration 46) · branch `claude/start-work-v84c3b` · PRs
+> **Last updated:** 2026-09-21 (iteration 47) · branch `claude/start-work-v84c3b` · PRs
 > [#1](https://github.com/Derric01/CurveVision/pull/1)–[#21](https://github.com/Derric01/CurveVision/pull/21)
 > **all merged**, the last of them carrying iterations 42–44.
 >
@@ -35,9 +35,19 @@ it, and folders annotated in place without copying a byte.
 
 **The tree is green.** `./scripts/check.sh` passes all twelve steps (the previous session
 added ruff and mypy for the SDK, and ruff for `scripts/`, closing gaps where CI checked
-things the local script silently did not): 529 server tests, 15 SDK, 584 web, and `scripts/`
-is lint-clean under its own `ruff.toml`. Twenty browser harnesses drive the packaged
+things the local script silently did not): 535 server tests, 15 SDK, 593 web, and `scripts/`
+is lint-clean under its own `ruff.toml`. Twenty-one browser harnesses drive the packaged
 desktop application in a real Chromium, nightly and on every push to `main`.
+
+**A reviewer can ask what is waiting for them.** `GET /jobs?mine=true` filtered on
+`assignee_id` alone, so the question "what is waiting on *me* to check" could not be asked
+at all: a named reviewer opened each task in turn and read its job list. `reviewing=true` is
+the other half of it, and the My work page now asks both and splits the answer — only a
+`submitted` job can be reviewed, so everything else named to that reviewer is listed apart
+from the work rather than counted as it. Each row names its **task**, which `GET /jobs` had
+eagerly loaded since it was written without ever returning: a queue that spans every project
+is unreadable as "Job #2, frames 0–1". The whole endpoint was also untested — including the
+membership filter deciding whose work a caller can see at all — which it no longer is.
 
 **A job can be handed to a person from the task page, and taken back.** `Job.assignee_id`
 and `Job.reviewer_id` have been enforced by the policy engine and settable through
@@ -187,11 +197,11 @@ than dropped — which is what keeps `yolo_pose`'s positional triples lined up �
 are drawn. That closes the last case of the platform exporting a dataset shape it could not
 produce.
 
-Honestly incomplete, and marked as such everywhere: signed desktop installers (blocked
-outside the repository) and a reviewer's **queue** — `GET /jobs?mine=true` filters on
-`assignee_id` alone, so a reviewer with jobs named to them has no way to ask for them. The
-mask brush and the resumable upload's SDK, CLI and browser clients, all mentioned here in
-earlier iterations as also incomplete, were finished in iterations 37 and 43 respectively.
+Honestly incomplete, and marked as such everywhere: signed desktop installers, blocked
+outside the repository, and a reference model server, which needs a repository this session
+cannot create. Everything else this paragraph has named over the last several iterations —
+the mask brush, the resumable upload's SDK, CLI and browser clients, and the reviewer's
+queue — is finished, in iterations 37, 43 and 47 respectively.
 
 **Annotation quality is measured rather than declared, and a reviewer can now see it.** A
 task holds a ground-truth job; scoring an annotation job against it produces per-label
@@ -241,16 +251,16 @@ was the last unconnected piece of the desktop application.
 
 ## Next best action
 
-**A reviewer's queue.** Iteration 45 gave the reviewer the *decision* and iteration 46 gave
-the manager the *assignment*; the way in is what is still missing. `GET /jobs?mine=true`
-filters on `assignee_id` alone, so "what is waiting for *me* to review" cannot be asked at
-all — a named reviewer finds submitted work by opening each task and reading its job list.
-It wants one more `where` clause and a query parameter beside `mine`; the server change is
-about three lines and the frontend is a list. The judgement in it is what the queue *means*:
-"jobs where I am the named reviewer" or "submitted jobs I have the rank to review". The first
-is the honest one to build, and it is now the useful one too, because a picker finally sets
-`reviewer_id`. Unblocked and in-repo — this was the second half of iteration 46's item, left
-deliberately because the picker had to come first.
+**A project's label schema is fixed the moment it is created.** `POST /projects/{id}/labels`
+exists, the policy engine gates it, and `api.createLabel` sits in the web client **with no
+caller** — so a project that turns out to need a `van` class alongside `car` and `truck` can
+only get one from the SDK, the CLI or curl. This is the same shape of gap as the last three
+iterations (a complete feature with no way in) and it is the most ordinary thing a person
+will want that this product cannot do: label schemas are not knowable in advance, which is
+the whole reason the endpoint was written. Watch for the delete case — an existing
+annotation referencing a removed label is the hard half, and adding is the useful half, so
+adding is where to start. `createLabel` is one of four client methods still called by
+nothing; the other three are `deleteTask`, `taskProgress` and `frameInfo`.
 
 **A second candidate, smaller and unglamorous: generate `web/src/api/types.ts` from the
 OpenAPI schema.** The file is hand-maintained and nothing verifies it against the server —
@@ -298,13 +308,16 @@ in CI as upcoming work. All of that has since shipped — see* Completed *— an
 had drifted into repeating some of it as "next" long after it was done. Trimmed to what is
 actually outstanding.*
 
-> **A note for whoever writes the next browser harness.** The twenty in `scripts/` have
+> **A note for whoever writes the next browser harness.** The twenty-one in `scripts/` have
 > now found every defect the unit suites missed, most recently a Submit button that stayed
 > enabled on an accepted job and failed silently, and a resumable upload that restarted from
 > zero instead of resuming. **Make each new check fail before you trust it passing**:
 > iteration 46's "the pickers do not navigate" check passed happily with the pickers nested
-> inside the row's link, because `select_option` dispatches a change without a click. A check
-> that cannot fail is worse than no check, because it is also a claim.
+> inside the row's link, because `select_option` dispatches a change without a click, and
+> iteration 47's queue summary read the right number under a deliberately wrong query
+> because the fixture happened to hold exactly one submitted job either way. A check that
+> cannot fail is worse than no check, because it is also a claim — and the fixture is part
+> of the check.
 > They need a packaged sidecar and a Chromium, so nightly rather
 > than per-push (see
 > `.github/workflows/browser.yml`), and the sidecar **embeds `web/dist`** — a run needs
@@ -524,6 +537,19 @@ policy engine's 403 rendered beside the row. The pickers are **siblings** of the
 not children, so using one does not open the editor; that is asserted by a harness check
 which had to be rewritten before it could fail.
 
+**A reviewer's queue** — `GET /jobs` takes `reviewing=true` beside `mine=true`, and a
+`reviewer_id` parameter mirroring the `assignee_id` it always accepted. They are two
+questions, not one filter with two spellings, and narrow independently. The My work page
+asks both: what is waiting on this reviewer (submitted, and named to them), what is named
+to them but not submitted yet, and what they are annotating. `myWork.ts` is pure and
+separately tested and imports `isReviewable` from the editor's `review.ts` rather than
+restating which states can be reviewed. Rows carry the **task name**, from a new
+`JobListing` schema that the cross-project listings return and no other job route does —
+`Job.task` is a lazy relationship, so putting it on `JobOut` would make every other route
+load it. Indexed by `ix_job_reviewer_state`, which is `ix_job_assignee_state` with one
+column changed, and that migration is the first in this repository run in both directions
+by a test.
+
 **Also** — Python SDK and CLI, Docker Compose deployment, CI, issue/PR templates, and the
 full docs set including seven ADRs.
 
@@ -546,7 +572,7 @@ full docs set including seven ADRs.
 | Choosing individual files (desktop) | Complete and measured in a browser: `choose_files` now has a caller, one `local-import` call per chosen file, a failed file reported in `skipped` without aborting the others, and the results of a whole batch merged into one summary. |
 | Cuboid (2D wireframe box) | Complete and measured in a browser: a two-stage tool (drag the front face, then move and click to set the depth), a wireframe renderer, and CVAT XML export/import using CVAT's own real attribute names. The backend needed no new code at all — `ShapeType.CUBOID`, its minimum-points entry, its IoU comparison and its track interpolation were already there, unused. **Not** the 3D/point-cloud kind — see `docs/ROADMAP.md`'s honestly-unchanged limitation on that. |
 | Resumable uploads | Complete and tested end to end — API, SDK, CLI and the web upload panel: create a session, `PATCH` chunks at a stated offset, read the current offset back, complete, resume by id after a crash or a page reload. Driven in a browser through a deliberately dropped chunk and a real resume. Nothing outstanding. |
-| Job review | Both halves are complete and driven in a browser: the **decision** (accept or send back with a required reason, from the editor's rail, on a submitted job) and the **assignment** (an annotator picker and a reviewer picker on each job row of the task page, either clearable back to Unassigned). What is still missing is a reviewer's **queue** — `GET /jobs?mine=true` filters on `assignee_id` alone, so a named reviewer has nowhere to ask what is waiting and finds submitted work through each task's job list. |
+| Job review | Complete end to end and driven in a browser, all three parts: the **assignment** (an annotator picker and a reviewer picker on each job row of the task page, either clearable back to Unassigned), the **queue** (`GET /jobs?reviewing=true`, split on the My work page into what can be reviewed now and what is merely named to you), and the **decision** (accept or send back with a required reason, from the editor's rail). Nothing outstanding. |
 
 *This table went stale once — it still listed the open-folder flow and chunked delivery as
 unbuilt several iterations after both shipped, because the narrative sections above were
@@ -565,6 +591,77 @@ being updated and this one was not. Check it against* Completed *before trusting
 ---
 
 ## Last iteration
+
+### 47 — a reviewer can ask what is waiting for them
+
+Straight on from iteration 46, and named by this file as next: the assignment existed, the
+decision existed, and between them there was no way in. `GET /jobs?mine=true` has filtered
+on `assignee_id` alone since early in the project, so a reviewer with four jobs named to
+them could not ask for them — they opened each task in turn and read its job list, which
+works for a demo and not for a person with a day's worth of review.
+
+**Two questions, not one filter with two spellings.** `reviewing=true` sits beside
+`mine=true` and narrows independently, so asking both gives the jobs where the caller is on
+*both* ends of the loop rather than either. That is the reading somebody will expect from
+two filters, and it makes `reviewing=true&state=submitted` — which is what a queue actually
+is — fall out of the existing `state` parameter instead of needing a special case. A
+`reviewer_id` parameter mirrors the `assignee_id` the listing has always accepted, for the
+manager asking what one person is holding.
+
+**The endpoint had no test at all — not one.** Not for `mine`, which the My work page in the
+navigation bar has always run on every visit, and not for the membership subquery that
+decides whose work a caller can see. Five tests now cover it, and writing them turned up the
+trap this file keeps recording: **two of the five passed before the feature existed.**
+FastAPI ignores an unknown query parameter, so `reviewing=true` was silently dropped and the
+assertions happened to hold anyway — one fixture had a single job, so "the list is exactly
+this job" was true of the unfiltered listing too. Both were rewritten with a control job
+that makes the unfiltered answer different from the filtered one. A test that passes before
+its feature exists is not a weak test; it is not a test.
+
+**The queue names the task, which the listing had loaded and never returned.** `GET /jobs`
+has had `selectinload(Job.task)` since it was written, for a field nothing read. Across
+every project, "Job #2 · frames 0–1" identifies a job to the server and to nobody else. A
+new `JobListing` schema carries `task_name` and `project_id` on the cross-project listing
+only: `Job.task` is an ordinary lazy relationship, so putting those on `JobOut` itself would
+oblige every other job route to start loading it for a field they have no use for.
+
+**Split on what can be acted on, not on everything named to you.** Only a `submitted` job
+can be reviewed — the server's rule, and `review.ts`'s `isReviewable`, imported rather than
+restated so the two cannot drift. `myWork.ts` partitions on it, and the summary line counts
+only the actionable half: a reviewer holding four half-drawn jobs has nothing to do today,
+and "4 waiting" would send them looking for work that does not exist. The other half is
+still listed, because "nothing is named to you" and "nothing is ready yet" are different
+things to tell somebody, and an empty panel says the first when it means the second.
+
+**A migration, and the first one in this repository ever run backwards.**
+`ix_job_reviewer_state` is `ix_job_assignee_state` with one column changed, since the queue
+is the same query shape as the annotator's landing page and deserves the same index.
+`docs/CONTRIBUTING.md` has always asked for migrations "tested in both directions" and
+nothing in the suite had ever moved one down — the whole suite only migrated a fresh
+database up to head. `test_the_newest_migration_runs_in_both_directions` drives the head
+revision down and up again on a real SQLite file, and confirmed it bites by stubbing the
+`downgrade` body and watching it fail. That needed `desktop.migrate` split into
+`alembic_config` plus a one-line upgrade, so a test can drive the same configuration the
+application uses rather than a copy of it.
+
+**The harness sabotage is the one worth remembering.** Pointing the page's review query at
+`mine` instead of `reviewing` failed four checks — and left the summary check *passing*,
+reading "1 job waiting on you" exactly as expected, because the fixture happened to contain
+exactly one submitted job either way. A second control job fixes it: under the sabotage the
+page now says "2" and the check fails. Iteration 46's lesson was that a check has to be made
+to fail before it can be believed; this one adds that the **fixture** is part of the check,
+not scenery around it. The sabotage also crashed the harness on a missing click target,
+burying four real failures under a Playwright traceback, so the run now bails out cleanly
+with its failure list when the queue is already wrong.
+
+Verified: `./scripts/check.sh` green, all twelve steps — 535 server tests (6 new: five for
+the listing, one for the migration), 15 SDK (unchanged), 593 web (9 new in `myWork.test.ts`).
+`scripts/verify_review_queue.py`'s twelve checks pass against a rebuilt sidecar, and it is
+registered in `.github/workflows/browser.yml` and `docs/CONTRIBUTING.md`. The sabotage above
+was restored and the rebuilt bundle hash came back byte-identical (`index-CrOWMP8i.js`).
+`verify_job_assignment.py` and `verify_job_review.py` re-run and pass.
+
+## Iteration 46
 
 ### 46 — a job can be handed to a person, and taken back
 
