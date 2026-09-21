@@ -55,6 +55,8 @@ import { brushHint } from './brushHint';
 import { cuboidHint } from './cuboidHint';
 import { AutoAnnotatePanel } from './AutoAnnotatePanel';
 import { SuggestionsPanel } from './SuggestionsPanel';
+import { ReviewPanel } from './ReviewPanel';
+import { canSubmit } from './review';
 import { useAutosave } from './useAutosave';
 
 const TOOLS: { name: ToolName; icon: typeof Square; label: string; key: string }[] = [
@@ -352,7 +354,7 @@ export function EditorPage() {
             size="sm"
             variant="primary"
             onClick={() => submitJob.mutate()}
-            disabled={submitJob.isPending || job.data?.state === 'submitted'}
+            disabled={submitJob.isPending || !canSubmit(job.data?.state)}
           >
             <Send size={13} />
             Submit
@@ -363,6 +365,15 @@ export function EditorPage() {
       {autosave.error && (
         <div className="border-b border-red-500/30 bg-red-500/10 px-3 py-1.5 text-xs text-red-300">
           {autosave.error}
+        </div>
+      )}
+
+      {/* A submit can still fail for a reason the disabled state cannot predict -- somebody
+          else moved the job, or this account cannot submit it at all. It used to fail
+          silently: the mutation rejected and nothing rendered. */}
+      {submitJob.error != null && (
+        <div className="border-b border-red-500/30 bg-red-500/10 px-3 py-1.5 text-xs text-red-300">
+          {submitJob.error instanceof Error ? submitJob.error.message : 'Could not submit this job.'}
         </div>
       )}
 
@@ -545,6 +556,11 @@ export function EditorPage() {
           />
 
           <QualityPanel job={job.data} labels={labelStyles} onSeek={setFrame} />
+
+          {/* Last, because that is the order the decision is made in: read the objects, the
+              issues and the score, then rule on the job. Renders nothing unless it is
+              submitted, so an ordinary job being annotated pays no space for it. */}
+          <ReviewPanel job={job.data} />
 
           <ShortcutHelp />
         </aside>

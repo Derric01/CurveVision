@@ -116,9 +116,22 @@ notes, or in handoff.md if you are about to stop). Name the files you expect to 
 that list is long, your task is too big.
 
 ### Implement
-- **Reuse first.** Search for existing helpers before writing new ones. This codebase has
-  seams (`Storage`, `DatasetFormat`, `ModelProvider`, `JobQueue`) and shared utilities —
-  extend them rather than routing around them.
+- **Reuse first, and that means outside this repository too.** Search for existing helpers
+  before writing new ones: this codebase has seams (`Storage`, `DatasetFormat`,
+  `ModelProvider`, `JobQueue`) and shared utilities — extend them rather than routing around
+  them. Then, before writing a non-trivial algorithm, format reader, or annotation
+  behaviour from scratch, **look at how CVAT already did it**
+  (`cvat-ai/cvat`, MIT: Intel 2018–2022, CVAT.ai 2022–2025). It is the closest mature
+  implementation of this product's problem, and several parts of this codebase are already
+  adapted from upstream sources for exactly that reason. Writing it yourself is the fallback,
+  not the default — take that path only when no upstream equivalent exists, or when the
+  upstream one is bound to a framework we do not use (CVAT is Django/Vue; its *algorithms*,
+  *format conventions* and *data-model decisions* port, its request handling does not).
+  Adapting source is governed by [ADR 0007](./docs/adr/0007-reusing-third-party-code.md) and
+  is not optional paperwork: the per-adaptation licence audit exists because one GPL file in
+  an MIT tree changes the answer, and the attribution is what makes the copy lawful. Reading
+  upstream to get a convention right, without copying, is the lighter-weight move and is
+  always available — `cvat_xml.py`'s cuboid attribute order came from exactly that.
 - **Match the surrounding code.** Its naming, its comment density, its idioms. A change that
   reads like a foreign object is a change reviewers distrust.
 - **Smallest effective change.** Do not rewrite a working component because you would have
@@ -162,7 +175,16 @@ change**. A plan that has drifted from the code is the failure mode this whole f
 to prevent.
 
 ### Continue
-Pick the next task and go again.
+Pick the next task and go again — **but by default, one iteration is one session.** When an
+iteration is committed, pushed and written up, stop and report rather than starting the
+next one. A session that runs six iterations is not six times as useful as six sessions: it
+re-reads the same context, and it spends a human's budget without giving them a decision
+point in between. The user can always say "keep going", and that is the cheap direction to
+be wrong in.
+
+Carry on past one iteration only when the work is genuinely unfinished — a change split
+across two commits to keep each diff reviewable, or a defect found by the first iteration
+that leaves the tree worse than you found it. Say so when you report.
 
 ---
 
@@ -304,6 +326,10 @@ Stop and ask a human only when:
 - **You have made no real progress in two consecutive iterations.** Stop, write down what
   you learned and what you tried, and ask. Two failed iterations is information; ten is
   waste.
+- **You have finished an iteration.** This is the ordinary case, not a failure: commit,
+  push, update `handoff.md`, and report. See [Continue](#continue) — the budget a session
+  spends is a real cost to the person running it, and a finished iteration is the natural
+  place to hand the decision back.
 
 Before stopping for any reason: **leave the tree green if you can**, and make sure
 `handoff.md` reflects reality.

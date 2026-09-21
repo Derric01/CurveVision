@@ -22,7 +22,7 @@ means designed, not built.
 | | Status |
 | --- | --- |
 | Users, organizations, projects, tasks, jobs | **Done** |
-| Label schema with typed attributes | **Done** |
+| Label schema with typed attributes | **Done** — and editable after the project exists: a label is added from the project page and appended to the schema, renamed or recoloured in place, and removed unless annotations still use it, which the server refuses rather than cascading. A rename carries the whole label, so it keeps the label's attributes, its position and its shape restriction — `PUT` is a replace. Editing the **attributes** themselves is not built |
 | Image upload with content-addressed deduplication | **Done** |
 | Annotation editor: rectangle, polygon, polyline, points, ellipse | **Done** |
 | Selection, move, vertex editing, marquee | **Done** |
@@ -50,7 +50,7 @@ application — and produce a real dataset with it.
 | | Status |
 | --- | --- |
 | Roles and per-organization membership | **Done** |
-| Job assignment and the review state machine | **Done** |
+| Job assignment and the review state machine | **Done** — and reachable: an annotator submits from the editor, and a reviewer accepts or sends the job back from the same rail. Sending it back **requires a reason**, which is filed as an issue on the job, so the annotator meets it on the page rather than being told only that the work was refused. A job is handed to an annotator or a reviewer from a picker on the task page, and can be unassigned again, and a named reviewer asks the My work page what is waiting on them rather than opening every task |
 | Overlapping jobs reconciled on export (no duplicated objects at a job seam; track identity survives it) | **Done** |
 | Issues and comment threads anchored to frames | **Done** — and reachable: the editor lists them, opens one on the current frame anchored to the selected object **or pinned to a point you click on the image**, replies on a thread, and resolves or reopens it |
 | Annotation history | **Done** |

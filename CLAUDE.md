@@ -9,6 +9,17 @@ first (read [`handoff.md`](./handoff.md), read the plan, check the code against 
 `./scripts/check.sh`), then run the loop — Review → Plan → Implement → Test → Debug →
 Self-review → Document → Continue.
 
+Two rules about scope, because they cost real money to get wrong:
+
+- **One iteration per session, by default.** Finish it, commit, push, write up `handoff.md`,
+  then stop and report. Running iteration after iteration in a single session spends the
+  budget of the person who asked without ever giving them a decision point. They can always
+  say "keep going".
+- **Reuse before you write, including from outside this repository.** CVAT (`cvat-ai/cvat`,
+  MIT) is the closest mature implementation of this product's problem; read how it solved
+  something before writing your own. `AGENTS.md` § *Implement* and
+  [ADR 0007](./docs/adr/0007-reusing-third-party-code.md) say what that obliges you to do.
+
 Two things it is easy to skip and expensive to skip:
 
 - **`handoff.md` is updated every iteration.** It is how the next session knows where you
@@ -22,6 +33,7 @@ Two things it is easy to skip and expensive to skip:
 | --- | --- |
 | [`AGENTS.md`](./AGENTS.md) | The working contract — start here |
 | [`handoff.md`](./handoff.md) | Current state, in flight, next best action |
+| [`docs/iterations/ARCHIVE.md`](./docs/iterations/ARCHIVE.md) | Why things are the way they are — iterations 1–45 |
 | [`docs/IMPLEMENTATION_PLAN.md`](./docs/IMPLEMENTATION_PLAN.md) | Plan of record, with honest status markers |
 | [`docs/ARCHITECTURE.md`](./docs/ARCHITECTURE.md) | §1.1 two shapes · §2 layering rules · §8 build-vs-extend |
 | [`docs/adr/`](./docs/adr/) | Decisions already made — supersede, do not quietly rewrite |

@@ -168,16 +168,14 @@ def migrations_dir() -> Path:
     return Path(__file__).resolve().parent / "migrations"
 
 
-def migrate(settings: Settings) -> None:
-    """Bring the local database up to the current schema.
+def alembic_config(settings: Settings) -> Any:
+    """The Alembic configuration this installation's migrations run under.
 
-    Alembic rather than `create_all`: a desktop user *will* open a new version of the app
-    against a database written by an older one, and that has to be a migration, not a
-    surprise.
+    Separate from `migrate` so a test can drive the same configuration *downwards*: a
+    migration nobody has ever run backwards is a migration whose `downgrade` is a guess.
     """
     import logging
 
-    from alembic import command
     from alembic.config import Config
 
     migrations = migrations_dir()
@@ -196,7 +194,19 @@ def migrate(settings: Settings) -> None:
     # env.py prefers this over the environment, so an in-process migration cannot drift
     # from the settings the server is about to run with.
     config.attributes["settings"] = settings
-    command.upgrade(config, "head")
+    return config
+
+
+def migrate(settings: Settings) -> None:
+    """Bring the local database up to the current schema.
+
+    Alembic rather than `create_all`: a desktop user *will* open a new version of the app
+    against a database written by an older one, and that has to be a migration, not a
+    surprise.
+    """
+    from alembic import command
+
+    command.upgrade(alembic_config(settings), "head")
 
 
 async def provision(settings: Settings) -> str:

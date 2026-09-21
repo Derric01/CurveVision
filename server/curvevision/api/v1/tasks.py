@@ -30,6 +30,7 @@ from curvevision.schemas.task import (
     ESTIMATED_ASSET_SAMPLE,
     AssetOut,
     FrameInfo,
+    JobListing,
     JobOut,
     JobReviewRequest,
     JobUpdate,
@@ -110,10 +111,18 @@ async def create_task(
 
 @router.get("/tasks/{task_id}", response_model=TaskDetail)
 async def read_task(scope: TaskScopeDep, session: SessionDep) -> TaskDetail:
-    detail = TaskDetail.model_validate(scope.task)
-    detail.progress = TaskProgress.model_validate(
-        await task_service.task_progress(session, scope.task)
-    )
+    return await _task_detail(session, scope.task)
+
+
+async def _task_detail(session: SessionDep, task: Task) -> TaskDetail:
+    """A task with its progress, which is what `TaskDetail` means everywhere it is returned.
+
+    Extracted because the update route returned the same model with `progress` left null,
+    so a screen rendering what a write answered blanked out the progress it had been
+    showing a moment earlier. One response model, one shape.
+    """
+    detail = TaskDetail.model_validate(task)
+    detail.progress = TaskProgress.model_validate(await task_service.task_progress(session, task))
     return detail
 
 
@@ -121,17 +130,26 @@ async def read_task(scope: TaskScopeDep, session: SessionDep) -> TaskDetail:
 async def update_task(payload: TaskUpdate, scope: TaskScopeDep, session: SessionDep) -> TaskDetail:
     scope.authorize(Action.UPDATE)
     task = scope.task
+    sent = payload.model_fields_set
     if payload.name is not None:
         task.name = payload.name
-    if payload.description is not None:
+    # `model_fields_set` for the nullable fields: an omitted one means "leave it alone" and
+    # an explicit null means "clear it", and a `is not None` test cannot tell them apart --
+    # which left a task that could be assigned and never unassigned, and a description that
+    # could be written and never removed.
+    if "description" in sent:
         task.description = payload.description
     if payload.status is not None:
         task.status = payload.status
-    if payload.assignee_id is not None:
+    if "assignee_id" in sent:
         scope.authorize(Action.ASSIGN)
         task.assignee_id = payload.assignee_id
     await session.commit()
-    return TaskDetail.model_validate(task)
+    if "assignee_id" in sent:
+        # `assignee` is eagerly loaded and the sessionmaker is `expire_on_commit=False`, so
+        # writing the *id* leaves the loaded relationship holding whoever was there before.
+        await session.refresh(task, ["assignee_id", "assignee"])
+    return await _task_detail(session, task)
 
 
 @router.delete("/tasks/{task_id}", status_code=status.HTTP_204_NO_CONTENT)
@@ -493,15 +511,26 @@ async def list_task_jobs(scope: TaskScopeDep, session: SessionDep) -> list[JobOu
     return [JobOut.model_validate(job) for job in result.scalars().all()]
 
 
-@router.get("/jobs", response_model=Page[JobOut])
+@router.get("/jobs", response_model=Page[JobListing])
 async def list_jobs(
     identity: IdentityDep,
     session: SessionDep,
     params: PageParamsDep,
     assignee_id: uuid.UUID | None = Query(default=None),
+    reviewer_id: uuid.UUID | None = Query(default=None),
     state: JobState | None = Query(default=None),
     mine: bool = Query(default=False, description="Only jobs assigned to the caller"),
-) -> Page[JobOut]:
+    reviewing: bool = Query(
+        default=False, description="Only jobs the caller is the named reviewer of"
+    ),
+) -> Page[JobListing]:
+    """Jobs across every project the caller can see.
+
+    `mine` and `reviewing` are two different questions — *what am I drawing* and *what is
+    waiting on me to check* — and they narrow independently, so asking both gives the jobs
+    where the caller is on both ends of the loop rather than either. Combining either with
+    `state=submitted` is what a review queue actually is.
+    """
     statement = select(Job).options(selectinload(Job.task))
     if not identity.principal.is_superuser:
         member_orgs = select(OrganizationMembership.organization_id).where(
@@ -514,6 +543,10 @@ async def list_jobs(
         statement = statement.where(Job.assignee_id == identity.principal.user_id)
     elif assignee_id is not None:
         statement = statement.where(Job.assignee_id == assignee_id)
+    if reviewing:
+        statement = statement.where(Job.reviewer_id == identity.principal.user_id)
+    elif reviewer_id is not None:
+        statement = statement.where(Job.reviewer_id == reviewer_id)
     if state is not None:
         statement = statement.where(Job.state == state)
 
@@ -522,7 +555,16 @@ async def list_jobs(
         count=total,
         limit=params.limit,
         offset=params.offset,
-        results=[JobOut.model_validate(row) for row in rows],
+        # `Job.task` is eagerly loaded above for exactly this: a queue spanning every
+        # project is unreadable if each row can only say which numbered job it is.
+        results=[
+            JobListing(
+                **JobOut.model_validate(row).model_dump(),
+                task_name=row.task.name,
+                project_id=row.task.project_id,
+            )
+            for row in rows
+        ],
     )
 
 
@@ -536,11 +578,16 @@ async def update_job(
     payload: JobUpdate, scope: JobScopeDep, session: SessionDep, identity: IdentityDep
 ) -> JobOut:
     job = scope.job
-    if payload.assignee_id is not None or payload.reviewer_id is not None:
+    # `model_fields_set` rather than a None check, because for these two fields the
+    # difference matters: an omitted field means "leave it alone" and an explicit null means
+    # "unassign". Reading both as None made a job assignable and never unassignable -- the
+    # column is nullable, and nothing but this could put it back.
+    assignment_fields = {"assignee_id", "reviewer_id"} & payload.model_fields_set
+    if assignment_fields:
         scope.authorize(Action.ASSIGN)
-        if payload.assignee_id is not None:
+        if "assignee_id" in assignment_fields:
             job.assignee_id = payload.assignee_id
-        if payload.reviewer_id is not None:
+        if "reviewer_id" in assignment_fields:
             job.reviewer_id = payload.reviewer_id
     if payload.locked is not None:
         scope.authorize(Action.UPDATE)
@@ -554,6 +601,14 @@ async def update_job(
             scope.authorize(Action.UPDATE)
         await task_service.transition_job(session, job, payload.state, actor=identity.user)
     await session.commit()
+
+    if assignment_fields:
+        # `assignee` and `reviewer` were loaded when the job was fetched, and the
+        # sessionmaker is `expire_on_commit=False`, so writing the *id* leaves the loaded
+        # relationship holding whoever was there before. Without this the response reports
+        # the previous holder -- or `null` for a job that just gained its first one, which
+        # is what a picker would render straight back at the person who just assigned it.
+        await session.refresh(job, list(assignment_fields | {"assignee", "reviewer"}))
     return JobOut.model_validate(job)
 
 

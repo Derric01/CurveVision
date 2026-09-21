@@ -21,8 +21,11 @@ import type {
   InferenceResult,
   Issue,
   Job,
+  JobListing,
   Label,
+  LabelPayload,
   LocalImportResult,
+  Membership,
   ModelRegistration,
   Organization,
   Page,
@@ -237,6 +240,10 @@ export const api = {
   // ---------------------------------------------------------------- organizations
   organizations: () => request<Organization[]>('/organizations'),
 
+  /** Everyone in an organization, with the role each holds — who a job can be handed to. */
+  members: (organizationId: string) =>
+    request<Membership[]>(`/organizations/${organizationId}/members`),
+
   createOrganization: (input: { slug: string; name: string; description?: string }) =>
     request<Organization>('/organizations', { method: 'POST', body: input }),
 
@@ -260,6 +267,26 @@ export const api = {
 
   createLabel: (projectId: string, input: { name: string; color?: string }) =>
     request<Label>(`/projects/${projectId}/labels`, { method: 'POST', body: input }),
+
+  /**
+   * Replace a label.
+   *
+   * A replace, not a patch: everything left out of the body is destroyed, including the
+   * label's attribute definitions. Build the body with `labelToPayload` from the label as
+   * the server reported it rather than from the fields being changed.
+   */
+  updateLabel: (projectId: string, labelId: string, body: LabelPayload) =>
+    request<Label>(`/projects/${projectId}/labels/${labelId}`, { method: 'PUT', body }),
+
+  /**
+   * Remove a label from a project's schema.
+   *
+   * The server refuses with a 409 when annotations still reference it, rather than
+   * cascading — so this is safe to offer as a button, and the refusal is the message to
+   * show rather than something to pre-empt.
+   */
+  deleteLabel: (projectId: string, labelId: string) =>
+    request<void>(`/projects/${projectId}/labels/${labelId}`, { method: 'DELETE' }),
 
   // ------------------------------------------------------------------------ tasks
   tasks: (params?: { project_id?: string; status?: string; limit?: number }) =>
@@ -388,13 +415,34 @@ export const api = {
   },
 
   // ------------------------------------------------------------------------- jobs
-  jobs: (params?: { mine?: boolean; state?: string; limit?: number }) =>
-    request<Page<Job>>('/jobs', { params }),
+  /**
+   * Jobs across every project, filtered by which end of the loop the caller is on.
+   *
+   * `mine` and `reviewing` are separate questions — what am I drawing, and what is waiting
+   * on me to check — and the server narrows on each independently, so passing both asks for
+   * the jobs where the caller is both annotator and reviewer rather than either.
+   */
+  jobs: (params?: {
+    mine?: boolean;
+    reviewing?: boolean;
+    state?: string;
+    limit?: number;
+  }) => request<Page<JobListing>>('/jobs', { params }),
 
   job: (id: string) => request<Job>(`/jobs/${id}`),
 
-  updateJob: (id: string, changes: Partial<Pick<Job, 'state' | 'locked'>> & { assignee_id?: string }) =>
-    request<Job>(`/jobs/${id}`, { method: 'PATCH', body: changes }),
+  /**
+   * `assignee_id`/`reviewer_id` accept `null` to unassign, and the server distinguishes
+   * that from omitting the field — so build the body with the keys you mean to change and
+   * leave the rest out, rather than spreading a whole job into it.
+   */
+  updateJob: (
+    id: string,
+    changes: Partial<Pick<Job, 'state' | 'locked'>> & {
+      assignee_id?: string | null;
+      reviewer_id?: string | null;
+    },
+  ) => request<Job>(`/jobs/${id}`, { method: 'PATCH', body: changes }),
 
   reviewJob: (id: string, accepted: boolean, comment?: string) =>
     request<Job>(`/jobs/${id}/review`, { method: 'POST', body: { accepted, comment } }),

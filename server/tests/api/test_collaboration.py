@@ -210,6 +210,195 @@ class TestAnnotationPermissions:
         assert cleared.status_code == 409
 
 
+class TestJobAssignment:
+    """Handing a job to a person, and taking it back.
+
+    Both halves matter to the screen that drives this: a picker that can assign but never
+    unassign is a picker with no undo, and one whose response reports the previous holder
+    shows the wrong name until something else refetches.
+    """
+
+    async def test_assigning_reports_the_new_holder_rather_than_the_previous_one(
+        self, owner: ApiActor, project: dict[str, Any], organization: dict[str, Any]
+    ) -> None:
+        _task, jobs = await make_task(owner, project)
+        job_id = jobs[0]["id"]
+        first = await register(owner.client, "firsthand")
+        second = await register(owner.client, "secondhand")
+        for who in (first, second):
+            await add_member(owner, organization["id"], who, Role.ANNOTATOR)
+
+        assigned = await owner.patch(f"/api/v1/jobs/{job_id}", json={"assignee_id": first.id})
+        assert assigned.status_code == 200
+        assert assigned.json()["assignee"]["username"] == "firsthand"
+
+        # The relationship was eagerly loaded when the job was fetched and the sessionmaker
+        # is `expire_on_commit=False`, so a response built from the same instance can carry
+        # the holder from before the write unless it is refreshed.
+        reassigned = await owner.patch(f"/api/v1/jobs/{job_id}", json={"assignee_id": second.id})
+        assert reassigned.status_code == 200
+        assert reassigned.json()["assignee"]["username"] == "secondhand"
+        reread = await owner.get(f"/api/v1/jobs/{job_id}")
+        assert reread.json()["assignee"]["username"] == "secondhand"
+
+    async def test_an_explicit_null_unassigns_while_an_omitted_field_leaves_it_alone(
+        self, owner: ApiActor, project: dict[str, Any], organization: dict[str, Any]
+    ) -> None:
+        _task, jobs = await make_task(owner, project)
+        job_id = jobs[0]["id"]
+        annotator = await register(owner.client, "holder")
+        await add_member(owner, organization["id"], annotator, Role.ANNOTATOR)
+        await owner.patch(f"/api/v1/jobs/{job_id}", json={"assignee_id": annotator.id})
+
+        # Locking the job says nothing about who holds it.
+        untouched = await owner.patch(f"/api/v1/jobs/{job_id}", json={"locked": True})
+        assert untouched.json()["assignee"]["username"] == "holder"
+
+        cleared = await owner.patch(f"/api/v1/jobs/{job_id}", json={"assignee_id": None})
+        assert cleared.status_code == 200
+        assert cleared.json()["assignee"] is None
+        assert (await owner.get(f"/api/v1/jobs/{job_id}")).json()["assignee"] is None
+
+    async def test_the_reviewer_is_assigned_and_cleared_the_same_way(
+        self, owner: ApiActor, project: dict[str, Any], organization: dict[str, Any]
+    ) -> None:
+        _task, jobs = await make_task(owner, project)
+        job_id = jobs[0]["id"]
+        reviewer = await register(owner.client, "checkerup")
+        await add_member(owner, organization["id"], reviewer, Role.REVIEWER)
+
+        assigned = await owner.patch(f"/api/v1/jobs/{job_id}", json={"reviewer_id": reviewer.id})
+        assert assigned.json()["reviewer"]["username"] == "checkerup"
+
+        cleared = await owner.patch(f"/api/v1/jobs/{job_id}", json={"reviewer_id": None})
+        assert cleared.json()["reviewer"] is None
+
+    async def test_assigning_needs_the_rank_for_it(
+        self, owner: ApiActor, project: dict[str, Any], organization: dict[str, Any]
+    ) -> None:
+        """An annotator cannot hand work to somebody else, including to themselves."""
+        _task, jobs = await make_task(owner, project)
+        job_id = jobs[0]["id"]
+        annotator = await register(owner.client, "notamanager")
+        await add_member(owner, organization["id"], annotator, Role.ANNOTATOR)
+
+        refused = await annotator.patch(
+            f"/api/v1/jobs/{job_id}", json={"assignee_id": annotator.id}
+        )
+        assert refused.status_code == 403
+
+
+class TestTheReviewQueue:
+    """Asking `GET /jobs` what is waiting for *me*, as an annotator and as a reviewer.
+
+    `mine=true` has existed since early on and filters on `assignee_id` alone, so a named
+    reviewer had no way to ask the question at all — they found submitted work by opening
+    each task and reading its job list. The whole endpoint was also untested, including the
+    membership filter that decides whose work a caller can see, so these pin the behaviour
+    that was already there alongside the behaviour that is new.
+    """
+
+    async def test_the_two_questions_are_different(
+        self, owner: ApiActor, project: dict[str, Any], organization: dict[str, Any]
+    ) -> None:
+        """One job, an annotator and a reviewer: each sees it under their own filter only."""
+        _task, jobs = await make_task(owner, project, segment_size=1)
+        drawing, checking = jobs[0]["id"], jobs[1]["id"]
+        hand = await register(owner.client, "thehand")
+        eye = await register(owner.client, "theeye")
+        await add_member(owner, organization["id"], hand, Role.ANNOTATOR)
+        await add_member(owner, organization["id"], eye, Role.REVIEWER)
+
+        # The first job is drawn by one and reviewed by the other; the second is only drawn,
+        # so "waiting on me to review" must not simply mean "a job I can see".
+        await owner.patch(f"/api/v1/jobs/{drawing}", json={"assignee_id": hand.id})
+        await owner.patch(f"/api/v1/jobs/{drawing}", json={"reviewer_id": eye.id})
+        await owner.patch(f"/api/v1/jobs/{checking}", json={"assignee_id": hand.id})
+
+        assigned = (await hand.get("/api/v1/jobs", params={"mine": True})).json()
+        assert {row["id"] for row in assigned["results"]} == {drawing, checking}
+        assert (await hand.get("/api/v1/jobs", params={"reviewing": True})).json()["count"] == 0
+
+        queue = (await eye.get("/api/v1/jobs", params={"reviewing": True})).json()
+        assert [row["id"] for row in queue["results"]] == [drawing]
+        assert (await eye.get("/api/v1/jobs", params={"mine": True})).json()["count"] == 0
+
+    async def test_the_queue_can_be_narrowed_to_what_is_actually_submitted(
+        self, owner: ApiActor, project: dict[str, Any], organization: dict[str, Any]
+    ) -> None:
+        """Three jobs, and only one of them is both submitted *and* this reviewer's.
+
+        The third job — submitted, but named to nobody — is what stops this passing on the
+        state filter alone. Its first draft had only two and passed before `reviewing`
+        existed at all, because every job in the fixture was already visible to the caller.
+        """
+        _task, jobs = await make_task(owner, project, frames=3, segment_size=1)
+        ready, still_drawing, someone_elses = (job["id"] for job in jobs)
+        eye = await register(owner.client, "thesecondeye")
+        await add_member(owner, organization["id"], eye, Role.REVIEWER)
+        for job_id in (ready, still_drawing):
+            await owner.patch(f"/api/v1/jobs/{job_id}", json={"reviewer_id": eye.id})
+        for job_id in (ready, someone_elses):
+            submitted = await owner.patch(f"/api/v1/jobs/{job_id}", json={"state": "submitted"})
+            assert submitted.status_code == 200, submitted.text
+
+        waiting = await eye.get("/api/v1/jobs", params={"reviewing": True, "state": "submitted"})
+        assert [row["id"] for row in waiting.json()["results"]] == [ready]
+        assert (await eye.get("/api/v1/jobs", params={"reviewing": True})).json()["count"] == 2
+        assert (await eye.get("/api/v1/jobs", params={"state": "submitted"})).json()["count"] == 2
+
+    async def test_a_listed_job_names_the_task_it_belongs_to(
+        self, owner: ApiActor, project: dict[str, Any], organization: dict[str, Any]
+    ) -> None:
+        """A cross-project list of "Job #2, frames 0-1" is not a queue anybody can work.
+
+        `GET /jobs` has eagerly loaded `Job.task` since it was written, for a field nothing
+        ever read.
+        """
+        task, jobs = await make_task(owner, project)
+        eye = await register(owner.client, "thethirdeye")
+        await add_member(owner, organization["id"], eye, Role.REVIEWER)
+        await owner.patch(f"/api/v1/jobs/{jobs[0]['id']}", json={"reviewer_id": eye.id})
+
+        row = (await eye.get("/api/v1/jobs", params={"reviewing": True})).json()["results"][0]
+        assert row["task_name"] == task["name"]
+        assert row["project_id"] == project["id"]
+
+    async def test_a_reviewer_is_never_shown_work_from_an_organization_they_left(
+        self, owner: ApiActor, organization: dict[str, Any], project: dict[str, Any]
+    ) -> None:
+        """The listing's membership filter, which nothing tested before this."""
+        _task, jobs = await make_task(owner, project)
+        outsider = await register(owner.client, "nomember")
+        await owner.patch(f"/api/v1/jobs/{jobs[0]['id']}", json={"reviewer_id": owner.id})
+
+        # Named on nothing, and in no organization: both filters and the bare listing agree.
+        for params in ({"reviewing": True}, {"mine": True}, {}):
+            listed = await outsider.get("/api/v1/jobs", params=params)
+            assert listed.status_code == 200
+            assert listed.json()["count"] == 0
+
+    async def test_a_manager_can_ask_what_one_person_has_to_review(
+        self, owner: ApiActor, project: dict[str, Any], organization: dict[str, Any]
+    ) -> None:
+        """`reviewer_id` mirrors `assignee_id`, which the listing has always accepted.
+
+        Two jobs, one of them named: a single-job fixture would pass this even with the
+        parameter ignored entirely, which is how its first draft was written.
+        """
+        _task, jobs = await make_task(owner, project, segment_size=1)
+        eye = await register(owner.client, "thefourtheye")
+        await add_member(owner, organization["id"], eye, Role.REVIEWER)
+        await owner.patch(f"/api/v1/jobs/{jobs[0]['id']}", json={"reviewer_id": eye.id})
+
+        listed = await owner.get("/api/v1/jobs", params={"reviewer_id": eye.id})
+        assert [row["id"] for row in listed.json()["results"]] == [jobs[0]["id"]]
+        assert (await owner.get("/api/v1/jobs")).json()["count"] == 2
+        assert (await owner.get("/api/v1/jobs", params={"assignee_id": eye.id})).json()[
+            "count"
+        ] == 0
+
+
 class TestReviewWorkflow:
     async def test_rejection_sends_work_back_with_an_explanation(
         self, owner: ApiActor, project: dict[str, Any], organization: dict[str, Any]

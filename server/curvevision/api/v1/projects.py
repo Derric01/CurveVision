@@ -101,15 +101,22 @@ async def update_project(
 ) -> ProjectDetail:
     scope.authorize(Action.UPDATE)
     project = scope.project
+    sent = payload.model_fields_set
     if payload.name is not None:
         project.name = payload.name
-    if payload.description is not None:
+    # See `update_task`: for a nullable field an omitted one and an explicit null are
+    # different instructions, and `is not None` reads both as "leave it alone".
+    if "description" in sent:
         project.description = payload.description
     if payload.open_assignment is not None:
         project.open_assignment = payload.open_assignment
-    if payload.owner_id is not None:
+    if "owner_id" in sent:
         project.owner_id = payload.owner_id
     await session.commit()
+    if "owner_id" in sent:
+        # `owner` is eagerly loaded and survives the commit, so the response would name
+        # whoever owned the project before the write.
+        await session.refresh(project, ["owner_id", "owner"])
     return await _project_detail(session, project)
 
 
@@ -138,8 +145,23 @@ async def list_labels(scope: ProjectScopeDep, session: SessionDep) -> list[Label
 
 @router.post("/{project_id}/labels", response_model=LabelOut, status_code=status.HTTP_201_CREATED)
 async def create_label(payload: LabelIn, scope: ProjectScopeDep, session: SessionDep) -> LabelOut:
+    """Add a label to a project that already exists.
+
+    A label sent without a position goes to the **end** of the schema. It used to take
+    position 0 like every other unpositioned label, and the listing orders by
+    `(position, name)` — so `van` added to a `car`/`pedestrian` schema appeared first, in
+    an order nobody chose. The schema's order is the order the editor's label picker shows
+    and the order its shortcuts run in, so it is not cosmetic.
+    """
     scope.authorize(Action.CREATE, ResourceType.LABEL)
-    label = await project_service.create_label(session, scope.project, payload)
+    existing = await session.execute(
+        select(func.count())
+        .select_from(Label)
+        .where(Label.project_id == scope.project.id, Label.parent_id.is_(None))
+    )
+    label = await project_service.create_label(
+        session, scope.project, payload, default_position=existing.scalar_one()
+    )
     await session.commit()
     return await _label_out(session, label.id)
 
@@ -181,6 +203,13 @@ async def _label_out(session: SessionDep, label_id: uuid.UUID) -> LabelOut:
             selectinload(Label.attributes),
             selectinload(Label.children).selectinload(Label.attributes),
         )
+        # Without this the eager loads below are skipped for an instance already in the
+        # session, which after a commit under `expire_on_commit=False` still holds the
+        # collection as it was *before* the write: an update that replaced a label's
+        # attributes came back reporting the old ones, including attributes it had just
+        # deleted. A caller rendering the response would show a schema that no longer
+        # exists.
+        .execution_options(populate_existing=True)
     )
     label = result.scalar_one()
     return LabelOut.model_validate(label)

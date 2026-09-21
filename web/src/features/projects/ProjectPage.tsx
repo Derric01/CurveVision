@@ -1,8 +1,9 @@
 import { useRef, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Download, ImagePlus, Plus, Tag } from 'lucide-react';
+import { Check, Download, ImagePlus, Pencil, Plus, Tag, Trash2, X } from 'lucide-react';
 import { api } from '@/api/client';
+import type { Label as LabelSchemaEntry } from '@/api/types';
 import {
   Badge,
   Button,
@@ -13,6 +14,13 @@ import {
   ProgressBar,
   Spinner,
 } from '@/ui/primitives';
+import {
+  canAddLabel,
+  describeLabelUsage,
+  labelToPayload,
+  nextLabelColor,
+  normaliseLabelName,
+} from './labelSchema';
 
 export function ProjectPage() {
   const { projectId = '' } = useParams();
@@ -197,29 +205,11 @@ export function ProjectPage() {
         </div>
 
         <div className="space-y-6">
-          <Panel title="Label schema">
-            {labels.length > 0 ? (
-              <ul className="space-y-2">
-                {labels.map((label) => (
-                  <li key={label.id} className="flex items-center gap-2 text-sm">
-                    <span
-                      className="h-3 w-3 shrink-0 rounded-sm"
-                      style={{ backgroundColor: label.color }}
-                    />
-                    <span className="text-ink-200">{label.name}</span>
-                    {label.attributes.length > 0 && (
-                      <span className="text-xs text-ink-500">
-                        {label.attributes.length} attribute
-                        {label.attributes.length === 1 ? '' : 's'}
-                      </span>
-                    )}
-                  </li>
-                ))}
-              </ul>
-            ) : (
-              <EmptyState icon={<Tag size={28} />} title="No labels defined" />
-            )}
-          </Panel>
+          <LabelSchemaPanel
+            projectId={projectId}
+            labels={labels}
+            distribution={statistics.data?.label_distribution ?? {}}
+          />
 
           <Panel title="Statistics">
             {statistics.data ? (
@@ -247,6 +237,243 @@ export function ProjectPage() {
         </div>
       </div>
     </div>
+  );
+}
+
+/**
+ * A project's label schema, and the two ways it changes after the project exists.
+ *
+ * Until this existed the schema was fixed at creation from the application: the endpoints,
+ * the policy and `api.createLabel` were all there, and nothing called the last of them. A
+ * project that needed a `van` class had to get one from the SDK, the CLI or curl.
+ *
+ * Renaming and recolouring go through `labelToPayload`, which rebuilds the whole label
+ * from the one the server reported. `PUT` is a replace: a form that posted only the fields
+ * it changed would reset the label's position, lift its shape restriction and delete every
+ * attribute definition on it. **Editing the attributes themselves is still not offered** —
+ * that is an attribute editor, and its own piece of work.
+ */
+function LabelSchemaPanel({
+  projectId,
+  labels,
+  distribution,
+}: {
+  projectId: string;
+  labels: LabelSchemaEntry[];
+  distribution: Record<string, number>;
+}) {
+  const queryClient = useQueryClient();
+  const [name, setName] = useState('');
+  const [color, setColor] = useState(() => nextLabelColor(labels));
+  const [editing, setEditing] = useState<string | null>(null);
+
+  const refresh = () => {
+    void queryClient.invalidateQueries({ queryKey: ['project', projectId] });
+    void queryClient.invalidateQueries({ queryKey: ['project-statistics', projectId] });
+  };
+
+  const addLabel = useMutation({
+    mutationFn: () =>
+      api.createLabel(projectId, { name: normaliseLabelName(name), color }),
+    onSuccess: (created) => {
+      setName('');
+      // The next proposal has to account for the colour just taken, which the query this
+      // invalidates will not have delivered yet.
+      setColor(nextLabelColor([...labels, created]));
+      refresh();
+    },
+  });
+  const removeLabel = useMutation({
+    mutationFn: (labelId: string) => api.deleteLabel(projectId, labelId),
+    onSuccess: refresh,
+  });
+  const editLabel = useMutation({
+    mutationFn: ({ label, changes }: { label: LabelSchemaEntry; changes: EditedLabel }) =>
+      api.updateLabel(projectId, label.id, labelToPayload(label, {
+        name: normaliseLabelName(changes.name),
+        color: changes.color,
+      })),
+    onSuccess: () => {
+      setEditing(null);
+      refresh();
+    },
+  });
+
+  return (
+    <Panel title="Label schema">
+      {labels.length > 0 ? (
+        <ul className="space-y-2">
+          {labels.map((label) => {
+            const usage = describeLabelUsage(label.name, distribution);
+            if (editing === label.id) {
+              return (
+                <li key={label.id} data-label={label.id}>
+                  <LabelEditor
+                    label={label}
+                    pending={editLabel.isPending}
+                    onCancel={() => setEditing(null)}
+                    onSave={(changes) => editLabel.mutate({ label, changes })}
+                  />
+                </li>
+              );
+            }
+            return (
+              <li key={label.id} className="flex items-center gap-2 text-sm" data-label={label.id}>
+                <span
+                  className="h-3 w-3 shrink-0 rounded-sm"
+                  style={{ backgroundColor: label.color }}
+                />
+                <span className="text-ink-200">{label.name}</span>
+                {label.attributes.length > 0 && (
+                  <span className="text-xs text-ink-500">
+                    {label.attributes.length} attribute
+                    {label.attributes.length === 1 ? '' : 's'}
+                  </span>
+                )}
+                <button
+                  type="button"
+                  className="ml-auto shrink-0 rounded p-1 text-ink-500 hover:bg-ink-800 hover:text-curve-300"
+                  aria-label={`Rename ${label.name}`}
+                  data-label-edit={label.id}
+                  onClick={() => setEditing(label.id)}
+                >
+                  <Pencil size={14} />
+                </button>
+                <button
+                  type="button"
+                  className="shrink-0 rounded p-1 text-ink-500 hover:bg-ink-800 hover:text-red-300 disabled:opacity-50"
+                  title={usage ? `Remove ${label.name} — ${usage}` : `Remove ${label.name}`}
+                  aria-label={`Remove ${label.name}`}
+                  data-label-delete={label.id}
+                  disabled={removeLabel.isPending}
+                  onClick={() => removeLabel.mutate(label.id)}
+                >
+                  <Trash2 size={14} />
+                </button>
+              </li>
+            );
+          })}
+        </ul>
+      ) : (
+        <EmptyState icon={<Tag size={28} />} title="No labels defined" />
+      )}
+
+      {/* No permission check here: whether this caller may change the schema is the policy
+          engine's answer, so the controls show and a 403 arrives as the server's own
+          message — the same choice every other panel in this application makes. */}
+      <form
+        className="mt-4 flex items-end gap-2 border-t border-ink-800 pt-4"
+        onSubmit={(event) => {
+          event.preventDefault();
+          if (canAddLabel(name)) addLabel.mutate();
+        }}
+      >
+        {/* `Input` puts its own className on the input element and wraps it in a
+            block-level label, so the wrapper is what has to grow here. */}
+        <div className="flex-1">
+          <Input
+            label="Add a label"
+            placeholder="van"
+            value={name}
+            data-new-label=""
+            onChange={(event) => setName(event.target.value)}
+          />
+        </div>
+        <input
+          type="color"
+          className="h-9 w-9 shrink-0 cursor-pointer rounded-md border border-ink-700 bg-ink-950"
+          value={color}
+          aria-label="Label colour"
+          data-new-label-color=""
+          onChange={(event) => setColor(event.target.value)}
+        />
+        <Button type="submit" disabled={!canAddLabel(name) || addLabel.isPending} data-new-label-add="">
+          <Plus size={14} /> Add
+        </Button>
+      </form>
+      {(addLabel.error || removeLabel.error || editLabel.error) && (
+        <div className="mt-3" data-label-error="">
+          <ErrorNotice error={addLabel.error ?? removeLabel.error ?? editLabel.error} />
+        </div>
+      )}
+    </Panel>
+  );
+}
+
+interface EditedLabel {
+  name: string;
+  color: string;
+}
+
+/**
+ * One label's row, while it is being renamed.
+ *
+ * The form holds only the two fields a person can change here; everything else about the
+ * label travels through `labelToPayload` untouched. Escape cancels, because a rename
+ * started by accident should not need a mouse to get out of.
+ */
+function LabelEditor({
+  label,
+  pending,
+  onCancel,
+  onSave,
+}: {
+  label: LabelSchemaEntry;
+  pending: boolean;
+  onCancel: () => void;
+  onSave: (changes: EditedLabel) => void;
+}) {
+  const [name, setName] = useState(label.name);
+  const [color, setColor] = useState(label.color);
+
+  return (
+    <form
+      className="flex items-center gap-2"
+      onSubmit={(event) => {
+        event.preventDefault();
+        if (canAddLabel(name)) onSave({ name, color });
+      }}
+      onKeyDown={(event) => {
+        if (event.key === 'Escape') onCancel();
+      }}
+    >
+      <input
+        type="color"
+        className="h-8 w-8 shrink-0 cursor-pointer rounded-md border border-ink-700 bg-ink-950"
+        value={color}
+        aria-label={`Colour for ${label.name}`}
+        data-label-edit-color=""
+        onChange={(event) => setColor(event.target.value)}
+      />
+      <input
+        className="h-8 w-full min-w-0 rounded-md border border-ink-700 bg-ink-950 px-2 text-sm text-ink-100 focus:border-curve-400"
+        value={name}
+        // The row was replaced by this form on a deliberate click, so the caret belongs
+        // here; landing it anywhere else would make the pencil a two-step control.
+        autoFocus
+        aria-label={`Name for ${label.name}`}
+        data-label-edit-name=""
+        onChange={(event) => setName(event.target.value)}
+      />
+      <button
+        type="submit"
+        className="shrink-0 rounded p-1 text-ink-400 hover:bg-ink-800 hover:text-curve-300 disabled:opacity-50"
+        aria-label="Save"
+        data-label-edit-save=""
+        disabled={pending || !canAddLabel(name)}
+      >
+        <Check size={14} />
+      </button>
+      <button
+        type="button"
+        className="shrink-0 rounded p-1 text-ink-500 hover:bg-ink-800 hover:text-ink-200"
+        aria-label="Cancel"
+        data-label-edit-cancel=""
+        onClick={onCancel}
+      >
+        <X size={14} />
+      </button>
+    </form>
   );
 }
 

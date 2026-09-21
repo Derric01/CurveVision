@@ -10,7 +10,6 @@ from typing import TYPE_CHECKING, Any
 
 from sqlalchemy import (
     Boolean,
-    DateTime,
     ForeignKey,
     Index,
     Integer,
@@ -21,7 +20,7 @@ from sqlalchemy import (
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from curvevision.core.db import Base, TimestampMixin, UUIDPrimaryKeyMixin
-from curvevision.core.types import GUID, EnumString, JSONDocument
+from curvevision.core.types import GUID, EnumString, JSONDocument, UTCDateTime
 from curvevision.domain.enums import BackgroundTaskState, DatasetVersionState, ModelKind
 
 if TYPE_CHECKING:
@@ -52,8 +51,8 @@ class BackgroundTask(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     progress: Mapped[float] = mapped_column(default=0.0, nullable=False)
     message: Mapped[str | None] = mapped_column(String(500))
     attempts: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
-    started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
-    finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    started_at: Mapped[datetime | None] = mapped_column(UTCDateTime())
+    finished_at: Mapped[datetime | None] = mapped_column(UTCDateTime())
     created_by_id: Mapped[uuid.UUID | None] = mapped_column(
         GUID(), ForeignKey("users.id", ondelete="SET NULL")
     )
@@ -114,7 +113,7 @@ class WebhookDelivery(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     status_code: Mapped[int | None] = mapped_column(Integer)
     error: Mapped[str | None] = mapped_column(Text)
     attempts: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
-    delivered_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    delivered_at: Mapped[datetime | None] = mapped_column(UTCDateTime())
 
     webhook: Mapped[Webhook] = relationship(back_populates="deliveries")
 
@@ -177,7 +176,7 @@ class DatasetVersion(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     #: Frozen manifest: task/job ids, frame counts, label schema, statistics.
     manifest: Mapped[dict[str, Any]] = mapped_column(JSONDocument, default=dict, nullable=False)
     statistics: Mapped[dict[str, Any]] = mapped_column(JSONDocument, default=dict, nullable=False)
-    released_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    released_at: Mapped[datetime | None] = mapped_column(UTCDateTime())
     created_by_id: Mapped[uuid.UUID | None] = mapped_column(
         GUID(), ForeignKey("users.id", ondelete="SET NULL")
     )

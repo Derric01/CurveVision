@@ -16,7 +16,6 @@ from typing import TYPE_CHECKING, Any
 
 from sqlalchemy import (
     Boolean,
-    DateTime,
     ForeignKey,
     Index,
     Integer,
@@ -27,7 +26,7 @@ from sqlalchemy import (
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from curvevision.core.db import Base, TimestampMixin, UUIDPrimaryKeyMixin
-from curvevision.core.types import GUID, EnumString, JSONDocument
+from curvevision.core.types import GUID, EnumString, JSONDocument, UTCDateTime
 from curvevision.domain.enums import JobKind, JobState, MediaKind, TaskStatus
 
 if TYPE_CHECKING:
@@ -82,6 +81,9 @@ class Job(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     __table_args__ = (
         UniqueConstraint("task_id", "index", name="uq_job_index"),
         Index("ix_job_assignee_state", "assignee_id", "state"),
+        # The same query with one column changed: `GET /jobs?reviewing=true&state=submitted`
+        # is a reviewer's landing page, as `mine=true` is an annotator's.
+        Index("ix_job_reviewer_state", "reviewer_id", "state"),
     )
 
     task_id: Mapped[uuid.UUID] = mapped_column(
@@ -104,8 +106,8 @@ class Job(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     reviewer_id: Mapped[uuid.UUID | None] = mapped_column(
         GUID(), ForeignKey("users.id", ondelete="SET NULL")
     )
-    submitted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
-    reviewed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    submitted_at: Mapped[datetime | None] = mapped_column(UTCDateTime())
+    reviewed_at: Mapped[datetime | None] = mapped_column(UTCDateTime())
 
     #: Monotonic counter bumped on every annotation write. Clients send the version they
     #: read; a mismatch means someone else edited the job and the write is rejected.

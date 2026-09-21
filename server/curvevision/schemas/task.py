@@ -89,6 +89,19 @@ class JobOut(ORMModel):
     reviewer: UserBrief | None = None
 
 
+class JobListing(JobOut):
+    """A job in a cross-project listing, carrying the task it belongs to.
+
+    `JobOut` deliberately does not have these. `Job.task` is an ordinary lazy relationship,
+    so every route that returns a job would have to eagerly load it — and only the listings
+    need it. "Job #2, frames 0-1" identifies a job to the server and to nobody else; a
+    reviewer reading a queue that spans every project needs to know *what* it is.
+    """
+
+    task_name: str
+    project_id: uuid.UUID
+
+
 class JobReviewRequest(StrictModel):
     #: True accepts the work, False sends it back to the annotator.
     accepted: bool

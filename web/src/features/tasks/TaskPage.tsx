@@ -1,10 +1,10 @@
 import { useCallback, useEffect, useRef, useState, type ChangeEvent } from 'react';
 import clsx from 'clsx';
 import { Link, useParams } from 'react-router-dom';
-import { useQueryClient, useQuery } from '@tanstack/react-query';
+import { useMutation, useQueryClient, useQuery } from '@tanstack/react-query';
 import { ArrowLeft, Files, FolderOpen, PenLine, UploadCloud } from 'lucide-react';
 import { api } from '@/api/client';
-import type { LocalImportResult } from '@/api/types';
+import type { Job, LocalImportResult, Membership } from '@/api/types';
 import { chooseFiles, chooseFolder, isDesktop, onOpenFolder } from '@/desktop';
 import { mergeImportResults, summariseImport, type ImportSummary } from './localImport';
 import {
@@ -17,6 +17,7 @@ import {
 import { GroundTruthPanel } from './GroundTruthPanel';
 import { FrameCountNotice } from './FrameCountNotice';
 import { latestReportByJob, splitJobs } from './groundTruth';
+import { assignmentCandidates, assignmentPatch } from './assignment';
 import {
   Badge,
   Button,
@@ -47,6 +48,23 @@ export function TaskPage() {
   const media = useQuery({
     queryKey: ['task-media', taskId],
     queryFn: () => api.taskMedia(taskId),
+    retry: false,
+  });
+
+  // Who this task's jobs can be handed to. Two hops from here — the task names a project,
+  // the project names an organization — and a nice-to-have like the rest of this page: a
+  // member without the permission to list members gets a 403 and the job list still renders,
+  // just without pickers.
+  const project = useQuery({
+    queryKey: ['project', task.data?.project_id],
+    queryFn: () => api.project(task.data!.project_id),
+    enabled: !!task.data?.project_id,
+    retry: false,
+  });
+  const members = useQuery({
+    queryKey: ['members', project.data?.organization_id],
+    queryFn: () => api.members(project.data!.organization_id),
+    enabled: !!project.data?.organization_id,
     retry: false,
   });
 
@@ -406,10 +424,10 @@ export function TaskPage() {
         ) : split.annotation.length > 0 ? (
           <ul className="divide-y divide-ink-800">
             {split.annotation.map((job) => (
-              <li key={job.id}>
+              <li key={job.id} className="py-3">
                 <Link
                   to={`/jobs/${job.id}`}
-                  className="flex items-center justify-between gap-4 py-3 hover:text-curve-300"
+                  className="flex items-center justify-between gap-4 hover:text-curve-300"
                 >
                   <div>
                     <p className="text-sm text-ink-100">
@@ -421,7 +439,6 @@ export function TaskPage() {
                     <p className="mt-0.5 text-xs text-ink-500">
                       {job.shape_count} shape{job.shape_count === 1 ? '' : 's'} ·{' '}
                       {job.track_count} track{job.track_count === 1 ? '' : 's'}
-                      {job.assignee && ` · ${job.assignee.username}`}
                     </p>
                   </div>
                   <div className="flex items-center gap-3">
@@ -450,6 +467,11 @@ export function TaskPage() {
                     <PenLine size={15} className="text-ink-500" />
                   </div>
                 </Link>
+
+                {/* Siblings of the link, never children: clicking a `<select>` inside it
+                    bubbles to the anchor and opens the editor instead. Tried deliberately
+                    while checking the harness bites, and it does exactly that. */}
+                <AssignmentRow job={job} members={members.data} />
               </li>
             ))}
           </ul>
@@ -464,6 +486,77 @@ export function TaskPage() {
           />
         )}
       </Panel>
+    </div>
+  );
+}
+
+/**
+ * The two people a job can be handed to: whoever annotates it, and whoever rules on it.
+ *
+ * Both are ordinary `<select>`s rather than anything cleverer, because the list is the
+ * organization's members and a team large enough to need a search box is not the team this
+ * has to serve first.
+ *
+ * There is no permission check here. Assignment floors at reviewer rank in the policy
+ * engine, and that answer belongs to the server: a caller without it gets a 403, which is
+ * shown and the row put back to what the server actually holds — rather than the browser
+ * keeping its own copy of the role table and disagreeing with it later.
+ */
+function AssignmentRow({ job, members }: { job: Job; members: Membership[] | undefined }) {
+  const queryClient = useQueryClient();
+  const [error, setError] = useState<string | null>(null);
+
+  const assign = useMutation({
+    mutationFn: (changes: Record<string, string | null>) => api.updateJob(job.id, changes),
+    onSuccess: () => {
+      setError(null);
+      void queryClient.invalidateQueries({ queryKey: ['jobs', job.task_id] });
+    },
+    onError: (caught: unknown) => {
+      setError(caught instanceof Error ? caught.message : 'Could not change the assignment.');
+      // The select has already moved to what was picked; putting the server's answer back is
+      // what stops the row claiming an assignment that was refused.
+      void queryClient.invalidateQueries({ queryKey: ['jobs', job.task_id] });
+    },
+  });
+
+  // Nobody to pick from: either the members are still loading, or this caller cannot list
+  // them. Either way an empty picker is worse than none.
+  if (!members) return null;
+
+  const pickers: { field: 'assignee_id' | 'reviewer_id'; label: string; held: string }[] = [
+    { field: 'assignee_id', label: 'Annotator', held: job.assignee?.id ?? '' },
+    { field: 'reviewer_id', label: 'Reviewer', held: job.reviewer?.id ?? '' },
+  ];
+
+  return (
+    <div className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-1.5">
+      {pickers.map(({ field, label, held }) => (
+        <label key={field} className="flex items-center gap-1.5 text-xs text-ink-500">
+          {label}
+          <select
+            value={held}
+            disabled={assign.isPending}
+            onChange={(event) => assign.mutate(assignmentPatch(field, event.target.value))}
+            className="rounded-md border border-ink-700 bg-ink-950 px-1.5 py-1 text-xs text-ink-200 focus:border-curve-400 focus:outline-none disabled:opacity-50"
+            data-assign={field}
+          >
+            <option value="">Unassigned</option>
+            {assignmentCandidates(members, { forReview: field === 'reviewer_id' }).map(
+              (candidate) => (
+                <option key={candidate.id} value={candidate.id}>
+                  {candidate.label}
+                </option>
+              ),
+            )}
+          </select>
+        </label>
+      ))}
+      {error && (
+        <span className="text-xs text-red-300" data-assign-error="">
+          {error}
+        </span>
+      )}
     </div>
   );
 }

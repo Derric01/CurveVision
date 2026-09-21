@@ -515,7 +515,61 @@ Planned: LabelMe, Open Images, TFRecord, Datumaro bridge.
 ## Phase 5 — Review and quality control · **In Progress**
 
 * Job state machine: `new → in_progress → submitted → (accepted | rejected → in_progress)`.
-* Reviewer role, review assignment separate from annotation assignment.
+  **Done, and reachable from the editor**: the annotator's Submit and the reviewer's
+  accept/send-back are both in the rail. `POST /jobs/{id}/review` and the client's
+  `reviewJob` had existed from the first iterations with nothing calling them, so the
+  machine ran only for the SDK, the CLI and curl. Sending a job back **requires a reason**
+  in the UI, which the endpoint then files as an issue on the job — the API still permits a
+  commentless rejection for a script that has said why elsewhere; a person clicking a button
+  does not get that option, because work returned unexplained is the failure the comment
+  support exists to prevent. Submit is disabled on an `accepted` job rather than sending the
+  `accepted → submitted` transition the server refuses with a 409 nothing rendered.
+  `scripts/verify_job_review.py` drives submit → send back → read the reason as an issue →
+  resubmit → accept against the packaged application.
+* Reviewer role, review assignment separate from annotation assignment. **Done**: the task
+  page's job rows carry an annotator picker and a reviewer picker, filled from the
+  organization's members and narrowed to the ranks the policy engine will accept for each —
+  offering somebody the reviewer slot when `ROLE_FLOOR` will refuse them is offering a 403.
+  Two server bugs surfaced building it, both fixed with tests written to fail first:
+  `update_job` read an omitted field and an explicit `null` identically, so a job could be
+  assigned and **never unassigned** through the API; and because the `assignee`/`reviewer`
+  relationships are eagerly loaded under `expire_on_commit=False`, the response carried
+  whoever held the job *before* the write — a job gaining its first assignee came back as
+  `assignee: null`.
+* A reviewer's **queue**. **Done**: `GET /jobs` gained `reviewing=true` beside `mine=true`
+  — two different questions, *what am I drawing* and *what is waiting on me to check*, each
+  narrowing independently — and a `reviewer_id` parameter mirroring the `assignee_id` the
+  listing always accepted. The My work page asks both and splits the answer: only a
+  `submitted` job can be reviewed (the server's rule, imported from `review.ts` rather than
+  restated), and everything else named to that reviewer is listed apart from it, so a
+  heading never counts half-drawn work as waiting. Each row names its **task**, which
+  `GET /jobs` had eagerly loaded since it was written without ever returning: a queue
+  spanning every project cannot be read as "Job #2, frames 0–1". Indexed to match —
+  `ix_job_reviewer_state` is `ix_job_assignee_state` with one column changed, since the
+  queries are the same shape. `scripts/verify_review_queue.py` drives it against the
+  packaged application.
+* **Changing a label schema after the project exists.** **Done**: the project page's Label
+  schema panel adds a label and removes one. `POST`/`DELETE /projects/{id}/labels` and the
+  policy that gates them had existed since the initial schema with **nothing calling
+  `api.createLabel`**, so a project that turned out to need another class could only get one
+  from the SDK, the CLI or curl — and label schemas are not knowable in advance, which is
+  why those endpoints were written. A label sent without a position now goes to the **end**
+  of the schema: it used to take position 0 like every other unpositioned label, and the
+  listing orders by `(position, name)`, so `van` added to a `car`/`pedestrian` project
+  appeared first. Deleting is safe to offer because `delete_label` refuses a label
+  annotations still reference rather than cascading; the panel shows that refusal. A label
+  is also **renamed and recoloured** in place, through `labelToPayload`, which rebuilds the
+  whole label from the one the server reported: `PUT` is a replace, so a form posting only
+  the fields it changed would reset the label's position, lift its shape restriction and
+  delete its attribute definitions along with the schema validating values already stored on
+  annotations. Two more defects surfaced from writing those tests first: `update_label`
+  never checked for a **duplicate name**, so `create_label`'s rule could be walked around
+  with a rename — and exports key classes by name, so two labels called `car` do not stay
+  cosmetic; and the `PUT` **response reported attributes it had just deleted**, because a
+  re-read after commit under `expire_on_commit=False` skips eager loads for an instance
+  already in the session (`populate_existing=True`). Editing the **attributes** themselves
+  is still not offered. The three routes had no tests at all before this; they have fifteen
+  now.
 * **Merging overlapping jobs** (**Done**): a task with `overlap > 0` hands the same frames to
   two annotators so a track can cross a job seam. Export reconciles those frames instead of
   concatenating them — `services/merge.py`, adapted from the upstream design. Two shapes are

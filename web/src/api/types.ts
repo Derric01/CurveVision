@@ -1,9 +1,16 @@
 /**
  * API contract types.
  *
- * Hand-written to mirror the server's Pydantic models. They are checked against the live
- * OpenAPI schema in CI (`scripts/check-api-types.mjs`), so drift fails the build rather
- * than surfacing as a runtime surprise.
+ * Hand-written to mirror the server's Pydantic models, and **nothing checks that they still
+ * do**. This header used to claim they were verified against the live OpenAPI schema in CI
+ * by `scripts/check-api-types.mjs`; no such script has ever existed and no workflow
+ * referenced it, so the reassurance was worse than silence — it invited trusting a net that
+ * was not there. Drift shows up as a field that is quietly `undefined` at runtime, because
+ * `tsc` is only ever checking this file against itself.
+ *
+ * Until something does check it, the discipline is manual: change a Pydantic schema, change
+ * the interface here in the same commit. `handoff.md` carries generating these from the
+ * OpenAPI document as a candidate piece of work.
  */
 
 export type Role = 'viewer' | 'annotator' | 'reviewer' | 'maintainer' | 'admin' | 'owner';
@@ -30,6 +37,14 @@ export interface UserBrief {
   id: string;
   username: string;
   full_name: string | null;
+}
+
+/** One person's place in an organization, as the members endpoint reports it. */
+export interface Membership {
+  id: string;
+  organization_id: string;
+  role: Role;
+  user: UserBrief;
 }
 
 export interface User extends UserBrief {
@@ -78,6 +93,22 @@ export interface Label {
   skeleton_edges: number[][];
   attributes: AttributeDefinition[];
   children: Label[];
+}
+
+/**
+ * A label as `PUT`/`POST /projects/{id}/labels` accept it — the server's `LabelIn`.
+ *
+ * Not `Label` minus a couple of fields: the server's input schema is strict, so sending a
+ * `Label` straight back is a 422 on `project_id` and `parent_id`. Build one with
+ * `labelToPayload`, which is also where the reason each field has to be present lives.
+ */
+export interface LabelPayload {
+  name: string;
+  color: string;
+  position: number;
+  allowed_shape_types: string[];
+  skeleton_edges: number[][];
+  attributes: AttributeDefinition[];
 }
 
 export interface Project {
@@ -217,6 +248,18 @@ export interface Job {
   updated_at: string;
   assignee: UserBrief | null;
   reviewer: UserBrief | null;
+}
+
+/**
+ * A job as the cross-project listing (`GET /jobs`) returns it.
+ *
+ * The extra two fields are what make a queue spanning every project readable — see the
+ * server's `JobListing`, which carries them only here because `Job.task` is a lazy
+ * relationship every other job route would have to start loading.
+ */
+export interface JobListing extends Job {
+  task_name: string;
+  project_id: string;
 }
 
 export interface FrameInfo {
