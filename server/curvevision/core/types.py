@@ -8,10 +8,11 @@ that difference is allowed to exist.
 from __future__ import annotations
 
 import uuid
+from datetime import UTC, datetime
 from enum import StrEnum
 from typing import Any
 
-from sqlalchemy import CHAR, JSON, Dialect, String, TypeDecorator
+from sqlalchemy import CHAR, JSON, DateTime, Dialect, String, TypeDecorator
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.dialects.postgresql import UUID as PGUUID
 
@@ -38,6 +39,47 @@ class GUID(TypeDecorator[uuid.UUID]):
         if value is None:
             return None
         return value if isinstance(value, uuid.UUID) else uuid.UUID(str(value))
+
+
+class UTCDateTime(TypeDecorator[datetime]):
+    """A timestamp that is timezone-aware UTC on every backend, written and read.
+
+    PostgreSQL's ``timestamptz`` hands back an aware ``datetime``; SQLite has no time-zone
+    type and hands back a naive one for the same column. That difference escapes the
+    database in two ways.
+
+    In Python it is loud: comparing a naive value read from SQLite against an aware
+    ``utcnow()`` raises ``TypeError``, so the bug announces itself.
+
+    Over the wire it is quiet and worse. The same instant serialises as ``...Z`` from an
+    instance that was just written and with **no suffix at all** once the row has been read
+    back -- and a browser reads a suffix-less timestamp as *local* time. The desktop shape
+    is the SQLite one, so every time it showed was shifted by the viewer's UTC offset, and
+    anything ordering these as strings compared two different formats.
+
+    A naive value is assumed to be UTC, because ``utcnow`` is the only thing that writes
+    one; a value that arrives with an offset is converted rather than relabelled.
+    """
+
+    impl = DateTime
+    cache_ok = True
+
+    def load_dialect_impl(self, dialect: Dialect) -> Any:
+        return dialect.type_descriptor(DateTime(timezone=True))
+
+    def process_bind_param(self, value: Any, dialect: Dialect) -> Any:
+        return _as_utc(value)
+
+    def process_result_value(self, value: Any, dialect: Dialect) -> datetime | None:
+        return _as_utc(value)
+
+
+def _as_utc(value: Any) -> datetime | None:
+    if value is None:
+        return None
+    if not isinstance(value, datetime):
+        return value
+    return value.astimezone(UTC) if value.tzinfo is not None else value.replace(tzinfo=UTC)
 
 
 class EnumString(TypeDecorator[Any]):

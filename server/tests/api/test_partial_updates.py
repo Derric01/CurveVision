@@ -127,21 +127,6 @@ class TestUpdatingAProject:
         assert cleared.json()["description"] is None
 
 
-#: `updated_at` and `created_at` are excluded from the whole-body comparisons below, and
-#: **not** because they are expected to differ: they hold the same instant either way. They
-#: are *serialised* differently — `...Z` from the instance that was just written, and with
-#: no suffix at all once the row has been read back from SQLite, which has no time-zone
-#: type. That is its own defect, and a nastier one than it looks, because a browser reads a
-#: suffix-less timestamp as **local** time; it is recorded in `handoff.md` as the next piece
-#: of work. These tests are about staleness, so they compare everything else and leave that
-#: one to the change that fixes it.
-TIMESTAMPS = ("created_at", "updated_at")
-
-
-def without_timestamps(body: dict[str, Any]) -> dict[str, Any]:
-    return {key: value for key, value in body.items() if key not in TIMESTAMPS}
-
-
 class TestAWriteAgreesWithTheNextRead:
     """The general property behind both defects: a response is a read like any other.
 
@@ -162,7 +147,7 @@ class TestAWriteAgreesWithTheNextRead:
             json={"assignee_id": annotator.id, "description": "Now with a holder"},
         )
         read = await owner.get(f"/api/v1/tasks/{task['id']}")
-        assert without_timestamps(written.json()) == without_timestamps(read.json())
+        assert written.json() == read.json()
 
     async def test_for_a_project(
         self, owner: ApiActor, project: dict[str, Any], organization: dict[str, Any]
@@ -175,7 +160,7 @@ class TestAWriteAgreesWithTheNextRead:
             json={"owner_id": lead.id, "description": "Now with an owner"},
         )
         read = await owner.get(f"/api/v1/projects/{project['id']}")
-        assert without_timestamps(written.json()) == without_timestamps(read.json())
+        assert written.json() == read.json()
 
     async def test_for_a_job(
         self, owner: ApiActor, project: dict[str, Any], organization: dict[str, Any]
@@ -189,4 +174,4 @@ class TestAWriteAgreesWithTheNextRead:
             f"/api/v1/jobs/{jobs[0]['id']}", json={"reviewer_id": reviewer.id}
         )
         read = await owner.get(f"/api/v1/jobs/{jobs[0]['id']}")
-        assert without_timestamps(written.json()) == without_timestamps(read.json())
+        assert written.json() == read.json()

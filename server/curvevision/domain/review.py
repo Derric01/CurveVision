@@ -13,7 +13,6 @@ from datetime import datetime
 from typing import TYPE_CHECKING, Any
 
 from sqlalchemy import (
-    DateTime,
     Float,
     ForeignKey,
     Index,
@@ -24,7 +23,7 @@ from sqlalchemy import (
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from curvevision.core.db import Base, TimestampMixin, UUIDPrimaryKeyMixin
-from curvevision.core.types import GUID, EnumString, JSONDocument
+from curvevision.core.types import GUID, EnumString, JSONDocument, UTCDateTime
 from curvevision.domain.enums import IssueState
 
 if TYPE_CHECKING:
@@ -57,7 +56,7 @@ class Issue(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     resolved_by_id: Mapped[uuid.UUID | None] = mapped_column(
         GUID(), ForeignKey("users.id", ondelete="SET NULL")
     )
-    resolved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    resolved_at: Mapped[datetime | None] = mapped_column(UTCDateTime())
 
     comments: Mapped[list[Comment]] = relationship(
         back_populates="issue", cascade="all, delete-orphan", order_by="Comment.created_at"

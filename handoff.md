@@ -5,7 +5,7 @@
 > [`AGENTS.md`](./AGENTS.md) first; it is the working contract. Update this file after every
 > iteration, including the ones that mostly failed.
 >
-> **Last updated:** 2026-09-21 (iteration 50) · branch `claude/start-work-v84c3b` · PRs
+> **Last updated:** 2026-09-21 (iteration 51) · branch `claude/start-work-v84c3b` · PRs
 > [#1](https://github.com/Derric01/CurveVision/pull/1)–[#21](https://github.com/Derric01/CurveVision/pull/21)
 > **all merged**, the last of them carrying iterations 42–44.
 >
@@ -35,9 +35,19 @@ it, and folders annotated in place without copying a byte.
 
 **The tree is green.** `./scripts/check.sh` passes all twelve steps (the previous session
 added ruff and mypy for the SDK, and ruff for `scripts/`, closing gaps where CI checked
-things the local script silently did not): 560 server tests, 15 SDK, 610 web, and `scripts/`
+things the local script silently did not): 562 server tests, 15 SDK, 610 web, and `scripts/`
 is lint-clean under its own `ruff.toml`. Twenty-two browser harnesses drive the packaged
 desktop application in a real Chromium, nightly and on every push to `main`.
+
+**Every timestamp the API returns is UTC, and says so.** `DateTime(timezone=True)` means
+what it says on PostgreSQL and cannot on SQLite, which has no time-zone type — so the same
+column handed back an aware value from one and a naive value from the other, and the same
+instant serialised as `...Z` from a freshly-written instance and with no suffix at all once
+the row had been read back. A browser reads a suffix-less timestamp as **local** time, so
+the desktop shape, which is the SQLite one, showed every time shifted by the viewer's own
+UTC offset. `UTCDateTime` in `core/types.py` normalises both directions, alongside `GUID`
+and `EnumString` and for the same stated reason: that file is where a backend difference is
+allowed to exist. No migration — the DDL it emits is the DDL that was there.
 
 **A `PATCH` can now clear a field, and its answer is not stale.** The same pair of defects
 had been found three times in four iterations, each time by building a screen that needed
@@ -279,22 +289,6 @@ was the last unconnected piece of the desktop application.
 ---
 
 ## Next best action
-
-**The same timestamp comes back in two different formats, and one of them is read as local
-time.** Found by iteration 50's "a write agrees with the next read" test, and deliberately
-left for its own change rather than folded into an unrelated diff. `created_at` and
-`updated_at` serialise as `...Z` from an instance that was just written, and with **no
-suffix at all** once the row has been read back — because `DateTime(timezone=True)` returns
-an aware value on PostgreSQL and a naive one on SQLite, which has no time-zone type. A
-browser reads a suffix-less timestamp as **local** time, so the desktop shape, which is the
-SQLite one, shows every time shifted by the viewer's UTC offset; `ProjectsPage` already does
-`new Date(project.created_at).toLocaleDateString()`, and `issues.ts` orders threads by
-comparing these as strings, which mixed formats break. The fix belongs in
-`core/types.py`, whose own docstring says these decorators "are the only place that
-difference is allowed to exist" — a `UTCDateTime` alongside `GUID` and `EnumString`,
-normalising on the way out, and every `DateTime(timezone=True)` column changed to it. Then
-tighten `TestAWriteAgreesWithTheNextRead` to compare whole bodies, which is what it wants to
-do and currently cannot.
 
 **An attribute editor.** Iteration 49 renamed and recoloured labels by round-tripping
 their attributes untouched, which is the safe half. Changing the attributes themselves —
@@ -657,6 +651,53 @@ being updated and this one was not. Check it against* Completed *before trusting
 ---
 
 ## Last iteration
+
+### 51 — every timestamp is UTC, and says so
+
+The defect iteration 50 found and deliberately left for its own diff. `DateTime(timezone=
+True)` is honoured by PostgreSQL's `timestamptz` and cannot be honoured by SQLite, which has
+no time-zone type: the same column handed back an aware `datetime` from one backend and a
+naive one from the other.
+
+**Two ways that escaped, and the quiet one is the one that mattered.** In Python it is loud
+— comparing a naive value read from SQLite against an aware `utcnow()` raises `TypeError`,
+so it announces itself. Over the wire it said nothing: the same instant came back as
+`...Z` from an instance that had just been written and with **no suffix at all** once the
+row had been read back, and `new Date('2026-09-21T08:29:23')` in a browser is *local* time.
+The desktop shape is the SQLite one, so every time it displayed was shifted by the viewer's
+own UTC offset — silently, and correctly-looking for anybody sitting in UTC.
+`ProjectsPage` renders `new Date(project.created_at).toLocaleDateString()` and `issues.ts`
+orders threads by comparing these as strings, which two formats break.
+
+**`core/types.py` is where this belongs, by that file's own rule.** Its docstring already
+says the decorators there "are the only place that difference [between PostgreSQL and
+SQLite] is allowed to exist", and `EnumString` exists for an exactly analogous reason — a
+value read back being an ordinary `str` so that `is SomeEnum.MEMBER` is silently false.
+`UTCDateTime` joins them: aware UTC on the way in and on the way out, a naive value assumed
+to be UTC because `utcnow` is the only thing that writes one, and an offset value converted
+rather than relabelled. All fifteen `DateTime(timezone=True)` columns now use it.
+
+**No migration, deliberately.** `load_dialect_impl` returns `DateTime(timezone=True)`, so
+the DDL emitted is the DDL that was already there; nothing about the stored data changes,
+only how it is read. A migration would have been a no-op with a version number.
+
+**Confirmed both tests bite** by making `process_result_value` return the value untouched:
+the two new ones in `test_timestamps.py` fail, and so do all three of iteration 50's
+whole-body comparisons, which is the point — that property is now strict rather than
+excluding two fields with an apology.
+
+**No browser harness for this, and not because it is hard.** This container runs in UTC, so
+a harness that rendered a date and compared it against the API would pass whether or not the
+bug is present: local and UTC are the same thing here. A check that cannot fail is the trap
+the last four iterations have each recorded a version of, and adding one here would have
+been the most literal case of it yet. The API-level assertion — that both spellings of the
+same instant carry an offset — is the one that actually distinguishes the two states.
+
+Verified: `./scripts/check.sh` green, all twelve steps — 562 server tests (2 new in
+`test_timestamps.py`), 15 SDK and 610 web unchanged. `TestAWriteAgreesWithTheNextRead` now
+compares whole bodies, with nothing excluded.
+
+## Iteration 50
 
 ### 50 — the fourth and fifth instances of a bug found by looking, not by tripping
 
