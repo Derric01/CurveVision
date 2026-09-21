@@ -23,6 +23,7 @@ import type {
   Job,
   Label,
   LocalImportResult,
+  Membership,
   ModelRegistration,
   Organization,
   Page,
@@ -237,6 +238,10 @@ export const api = {
   // ---------------------------------------------------------------- organizations
   organizations: () => request<Organization[]>('/organizations'),
 
+  /** Everyone in an organization, with the role each holds — who a job can be handed to. */
+  members: (organizationId: string) =>
+    request<Membership[]>(`/organizations/${organizationId}/members`),
+
   createOrganization: (input: { slug: string; name: string; description?: string }) =>
     request<Organization>('/organizations', { method: 'POST', body: input }),
 
@@ -393,8 +398,18 @@ export const api = {
 
   job: (id: string) => request<Job>(`/jobs/${id}`),
 
-  updateJob: (id: string, changes: Partial<Pick<Job, 'state' | 'locked'>> & { assignee_id?: string }) =>
-    request<Job>(`/jobs/${id}`, { method: 'PATCH', body: changes }),
+  /**
+   * `assignee_id`/`reviewer_id` accept `null` to unassign, and the server distinguishes
+   * that from omitting the field — so build the body with the keys you mean to change and
+   * leave the rest out, rather than spreading a whole job into it.
+   */
+  updateJob: (
+    id: string,
+    changes: Partial<Pick<Job, 'state' | 'locked'>> & {
+      assignee_id?: string | null;
+      reviewer_id?: string | null;
+    },
+  ) => request<Job>(`/jobs/${id}`, { method: 'PATCH', body: changes }),
 
   reviewJob: (id: string, accepted: boolean, comment?: string) =>
     request<Job>(`/jobs/${id}/review`, { method: 'POST', body: { accepted, comment } }),

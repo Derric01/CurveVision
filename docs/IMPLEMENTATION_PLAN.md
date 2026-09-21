@@ -526,11 +526,18 @@ Planned: LabelMe, Open Images, TFRecord, Datumaro bridge.
   `accepted → submitted` transition the server refuses with a 409 nothing rendered.
   `scripts/verify_job_review.py` drives submit → send back → read the reason as an issue →
   resubmit → accept against the packaged application.
-* Reviewer role, review assignment separate from annotation assignment. The *role* and the
-  `reviewer_id` column exist and are enforced; **assigning** a named annotator or reviewer to
-  a job is API-only — no UI picks a person, and `GET /jobs?mine=true` filters on
-  `assignee_id` alone, so a reviewer has no queue of their own and reaches submitted work
-  through the task's job list.
+* Reviewer role, review assignment separate from annotation assignment. **Done**: the task
+  page's job rows carry an annotator picker and a reviewer picker, filled from the
+  organization's members and narrowed to the ranks the policy engine will accept for each —
+  offering somebody the reviewer slot when `ROLE_FLOOR` will refuse them is offering a 403.
+  Two server bugs surfaced building it, both fixed with tests written to fail first:
+  `update_job` read an omitted field and an explicit `null` identically, so a job could be
+  assigned and **never unassigned** through the API; and because the `assignee`/`reviewer`
+  relationships are eagerly loaded under `expire_on_commit=False`, the response carried
+  whoever held the job *before* the write — a job gaining its first assignee came back as
+  `assignee: null`. What is still missing is a reviewer's **queue**: `GET /jobs?mine=true`
+  filters on `assignee_id` alone, so "what is waiting for me to review" cannot be asked, and
+  a reviewer reaches submitted work through the task's job list.
 * **Merging overlapping jobs** (**Done**): a task with `overlap > 0` hands the same frames to
   two annotators so a track can cross a job seam. Export reconciles those frames instead of
   concatenating them — `services/merge.py`, adapted from the upstream design. Two shapes are

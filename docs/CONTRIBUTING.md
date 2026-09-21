@@ -85,7 +85,7 @@ typo at the point it was made.
 ## Browser harnesses
 
 `./scripts/check.sh` covers everything CI runs on a push, and it does not open a browser.
-Nineteen scripts in `scripts/` do — they launch the **packaged desktop application**, drive it in
+Twenty scripts in `scripts/` do — they launch the **packaged desktop application**, drive it in
 Chromium, and assert against the **API** rather than the DOM, because the question is not "did
 the page look right" but "is the data now what the user asked for".
 
@@ -115,9 +115,14 @@ outcome. `verify_job_review.py` pins a defect found by reading the header it was
 alongside: Submit was disabled only for a job already `submitted`, so pressing it on an
 `accepted` one sent the `accepted → submitted` transition the server refuses with a 409 that
 nothing rendered — an enabled button whose only possible outcome was a silent failure.
+`verify_job_assignment.py` is the clearest example of why the bite has to be checked rather
+than assumed: its claim that the pickers do not navigate passed happily with the pickers
+deliberately nested *inside* the row's link, because `select_option` dispatches a change
+without a click and so nothing bubbled to the anchor. Clicking first, as a person does,
+makes it fail exactly as it should.
 
 They run **nightly and on every push to `main`** (`.github/workflows/browser.yml`), not on
-pull requests: a PyInstaller build plus nineteen end-to-end runs is twenty minutes, and CI that
+pull requests: a PyInstaller build plus twenty end-to-end runs is twenty minutes, and CI that
 slow stops being run. Trigger one by hand from the Actions tab — the workflow takes a single
 harness name — or run one locally:
 
@@ -136,6 +141,7 @@ python scripts/verify_view_settings.py
 python scripts/verify_cuboid.py
 python scripts/verify_resumable_upload.py
 python scripts/verify_job_review.py
+python scripts/verify_job_assignment.py
 ```
 
 **Both build steps, in that order, every time.** The packaged sidecar embeds `web/dist`, so a

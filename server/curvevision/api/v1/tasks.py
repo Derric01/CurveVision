@@ -536,11 +536,16 @@ async def update_job(
     payload: JobUpdate, scope: JobScopeDep, session: SessionDep, identity: IdentityDep
 ) -> JobOut:
     job = scope.job
-    if payload.assignee_id is not None or payload.reviewer_id is not None:
+    # `model_fields_set` rather than a None check, because for these two fields the
+    # difference matters: an omitted field means "leave it alone" and an explicit null means
+    # "unassign". Reading both as None made a job assignable and never unassignable -- the
+    # column is nullable, and nothing but this could put it back.
+    assignment_fields = {"assignee_id", "reviewer_id"} & payload.model_fields_set
+    if assignment_fields:
         scope.authorize(Action.ASSIGN)
-        if payload.assignee_id is not None:
+        if "assignee_id" in assignment_fields:
             job.assignee_id = payload.assignee_id
-        if payload.reviewer_id is not None:
+        if "reviewer_id" in assignment_fields:
             job.reviewer_id = payload.reviewer_id
     if payload.locked is not None:
         scope.authorize(Action.UPDATE)
@@ -554,6 +559,14 @@ async def update_job(
             scope.authorize(Action.UPDATE)
         await task_service.transition_job(session, job, payload.state, actor=identity.user)
     await session.commit()
+
+    if assignment_fields:
+        # `assignee` and `reviewer` were loaded when the job was fetched, and the
+        # sessionmaker is `expire_on_commit=False`, so writing the *id* leaves the loaded
+        # relationship holding whoever was there before. Without this the response reports
+        # the previous holder -- or `null` for a job that just gained its first one, which
+        # is what a picker would render straight back at the person who just assigned it.
+        await session.refresh(job, list(assignment_fields | {"assignee", "reviewer"}))
     return JobOut.model_validate(job)
 
 

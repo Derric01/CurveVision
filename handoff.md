@@ -5,7 +5,7 @@
 > [`AGENTS.md`](./AGENTS.md) first; it is the working contract. Update this file after every
 > iteration, including the ones that mostly failed.
 >
-> **Last updated:** 2026-09-21 (iteration 45) · branch `claude/start-work-v84c3b` · PRs
+> **Last updated:** 2026-09-21 (iteration 46) · branch `claude/start-work-v84c3b` · PRs
 > [#1](https://github.com/Derric01/CurveVision/pull/1)–[#21](https://github.com/Derric01/CurveVision/pull/21)
 > **all merged**, the last of them carrying iterations 42–44.
 >
@@ -35,9 +35,23 @@ it, and folders annotated in place without copying a byte.
 
 **The tree is green.** `./scripts/check.sh` passes all twelve steps (the previous session
 added ruff and mypy for the SDK, and ruff for `scripts/`, closing gaps where CI checked
-things the local script silently did not): 525 server tests, 15 SDK, 575 web, and `scripts/`
-is lint-clean under its own `ruff.toml`. Nineteen browser harnesses drive the packaged
+things the local script silently did not): 529 server tests, 15 SDK, 584 web, and `scripts/`
+is lint-clean under its own `ruff.toml`. Twenty browser harnesses drive the packaged
 desktop application in a real Chromium, nightly and on every push to `main`.
+
+**A job can be handed to a person from the task page, and taken back.** `Job.assignee_id`
+and `Job.reviewer_id` have been enforced by the policy engine and settable through
+`PATCH /jobs/{id}` since the first iterations, and **no screen set either** — the web client
+did not even have a `members` method to ask who the candidates were, so dividing a task
+between three annotators meant three API calls from a terminal. Every job row on the task
+page now carries an annotator picker and a reviewer picker. Writing the tests before the
+code found two server bugs that nothing reading the database could have seen: an omitted
+field and an explicit `null` were read the same way, so the nullable column had no route back
+to null and **an assigned job could never be unassigned**; and because those relationships
+are eagerly loaded under `expire_on_commit=False`, writing the *id* left the loaded
+relationship stale, so **the response named the previous holder** — a job gaining its first
+assignee came back as `assignee: null`, which a picker would render straight back at the
+person who had just assigned it.
 
 **A reviewer can finally rule on a job from the application.** `POST /jobs/{id}/review`, the
 state machine behind it and the web client's `reviewJob` had all existed since early in the
@@ -65,8 +79,9 @@ differently. The same "recount, rebuild jobs, mark ready, maybe enqueue a probe"
 was already duplicated between the direct-upload and local-import routes; a third copy for
 this path was the "the next feature needs a fourth" case `AGENTS.md` names as the reason to
 pull something out, so it is now one function, `finish_ingestion`, called by all three.
-Reachable today only at the API layer — the SDK, the CLI and the web upload panel all still
-send a file in one request, which is honest and unchanged in this iteration.
+Reached from the SDK, the CLI and a task-page upload panel too, which iteration 43 added —
+see *Completed*. (This paragraph said for three iterations that it was API-only; that was
+written in iteration 42 and was true for about a day.)
 
 **A cuboid can now be drawn, not only carried.** `ShapeType.CUBOID` has been in the domain
 model since early in the project — the comparison/merge IoU logic, track interpolation and
@@ -173,9 +188,10 @@ are drawn. That closes the last case of the platform exporting a dataset shape i
 produce.
 
 Honestly incomplete, and marked as such everywhere: signed desktop installers (blocked
-outside the repository) and reaching the resumable-upload API from the SDK, the CLI and the
-web upload panel, all of which still send a file in one request. The mask brush, mentioned
-here in an earlier iteration as also incomplete, was finished in iteration 37, below.
+outside the repository) and a reviewer's **queue** — `GET /jobs?mine=true` filters on
+`assignee_id` alone, so a reviewer with jobs named to them has no way to ask for them. The
+mask brush and the resumable upload's SDK, CLI and browser clients, all mentioned here in
+earlier iterations as also incomplete, were finished in iterations 37 and 43 respectively.
 
 **Annotation quality is measured rather than declared, and a reviewer can now see it.** A
 task holds a ground-truth job; scoring an annotation job against it produces per-label
@@ -225,23 +241,23 @@ was the last unconnected piece of the desktop application.
 
 ## Next best action
 
-**Assigning a job to a person, from the application.** Iteration 45 gave the reviewer the
-*decision*; what is still missing either side of it is the *assignment*. `Job.assignee_id`
-and `Job.reviewer_id` exist, are enforced by the policy engine, and are settable through
-`PATCH /jobs/{id}` — and no screen anywhere sets either. A manager splitting a task between
-three annotators has to do it over the API. Two halves, and the first is the small one:
+**A reviewer's queue.** Iteration 45 gave the reviewer the *decision* and iteration 46 gave
+the manager the *assignment*; the way in is what is still missing. `GET /jobs?mine=true`
+filters on `assignee_id` alone, so "what is waiting for *me* to review" cannot be asked at
+all — a named reviewer finds submitted work by opening each task and reading its job list.
+It wants one more `where` clause and a query parameter beside `mine`; the server change is
+about three lines and the frontend is a list. The judgement in it is what the queue *means*:
+"jobs where I am the named reviewer" or "submitted jobs I have the rank to review". The first
+is the honest one to build, and it is now the useful one too, because a picker finally sets
+`reviewer_id`. Unblocked and in-repo — this was the second half of iteration 46's item, left
+deliberately because the picker had to come first.
 
-* **A person picker on the job row** (task page, or the editor header): the organization's
-  members are already listed by `GET /organizations/{id}/members`, and `api.updateJob`
-  already takes `assignee_id`. This is wiring, not design.
-* **A reviewer's queue.** `GET /jobs?mine=true` filters on `assignee_id` alone, so "what is
-  waiting for *me* to review" cannot be asked. It wants one more `where` clause and a query
-  parameter beside `mine` — the server change is three lines; the judgement is whether the
-  queue means "jobs where I am the named reviewer" or "submitted jobs I have the rank to
-  review", and the first is the honest one to build while nothing assigns reviewers.
-
-Both are unblocked and in-repo. Do the picker first: without it `reviewer_id` is never set,
-which makes the queue an empty list with a good implementation behind it.
+**A second candidate, smaller and unglamorous: generate `web/src/api/types.ts` from the
+OpenAPI schema.** The file is hand-maintained and nothing verifies it against the server —
+its own header claimed otherwise until iteration 46 corrected it (see below). A drifted type
+is not caught by `tsc`, which only knows what the file says; it is caught by a person
+debugging a field that is always `undefined`. The server already serves the schema, so this
+is a build step and a check, not a design problem.
 
 **Then, still needing the user:**
 
@@ -266,9 +282,12 @@ on the list" is exactly the "next unchecked box" `AGENTS.md` says not to default
 > **How the last two real gaps were found, since both came from the same habit rather than
 > from this list.** Iteration 42 found a docstring that named endpoints which did not exist.
 > Iteration 45 listed every method on the web API client and grepped each for a caller:
-> `reviewJob` had none, and neither did `createLabel`, `deleteTask` or `taskProgress` (those
-> three are still uncalled — a label cannot be added to a project after it is created, and a
-> task cannot be deleted, from the application). **A client method nobody calls is this
+> `reviewJob` had none, and neither did `createLabel`, `deleteTask`, `taskProgress` or
+> `frameInfo`. `reviewJob` was wired that iteration; the other four are still uncalled — a
+> label cannot be added to a project after it is created, and a task cannot be deleted, from
+> the application. Iteration 46 came from the same sweep, one level out: `api.members` did
+> not exist *to* be called, which is the same gap wearing a different hat. **A client method
+> nobody calls is this
 > codebase's most reliable tell** for a feature that is complete everywhere except where a
 > person could reach it: it is how the auto-annotate panel, the suggestion review and the
 > issues panel were each found missing, and now this.
@@ -279,10 +298,14 @@ in CI as upcoming work. All of that has since shipped — see* Completed *— an
 had drifted into repeating some of it as "next" long after it was done. Trimmed to what is
 actually outstanding.*
 
-> **A note for whoever writes the next browser harness.** The nineteen in `scripts/` have
+> **A note for whoever writes the next browser harness.** The twenty in `scripts/` have
 > now found every defect the unit suites missed, most recently a Submit button that stayed
 > enabled on an accepted job and failed silently, and a resumable upload that restarted from
-> zero instead of resuming. They need a packaged sidecar and a Chromium, so nightly rather
+> zero instead of resuming. **Make each new check fail before you trust it passing**:
+> iteration 46's "the pickers do not navigate" check passed happily with the pickers nested
+> inside the row's link, because `select_option` dispatches a change without a click. A check
+> that cannot fail is worse than no check, because it is also a claim.
+> They need a packaged sidecar and a Chromium, so nightly rather
 > than per-push (see
 > `.github/workflows/browser.yml`), and the sidecar **embeds `web/dist`** — a run needs
 > `npm --prefix web run build` *and* a sidecar rebuild, or it silently tests the previous
@@ -489,6 +512,18 @@ this caller may review is the policy engine's answer, so a 403 arrives as the se
 message, the same way the quality and ground-truth panels behave. Driven end to end in a
 browser through submit → send back → read the reason as an issue → resubmit → accept.
 
+**Assigning a job, from the application** — every job row on the task page carries an
+annotator picker and a reviewer picker, filled from `GET /organizations/{id}/members`, and
+either can be put back to Unassigned. Who is offered differs by field: anyone who can hold
+work for the annotator, `reviewer` and above for the reviewer, ordered by the label they are
+shown under. `assignment.ts` holds that rule and is pure and separately tested, including the
+one that matters most to the server: the empty option becomes an explicit `null` in the
+patch, never a dropped key, which is the distinction `update_job` now reads through
+`model_fields_set`. No client-side permission check — a viewer sees the pickers and gets the
+policy engine's 403 rendered beside the row. The pickers are **siblings** of the row's link,
+not children, so using one does not open the editor; that is asserted by a harness check
+which had to be rewritten before it could fail.
+
 **Also** — Python SDK and CLI, Docker Compose deployment, CI, issue/PR templates, and the
 full docs set including seven ADRs.
 
@@ -511,7 +546,7 @@ full docs set including seven ADRs.
 | Choosing individual files (desktop) | Complete and measured in a browser: `choose_files` now has a caller, one `local-import` call per chosen file, a failed file reported in `skipped` without aborting the others, and the results of a whole batch merged into one summary. |
 | Cuboid (2D wireframe box) | Complete and measured in a browser: a two-stage tool (drag the front face, then move and click to set the depth), a wireframe renderer, and CVAT XML export/import using CVAT's own real attribute names. The backend needed no new code at all — `ShapeType.CUBOID`, its minimum-points entry, its IoU comparison and its track interpolation were already there, unused. **Not** the 3D/point-cloud kind — see `docs/ROADMAP.md`'s honestly-unchanged limitation on that. |
 | Resumable uploads | Complete and tested end to end — API, SDK, CLI and the web upload panel: create a session, `PATCH` chunks at a stated offset, read the current offset back, complete, resume by id after a crash or a page reload. Driven in a browser through a deliberately dropped chunk and a real resume. Nothing outstanding. |
-| Job review | The **decision** is complete and driven in a browser: accept or send back with a required reason, from the editor's rail, on a submitted job. What is still API-only is **assignment** — no UI names an annotator or a reviewer for a job, and `GET /jobs?mine=true` filters on `assignee_id` alone, so a reviewer has no queue and finds submitted work through the task's job list. |
+| Job review | Both halves are complete and driven in a browser: the **decision** (accept or send back with a required reason, from the editor's rail, on a submitted job) and the **assignment** (an annotator picker and a reviewer picker on each job row of the task page, either clearable back to Unassigned). What is still missing is a reviewer's **queue** — `GET /jobs?mine=true` filters on `assignee_id` alone, so a named reviewer has nowhere to ask what is waiting and finds submitted work through each task's job list. |
 
 *This table went stale once — it still listed the open-folder flow and chunked delivery as
 unbuilt several iterations after both shipped, because the narrative sections above were
@@ -530,6 +565,75 @@ being updated and this one was not. Check it against* Completed *before trusting
 ---
 
 ## Last iteration
+
+### 46 — a job can be handed to a person, and taken back
+
+The item this file named as next, and the other half of the loop iteration 45 opened: a
+reviewer could rule on a job, and nothing in the product could say whose job it was.
+`Job.assignee_id` and `Job.reviewer_id` have been in the domain model, enforced by the policy
+engine (`(JOB, ASSIGN)` floors at `Role.REVIEWER`) and settable through `PATCH /jobs/{id}`
+since the first iterations. No screen set either, and `web/src/api/client.ts` had no
+`members` method at all — so there was not even a way to ask who the candidates *were*.
+Dividing a task between three annotators meant three API calls from a terminal.
+
+**Two server bugs, both found by writing the tests first, and both invisible to a test that
+asserts against the database.** Four went into `TestJobAssignment` before `update_job` was
+touched; three of them failed:
+
+* **A job could be assigned and never unassigned.** `update_job` read an omitted field and an
+  explicit `null` identically — `if payload.assignee_id is not None` — so a nullable column
+  had no route back to null, and nothing else in the product could put it there either.
+  Fixed with `payload.model_fields_set`, which is the only thing that distinguishes "leave it
+  alone" from "clear it" in a partial update, and the reason those schema fields are optional
+  in the first place.
+* **The response named the previous holder.** `assignee` and `reviewer` are `lazy="selectin"`
+  relationships and the sessionmaker is `expire_on_commit=False`, so writing the *id* left
+  the already-loaded relationship object untouched: a job gaining its first assignee came
+  back with `assignee: null`. A picker that renders what the server just returned would have
+  reset itself to Unassigned in front of the person who had that moment assigned it. Fixed by
+  refreshing exactly the fields the request wrote.
+
+Both are about what the API *says* rather than what it stores, which is why they survived
+this long under a suite that reads rows back.
+
+**Who is offered differs by field, and that rule is pure.** `assignment.ts` owns it —
+anyone who can hold work for the annotator, `reviewer` and above for the reviewer, sorted by
+the label each is shown under, with `describePerson` preferring a full name where there is
+one. Nine unit tests pin it, including the one that pairs with the server fix: the empty
+option produces `{"assignee_id": null}`, an explicit null, never a dropped key.
+
+**No client-side permission check, on purpose, for the third panel running.** Whether this
+caller may assign is the policy engine's answer
+([ADR 0002](./docs/adr/0002-in-process-policy-engine.md)): the pickers render, and a caller
+without the rank gets the server's own 403 shown beside the row. A copy of `ROLE_FLOOR` in
+the browser would be a second thing to keep true, and it would be the one that is wrong.
+
+**A harness check that could not fail, caught by trying to make it fail.** The claim that
+using a picker does not navigate is the entire reason they are *siblings* of the row's
+`<Link>` rather than children — the trap the timeline's keyframe markers already hit once.
+Nesting them inside the link deliberately, to watch the check go red, did nothing: it still
+passed, because Playwright's `select_option` dispatches a change event without a click, so
+nothing ever bubbled to the anchor. Clicking first, as a person does, makes it fail exactly
+as it should. Worth stating plainly, because the check had been written, read and run green
+before that: it was asserting nothing, and looked identical from the outside to one that was.
+
+**A false claim removed while here.** `web/src/api/types.ts`'s header said these types "are
+checked against the live OpenAPI schema in CI (`scripts/check-api-types.mjs`)". That script
+has never existed and nothing in the repository references it — a reader trusting the header
+would believe a hand-maintained file was machine-verified against the server. Replaced with
+what is true (nothing checks them) and with the thing that would make it true, now a
+candidate under *Next best action*.
+
+Verified: `./scripts/check.sh` green, all twelve steps — 529 server tests (4 new in
+`TestJobAssignment`), 15 SDK (unchanged), 584 web (9 new in `assignment.test.ts`).
+`scripts/verify_job_assignment.py`'s twelve checks pass against a rebuilt sidecar, and it is
+registered in `.github/workflows/browser.yml` and `docs/CONTRIBUTING.md`. The nesting
+sabotage above was restored and the rebuilt bundle hash came back byte-identical
+(`index-BIxfswFW.js`) before the green run was trusted. Also re-ran `verify_job_review.py`,
+`verify_ground_truth_setup.py` and `verify_frame_count_warning.py` — the other three
+harnesses that drive this page or this job's state — and all pass.
+
+## Iteration 45
 
 ### 45 — a reviewer can rule on a job, from the application
 

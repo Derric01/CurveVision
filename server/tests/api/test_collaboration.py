@@ -210,6 +210,84 @@ class TestAnnotationPermissions:
         assert cleared.status_code == 409
 
 
+class TestJobAssignment:
+    """Handing a job to a person, and taking it back.
+
+    Both halves matter to the screen that drives this: a picker that can assign but never
+    unassign is a picker with no undo, and one whose response reports the previous holder
+    shows the wrong name until something else refetches.
+    """
+
+    async def test_assigning_reports_the_new_holder_rather_than_the_previous_one(
+        self, owner: ApiActor, project: dict[str, Any], organization: dict[str, Any]
+    ) -> None:
+        _task, jobs = await make_task(owner, project)
+        job_id = jobs[0]["id"]
+        first = await register(owner.client, "firsthand")
+        second = await register(owner.client, "secondhand")
+        for who in (first, second):
+            await add_member(owner, organization["id"], who, Role.ANNOTATOR)
+
+        assigned = await owner.patch(f"/api/v1/jobs/{job_id}", json={"assignee_id": first.id})
+        assert assigned.status_code == 200
+        assert assigned.json()["assignee"]["username"] == "firsthand"
+
+        # The relationship was eagerly loaded when the job was fetched and the sessionmaker
+        # is `expire_on_commit=False`, so a response built from the same instance can carry
+        # the holder from before the write unless it is refreshed.
+        reassigned = await owner.patch(f"/api/v1/jobs/{job_id}", json={"assignee_id": second.id})
+        assert reassigned.status_code == 200
+        assert reassigned.json()["assignee"]["username"] == "secondhand"
+        reread = await owner.get(f"/api/v1/jobs/{job_id}")
+        assert reread.json()["assignee"]["username"] == "secondhand"
+
+    async def test_an_explicit_null_unassigns_while_an_omitted_field_leaves_it_alone(
+        self, owner: ApiActor, project: dict[str, Any], organization: dict[str, Any]
+    ) -> None:
+        _task, jobs = await make_task(owner, project)
+        job_id = jobs[0]["id"]
+        annotator = await register(owner.client, "holder")
+        await add_member(owner, organization["id"], annotator, Role.ANNOTATOR)
+        await owner.patch(f"/api/v1/jobs/{job_id}", json={"assignee_id": annotator.id})
+
+        # Locking the job says nothing about who holds it.
+        untouched = await owner.patch(f"/api/v1/jobs/{job_id}", json={"locked": True})
+        assert untouched.json()["assignee"]["username"] == "holder"
+
+        cleared = await owner.patch(f"/api/v1/jobs/{job_id}", json={"assignee_id": None})
+        assert cleared.status_code == 200
+        assert cleared.json()["assignee"] is None
+        assert (await owner.get(f"/api/v1/jobs/{job_id}")).json()["assignee"] is None
+
+    async def test_the_reviewer_is_assigned_and_cleared_the_same_way(
+        self, owner: ApiActor, project: dict[str, Any], organization: dict[str, Any]
+    ) -> None:
+        _task, jobs = await make_task(owner, project)
+        job_id = jobs[0]["id"]
+        reviewer = await register(owner.client, "checkerup")
+        await add_member(owner, organization["id"], reviewer, Role.REVIEWER)
+
+        assigned = await owner.patch(f"/api/v1/jobs/{job_id}", json={"reviewer_id": reviewer.id})
+        assert assigned.json()["reviewer"]["username"] == "checkerup"
+
+        cleared = await owner.patch(f"/api/v1/jobs/{job_id}", json={"reviewer_id": None})
+        assert cleared.json()["reviewer"] is None
+
+    async def test_assigning_needs_the_rank_for_it(
+        self, owner: ApiActor, project: dict[str, Any], organization: dict[str, Any]
+    ) -> None:
+        """An annotator cannot hand work to somebody else, including to themselves."""
+        _task, jobs = await make_task(owner, project)
+        job_id = jobs[0]["id"]
+        annotator = await register(owner.client, "notamanager")
+        await add_member(owner, organization["id"], annotator, Role.ANNOTATOR)
+
+        refused = await annotator.patch(
+            f"/api/v1/jobs/{job_id}", json={"assignee_id": annotator.id}
+        )
+        assert refused.status_code == 403
+
+
 class TestReviewWorkflow:
     async def test_rejection_sends_work_back_with_an_explanation(
         self, owner: ApiActor, project: dict[str, Any], organization: dict[str, Any]
