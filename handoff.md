@@ -5,7 +5,7 @@
 > [`AGENTS.md`](./AGENTS.md) first; it is the working contract. Update this file after every
 > iteration, including the ones that mostly failed.
 >
-> **Last updated:** 2026-09-21 (iteration 47) · branch `claude/start-work-v84c3b` · PRs
+> **Last updated:** 2026-09-21 (iteration 48) · branch `claude/start-work-v84c3b` · PRs
 > [#1](https://github.com/Derric01/CurveVision/pull/1)–[#21](https://github.com/Derric01/CurveVision/pull/21)
 > **all merged**, the last of them carrying iterations 42–44.
 >
@@ -35,9 +35,22 @@ it, and folders annotated in place without copying a byte.
 
 **The tree is green.** `./scripts/check.sh` passes all twelve steps (the previous session
 added ruff and mypy for the SDK, and ruff for `scripts/`, closing gaps where CI checked
-things the local script silently did not): 535 server tests, 15 SDK, 593 web, and `scripts/`
-is lint-clean under its own `ruff.toml`. Twenty-one browser harnesses drive the packaged
+things the local script silently did not): 543 server tests, 15 SDK, 605 web, and `scripts/`
+is lint-clean under its own `ruff.toml`. Twenty-two browser harnesses drive the packaged
 desktop application in a real Chromium, nightly and on every push to `main`.
+
+**A project's label schema is no longer fixed the moment it is created.** A label is added
+from the project page and removed there, which nothing in the application could do:
+`POST`/`DELETE /projects/{id}/labels` and the policy gating them had existed since the
+initial schema with **nothing calling `api.createLabel`**, so a project that turned out to
+need a `van` class could only get one from the SDK, the CLI or curl. A label added later now
+lands at the **end** of the schema — it used to take position 0 like every unpositioned
+label, and the listing orders by `(position, name)`, so `van` added to a `car`/`pedestrian`
+project appeared first, in an order nobody chose. Deleting is safe to offer because the
+server refuses a label annotations still reference rather than cascading, and the panel shows
+that refusal. Editing a label in place is deliberately not offered yet: `PUT` replaces a
+label's attributes wholesale, so a name box without an attribute editor would silently
+delete an attribute schema.
 
 **A reviewer can ask what is waiting for them.** `GET /jobs?mine=true` filtered on
 `assignee_id` alone, so the question "what is waiting on *me* to check" could not be asked
@@ -251,16 +264,16 @@ was the last unconnected piece of the desktop application.
 
 ## Next best action
 
-**A project's label schema is fixed the moment it is created.** `POST /projects/{id}/labels`
-exists, the policy engine gates it, and `api.createLabel` sits in the web client **with no
-caller** — so a project that turns out to need a `van` class alongside `car` and `truck` can
-only get one from the SDK, the CLI or curl. This is the same shape of gap as the last three
-iterations (a complete feature with no way in) and it is the most ordinary thing a person
-will want that this product cannot do: label schemas are not knowable in advance, which is
-the whole reason the endpoint was written. Watch for the delete case — an existing
-annotation referencing a removed label is the hard half, and adding is the useful half, so
-adding is where to start. `createLabel` is one of four client methods still called by
-nothing; the other three are `deleteTask`, `taskProgress` and `frameInfo`.
+**Editing a label in place.** Iteration 48 added and removed labels and stopped short of
+changing one, for a stated reason rather than a shrug: `PUT /projects/{id}/labels/{id}`
+replaces a label's **attributes** wholesale, and `update_label` reuses an existing attribute
+row only when the client sends its id back. A rename box that posted `{name, color}` would
+therefore delete every attribute definition on that label and, with them, the schema that
+validates the values already stored on annotations. So this is not a name box; it is an
+attribute editor, and the two ship together or not at all. Everything it needs exists
+server-side (the id-preserving update is already written and is the careful part), and
+`test_label_schema.py` is the file to extend. The payoff is ordinary and daily: a typo in a
+class name, a colour that turned out to be unreadable, an attribute nobody uses.
 
 **A second candidate, smaller and unglamorous: generate `web/src/api/types.ts` from the
 OpenAPI schema.** The file is hand-maintained and nothing verifies it against the server —
@@ -308,16 +321,18 @@ in CI as upcoming work. All of that has since shipped — see* Completed *— an
 had drifted into repeating some of it as "next" long after it was done. Trimmed to what is
 actually outstanding.*
 
-> **A note for whoever writes the next browser harness.** The twenty-one in `scripts/` have
+> **A note for whoever writes the next browser harness.** The twenty-two in `scripts/` have
 > now found every defect the unit suites missed, most recently a Submit button that stayed
 > enabled on an accepted job and failed silently, and a resumable upload that restarted from
 > zero instead of resuming. **Make each new check fail before you trust it passing**:
 > iteration 46's "the pickers do not navigate" check passed happily with the pickers nested
 > inside the row's link, because `select_option` dispatches a change without a click, and
 > iteration 47's queue summary read the right number under a deliberately wrong query
-> because the fixture happened to hold exactly one submitted job either way. A check that
-> cannot fail is worse than no check, because it is also a claim — and the fixture is part
-> of the check.
+> because the fixture happened to hold exactly one submitted job either way, and
+> iteration 48's "the new label is offered in the editor" check waited for that very label
+> and then asserted it was there — which can time out but can never fail. A check that
+> cannot fail is worse than no check, because it is also a claim; the fixture is part of the
+> check, and so is what you waited for.
 > They need a packaged sidecar and a Chromium, so nightly rather
 > than per-push (see
 > `.github/workflows/browser.yml`), and the sidecar **embeds `web/dist`** — a run needs
@@ -537,6 +552,16 @@ policy engine's 403 rendered beside the row. The pickers are **siblings** of the
 not children, so using one does not open the editor; that is asserted by a harness check
 which had to be rewritten before it could fail.
 
+**A changeable label schema** — the project page's Label schema panel adds a label and
+removes one. Who may is the policy engine's answer, so the controls render and a 403 arrives
+as the server's message. A new label appends rather than sorting into the middle of the
+schema, a proposed colour avoids the ones already in use, and a name is trimmed and its
+internal whitespace collapsed before it is sent, because the server's duplicate check is a
+string comparison. Deleting a label that annotations reference is refused by the server and
+the refusal is what the panel shows — the reason a delete control can be offered at all.
+`labelSchema.ts` is pure and separately tested; the three label routes, which had no tests
+at all, have eight. Editing a label in place is **not** built: see *Next best action*.
+
 **A reviewer's queue** — `GET /jobs` takes `reviewing=true` beside `mine=true`, and a
 `reviewer_id` parameter mirroring the `assignee_id` it always accepted. They are two
 questions, not one filter with two spellings, and narrow independently. The My work page
@@ -572,6 +597,7 @@ full docs set including seven ADRs.
 | Choosing individual files (desktop) | Complete and measured in a browser: `choose_files` now has a caller, one `local-import` call per chosen file, a failed file reported in `skipped` without aborting the others, and the results of a whole batch merged into one summary. |
 | Cuboid (2D wireframe box) | Complete and measured in a browser: a two-stage tool (drag the front face, then move and click to set the depth), a wireframe renderer, and CVAT XML export/import using CVAT's own real attribute names. The backend needed no new code at all — `ShapeType.CUBOID`, its minimum-points entry, its IoU comparison and its track interpolation were already there, unused. **Not** the 3D/point-cloud kind — see `docs/ROADMAP.md`'s honestly-unchanged limitation on that. |
 | Resumable uploads | Complete and tested end to end — API, SDK, CLI and the web upload panel: create a session, `PATCH` chunks at a stated offset, read the current offset back, complete, resume by id after a crash or a page reload. Driven in a browser through a deliberately dropped chunk and a real resume. Nothing outstanding. |
+| Label schema | Complete for adding and removing, driven in a browser: a label is added from the project page and appended to the schema, and removed unless annotations still use it — which the server refuses rather than cascading, and the panel reports. **Editing a label in place is not built**, deliberately: `PUT` replaces its attributes wholesale, so it needs an attribute editor rather than a name box. |
 | Job review | Complete end to end and driven in a browser, all three parts: the **assignment** (an annotator picker and a reviewer picker on each job row of the task page, either clearable back to Unassigned), the **queue** (`GET /jobs?reviewing=true`, split on the My work page into what can be reviewed now and what is merely named to you), and the **decision** (accept or send back with a required reason, from the editor's rail). Nothing outstanding. |
 
 *This table went stale once — it still listed the open-folder flow and chunked delivery as
@@ -591,6 +617,72 @@ being updated and this one was not. Check it against* Completed *before trusting
 ---
 
 ## Last iteration
+
+### 48 — a project's label schema can be changed after the project exists
+
+Named by this file as next, and found the same way the last four were: `api.createLabel` sat
+in the web client with no caller. The consequence is about as ordinary as this product gets
+— a project created with `car` and `pedestrian`, and then a van in the third photograph.
+`POST`, `PUT` and `DELETE /projects/{id}/labels` have all existed since the initial schema,
+the policy engine gates them at `MAINTAINER`, and the only way to reach any of them was the
+SDK, the CLI or curl.
+
+**A defect the tests found before the panel existed: a label added later sorted into the
+middle.** The listing orders by `(position, name)` and every label sent without a position
+took 0, so `aardvark` added to a `car`/`pedestrian` schema came back *first*. That is not
+cosmetic: the schema's order is the order the editor's label picker shows and the order its
+number-key shortcuts run in, so adding a class silently renumbered the shortcuts an
+annotator had learned. The route now counts the project's existing top-level labels and
+passes that as the default position — `create_label` already took a `default_position`
+parameter for exactly this, used when a project is created and by nothing else. An explicit
+position is still honoured, which a test pins.
+
+**Delete is offered because the server already made it safe.** `delete_label` counts the
+shapes, tracks and tags referencing the label and refuses with a 409 rather than cascading,
+which its own docstring has always said. That is what turns "delete a label" from a
+destructive button into an ordinary one: the panel shows the server's own refusal, and the
+harness checks that both the label and the annotation are still there afterwards. A
+courtesy count beside each label comes from the class distribution the statistics panel
+already fetched, so the usual case is not "press delete, read an error".
+
+**What is deliberately not built, and why.** Editing a label in place. `PUT` replaces a
+label's attributes wholesale — `update_label` reuses an existing attribute row only when the
+client sends its id back — so a rename box posting `{name, color}` would delete every
+attribute definition on that label and the schema validating the values already stored on
+annotations with it. That needs an attribute editor, which is its own piece of work, and it
+is now *Next best action* rather than a quiet gap.
+
+**No duplicate check in the browser, on purpose.** The server's comparison is a
+case-sensitive string match in one place; a second copy here would be a second thing to keep
+true, and it would be the one that was wrong. The panel sends the name and renders "A label
+named 'car' already exists in this project". What the pure module *does* do is trim the name
+and collapse its internal whitespace, because "school  bus" and "school bus" are the same
+class to everybody except a string comparison — and a string comparison is what decides
+whether it is a duplicate.
+
+**A third variant of the same harness mistake, in one iteration's own draft.** Iteration 46
+learned that a check has to be made to fail; 47 added that the fixture is part of the check;
+this one adds **do not wait for the thing you are about to assert**. The first draft waited
+for the new label's name to appear in the editor and then checked that it had — which can
+time out, but can never print a FAIL. Rewritten to wait for the label list as a whole and
+assert on that label's own id. The delete sabotage found a second, related one: reading
+`[data-label-error]` with `inner_text` on a page where nothing rendered it killed the run
+with a Playwright timeout instead of reporting the two failures, so a `text_of` helper now
+returns `""` for an element that is not there. A check looking for something *missing* has
+to read defensively.
+
+**Both sabotages confirmed to bite.** Reverting the position default put `van` back in the
+middle and failed exactly that check; deleting the error banner failed exactly the two
+checks about the server's refusal reaching the screen, and nothing else. Restored, rebuilt,
+and the bundle hash came back byte-identical (`index-Cg6bXkv6.js`).
+
+Verified: `./scripts/check.sh` green, all twelve steps — 543 server tests (8 new in
+`test_label_schema.py`), 15 SDK (unchanged), 605 web (12 new in `labelSchema.test.ts`).
+`scripts/verify_label_schema.py`'s twelve checks pass against a rebuilt sidecar, and it is
+registered in `.github/workflows/browser.yml` and `docs/CONTRIBUTING.md`. No other harness
+drives the project page, so there was nothing adjacent to re-run for this one.
+
+## Iteration 47
 
 ### 47 — a reviewer can ask what is waiting for them
 

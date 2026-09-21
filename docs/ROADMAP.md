@@ -22,7 +22,7 @@ means designed, not built.
 | | Status |
 | --- | --- |
 | Users, organizations, projects, tasks, jobs | **Done** |
-| Label schema with typed attributes | **Done** |
+| Label schema with typed attributes | **Done** — and editable after the project exists: a label is added from the project page and appended to the schema, and removed unless annotations still use it, which the server refuses rather than cascading. Editing a label in place is not built: `PUT` replaces its attributes wholesale, so it needs an attribute editor rather than a name box |
 | Image upload with content-addressed deduplication | **Done** |
 | Annotation editor: rectangle, polygon, polyline, points, ellipse | **Done** |
 | Selection, move, vertex editing, marquee | **Done** |

@@ -267,6 +267,16 @@ export const api = {
   createLabel: (projectId: string, input: { name: string; color?: string }) =>
     request<Label>(`/projects/${projectId}/labels`, { method: 'POST', body: input }),
 
+  /**
+   * Remove a label from a project's schema.
+   *
+   * The server refuses with a 409 when annotations still reference it, rather than
+   * cascading — so this is safe to offer as a button, and the refusal is the message to
+   * show rather than something to pre-empt.
+   */
+  deleteLabel: (projectId: string, labelId: string) =>
+    request<void>(`/projects/${projectId}/labels/${labelId}`, { method: 'DELETE' }),
+
   // ------------------------------------------------------------------------ tasks
   tasks: (params?: { project_id?: string; status?: string; limit?: number }) =>
     request<Page<Task>>('/tasks', { params }),

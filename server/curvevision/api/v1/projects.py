@@ -138,8 +138,23 @@ async def list_labels(scope: ProjectScopeDep, session: SessionDep) -> list[Label
 
 @router.post("/{project_id}/labels", response_model=LabelOut, status_code=status.HTTP_201_CREATED)
 async def create_label(payload: LabelIn, scope: ProjectScopeDep, session: SessionDep) -> LabelOut:
+    """Add a label to a project that already exists.
+
+    A label sent without a position goes to the **end** of the schema. It used to take
+    position 0 like every other unpositioned label, and the listing orders by
+    `(position, name)` — so `van` added to a `car`/`pedestrian` schema appeared first, in
+    an order nobody chose. The schema's order is the order the editor's label picker shows
+    and the order its shortcuts run in, so it is not cosmetic.
+    """
     scope.authorize(Action.CREATE, ResourceType.LABEL)
-    label = await project_service.create_label(session, scope.project, payload)
+    existing = await session.execute(
+        select(func.count())
+        .select_from(Label)
+        .where(Label.project_id == scope.project.id, Label.parent_id.is_(None))
+    )
+    label = await project_service.create_label(
+        session, scope.project, payload, default_position=existing.scalar_one()
+    )
     await session.commit()
     return await _label_out(session, label.id)
 

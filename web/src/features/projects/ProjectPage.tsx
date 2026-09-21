@@ -1,8 +1,9 @@
 import { useRef, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Download, ImagePlus, Plus, Tag } from 'lucide-react';
+import { Download, ImagePlus, Plus, Tag, Trash2 } from 'lucide-react';
 import { api } from '@/api/client';
+import type { Label as LabelSchemaEntry } from '@/api/types';
 import {
   Badge,
   Button,
@@ -13,6 +14,12 @@ import {
   ProgressBar,
   Spinner,
 } from '@/ui/primitives';
+import {
+  canAddLabel,
+  describeLabelUsage,
+  nextLabelColor,
+  normaliseLabelName,
+} from './labelSchema';
 
 export function ProjectPage() {
   const { projectId = '' } = useParams();
@@ -197,29 +204,11 @@ export function ProjectPage() {
         </div>
 
         <div className="space-y-6">
-          <Panel title="Label schema">
-            {labels.length > 0 ? (
-              <ul className="space-y-2">
-                {labels.map((label) => (
-                  <li key={label.id} className="flex items-center gap-2 text-sm">
-                    <span
-                      className="h-3 w-3 shrink-0 rounded-sm"
-                      style={{ backgroundColor: label.color }}
-                    />
-                    <span className="text-ink-200">{label.name}</span>
-                    {label.attributes.length > 0 && (
-                      <span className="text-xs text-ink-500">
-                        {label.attributes.length} attribute
-                        {label.attributes.length === 1 ? '' : 's'}
-                      </span>
-                    )}
-                  </li>
-                ))}
-              </ul>
-            ) : (
-              <EmptyState icon={<Tag size={28} />} title="No labels defined" />
-            )}
-          </Panel>
+          <LabelSchemaPanel
+            projectId={projectId}
+            labels={labels}
+            distribution={statistics.data?.label_distribution ?? {}}
+          />
 
           <Panel title="Statistics">
             {statistics.data ? (
@@ -247,6 +236,131 @@ export function ProjectPage() {
         </div>
       </div>
     </div>
+  );
+}
+
+/**
+ * A project's label schema, and the two ways it changes after the project exists.
+ *
+ * Until this existed the schema was fixed at creation from the application: the endpoints,
+ * the policy and `api.createLabel` were all there, and nothing called the last of them. A
+ * project that needed a `van` class had to get one from the SDK, the CLI or curl.
+ *
+ * Editing a label in place is deliberately **not** offered yet. `PUT` replaces a label's
+ * attributes wholesale, so a form that did not carry the attribute schema would silently
+ * delete it — that needs an attribute editor, which is its own piece of work.
+ */
+function LabelSchemaPanel({
+  projectId,
+  labels,
+  distribution,
+}: {
+  projectId: string;
+  labels: LabelSchemaEntry[];
+  distribution: Record<string, number>;
+}) {
+  const queryClient = useQueryClient();
+  const [name, setName] = useState('');
+  const [color, setColor] = useState(() => nextLabelColor(labels));
+
+  const refresh = () => {
+    void queryClient.invalidateQueries({ queryKey: ['project', projectId] });
+    void queryClient.invalidateQueries({ queryKey: ['project-statistics', projectId] });
+  };
+
+  const addLabel = useMutation({
+    mutationFn: () =>
+      api.createLabel(projectId, { name: normaliseLabelName(name), color }),
+    onSuccess: (created) => {
+      setName('');
+      // The next proposal has to account for the colour just taken, which the query this
+      // invalidates will not have delivered yet.
+      setColor(nextLabelColor([...labels, created]));
+      refresh();
+    },
+  });
+  const removeLabel = useMutation({
+    mutationFn: (labelId: string) => api.deleteLabel(projectId, labelId),
+    onSuccess: refresh,
+  });
+
+  return (
+    <Panel title="Label schema">
+      {labels.length > 0 ? (
+        <ul className="space-y-2">
+          {labels.map((label) => {
+            const usage = describeLabelUsage(label.name, distribution);
+            return (
+              <li key={label.id} className="flex items-center gap-2 text-sm" data-label={label.id}>
+                <span
+                  className="h-3 w-3 shrink-0 rounded-sm"
+                  style={{ backgroundColor: label.color }}
+                />
+                <span className="text-ink-200">{label.name}</span>
+                {label.attributes.length > 0 && (
+                  <span className="text-xs text-ink-500">
+                    {label.attributes.length} attribute
+                    {label.attributes.length === 1 ? '' : 's'}
+                  </span>
+                )}
+                <button
+                  type="button"
+                  className="ml-auto shrink-0 rounded p-1 text-ink-500 hover:bg-ink-800 hover:text-red-300 disabled:opacity-50"
+                  title={usage ? `Remove ${label.name} — ${usage}` : `Remove ${label.name}`}
+                  aria-label={`Remove ${label.name}`}
+                  data-label-delete={label.id}
+                  disabled={removeLabel.isPending}
+                  onClick={() => removeLabel.mutate(label.id)}
+                >
+                  <Trash2 size={14} />
+                </button>
+              </li>
+            );
+          })}
+        </ul>
+      ) : (
+        <EmptyState icon={<Tag size={28} />} title="No labels defined" />
+      )}
+
+      {/* No permission check here: whether this caller may change the schema is the policy
+          engine's answer, so the controls show and a 403 arrives as the server's own
+          message — the same choice every other panel in this application makes. */}
+      <form
+        className="mt-4 flex items-end gap-2 border-t border-ink-800 pt-4"
+        onSubmit={(event) => {
+          event.preventDefault();
+          if (canAddLabel(name)) addLabel.mutate();
+        }}
+      >
+        {/* `Input` puts its own className on the input element and wraps it in a
+            block-level label, so the wrapper is what has to grow here. */}
+        <div className="flex-1">
+          <Input
+            label="Add a label"
+            placeholder="van"
+            value={name}
+            data-new-label=""
+            onChange={(event) => setName(event.target.value)}
+          />
+        </div>
+        <input
+          type="color"
+          className="h-9 w-9 shrink-0 cursor-pointer rounded-md border border-ink-700 bg-ink-950"
+          value={color}
+          aria-label="Label colour"
+          data-new-label-color=""
+          onChange={(event) => setColor(event.target.value)}
+        />
+        <Button type="submit" disabled={!canAddLabel(name) || addLabel.isPending} data-new-label-add="">
+          <Plus size={14} /> Add
+        </Button>
+      </form>
+      {(addLabel.error || removeLabel.error) && (
+        <div className="mt-3" data-label-error="">
+          <ErrorNotice error={addLabel.error ?? removeLabel.error} />
+        </div>
+      )}
+    </Panel>
   );
 }
 

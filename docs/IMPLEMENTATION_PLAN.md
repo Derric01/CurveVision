@@ -548,6 +548,19 @@ Planned: LabelMe, Open Images, TFRecord, Datumaro bridge.
   `ix_job_reviewer_state` is `ix_job_assignee_state` with one column changed, since the
   queries are the same shape. `scripts/verify_review_queue.py` drives it against the
   packaged application.
+* **Changing a label schema after the project exists.** **Done**: the project page's Label
+  schema panel adds a label and removes one. `POST`/`DELETE /projects/{id}/labels` and the
+  policy that gates them had existed since the initial schema with **nothing calling
+  `api.createLabel`**, so a project that turned out to need another class could only get one
+  from the SDK, the CLI or curl — and label schemas are not knowable in advance, which is
+  why those endpoints were written. A label sent without a position now goes to the **end**
+  of the schema: it used to take position 0 like every other unpositioned label, and the
+  listing orders by `(position, name)`, so `van` added to a `car`/`pedestrian` project
+  appeared first. Deleting is safe to offer because `delete_label` refuses a label
+  annotations still reference rather than cascading; the panel shows that refusal. Editing a
+  label in place is deliberately **not** offered: `PUT` replaces a label's attributes
+  wholesale, so a form without an attribute editor would silently delete an attribute
+  schema. The three routes had no tests at all before this; they have eight now.
 * **Merging overlapping jobs** (**Done**): a task with `overlap > 0` hands the same frames to
   two annotators so a track can cross a job seam. Export reconciles those frames instead of
   concatenating them — `services/merge.py`, adapted from the upstream design. Two shapes are
