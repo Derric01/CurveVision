@@ -101,15 +101,22 @@ async def update_project(
 ) -> ProjectDetail:
     scope.authorize(Action.UPDATE)
     project = scope.project
+    sent = payload.model_fields_set
     if payload.name is not None:
         project.name = payload.name
-    if payload.description is not None:
+    # See `update_task`: for a nullable field an omitted one and an explicit null are
+    # different instructions, and `is not None` reads both as "leave it alone".
+    if "description" in sent:
         project.description = payload.description
     if payload.open_assignment is not None:
         project.open_assignment = payload.open_assignment
-    if payload.owner_id is not None:
+    if "owner_id" in sent:
         project.owner_id = payload.owner_id
     await session.commit()
+    if "owner_id" in sent:
+        # `owner` is eagerly loaded and survives the commit, so the response would name
+        # whoever owned the project before the write.
+        await session.refresh(project, ["owner_id", "owner"])
     return await _project_detail(session, project)
 
 

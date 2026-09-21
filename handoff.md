@@ -5,7 +5,7 @@
 > [`AGENTS.md`](./AGENTS.md) first; it is the working contract. Update this file after every
 > iteration, including the ones that mostly failed.
 >
-> **Last updated:** 2026-09-21 (iteration 49) · branch `claude/start-work-v84c3b` · PRs
+> **Last updated:** 2026-09-21 (iteration 50) · branch `claude/start-work-v84c3b` · PRs
 > [#1](https://github.com/Derric01/CurveVision/pull/1)–[#21](https://github.com/Derric01/CurveVision/pull/21)
 > **all merged**, the last of them carrying iterations 42–44.
 >
@@ -35,9 +35,21 @@ it, and folders annotated in place without copying a byte.
 
 **The tree is green.** `./scripts/check.sh` passes all twelve steps (the previous session
 added ruff and mypy for the SDK, and ruff for `scripts/`, closing gaps where CI checked
-things the local script silently did not): 550 server tests, 15 SDK, 610 web, and `scripts/`
+things the local script silently did not): 560 server tests, 15 SDK, 610 web, and `scripts/`
 is lint-clean under its own `ruff.toml`. Twenty-two browser harnesses drive the packaged
 desktop application in a real Chromium, nightly and on every push to `main`.
+
+**A `PATCH` can now clear a field, and its answer is not stale.** The same pair of defects
+had been found three times in four iterations, each time by building a screen that needed
+the behaviour: a nullable field that `is not None` could set but never clear, and a response
+built from an instance whose eagerly-loaded relationship still held the previous value.
+Iteration 50 went looking for the rest instead of waiting for the fourth. `PATCH /tasks/{id}`
+and `PATCH /projects/{id}` had both, on `assignee_id`, `owner_id` and `description` — so a
+task could be assigned and never unassigned, a project could be given an owner it could
+never be rid of, and a description could be written and never removed. A third
+inconsistency turned up in the same sweep: `PATCH /tasks/{id}` returned `TaskDetail` with
+`progress` left null while `GET` filled it in, so a screen rendering what a write answered
+would blank out the progress bar it had been showing.
 
 **A project's label schema is no longer fixed the moment it is created.** A label is added
 from the project page and removed there, which nothing in the application could do:
@@ -267,6 +279,22 @@ was the last unconnected piece of the desktop application.
 ---
 
 ## Next best action
+
+**The same timestamp comes back in two different formats, and one of them is read as local
+time.** Found by iteration 50's "a write agrees with the next read" test, and deliberately
+left for its own change rather than folded into an unrelated diff. `created_at` and
+`updated_at` serialise as `...Z` from an instance that was just written, and with **no
+suffix at all** once the row has been read back — because `DateTime(timezone=True)` returns
+an aware value on PostgreSQL and a naive one on SQLite, which has no time-zone type. A
+browser reads a suffix-less timestamp as **local** time, so the desktop shape, which is the
+SQLite one, shows every time shifted by the viewer's UTC offset; `ProjectsPage` already does
+`new Date(project.created_at).toLocaleDateString()`, and `issues.ts` orders threads by
+comparing these as strings, which mixed formats break. The fix belongs in
+`core/types.py`, whose own docstring says these decorators "are the only place that
+difference is allowed to exist" — a `UTCDateTime` alongside `GUID` and `EnumString`,
+normalising on the way out, and every `DateTime(timezone=True)` column changed to it. Then
+tighten `TestAWriteAgreesWithTheNextRead` to compare whole bodies, which is what it wants to
+do and currently cannot.
 
 **An attribute editor.** Iteration 49 renamed and recoloured labels by round-tripping
 their attributes untouched, which is the safe half. Changing the attributes themselves —
@@ -629,6 +657,49 @@ being updated and this one was not. Check it against* Completed *before trusting
 ---
 
 ## Last iteration
+
+### 50 — the fourth and fifth instances of a bug found by looking, not by tripping
+
+Three iterations in a row had each turned up the same pair of defects while building a
+screen: a nullable field an `is not None` test could set but never clear, and a response
+carrying an eagerly-loaded relationship from before the write. Job assignment in 46, label
+attributes in 49. At three, it is a pattern rather than a coincidence, and the honest next
+move is to go and find the rest rather than wait for the sixth to be reported by somebody
+using the product.
+
+**The audit is small, because the surface is small.** Five relationships in the whole domain
+are `lazy="selectin"` (`Project.owner`, `Task.owner`, `Task.assignee`, `Job.assignee`,
+`Job.reviewer`), and every route that writes one of them and returns it is a candidate.
+`PATCH /tasks/{id}` and `PATCH /projects/{id}` had both defects, on `assignee_id` and
+`owner_id` — and `description` had the clearing half on each, which is the same bug wearing
+plainer clothes: a task description could be written and never removed.
+
+**And a third kind of staleness in the same sweep.** `PATCH /tasks/{id}` returns
+`TaskDetail`, the same model `GET` returns, with `progress` left null — `read_task` computed
+it and the update route did not. One response model with two shapes is a trap for exactly
+the caller these fixes are for: a screen rendering what a write answered would blank the
+progress bar it was showing a moment earlier. Both routes now build the response through one
+`_task_detail`.
+
+**The test that states the property, rather than ten tests that state instances.**
+`TestAWriteAgreesWithTheNextRead` asserts that a `PATCH`'s body equals the next `GET`'s,
+over the whole body rather than field by field, for a task, a project and a job. That is the
+property all three defects violate, and it is the one a future route will violate too.
+
+**It found a fourth thing, which is deliberately not fixed here.** The whole-body comparison
+fails on `created_at`/`updated_at` — not because the instants differ, but because the same
+instant serialises as `...Z` from a freshly-written instance and with no suffix once read
+back from SQLite. That is a real defect and a nastier one than it looks (a browser reads a
+suffix-less timestamp as *local* time, so the desktop shape shows every time shifted by the
+viewer's offset), but it is a cross-cutting change to a column type and belongs in its own
+diff rather than folded into this one. The test excludes exactly those two fields, says why
+in a comment, and *Next best action* carries it as the next piece of work.
+
+Verified: `./scripts/check.sh` green, all twelve steps — 560 server tests (10 new in
+`test_partial_updates.py`), 15 SDK and 610 web (both unchanged; no client code touched).
+No browser harness: nothing on any screen changed, and the three routes are API-level.
+
+## Iteration 49
 
 ### 49 — a label can be renamed, without losing what is attached to it
 

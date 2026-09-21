@@ -111,10 +111,18 @@ async def create_task(
 
 @router.get("/tasks/{task_id}", response_model=TaskDetail)
 async def read_task(scope: TaskScopeDep, session: SessionDep) -> TaskDetail:
-    detail = TaskDetail.model_validate(scope.task)
-    detail.progress = TaskProgress.model_validate(
-        await task_service.task_progress(session, scope.task)
-    )
+    return await _task_detail(session, scope.task)
+
+
+async def _task_detail(session: SessionDep, task: Task) -> TaskDetail:
+    """A task with its progress, which is what `TaskDetail` means everywhere it is returned.
+
+    Extracted because the update route returned the same model with `progress` left null,
+    so a screen rendering what a write answered blanked out the progress it had been
+    showing a moment earlier. One response model, one shape.
+    """
+    detail = TaskDetail.model_validate(task)
+    detail.progress = TaskProgress.model_validate(await task_service.task_progress(session, task))
     return detail
 
 
@@ -122,17 +130,26 @@ async def read_task(scope: TaskScopeDep, session: SessionDep) -> TaskDetail:
 async def update_task(payload: TaskUpdate, scope: TaskScopeDep, session: SessionDep) -> TaskDetail:
     scope.authorize(Action.UPDATE)
     task = scope.task
+    sent = payload.model_fields_set
     if payload.name is not None:
         task.name = payload.name
-    if payload.description is not None:
+    # `model_fields_set` for the nullable fields: an omitted one means "leave it alone" and
+    # an explicit null means "clear it", and a `is not None` test cannot tell them apart --
+    # which left a task that could be assigned and never unassigned, and a description that
+    # could be written and never removed.
+    if "description" in sent:
         task.description = payload.description
     if payload.status is not None:
         task.status = payload.status
-    if payload.assignee_id is not None:
+    if "assignee_id" in sent:
         scope.authorize(Action.ASSIGN)
         task.assignee_id = payload.assignee_id
     await session.commit()
-    return TaskDetail.model_validate(task)
+    if "assignee_id" in sent:
+        # `assignee` is eagerly loaded and the sessionmaker is `expire_on_commit=False`, so
+        # writing the *id* leaves the loaded relationship holding whoever was there before.
+        await session.refresh(task, ["assignee_id", "assignee"])
+    return await _task_detail(session, task)
 
 
 @router.delete("/tasks/{task_id}", status_code=status.HTTP_204_NO_CONTENT)
