@@ -15,6 +15,14 @@
  * the browser would be a second thing to keep true.
  */
 
+import type { Label, LabelPayload } from '@/api/types';
+
+/** What `labelToPayload` needs of a label: everything `PUT` would otherwise destroy. */
+export type LabelForEditing = Pick<
+  Label,
+  'name' | 'color' | 'position' | 'allowed_shape_types' | 'skeleton_edges' | 'attributes'
+>;
+
 /**
  * Colours to propose, in order, for a label being added.
  *
@@ -63,6 +71,38 @@ export function normaliseLabelName(raw: string): string {
 /** Whether Add can be pressed: a label needs a name, and whitespace is not one. */
 export function canAddLabel(raw: string): boolean {
   return normaliseLabelName(raw).length > 0;
+}
+
+/**
+ * A label read from the API, ready to be sent back to `PUT` with some fields changed.
+ *
+ * Two things make this worth a function rather than a spread at the call site.
+ *
+ * **`PUT` replaces the whole label.** Everything not sent is destroyed: an omitted
+ * `position` becomes 0 and moves the label to the top of the schema, an omitted
+ * `allowed_shape_types` lifts its shape restriction, and an omitted `attributes` deletes
+ * every attribute definition on it — along with the schema that validates the values
+ * already stored on annotations. Building the payload *from the label* rather than from
+ * the edited fields is what makes an edit safe.
+ *
+ * **And the label cannot simply be sent back as it arrived.** `LabelIn` is strict, so
+ * `project_id` and `parent_id` — which `LabelOut` reports and the server owns — are
+ * rejected outright with a 422. `children` goes too: `update_label` does not touch
+ * sub-labels, and a child carries the same two forbidden fields.
+ */
+export function labelToPayload(
+  label: LabelForEditing,
+  changes: Partial<Pick<LabelPayload, 'name' | 'color'>> = {},
+): LabelPayload {
+  return {
+    name: label.name,
+    color: label.color,
+    position: label.position,
+    allowed_shape_types: label.allowed_shape_types,
+    skeleton_edges: label.skeleton_edges,
+    attributes: label.attributes,
+    ...changes,
+  };
 }
 
 /**

@@ -9,7 +9,7 @@ project that turned out to need a `van` class alongside `car` could only get one
 SDK, the CLI or curl. Label schemas are not knowable in advance; that is the whole reason
 those endpoints exist.
 
-Six claims, each asserted against the **API** rather than the panel that just claimed it:
+Nine claims, each asserted against the **API** rather than the panel that just claimed it:
 
 1. A label typed into the box is created, with the colour shown beside it.
 2. It lands at the **end** of the schema. It used to take position 0 and sort into the
@@ -22,6 +22,13 @@ Six claims, each asserted against the **API** rather than the panel that just cl
    safe to offer at all — the server will not cascade.
 6. A duplicate name is refused by the server and reported, rather than pre-empted in the
    browser: the name comparison lives in one place.
+7. A label is renamed in place, and **its attributes survive**. `PUT` replaces the whole
+   label, so a form that posted only the fields it changed would delete the attribute
+   definitions — and with them the schema validating values already stored on annotations.
+8. The rename does not move the label in the schema either, which an omitted `position`
+   would (it assigns outright, so missing means 0).
+9. Renaming onto a name already in the schema is refused. `create_label` has always
+   checked; `update_label` did not, so the rule could be walked around with a rename.
 
 `labelSchema.test.ts` pins the pure parts without a DOM — what is sent for a typed name,
 and which colour is proposed next.
@@ -61,9 +68,21 @@ def seed(base: str, token: str) -> tuple[dict, dict]:
     project = api(base, token, "/projects", {
         "organization_id": org["id"], "slug": "schema", "name": "Schema",
         "description": "A label schema that turned out to need another class.",
+        # `car` is deliberately **second**. The label being renamed below has to sit
+        # somewhere other than position 0, or the check that a rename does not move it
+        # passes even when the payload sends `position: 0` -- which is exactly what a
+        # partial payload does. The fixture is part of the check.
         "labels": [
-            {"name": "car", "color": "#ef4444", "allowed_shape_types": ["rectangle"]},
             {"name": "pedestrian", "color": "#22c55e"},
+            {
+                "name": "car", "color": "#ef4444", "allowed_shape_types": ["rectangle"],
+                # An attribute, because the rename check below is really about what a `PUT`
+                # destroys when the client sends only what it changed.
+                "attributes": [{
+                    "name": "colour", "attribute_type": "select",
+                    "values": ["red", "blue"], "default_value": "red",
+                }],
+            },
         ],
     })
     task = api(base, token, "/tasks", {
@@ -219,6 +238,47 @@ def main() -> int:
                            if label["name"] == "car"]) == 1,
                       "and no second label by that name exists",
                       "a duplicate label was created")
+
+                # --------------------------------------------- 7, 8 and 9: renaming
+                page.reload(wait_until="networkidle")
+                car = next(label for label in schema(base, token, project_id)
+                           if label["name"] == "car")
+                position_before = car["position"]
+                page.locator(f"[data-label-edit='{car['id']}']").click()
+                page.locator("[data-label-edit-name]").fill("automobile")
+                page.locator("[data-label-edit-save]").click()
+                page.wait_for_timeout(1500)
+
+                renamed = next((label for label in schema(base, token, project_id)
+                                if label["id"] == car["id"]), None)
+                check(renamed is not None and renamed["name"] == "automobile",
+                      "a label is renamed in place",
+                      f"the label is named {renamed and renamed['name']!r}")
+                check(renamed is not None
+                      and [a["id"] for a in renamed["attributes"]]
+                      == [a["id"] for a in car["attributes"]],
+                      "and keeps its attribute definitions, ids and all",
+                      "the rename destroyed the label's attributes: "
+                      f"{renamed and renamed['attributes']}")
+                check(renamed is not None and renamed["position"] == position_before
+                      and position_before > 0,
+                      f"and stays where it was in the schema (position {position_before})",
+                      f"the label moved from position {position_before} to "
+                      f"{renamed and renamed['position']}")
+
+                page.locator(f"[data-label-edit='{car['id']}']").click()
+                page.locator("[data-label-edit-name]").fill("pedestrian")
+                page.locator("[data-label-edit-save]").click()
+                page.wait_for_timeout(1500)
+                clash_text = text_of(page, "[data-label-error]")
+                check("already exists" in clash_text.lower(),
+                      "renaming onto an existing name is refused, and the reason is shown",
+                      f"the clashing rename reported {clash_text.strip()!r}")
+                check(sorted(label["name"] for label in schema(base, token, project_id))
+                      == ["automobile", "pedestrian", "van"],
+                      "and the schema still has one label per name",
+                      "the schema is now "
+                      f"{[label['name'] for label in schema(base, token, project_id)]}")
 
                 check(not raised, "the whole loop raises nothing", f"page error: {raised}")
                 browser.close()

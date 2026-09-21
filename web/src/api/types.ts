@@ -95,6 +95,22 @@ export interface Label {
   children: Label[];
 }
 
+/**
+ * A label as `PUT`/`POST /projects/{id}/labels` accept it — the server's `LabelIn`.
+ *
+ * Not `Label` minus a couple of fields: the server's input schema is strict, so sending a
+ * `Label` straight back is a 422 on `project_id` and `parent_id`. Build one with
+ * `labelToPayload`, which is also where the reason each field has to be present lives.
+ */
+export interface LabelPayload {
+  name: string;
+  color: string;
+  position: number;
+  allowed_shape_types: string[];
+  skeleton_edges: number[][];
+  attributes: AttributeDefinition[];
+}
+
 export interface Project {
   id: string;
   organization_id: string;

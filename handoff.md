@@ -5,7 +5,7 @@
 > [`AGENTS.md`](./AGENTS.md) first; it is the working contract. Update this file after every
 > iteration, including the ones that mostly failed.
 >
-> **Last updated:** 2026-09-21 (iteration 48) · branch `claude/start-work-v84c3b` · PRs
+> **Last updated:** 2026-09-21 (iteration 49) · branch `claude/start-work-v84c3b` · PRs
 > [#1](https://github.com/Derric01/CurveVision/pull/1)–[#21](https://github.com/Derric01/CurveVision/pull/21)
 > **all merged**, the last of them carrying iterations 42–44.
 >
@@ -35,7 +35,7 @@ it, and folders annotated in place without copying a byte.
 
 **The tree is green.** `./scripts/check.sh` passes all twelve steps (the previous session
 added ruff and mypy for the SDK, and ruff for `scripts/`, closing gaps where CI checked
-things the local script silently did not): 543 server tests, 15 SDK, 605 web, and `scripts/`
+things the local script silently did not): 550 server tests, 15 SDK, 610 web, and `scripts/`
 is lint-clean under its own `ruff.toml`. Twenty-two browser harnesses drive the packaged
 desktop application in a real Chromium, nightly and on every push to `main`.
 
@@ -48,9 +48,13 @@ lands at the **end** of the schema — it used to take position 0 like every unp
 label, and the listing orders by `(position, name)`, so `van` added to a `car`/`pedestrian`
 project appeared first, in an order nobody chose. Deleting is safe to offer because the
 server refuses a label annotations still reference rather than cascading, and the panel shows
-that refusal. Editing a label in place is deliberately not offered yet: `PUT` replaces a
-label's attributes wholesale, so a name box without an attribute editor would silently
-delete an attribute schema.
+that refusal. A label is **renamed and recoloured** in place too, through a payload rebuilt
+from the whole label the server reported — `PUT` is a replace, so posting only the changed
+fields would reset the position, lift the shape restriction and delete the attribute
+definitions. Editing the **attributes** themselves is still not built. Two further server
+defects came out of writing those tests first: a rename could walk straight around
+`create_label`'s duplicate-name rule, and the response to a `PUT` reported attributes it had
+just deleted.
 
 **A reviewer can ask what is waiting for them.** `GET /jobs?mine=true` filtered on
 `assignee_id` alone, so the question "what is waiting on *me* to check" could not be asked
@@ -264,16 +268,19 @@ was the last unconnected piece of the desktop application.
 
 ## Next best action
 
-**Editing a label in place.** Iteration 48 added and removed labels and stopped short of
-changing one, for a stated reason rather than a shrug: `PUT /projects/{id}/labels/{id}`
-replaces a label's **attributes** wholesale, and `update_label` reuses an existing attribute
-row only when the client sends its id back. A rename box that posted `{name, color}` would
-therefore delete every attribute definition on that label and, with them, the schema that
-validates the values already stored on annotations. So this is not a name box; it is an
-attribute editor, and the two ship together or not at all. Everything it needs exists
-server-side (the id-preserving update is already written and is the careful part), and
-`test_label_schema.py` is the file to extend. The payoff is ordinary and daily: a typo in a
-class name, a colour that turned out to be unreadable, an attribute nobody uses.
+**An attribute editor.** Iteration 49 renamed and recoloured labels by round-tripping
+their attributes untouched, which is the safe half. Changing the attributes themselves —
+adding `occluded` to a label that turned out to need it, fixing a `select`'s list of values,
+retiring one nobody fills in — still has no way in. The server side is written and is the
+careful part: `update_label` reuses an attribute row when the client sends its id back, so
+values already stored on annotations survive, and `validate_attributes` rejects an unknown
+key rather than dropping it. What is missing is the editor and the answer to one real
+question this file should not decide alone: **what happens to values already recorded under
+an attribute being removed or renamed.** The safe answer is to refuse the removal while
+annotations carry values for it, mirroring what `delete_label` already does for labels — but
+that is a product decision with a cost (a schema you cannot correct), and it is worth
+stating in the change rather than choosing quietly. `test_label_schema.py` and
+`labelSchema.ts` are the files.
 
 **A second candidate, smaller and unglamorous: generate `web/src/api/types.ts` from the
 OpenAPI schema.** The file is hand-maintained and nothing verifies it against the server —
@@ -552,15 +559,20 @@ policy engine's 403 rendered beside the row. The pickers are **siblings** of the
 not children, so using one does not open the editor; that is asserted by a harness check
 which had to be rewritten before it could fail.
 
-**A changeable label schema** — the project page's Label schema panel adds a label and
-removes one. Who may is the policy engine's answer, so the controls render and a 403 arrives
+**A changeable label schema** — the project page's Label schema panel adds a label,
+renames or recolours one, and removes one. Who may is the policy engine's answer, so the controls render and a 403 arrives
 as the server's message. A new label appends rather than sorting into the middle of the
 schema, a proposed colour avoids the ones already in use, and a name is trimmed and its
 internal whitespace collapsed before it is sent, because the server's duplicate check is a
-string comparison. Deleting a label that annotations reference is refused by the server and
+string comparison. A rename sends the **whole** label back, rebuilt by `labelToPayload`
+from the one the server reported, because `PUT` is a replace: the attributes, the position
+and the shape restriction all travel with it, and a label cannot be sent back exactly as it
+arrived either — `LabelIn` is strict and rejects the `project_id` and `parent_id` that
+`LabelOut` carries. Deleting a label that annotations reference is refused by the server and
 the refusal is what the panel shows — the reason a delete control can be offered at all.
 `labelSchema.ts` is pure and separately tested; the three label routes, which had no tests
-at all, have eight. Editing a label in place is **not** built: see *Next best action*.
+at all, have fifteen. Editing the **attributes** of a label is **not** built: see *Next best
+action*.
 
 **A reviewer's queue** — `GET /jobs` takes `reviewing=true` beside `mine=true`, and a
 `reviewer_id` parameter mirroring the `assignee_id` it always accepted. They are two
@@ -597,7 +609,7 @@ full docs set including seven ADRs.
 | Choosing individual files (desktop) | Complete and measured in a browser: `choose_files` now has a caller, one `local-import` call per chosen file, a failed file reported in `skipped` without aborting the others, and the results of a whole batch merged into one summary. |
 | Cuboid (2D wireframe box) | Complete and measured in a browser: a two-stage tool (drag the front face, then move and click to set the depth), a wireframe renderer, and CVAT XML export/import using CVAT's own real attribute names. The backend needed no new code at all — `ShapeType.CUBOID`, its minimum-points entry, its IoU comparison and its track interpolation were already there, unused. **Not** the 3D/point-cloud kind — see `docs/ROADMAP.md`'s honestly-unchanged limitation on that. |
 | Resumable uploads | Complete and tested end to end — API, SDK, CLI and the web upload panel: create a session, `PATCH` chunks at a stated offset, read the current offset back, complete, resume by id after a crash or a page reload. Driven in a browser through a deliberately dropped chunk and a real resume. Nothing outstanding. |
-| Label schema | Complete for adding and removing, driven in a browser: a label is added from the project page and appended to the schema, and removed unless annotations still use it — which the server refuses rather than cascading, and the panel reports. **Editing a label in place is not built**, deliberately: `PUT` replaces its attributes wholesale, so it needs an attribute editor rather than a name box. |
+| Label schema | Complete for adding, renaming, recolouring and removing, driven in a browser: a label is added from the project page and appended to the schema, renamed in place with its attributes and position intact, and removed unless annotations still use it — which the server refuses rather than cascading, and the panel reports. **Editing a label's attributes is not built**, deliberately: it needs an editor and an answer for values already recorded under an attribute being removed. |
 | Job review | Complete end to end and driven in a browser, all three parts: the **assignment** (an annotator picker and a reviewer picker on each job row of the task page, either clearable back to Unassigned), the **queue** (`GET /jobs?reviewing=true`, split on the My work page into what can be reviewed now and what is merely named to you), and the **decision** (accept or send back with a required reason, from the editor's rail). Nothing outstanding. |
 
 *This table went stale once — it still listed the open-folder flow and chunked delivery as
@@ -617,6 +629,67 @@ being updated and this one was not. Check it against* Completed *before trusting
 ---
 
 ## Last iteration
+
+### 49 — a label can be renamed, without losing what is attached to it
+
+The other half of iteration 48, and the half that had a stated reason for waiting. It turned
+out the reason was overstated: I wrote here that a rename "is not a name box; it is an
+attribute editor, and the two ship together or not at all". Not so. `PUT` is a replace, but
+a payload rebuilt from the label **as the server reported it** carries the attributes
+through untouched — `update_label` reuses an attribute row whose id comes back — so renaming
+is safe without touching attribute editing at all. Correcting that here because the previous
+entry would have sent the next session after a much larger piece of work than this needed.
+
+**Two server defects, both found by writing the tests before the panel.**
+
+* **A rename walked straight around the duplicate-name rule.** `create_label` has always
+  refused a second label of the same name; `update_label` did not check at all, so
+  `pedestrian` could simply be renamed to `car`. That does not stay cosmetic: exports key
+  classes *by name* — COCO categories, a YOLO class list, this project's own class
+  distribution, which is a `Record<string, number>` — so two labels called `car` merge or
+  collide the moment the dataset leaves.
+* **The response reported attributes it had just deleted.** `_label_out` re-reads the label
+  with `selectinload` after the commit, but SQLAlchemy skips loader options for an instance
+  already in the session, and `expire_on_commit=False` leaves the old collection in place.
+  A `PUT` that emptied a label's attributes came back still listing them. This is the third
+  appearance of this exact bug shape in four iterations (the job's `assignee`, then
+  `reviewer`, now this), and the third different fix for it — `session.refresh` there,
+  `populate_existing=True` here, because the read is a fresh query rather than the written
+  instance.
+
+**`LabelOut` cannot be sent back to `PUT`, which is worth knowing before writing a client.**
+`LabelIn` is a `StrictModel`, so the `project_id` and `parent_id` every read carries are
+rejected outright with a 422. The natural safe pattern — read it, change a field, send it
+back — does not work without stripping them first, and that knowledge now lives in one
+function (`labelToPayload`) with a test, rather than being rediscovered. The alternative
+would have been to let the input schema ignore those fields; rejected, because this codebase
+deliberately rejects unknown keys rather than dropping them, and the same reasoning applies
+here.
+
+**A fixture that made a check unable to fail, again, and caught the same way.** Sabotaging
+the rename to post a partial payload correctly failed "keeps its attribute definitions" —
+and left "stays where it was in the schema" **passing**, because the label under test was
+`car` at position 0 and the sabotage sets position 0. The seed now puts `pedestrian` first
+so the renamed label sits at position 1, and the check asserts that too, so a fixture
+change that quietly reintroduces the hole fails rather than passes. That is the same lesson
+as iteration 47's summary line, in a different disguise.
+
+**And the build trap caught something real, for the first time since it was written down.**
+`npm run build` failed on a `tsc -b` error in the new unit test file — which `npm run
+typecheck` had not reported, since the two use different project configurations. Because
+`vite build` never ran, the sidecar packaged the *previous* bundle, and the harness ran
+happily against code that did not include this iteration's changes at all. Caught by
+checking the build's exit status rather than trusting the command, exactly as iterations 36,
+39 and 45 say to. Worth noting that the harness's failure was a Playwright timeout on a
+missing element, which looks nothing like "you tested the wrong bundle".
+
+Verified: `./scripts/check.sh` green, all twelve steps — 550 server tests (7 new in
+`TestEditingALabel`), 15 SDK (unchanged), 610 web (5 new for `labelToPayload`).
+`scripts/verify_label_schema.py` grew from twelve checks to seventeen and all pass against a
+rebuilt sidecar; the partial-payload sabotage was confirmed to fail exactly the two rename
+checks and was then restored, with the bundle hash back to `index-BaAzC0sN.js`.
+
+## Iteration 48
 
 ### 48 — a project's label schema can be changed after the project exists
 

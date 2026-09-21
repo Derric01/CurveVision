@@ -28,6 +28,25 @@ def names(schema: list[dict[str, Any]]) -> list[str]:
     return [label["name"] for label in schema]
 
 
+#: Fields `LabelOut` reports that `LabelIn` refuses. `LabelIn` is a `StrictModel`, so a
+#: label read from the API cannot simply be sent back to `PUT` — the round trip 422s on
+#: `project_id` and `parent_id`, which are the server's to decide. `children` is dropped
+#: too: `update_label` does not touch sub-labels, and `LabelOut`'s children carry the same
+#: two forbidden fields.
+SERVER_OWNED = ("project_id", "parent_id", "children")
+
+
+def as_payload(label: dict[str, Any], **changes: Any) -> dict[str, Any]:
+    """A label read from the API, ready to send back with some fields changed.
+
+    `PUT` replaces the whole label, so everything not sent is destroyed: an omitted
+    `position` becomes 0 and an omitted `attributes` deletes the attribute schema that
+    validates values already stored on annotations. Building the payload *from the label*
+    rather than from the edited fields is what makes an edit safe.
+    """
+    return {**{k: v for k, v in label.items() if k not in SERVER_OWNED}, **changes}
+
+
 async def schema_of(actor: ApiActor, project_id: str) -> list[dict[str, Any]]:
     response = await actor.get(f"/api/v1/projects/{project_id}/labels")
     assert response.status_code == 200, response.text
@@ -165,6 +184,154 @@ class TestRemovingALabel:
         missing = await owner.delete(f"/api/v1/projects/{project['id']}/labels/{borrowed}")
         assert missing.status_code == 404
         assert names(await schema_of(owner, other["id"])) == ["borrowed"]
+
+
+class TestEditingALabel:
+    """Renaming and recolouring, which is a `PUT` that replaces the whole label.
+
+    The danger is not the rename; it is everything the caller does *not* send. `PUT` takes a
+    whole `LabelIn`, so a form that posts `{name, color}` and nothing else resets the
+    label's position, empties its shape-type restriction, and deletes every attribute
+    definition on it — along with the schema that validates the values already stored on
+    annotations. These pin both halves: what a round-tripped payload preserves, and what a
+    partial one destroys.
+    """
+
+    async def _label_named(self, actor: ApiActor, project_id: str, name: str) -> dict[str, Any]:
+        return next(label for label in await schema_of(actor, project_id) if label["name"] == name)
+
+    async def test_a_round_tripped_payload_keeps_the_attributes_and_their_ids(
+        self, owner: ApiActor, project: dict[str, Any]
+    ) -> None:
+        """Sending the label back as the server reported it, with one field changed."""
+        car = await self._label_named(owner, project["id"], "car")
+        assert car["attributes"], "the project fixture is expected to give `car` attributes"
+
+        renamed = await owner.put(
+            f"/api/v1/projects/{project['id']}/labels/{car['id']}",
+            json=as_payload(car, name="automobile"),
+        )
+        assert renamed.status_code == 200, renamed.text
+        assert renamed.json()["name"] == "automobile"
+        # Same attributes, same ids: `update_label` reuses a row whose id came back.
+        assert [attribute["id"] for attribute in renamed.json()["attributes"]] == [
+            attribute["id"] for attribute in car["attributes"]
+        ]
+        assert [attribute["name"] for attribute in renamed.json()["attributes"]] == [
+            attribute["name"] for attribute in car["attributes"]
+        ]
+
+    async def test_a_partial_payload_destroys_everything_it_leaves_out(
+        self, owner: ApiActor, project: dict[str, Any]
+    ) -> None:
+        """The trap, pinned so that nothing starts sending one by accident.
+
+        This is not behaviour to rely on — it is behaviour to know about. `PUT` is a
+        replace, and a client that treats it as a patch silently deletes an attribute
+        schema.
+        """
+        car = await self._label_named(owner, project["id"], "car")
+        stripped = await owner.put(
+            f"/api/v1/projects/{project['id']}/labels/{car['id']}",
+            json={"name": "automobile", "color": car["color"]},
+        )
+        assert stripped.status_code == 200
+        reread = next(
+            label for label in await schema_of(owner, project["id"]) if label["id"] == car["id"]
+        )
+        assert (stripped.json()["attributes"], reread["attributes"]) == ([], [])
+
+    async def test_renaming_keeps_the_label_where_it_was_in_the_schema(
+        self, owner: ApiActor, project: dict[str, Any]
+    ) -> None:
+        """`update_label` assigns `position` outright, so an omitted one means 0."""
+        before = names(await schema_of(owner, project["id"]))
+        pedestrian = await self._label_named(owner, project["id"], "pedestrian")
+
+        await owner.put(
+            f"/api/v1/projects/{project['id']}/labels/{pedestrian['id']}",
+            json=as_payload(pedestrian, name="walker"),
+        )
+        after = names(await schema_of(owner, project["id"]))
+        assert after == [name if name != "pedestrian" else "walker" for name in before]
+
+    async def test_renaming_to_a_name_already_in_the_schema_is_refused(
+        self, owner: ApiActor, project: dict[str, Any]
+    ) -> None:
+        """Two labels of one name is not a schema.
+
+        `create_label` has always refused a duplicate; `update_label` did not check at all,
+        so the rule could be walked straight around with a rename. Exports key classes by
+        name — COCO categories, a YOLO class list, this project's own class distribution —
+        so a duplicate does not stay a cosmetic problem.
+        """
+        pedestrian = await self._label_named(owner, project["id"], "pedestrian")
+        refused = await owner.put(
+            f"/api/v1/projects/{project['id']}/labels/{pedestrian['id']}",
+            json=as_payload(pedestrian, name="car"),
+        )
+        assert refused.status_code == 409
+        assert "car" in refused.text
+        assert sorted(names(await schema_of(owner, project["id"]))) == ["car", "pedestrian"]
+
+    async def test_renaming_a_label_to_itself_is_not_a_duplicate(
+        self, owner: ApiActor, project: dict[str, Any]
+    ) -> None:
+        """Recolouring without touching the name must not trip the check above."""
+        car = await self._label_named(owner, project["id"], "car")
+        recoloured = await owner.put(
+            f"/api/v1/projects/{project['id']}/labels/{car['id']}",
+            json=as_payload(car, color="#123456"),
+        )
+        assert recoloured.status_code == 200, recoloured.text
+        assert recoloured.json()["color"] == "#123456"
+
+    async def test_the_annotations_on_a_renamed_label_are_untouched(
+        self, owner: ApiActor, project: dict[str, Any]
+    ) -> None:
+        """A rename is not a relabel: shapes reference the label by id, not by name."""
+        _task, jobs = await make_task(owner, project)
+        car = await self._label_named(owner, project["id"], "car")
+        written = await owner.patch(
+            f"/api/v1/jobs/{jobs[0]['id']}/annotations",
+            json={
+                "annotation_version": 0,
+                "created_shapes": [
+                    {
+                        "label_id": car["id"],
+                        "frame": 0,
+                        "shape_type": "rectangle",
+                        "points": [0, 0, 10, 10],
+                        "attributes": {"colour": "red"},
+                    }
+                ],
+            },
+        )
+        assert written.status_code == 200, written.text
+
+        await owner.put(
+            f"/api/v1/projects/{project['id']}/labels/{car['id']}",
+            json=as_payload(car, name="automobile"),
+        )
+        document = (await owner.get(f"/api/v1/jobs/{jobs[0]['id']}/annotations")).json()
+        assert len(document["shapes"]) == 1
+        assert document["shapes"][0]["label_id"] == car["id"]
+        # The attribute value survives because its definition was reused rather than
+        # recreated -- values are keyed by attribute name.
+        assert document["shapes"][0]["attributes"] == {"colour": "red"}
+
+    async def test_editing_a_label_needs_the_rank_for_it(
+        self, owner: ApiActor, project: dict[str, Any], organization: dict[str, Any]
+    ) -> None:
+        annotator = await register(owner.client, "renamer")
+        await add_member(owner, organization["id"], annotator, Role.ANNOTATOR)
+        car = await self._label_named(owner, project["id"], "car")
+
+        refused = await annotator.put(
+            f"/api/v1/projects/{project['id']}/labels/{car['id']}",
+            json=as_payload(car, name="automobile"),
+        )
+        assert refused.status_code == 403
 
 
 class TestUsingANewLabel:

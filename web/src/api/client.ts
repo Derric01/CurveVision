@@ -23,6 +23,7 @@ import type {
   Job,
   JobListing,
   Label,
+  LabelPayload,
   LocalImportResult,
   Membership,
   ModelRegistration,
@@ -266,6 +267,16 @@ export const api = {
 
   createLabel: (projectId: string, input: { name: string; color?: string }) =>
     request<Label>(`/projects/${projectId}/labels`, { method: 'POST', body: input }),
+
+  /**
+   * Replace a label.
+   *
+   * A replace, not a patch: everything left out of the body is destroyed, including the
+   * label's attribute definitions. Build the body with `labelToPayload` from the label as
+   * the server reported it rather than from the fields being changed.
+   */
+  updateLabel: (projectId: string, labelId: string, body: LabelPayload) =>
+    request<Label>(`/projects/${projectId}/labels/${labelId}`, { method: 'PUT', body }),
 
   /**
    * Remove a label from a project's schema.

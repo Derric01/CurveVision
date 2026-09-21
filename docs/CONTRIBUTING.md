@@ -129,7 +129,10 @@ thing you are about to assert**. Its first draft waited for the new label's name
 in the editor and then checked that it was there, which can time out but can never report a
 failure. It also learned that a check looking for a *missing* element has to read it
 defensively — deleting the error banner deliberately killed the run with a Playwright
-timeout instead of printing the two FAIL lines it should have.
+timeout instead of printing the two FAIL lines it should have. Its rename checks then hit
+the fixture variant one iteration later: the sabotage that proved "keeps its attributes"
+left "stays where it was in the schema" passing, because the label under test sat at
+position 0 and a partial payload sends position 0. The seed now puts another label first.
 
 They run **nightly and on every push to `main`** (`.github/workflows/browser.yml`), not on
 pull requests: a PyInstaller build plus twenty-two end-to-end runs is twenty minutes, and CI

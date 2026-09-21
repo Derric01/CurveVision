@@ -129,6 +129,23 @@ async def create_label(
 
 
 async def update_label(session: AsyncSession, label: Label, payload: LabelIn) -> Label:
+    if payload.name != label.name:
+        # `create_label` has always refused a duplicate name and this did not check at all,
+        # so the rule could be walked straight around with a rename. Two labels of one name
+        # is not a schema: exports key classes by name -- COCO categories, a YOLO class
+        # list, this project's own class distribution -- so the duplicate does not stay a
+        # cosmetic problem for long.
+        duplicate = await session.execute(
+            select(Label).where(
+                Label.project_id == label.project_id,
+                Label.name == payload.name,
+                Label.parent_id == label.parent_id,
+                Label.id != label.id,
+            )
+        )
+        if duplicate.scalar_one_or_none() is not None:
+            raise ConflictError(f"A label named {payload.name!r} already exists in this project")
+
     label.name = payload.name
     label.color = payload.color
     label.position = payload.position

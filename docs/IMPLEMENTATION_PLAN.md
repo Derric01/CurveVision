@@ -557,10 +557,19 @@ Planned: LabelMe, Open Images, TFRecord, Datumaro bridge.
   of the schema: it used to take position 0 like every other unpositioned label, and the
   listing orders by `(position, name)`, so `van` added to a `car`/`pedestrian` project
   appeared first. Deleting is safe to offer because `delete_label` refuses a label
-  annotations still reference rather than cascading; the panel shows that refusal. Editing a
-  label in place is deliberately **not** offered: `PUT` replaces a label's attributes
-  wholesale, so a form without an attribute editor would silently delete an attribute
-  schema. The three routes had no tests at all before this; they have eight now.
+  annotations still reference rather than cascading; the panel shows that refusal. A label
+  is also **renamed and recoloured** in place, through `labelToPayload`, which rebuilds the
+  whole label from the one the server reported: `PUT` is a replace, so a form posting only
+  the fields it changed would reset the label's position, lift its shape restriction and
+  delete its attribute definitions along with the schema validating values already stored on
+  annotations. Two more defects surfaced from writing those tests first: `update_label`
+  never checked for a **duplicate name**, so `create_label`'s rule could be walked around
+  with a rename — and exports key classes by name, so two labels called `car` do not stay
+  cosmetic; and the `PUT` **response reported attributes it had just deleted**, because a
+  re-read after commit under `expire_on_commit=False` skips eager loads for an instance
+  already in the session (`populate_existing=True`). Editing the **attributes** themselves
+  is still not offered. The three routes had no tests at all before this; they have fifteen
+  now.
 * **Merging overlapping jobs** (**Done**): a task with `overlap > 0` hands the same frames to
   two annotators so a track can cross a job seam. Export reconciles those frames instead of
   concatenating them — `services/merge.py`, adapted from the upstream design. Two shapes are

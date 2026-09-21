@@ -196,6 +196,13 @@ async def _label_out(session: SessionDep, label_id: uuid.UUID) -> LabelOut:
             selectinload(Label.attributes),
             selectinload(Label.children).selectinload(Label.attributes),
         )
+        # Without this the eager loads below are skipped for an instance already in the
+        # session, which after a commit under `expire_on_commit=False` still holds the
+        # collection as it was *before* the write: an update that replaced a label's
+        # attributes came back reporting the old ones, including attributes it had just
+        # deleted. A caller rendering the response would show a schema that no longer
+        # exists.
+        .execution_options(populate_existing=True)
     )
     label = result.scalar_one()
     return LabelOut.model_validate(label)
