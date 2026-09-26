@@ -567,9 +567,29 @@ Planned: LabelMe, Open Images, TFRecord, Datumaro bridge.
   with a rename — and exports key classes by name, so two labels called `car` do not stay
   cosmetic; and the `PUT` **response reported attributes it had just deleted**, because a
   re-read after commit under `expire_on_commit=False` skips eager loads for an instance
-  already in the session (`populate_existing=True`). Editing the **attributes** themselves
-  is still not offered. The three routes had no tests at all before this; they have fifteen
-  now.
+  already in the session (`populate_existing=True`). The three routes had no tests at all
+  before this; they have fifteen now.
+
+  **A label's attributes are edited from the same form** — added, renamed, given more
+  options or a default, removed. Values are stored on each annotation keyed by attribute
+  *name*, and `validate_attributes` refuses an undeclared key rather than dropping it, so
+  until this the `PUT` accepted a removal or rename and every annotation carrying the old
+  value was then refused on its **next save** — an autosave failing on a box the annotator
+  had only moved. `update_label` now refuses such an edit first. For an attribute that
+  already exists the rules are CVAT's (`LabelSerializer._update_attribute`, read for the
+  convention): its type and `mutable` flag are fixed and a select or radio may gain options
+  but not lose them. A rename or removal is refused only while an annotation of the label
+  records a value under the name — CVAT allows both because it stores values by attribute
+  id — and a new or newly-required attribute with no default is refused while annotations
+  lack it. Whether a value is recorded is read in Python, streamed, rather than by a JSON
+  path whose syntax differs between the two backends. Duplicate attribute names, a
+  same-name replacement and two attributes trading names were each a 500 from
+  `uq_attribute_name` and are not now, and a default the attribute would itself refuse is a
+  422 at the schema. `scripts/verify_attribute_editor.py` drives it, ending in the editor:
+  after every edit, the annotator's box is dragged and saved and keeps its recorded value.
+  Setting an attribute's **value** on a shape from the editor is not built, which is also
+  why the form does not offer `required` — a required attribute with no default would make
+  its label impossible to draw with from the application.
 * **Merging overlapping jobs** (**Done**): a task with `overlap > 0` hands the same frames to
   two annotators so a track can cross a job seam. Export reconciles those frames instead of
   concatenating them — `services/merge.py`, adapted from the upstream design. Two shapes are

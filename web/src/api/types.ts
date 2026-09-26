@@ -108,8 +108,14 @@ export interface LabelPayload {
   position: number;
   allowed_shape_types: string[];
   skeleton_edges: number[][];
-  attributes: AttributeDefinition[];
+  attributes: AttributePayload[];
 }
+
+/**
+ * An attribute as `LabelIn` accepts it. With `id`, the existing definition is kept — and
+ * with it the values annotations recorded under it; without, a new one is created.
+ */
+export type AttributePayload = Omit<AttributeDefinition, 'id'> & { id?: string };
 
 export interface Project {
   id: string;
