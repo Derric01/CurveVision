@@ -228,7 +228,9 @@ class TestEditingALabel:
 
         This is not behaviour to rely on — it is behaviour to know about. `PUT` is a
         replace, and a client that treats it as a patch silently deletes an attribute
-        schema.
+        schema. It is only *allowed* to here because nothing has recorded a value under
+        those attributes yet; once something has, the same request is refused (see
+        `TestEditingAttributes`).
         """
         car = await self._label_named(owner, project["id"], "car")
         stripped = await owner.put(
@@ -379,3 +381,405 @@ class TestUsingANewLabel:
         )
         # The shape-type restriction it was created with is enforced like any other.
         assert refused.status_code == 422
+
+
+async def draw(
+    actor: ApiActor, job_id: str, label_id: str, attributes: dict[str, Any]
+) -> dict[str, Any]:
+    """Draw one rectangle and return it as the server stored it."""
+    document = (await actor.get(f"/api/v1/jobs/{job_id}/annotations")).json()
+    written = await actor.patch(
+        f"/api/v1/jobs/{job_id}/annotations",
+        json={
+            "annotation_version": document["annotation_version"],
+            "created_shapes": [
+                {
+                    "label_id": label_id,
+                    "frame": 0,
+                    "shape_type": "rectangle",
+                    "points": [0, 0, 10, 10],
+                    "attributes": attributes,
+                }
+            ],
+        },
+    )
+    assert written.status_code == 200, written.text
+    shapes = (await actor.get(f"/api/v1/jobs/{job_id}/annotations")).json()["shapes"]
+    return dict(shapes[-1])
+
+
+async def resave(actor: ApiActor, job_id: str, shape: dict[str, Any]) -> int:
+    """Save a shape back with its attributes untouched, the way the editor does.
+
+    Moving a box in the editor sends the whole shape, attributes included, exactly as it was
+    read. So whatever a schema edit does to the values already recorded, *this* is where it
+    shows: a value the schema no longer accepts is a 422 on the annotator's next autosave,
+    not on the schema edit that caused it.
+    """
+    document = (await actor.get(f"/api/v1/jobs/{job_id}/annotations")).json()
+    response = await actor.patch(
+        f"/api/v1/jobs/{job_id}/annotations",
+        json={
+            "annotation_version": document["annotation_version"],
+            "updated_shapes": [
+                {
+                    key: shape[key]
+                    for key in ("id", "label_id", "frame", "shape_type", "points", "attributes")
+                }
+            ],
+        },
+    )
+    return response.status_code
+
+
+class TestEditingAttributes:
+    """Changing a label's attribute definitions without stranding values already recorded.
+
+    Values are stored on each annotation as a JSON object **keyed by attribute name**, and
+    `validate_attributes` rejects a key the schema does not declare rather than dropping it.
+    So an edit that removes or renames an attribute, changes its type, or narrows a
+    select's options does not fail itself — it leaves every annotation carrying the old
+    value unable to be saved again, and the annotator is the one who finds out, from an
+    autosave that is refused.
+
+    The rules follow CVAT's for an attribute that already exists (`cvat-ai/cvat`,
+    `LabelSerializer._update_attribute`): its type and its `mutable` flag are fixed, and a
+    select's options may be added to but not taken away. CVAT allows a rename and a delete
+    because it stores values against the attribute's id; this codebase stores them against
+    its name, so here those two are refused while any annotation of the label records a
+    value under it — and allowed when none does, which is what keeps a schema correctable
+    before it is used.
+    """
+
+    async def _car(self, actor: ApiActor, project_id: str) -> dict[str, Any]:
+        return next(label for label in await schema_of(actor, project_id) if label["name"] == "car")
+
+    def _attribute(self, label: dict[str, Any], name: str) -> dict[str, Any]:
+        return dict(next(a for a in label["attributes"] if a["name"] == name))
+
+    def _without(self, label: dict[str, Any], name: str) -> list[dict[str, Any]]:
+        return [a for a in label["attributes"] if a["name"] != name]
+
+    def _replacing(
+        self, label: dict[str, Any], which: str, /, **changes: Any
+    ) -> list[dict[str, Any]]:
+        return [{**a, **changes} if a["name"] == which else a for a in label["attributes"]]
+
+    async def _put(
+        self, actor: ApiActor, project_id: str, label: dict[str, Any], attributes: list[Any]
+    ) -> Any:
+        return await actor.put(
+            f"/api/v1/projects/{project_id}/labels/{label['id']}",
+            json=as_payload(label, attributes=attributes),
+        )
+
+    async def test_removing_an_attribute_with_recorded_values_is_refused(
+        self, owner: ApiActor, project: dict[str, Any]
+    ) -> None:
+        """The defect itself: the edit succeeded, and the next save of the shape did not."""
+        _task, jobs = await make_task(owner, project)
+        car = await self._car(owner, project["id"])
+        shape = await draw(owner, jobs[0]["id"], car["id"], {"colour": "red"})
+
+        refused = await self._put(owner, project["id"], car, self._without(car, "colour"))
+        assert refused.status_code == 409, refused.text
+        assert "colour" in refused.text
+        assert "1 annotation" in refused.text
+
+        # Nothing half-applied, and the annotator's next autosave still goes through.
+        assert [a["name"] for a in (await self._car(owner, project["id"]))["attributes"]] == [
+            a["name"] for a in car["attributes"]
+        ]
+        assert await resave(owner, jobs[0]["id"], shape) == 200
+
+    async def test_an_attribute_nobody_recorded_a_value_for_can_be_removed(
+        self, owner: ApiActor, project: dict[str, Any]
+    ) -> None:
+        """Refusing *every* removal once a label is in use would make a typo permanent.
+
+        `parked` has no default, so a shape drawn without it records nothing under it.
+        """
+        _task, jobs = await make_task(owner, project)
+        car = await self._car(owner, project["id"])
+        shape = await draw(owner, jobs[0]["id"], car["id"], {"colour": "red"})
+        assert "parked" not in shape["attributes"]
+
+        removed = await self._put(owner, project["id"], car, self._without(car, "parked"))
+        assert removed.status_code == 200, removed.text
+        assert [a["name"] for a in removed.json()["attributes"]] == ["colour"]
+        assert await resave(owner, jobs[0]["id"], shape) == 200
+
+    async def test_a_value_recorded_on_a_track_keyframe_counts(
+        self, owner: ApiActor, project: dict[str, Any]
+    ) -> None:
+        """Mutable attributes live per keyframe, in a table that has no `label_id` of its own."""
+        _task, jobs = await make_task(owner, project)
+        car = await self._car(owner, project["id"])
+        written = await owner.patch(
+            f"/api/v1/jobs/{jobs[0]['id']}/annotations",
+            json={
+                "annotation_version": 0,
+                "created_tracks": [
+                    {
+                        "label_id": car["id"],
+                        "shape_type": "rectangle",
+                        "attributes": {"colour": "red"},
+                        "shapes": [
+                            {
+                                "frame": 0,
+                                "shape_type": "rectangle",
+                                "points": [0, 0, 10, 10],
+                                "attributes": {"parked": True},
+                            }
+                        ],
+                    }
+                ],
+            },
+        )
+        assert written.status_code == 200, written.text
+        # Recorded on the keyframe only: the track-level `attributes` above has no `parked`.
+        refused = await self._put(owner, project["id"], car, self._without(car, "parked"))
+        assert refused.status_code == 409, refused.text
+        assert "parked" in refused.text
+
+    async def test_a_value_recorded_on_a_tag_counts(
+        self, owner: ApiActor, project: dict[str, Any]
+    ) -> None:
+        _task, jobs = await make_task(owner, project)
+        car = await self._car(owner, project["id"])
+        written = await owner.patch(
+            f"/api/v1/jobs/{jobs[0]['id']}/annotations",
+            json={
+                "annotation_version": 0,
+                "created_tags": [
+                    {"label_id": car["id"], "frame": 0, "attributes": {"colour": "blue"}}
+                ],
+            },
+        )
+        assert written.status_code == 200, written.text
+        refused = await self._put(owner, project["id"], car, self._without(car, "colour"))
+        assert refused.status_code == 409, refused.text
+
+    async def test_renaming_an_attribute_with_recorded_values_is_refused(
+        self, owner: ApiActor, project: dict[str, Any]
+    ) -> None:
+        """A rename is a removal as far as the stored values can tell: they are keyed by name."""
+        _task, jobs = await make_task(owner, project)
+        car = await self._car(owner, project["id"])
+        shape = await draw(owner, jobs[0]["id"], car["id"], {"colour": "red"})
+
+        refused = await self._put(
+            owner, project["id"], car, self._replacing(car, "colour", name="color")
+        )
+        assert refused.status_code == 409, refused.text
+        assert "colour" in refused.text
+        assert await resave(owner, jobs[0]["id"], shape) == 200
+
+    async def test_renaming_an_attribute_nobody_recorded_is_allowed_and_keeps_its_id(
+        self, owner: ApiActor, project: dict[str, Any]
+    ) -> None:
+        car = await self._car(owner, project["id"])
+        parked = self._attribute(car, "parked")
+
+        renamed = await self._put(
+            owner, project["id"], car, self._replacing(car, "parked", name="stationary")
+        )
+        assert renamed.status_code == 200, renamed.text
+        assert self._attribute(renamed.json(), "stationary")["id"] == parked["id"]
+
+    async def test_the_type_of_an_existing_attribute_is_fixed(
+        self, owner: ApiActor, project: dict[str, Any]
+    ) -> None:
+        """CVAT's rule, and for the same reason: `red` is not a number or a checkbox.
+
+        Refused even with nothing recorded, so the rule a person meets does not depend on
+        data they cannot see. Removing the attribute and adding a new one is the way to
+        change it, and that works whenever nothing is recorded under it.
+        """
+        car = await self._car(owner, project["id"])
+        refused = await self._put(
+            owner, project["id"], car, self._replacing(car, "colour", attribute_type="text")
+        )
+        assert refused.status_code == 409, refused.text
+        assert "type" in refused.text
+
+    async def test_whether_an_existing_attribute_is_mutable_is_fixed(
+        self, owner: ApiActor, project: dict[str, Any]
+    ) -> None:
+        """Turning `mutable` off would silently drop every per-keyframe value on next save."""
+        car = await self._car(owner, project["id"])
+        refused = await self._put(
+            owner, project["id"], car, self._replacing(car, "parked", mutable=False)
+        )
+        assert refused.status_code == 409, refused.text
+        assert "frame to frame" in refused.text
+
+    async def test_a_select_can_gain_options_but_not_lose_them(
+        self, owner: ApiActor, project: dict[str, Any]
+    ) -> None:
+        _task, jobs = await make_task(owner, project)
+        car = await self._car(owner, project["id"])
+        shape = await draw(owner, jobs[0]["id"], car["id"], {"colour": "black"})
+
+        refused = await self._put(
+            owner, project["id"], car, self._replacing(car, "colour", values=["red", "blue"])
+        )
+        assert refused.status_code == 409, refused.text
+        assert "black" in refused.text
+
+        grown = await self._put(
+            owner,
+            project["id"],
+            car,
+            self._replacing(car, "colour", values=["red", "blue", "black", "silver"]),
+        )
+        assert grown.status_code == 200, grown.text
+        assert self._attribute(grown.json(), "colour")["values"][-1] == "silver"
+        assert await resave(owner, jobs[0]["id"], shape) == 200
+
+    async def test_an_attribute_can_be_added_to_a_label_already_in_use(
+        self, owner: ApiActor, project: dict[str, Any]
+    ) -> None:
+        """The ordinary case: the schema turned out to need `occluded`."""
+        _task, jobs = await make_task(owner, project)
+        car = await self._car(owner, project["id"])
+        shape = await draw(owner, jobs[0]["id"], car["id"], {"colour": "red"})
+
+        added = await self._put(
+            owner,
+            project["id"],
+            car,
+            [
+                *car["attributes"],
+                {"name": "occluded", "attribute_type": "checkbox", "default_value": "false"},
+            ],
+        )
+        assert added.status_code == 200, added.text
+        assert [a["name"] for a in added.json()["attributes"]] == ["colour", "parked", "occluded"]
+        assert await resave(owner, jobs[0]["id"], shape) == 200
+
+    async def test_a_new_required_attribute_needs_a_default_once_annotations_exist(
+        self, owner: ApiActor, project: dict[str, Any]
+    ) -> None:
+        """Every annotation drawn before it has no value, and `required` refuses the next save."""
+        _task, jobs = await make_task(owner, project)
+        car = await self._car(owner, project["id"])
+        shape = await draw(owner, jobs[0]["id"], car["id"], {"colour": "red"})
+        required = {"name": "make", "attribute_type": "text", "required": True}
+
+        refused = await self._put(owner, project["id"], car, [*car["attributes"], required])
+        assert refused.status_code == 409, refused.text
+        assert "make" in refused.text
+        assert await resave(owner, jobs[0]["id"], shape) == 200
+
+        # With a default, the annotations drawn before it take the default on their next save.
+        defaulted = await self._put(
+            owner, project["id"], car, [*car["attributes"], {**required, "default_value": "?"}]
+        )
+        assert defaulted.status_code == 200, defaulted.text
+        assert await resave(owner, jobs[0]["id"], shape) == 200
+
+    async def test_an_existing_attribute_cannot_become_required_without_a_default_either(
+        self, owner: ApiActor, project: dict[str, Any]
+    ) -> None:
+        _task, jobs = await make_task(owner, project)
+        car = await self._car(owner, project["id"])
+        await draw(owner, jobs[0]["id"], car["id"], {"colour": "red"})
+
+        refused = await self._put(
+            owner, project["id"], car, self._replacing(car, "parked", required=True)
+        )
+        assert refused.status_code == 409, refused.text
+        assert "parked" in refused.text
+
+    async def test_an_attribute_can_be_replaced_by_a_new_one_of_the_same_name(
+        self, owner: ApiActor, project: dict[str, Any]
+    ) -> None:
+        """How a type is changed: remove the old definition and add a new one, in one `PUT`.
+
+        Both rows share a name under a unique constraint, so the old one has to be gone
+        before the new one is written — the order a flush would not otherwise choose.
+        """
+        car = await self._car(owner, project["id"])
+        parked = self._attribute(car, "parked")
+        replacement = {"name": "parked", "attribute_type": "text", "mutable": False}
+
+        replaced = await self._put(
+            owner, project["id"], car, [*self._without(car, "parked"), replacement]
+        )
+        assert replaced.status_code == 200, replaced.text
+        now = self._attribute(replaced.json(), "parked")
+        assert (now["attribute_type"], now["id"] != parked["id"]) == ("text", True)
+
+    async def test_two_attributes_can_trade_names(
+        self, owner: ApiActor, project: dict[str, Any]
+    ) -> None:
+        """Legal, if odd — and a 500 if the renames are written in the order they arrive."""
+        car = await self._car(owner, project["id"])
+        colour, parked = self._attribute(car, "colour"), self._attribute(car, "parked")
+
+        traded = await self._put(
+            owner,
+            project["id"],
+            car,
+            [{**colour, "name": "parked"}, {**parked, "name": "colour"}],
+        )
+        assert traded.status_code == 200, traded.text
+        by_id = {a["id"]: a["name"] for a in traded.json()["attributes"]}
+        assert (by_id[colour["id"]], by_id[parked["id"]]) == ("parked", "colour")
+
+    async def test_a_refused_edit_changes_nothing_else_about_the_label(
+        self, owner: ApiActor, project: dict[str, Any]
+    ) -> None:
+        """The label's own fields travel in the same `PUT`, and must not half-apply."""
+        car = await self._car(owner, project["id"])
+        refused = await owner.put(
+            f"/api/v1/projects/{project['id']}/labels/{car['id']}",
+            json=as_payload(
+                car,
+                name="automobile",
+                attributes=self._replacing(car, "colour", attribute_type="text"),
+            ),
+        )
+        assert refused.status_code == 409, refused.text
+        assert (await self._car(owner, project["id"]))["name"] == "car"
+
+    async def test_two_attributes_of_one_name_are_refused(
+        self, owner: ApiActor, project: dict[str, Any]
+    ) -> None:
+        """Values are keyed by name, so a second `colour` would share the first one's values."""
+        car = await self._car(owner, project["id"])
+        twin = {"name": "colour", "attribute_type": "text"}
+
+        on_update = await self._put(owner, project["id"], car, [*car["attributes"], twin])
+        assert on_update.status_code == 422, on_update.text
+        on_create = await owner.post(
+            f"/api/v1/projects/{project['id']}/labels",
+            json={"name": "twins", "attributes": [twin, twin]},
+        )
+        assert on_create.status_code == 422, on_create.text
+
+    @pytest.mark.parametrize(
+        ("attribute", "problem"),
+        [
+            ({"attribute_type": "select", "values": ["a", "b"], "default_value": "c"}, "one of"),
+            ({"attribute_type": "radio", "values": ["a", "b"], "default_value": "c"}, "one of"),
+            ({"attribute_type": "checkbox", "default_value": "yes"}, "true"),
+            ({"attribute_type": "number", "default_value": "many"}, "number"),
+        ],
+    )
+    async def test_a_default_the_attribute_itself_would_refuse_is_refused(
+        self, owner: ApiActor, project: dict[str, Any], attribute: dict[str, Any], problem: str
+    ) -> None:
+        """A default is written into every annotation drawn without a value.
+
+        `validate_attributes` fills it in without checking it, so an invalid one was
+        recorded silently — and then refused on that annotation's next save, which is the
+        same stranding as every other case here, only arriving from the other side.
+        """
+        refused = await owner.post(
+            f"/api/v1/projects/{project['id']}/labels",
+            json={"name": "defaulted", "attributes": [{"name": "a", **attribute}]},
+        )
+        assert refused.status_code == 422, refused.text
+        assert problem in refused.text

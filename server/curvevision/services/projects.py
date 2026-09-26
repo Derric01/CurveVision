@@ -3,19 +3,20 @@
 from __future__ import annotations
 
 import uuid
+from collections import Counter
 from typing import Any
 
 from sqlalchemy import func, select
-from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.ext.asyncio import AsyncScalarResult, AsyncSession
 from sqlalchemy.orm import selectinload
 
 from curvevision.core.errors import ConflictError, NotFoundError, ValidationError
-from curvevision.domain.annotation import Shape, Tag, Track
+from curvevision.domain.annotation import Shape, Tag, Track, TrackShape
 from curvevision.domain.enums import AttributeType, JobState
 from curvevision.domain.identity import User
 from curvevision.domain.project import AttributeDefinition, Label, Project
 from curvevision.domain.task import Job, Task
-from curvevision.schemas.project import LabelIn
+from curvevision.schemas.project import AttributeIn, LabelIn
 
 
 async def create_project(
@@ -146,22 +147,40 @@ async def update_label(session: AsyncSession, label: Label, payload: LabelIn) ->
         if duplicate.scalar_one_or_none() is not None:
             raise ConflictError(f"A label named {payload.name!r} already exists in this project")
 
+    # Attributes are replaced wholesale, but existing rows are reused where the client sent
+    # an id. That is not enough on its own to keep annotation values: they are keyed by
+    # attribute *name*, so `_refuse_stranding_values` decides what may change, before
+    # anything about the label has been touched.
+    await session.refresh(label, ["attributes"])
+    by_id = {attribute.id: attribute for attribute in label.attributes}
+    await _refuse_stranding_values(session, label, by_id, payload.attributes)
+    kept = {incoming.id for incoming in payload.attributes if incoming.id in by_id}
+
     label.name = payload.name
     label.color = payload.color
     label.position = payload.position
     label.allowed_shape_types = [shape.value for shape in payload.allowed_shape_types]
     label.skeleton_edges = payload.skeleton_edges
 
-    # Attributes are replaced wholesale, but existing rows are reused where the client sent
-    # an id, so annotation values keyed by attribute name survive an edit.
-    await session.refresh(label, ["attributes"])
-    by_id = {attribute.id: attribute for attribute in label.attributes}
-    keep: set[uuid.UUID] = set()
+    # Removals and renames are written before anything else, each flushed on its own, so the
+    # final names can be assigned freely afterwards: `uq_attribute_name` is checked row by
+    # row, and a new attribute taking a removed one's name, or two attributes trading names,
+    # would otherwise trip it halfway through the flush.
+    for attribute in label.attributes:
+        if attribute.id not in kept:
+            await session.delete(attribute)
+    renamed = [
+        by_id[incoming.id]
+        for incoming in payload.attributes
+        if incoming.id in by_id and by_id[incoming.id].name != incoming.name
+    ]
+    for attribute in renamed:
+        attribute.name = f"~{attribute.id}"
+    await session.flush()
 
     for index, incoming in enumerate(payload.attributes):
         if incoming.id is not None and incoming.id in by_id:
             attribute = by_id[incoming.id]
-            keep.add(attribute.id)
         else:
             attribute = AttributeDefinition(label_id=label.id)
             session.add(attribute)
@@ -173,12 +192,149 @@ async def update_label(session: AsyncSession, label: Label, payload: LabelIn) ->
         attribute.required = incoming.required
         attribute.position = incoming.position or index
 
-    for attribute in label.attributes:
-        if attribute.id not in keep and attribute.id in by_id:
-            await session.delete(attribute)
-
     await session.flush()
     return label
+
+
+async def _refuse_stranding_values(
+    session: AsyncSession,
+    label: Label,
+    current: dict[uuid.UUID, AttributeDefinition],
+    incoming: list[AttributeIn],
+) -> None:
+    """Refuse an attribute edit that would leave recorded values unable to be saved again.
+
+    Values live on each annotation as a JSON object keyed by attribute name, and
+    `validate_attributes` rejects a key the schema does not declare. So an edit that
+    removes or renames an attribute, changes its type or narrows its options does not fail
+    itself: it fails the *next save* of every annotation carrying the old value, and the
+    annotator is the one who finds out, from an autosave that is refused.
+
+    For an attribute that already exists, the rules are CVAT's (`cvat-ai/cvat`,
+    `LabelSerializer._update_attribute`, MIT; the convention only, no code): its type and
+    its `mutable` flag are fixed, and a select's options may be added to but not taken
+    away. Those hold whether or not anything is recorded yet, so the rule a person meets
+    does not depend on data they cannot see; removing the attribute and adding a new one
+    is how to change them. CVAT allows a rename and a removal because it stores values
+    against the attribute's id. This codebase stores them against its name, so here those
+    two are refused only while an annotation of the label records a value under it —
+    which is what keeps a schema correctable before it has been used.
+    """
+    kept = {attribute.id: attribute for attribute in incoming if attribute.id in current}
+    to_count: list[tuple[str, str]] = []  # (attribute name, what is being done to it)
+    required_now: list[str] = []
+
+    for attribute_id, new in kept.items():
+        old = current[attribute_id]
+        if new.attribute_type != old.attribute_type:
+            raise ConflictError(
+                f"The type of the attribute {old.name!r} cannot change. "
+                "Remove it and add a new attribute instead."
+            )
+        # Turning `mutable` off would silently drop every value recorded per keyframe on
+        # the track's next save; CVAT fixes it in both directions, and so does this.
+        if new.mutable != old.mutable:
+            raise ConflictError(
+                f"Whether the attribute {old.name!r} can change from frame to frame cannot "
+                "be changed. Remove it and add a new attribute instead."
+            )
+        if old.attribute_type in (AttributeType.SELECT, AttributeType.RADIO):
+            dropped = [value for value in old.values if value not in new.values]
+            if dropped:
+                raise ConflictError(
+                    f"The attribute {old.name!r} cannot lose its options "
+                    f"({', '.join(dropped)}): options may be added, not removed."
+                )
+        if new.name != old.name:
+            to_count.append((old.name, "renamed"))
+        if _demands_a_value(new) and not _demands_a_value(old):
+            required_now.append(new.name)
+
+    to_count.extend(
+        (attribute.name, "removed")
+        for attribute_id, attribute in current.items()
+        if attribute_id not in kept
+    )
+    required_now.extend(
+        attribute.name
+        for attribute in incoming
+        if attribute.id not in current and _demands_a_value(attribute)
+    )
+    if not to_count and not required_now:
+        return
+
+    total, recorded, answered = await _attribute_usage(session, label.id)
+    for name, change in to_count:
+        if recorded[name]:
+            raise ConflictError(
+                f"{recorded[name]} annotation(s) of {label.name!r} record a value for the "
+                f"attribute {name!r}, so it cannot be {change}: values are stored by "
+                "attribute name, and theirs could not be saved again."
+            )
+    for name in required_now:
+        missing = total - answered[name]
+        if missing:
+            raise ConflictError(
+                f"{missing} annotation(s) of {label.name!r} have no value for {name!r}, so "
+                "it cannot be required without a default: each would be refused on its "
+                "next save. Give it a default value."
+            )
+
+
+def _demands_a_value(attribute: AttributeDefinition | AttributeIn) -> bool:
+    """Whether a save without this attribute is refused, rather than given its default."""
+    return attribute.required and attribute.default_value is None
+
+
+async def _attribute_usage(
+    session: AsyncSession, label_id: uuid.UUID
+) -> tuple[int, Counter[str], Counter[str]]:
+    """How the annotations of one label use its attributes.
+
+    Returns the number of annotations, how many record a value under each attribute name
+    anywhere (a track counts once, whether the value is on the track or on a keyframe), and
+    how many carry one at the level a save validates against — which for a track is the
+    track itself, since keyframes carry mutable values only and are not checked for
+    required ones.
+
+    Read in Python rather than asked of the database by JSON path, deliberately: the path
+    syntax differs between SQLite and PostgreSQL, SQLAlchemy's SQLite rendering does not
+    escape a quote in the key, and attribute names are free text. This runs only for an
+    edit that removes, renames or newly requires an attribute, which is rare and
+    deliberate, and it streams rather than loading every row at once.
+    """
+    total = 0
+    recorded: Counter[str] = Counter()
+    answered: Counter[str] = Counter()
+
+    for model in (Shape, Tag):
+        rows: AsyncScalarResult[dict[str, Any]] = await session.stream_scalars(
+            select(model.attributes).where(model.label_id == label_id)
+        )
+        async for values in rows:
+            total += 1
+            recorded.update(values.keys())
+            answered.update(values.keys())
+
+    per_track: dict[uuid.UUID, set[str]] = {}
+    tracks = await session.stream(
+        select(Track.id, Track.attributes).where(Track.label_id == label_id)
+    )
+    async for track_id, values in tracks:
+        per_track[track_id] = set(values)
+        answered.update(values.keys())
+    keyframes = await session.stream(
+        select(TrackShape.track_id, TrackShape.attributes)
+        .join(Track, TrackShape.track_id == Track.id)
+        .where(Track.label_id == label_id)
+    )
+    async for track_id, values in keyframes:
+        per_track[track_id].update(values)
+    total += len(per_track)
+    for names in per_track.values():
+        recorded.update(names)
+
+    return total, recorded, answered
 
 
 async def delete_label(session: AsyncSession, label: Label) -> None:
