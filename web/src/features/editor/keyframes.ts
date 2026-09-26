@@ -65,6 +65,25 @@ export function keyframeAt(track: ApiTrack, frame: number): TrackShape | undefin
 }
 
 /**
+ * The per-frame attribute values in force on `frame`: those of the last stored shape at or
+ * before it. The server's rule (`interpolate_track`: values "hold until the next keyframe
+ * changes them"), so a new keyframe that starts from these changes nothing — one that
+ * started from `{}` reset every mutable value from that frame onward.
+ */
+export function frameAttributesAt(track: ApiTrack, frame: number): Record<string, unknown> {
+  let latest: TrackShape | undefined;
+  for (const shape of track.shapes) {
+    if (shape.frame <= frame && (!latest || shape.frame > latest.frame)) latest = shape;
+  }
+  return { ...(latest?.attributes ?? {}) };
+}
+
+/** What an object on `frame` shows: the track's own values, then the frame's. */
+export function attributesAt(track: ApiTrack, frame: number): Record<string, unknown> {
+  return { ...track.attributes, ...frameAttributesAt(track, frame) };
+}
+
+/**
  * The shape a track is displaying at `frame`, or `null` if it is not on screen there.
  *
  * This is the geometry a new keyframe must carry. Taking the previous keyframe's points
@@ -114,7 +133,7 @@ export function toggleKeyframe(track: ApiTrack, frame: number): EditResult {
         occluded: position.occluded,
         outside: false,
         keyframe: true,
-        attributes: {},
+        attributes: frameAttributesAt(track, frame),
       } as TrackShape,
     ]),
   };
@@ -238,6 +257,8 @@ export interface Placement {
   points: number[];
   rotation: number;
   occluded: boolean;
+  /** Mutable attribute values on this frame; when absent, the ones already in force. */
+  attributes?: Record<string, unknown>;
 }
 
 /**
@@ -259,11 +280,14 @@ export interface Placement {
  */
 export function placeKeyframe(track: ApiTrack, frame: number, placement: Placement): ApiTrack | null {
   const shown = positionAt(track, frame);
+  const inForce = frameAttributesAt(track, frame);
+  const attributes = placement.attributes ?? inForce;
   if (
     shown &&
     shown.rotation === placement.rotation &&
     shown.occluded === placement.occluded &&
-    samePoints(shown.points, placement.points)
+    samePoints(shown.points, placement.points) &&
+    sameRecord(inForce, attributes)
   ) {
     return null;
   }
@@ -275,7 +299,7 @@ export function placeKeyframe(track: ApiTrack, frame: number, placement: Placeme
     {
       frame,
       z_order: existing?.z_order ?? 0,
-      attributes: existing?.attributes ?? {},
+      attributes: { ...attributes },
       points: [...placement.points],
       rotation: placement.rotation,
       occluded: placement.occluded,
@@ -290,6 +314,8 @@ export interface CanvasEdit extends Placement {
   trackId: string;
   frame: number;
   labelId: string;
+  /** Every attribute value the object shows: the track's and this frame's together. */
+  attributes: Record<string, unknown>;
 }
 
 /**
@@ -304,18 +330,37 @@ export interface CanvasEdit extends Placement {
 export function applyCanvasEdits(
   tracks: readonly ApiTrack[],
   edits: readonly CanvasEdit[],
+  mutable: (labelId: string) => ReadonlySet<string> = () => new Set(),
 ): ApiTrack[] {
   const byId = new Map(tracks.map((track) => [track.id, track]));
   const changed = new Map<string, ApiTrack>();
   for (const edit of [...edits].sort((a, b) => a.frame - b.frame)) {
     const track = changed.get(edit.trackId) ?? byId.get(edit.trackId);
     if (!track) continue;
-    const relabelled = track.label_id === edit.labelId ? track : { ...track, label_id: edit.labelId };
-    const placed = placeKeyframe(relabelled, edit.frame, edit);
+    // A value that may change from frame to frame belongs to this frame's keyframe; any
+    // other belongs to the whole track, which is where the server validates it.
+    const perFrame = mutable(edit.labelId);
+    const trackLevel: Record<string, unknown> = {};
+    const frameLevel: Record<string, unknown> = {};
+    for (const [name, value] of Object.entries(edit.attributes)) {
+      (perFrame.has(name) ? frameLevel : trackLevel)[name] = value;
+    }
+    let base = track;
+    if (track.label_id !== edit.labelId) base = { ...base, label_id: edit.labelId };
+    if (!sameRecord(track.attributes, trackLevel)) base = { ...base, attributes: trackLevel };
+    const placed = placeKeyframe(base, edit.frame, { ...edit, attributes: frameLevel });
     if (placed) changed.set(track.id, placed);
-    else if (relabelled !== track) changed.set(track.id, relabelled);
+    else if (base !== track) changed.set(track.id, base);
   }
   return [...changed.values()];
+}
+
+function sameRecord(a: Record<string, unknown>, b: Record<string, unknown>): boolean {
+  const keys = Object.keys(a);
+  return (
+    keys.length === Object.keys(b).length &&
+    keys.every((key) => JSON.stringify(a[key]) === JSON.stringify(b[key]))
+  );
 }
 
 function samePoints(a: readonly number[], b: readonly number[]): boolean {

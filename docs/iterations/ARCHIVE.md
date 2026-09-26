@@ -1,6 +1,6 @@
 # Iteration archive
 
-> The narrative record of iterations **1–47**, moved out of
+> The narrative record of iterations **1–48**, moved out of
 > [`handoff.md`](../../handoff.md) so that orienting on this project costs a few hundred
 > lines rather than four thousand.
 >
@@ -15,6 +15,72 @@
 > window, append it to the top of this file rather than deleting it.
 
 ---
+
+## Iteration 48
+
+### 48 — a project's label schema can be changed after the project exists
+
+Named by this file as next, and found the same way the last four were: `api.createLabel` sat
+in the web client with no caller. The consequence is about as ordinary as this product gets
+— a project created with `car` and `pedestrian`, and then a van in the third photograph.
+`POST`, `PUT` and `DELETE /projects/{id}/labels` have all existed since the initial schema,
+the policy engine gates them at `MAINTAINER`, and the only way to reach any of them was the
+SDK, the CLI or curl.
+
+**A defect the tests found before the panel existed: a label added later sorted into the
+middle.** The listing orders by `(position, name)` and every label sent without a position
+took 0, so `aardvark` added to a `car`/`pedestrian` schema came back *first*. That is not
+cosmetic: the schema's order is the order the editor's label picker shows and the order its
+number-key shortcuts run in, so adding a class silently renumbered the shortcuts an
+annotator had learned. The route now counts the project's existing top-level labels and
+passes that as the default position — `create_label` already took a `default_position`
+parameter for exactly this, used when a project is created and by nothing else. An explicit
+position is still honoured, which a test pins.
+
+**Delete is offered because the server already made it safe.** `delete_label` counts the
+shapes, tracks and tags referencing the label and refuses with a 409 rather than cascading,
+which its own docstring has always said. That is what turns "delete a label" from a
+destructive button into an ordinary one: the panel shows the server's own refusal, and the
+harness checks that both the label and the annotation are still there afterwards. A
+courtesy count beside each label comes from the class distribution the statistics panel
+already fetched, so the usual case is not "press delete, read an error".
+
+**What is deliberately not built, and why.** Editing a label in place. `PUT` replaces a
+label's attributes wholesale — `update_label` reuses an existing attribute row only when the
+client sends its id back — so a rename box posting `{name, color}` would delete every
+attribute definition on that label and the schema validating the values already stored on
+annotations with it. That needs an attribute editor, which is its own piece of work, and it
+is now *Next best action* rather than a quiet gap.
+
+**No duplicate check in the browser, on purpose.** The server's comparison is a
+case-sensitive string match in one place; a second copy here would be a second thing to keep
+true, and it would be the one that was wrong. The panel sends the name and renders "A label
+named 'car' already exists in this project". What the pure module *does* do is trim the name
+and collapse its internal whitespace, because "school  bus" and "school bus" are the same
+class to everybody except a string comparison — and a string comparison is what decides
+whether it is a duplicate.
+
+**A third variant of the same harness mistake, in one iteration's own draft.** Iteration 46
+learned that a check has to be made to fail; 47 added that the fixture is part of the check;
+this one adds **do not wait for the thing you are about to assert**. The first draft waited
+for the new label's name to appear in the editor and then checked that it had — which can
+time out, but can never print a FAIL. Rewritten to wait for the label list as a whole and
+assert on that label's own id. The delete sabotage found a second, related one: reading
+`[data-label-error]` with `inner_text` on a page where nothing rendered it killed the run
+with a Playwright timeout instead of reporting the two failures, so a `text_of` helper now
+returns `""` for an element that is not there. A check looking for something *missing* has
+to read defensively.
+
+**Both sabotages confirmed to bite.** Reverting the position default put `van` back in the
+middle and failed exactly that check; deleting the error banner failed exactly the two
+checks about the server's refusal reaching the screen, and nothing else. Restored, rebuilt,
+and the bundle hash came back byte-identical (`index-Cg6bXkv6.js`).
+
+Verified: `./scripts/check.sh` green, all twelve steps — 543 server tests (8 new in
+`test_label_schema.py`), 15 SDK (unchanged), 605 web (12 new in `labelSchema.test.ts`).
+`scripts/verify_label_schema.py`'s twelve checks pass against a rebuilt sidecar, and it is
+registered in `.github/workflows/browser.yml` and `docs/CONTRIBUTING.md`. No other harness
+drives the project page, so there was nothing adjacent to re-run for this one.
 
 ## Iteration 47
 

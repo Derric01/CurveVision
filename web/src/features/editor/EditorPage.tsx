@@ -58,6 +58,8 @@ import { SuggestionsPanel } from './SuggestionsPanel';
 import { ReviewPanel } from './ReviewPanel';
 import { canSubmit } from './review';
 import { useAutosave } from './useAutosave';
+import { AttributesPanel } from './AttributesPanel';
+import { attributesFor, mutableNames } from './attributeValues';
 
 const TOOLS: { name: ToolName; icon: typeof Square; label: string; key: string }[] = [
   { name: 'select', icon: MousePointer2, label: 'Select', key: 'V' },
@@ -143,7 +145,19 @@ export function EditorPage() {
     () => void queryClient.invalidateQueries({ queryKey: ['annotations', jobId] }),
     [jobId, queryClient],
   );
-  const autosave = useAutosave(jobId, version, onSaved);
+  const mutable = useMemo(() => mutableNames(labels.data ?? []), [labels.data]);
+  const autosave = useAutosave(
+    jobId,
+    version,
+    onSaved,
+    useCallback((labelId: string) => mutable.get(labelId) ?? new Set<string>(), [mutable]),
+  );
+
+  // Attribute values as the canvas holds them now. `visible` is built from the last saved
+  // document, so without this the panel would show a value the annotator has just changed
+  // as its old one until the next autosave came back. Reset whenever the document does.
+  const [liveAttributes, setLiveAttributes] = useState<Record<string, Record<string, unknown>>>({});
+  useEffect(() => setLiveAttributes({}), [annotations.data]);
 
   const currentFrame = frame ?? job.data?.start_frame ?? 0;
   const visible = useMemo(
@@ -177,6 +191,13 @@ export function EditorPage() {
       // has to be sent as one: as a shape id it matches no shape and deletes nothing, and
       // the object is back the next time the job is opened.
       const trackIds = new Set(annotations.data?.tracks.map((track) => track.id));
+      if (change.updated.length > 0) {
+        setLiveAttributes((current) => {
+          const next = { ...current };
+          for (const annotation of change.updated) next[annotation.id] = annotation.attributes;
+          return next;
+        });
+      }
       autosave.record({
         created: change.created,
         updated: change.updated,
@@ -504,6 +525,25 @@ export function EditorPage() {
             selection={selection}
             onFocus={(id) => engine?.focusAnnotation(id)}
           />
+
+          {(() => {
+            // From the scene first: it holds an object drawn a moment ago that no save has
+            // returned yet, and the values as they are now rather than as last saved.
+            const id = selection.length === 1 ? selection[0] : undefined;
+            const selected = id
+              ? (engine?.scene.get(id) ?? visible.find((item) => item.id === id))
+              : undefined;
+            if (!selected) return null;
+            return (
+              <AttributesPanel
+                objectId={selected.id}
+                definitions={attributesFor(labels.data ?? [], selected.labelId)}
+                values={liveAttributes[selected.id] ?? selected.attributes}
+                tracked={Boolean(selected.trackId)}
+                onChange={(name, value) => engine?.setSelectionAttribute(name, value)}
+              />
+            );
+          })()}
 
           <AutoAnnotatePanel
             jobId={jobId}
