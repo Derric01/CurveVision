@@ -1,6 +1,6 @@
 # Iteration archive
 
-> The narrative record of iterations **1–46**, moved out of
+> The narrative record of iterations **1–47**, moved out of
 > [`handoff.md`](../../handoff.md) so that orienting on this project costs a few hundred
 > lines rather than four thousand.
 >
@@ -15,6 +15,77 @@
 > window, append it to the top of this file rather than deleting it.
 
 ---
+
+## Iteration 47
+
+### 47 — a reviewer can ask what is waiting for them
+
+Straight on from iteration 46, and named by this file as next: the assignment existed, the
+decision existed, and between them there was no way in. `GET /jobs?mine=true` has filtered
+on `assignee_id` alone since early in the project, so a reviewer with four jobs named to
+them could not ask for them — they opened each task in turn and read its job list, which
+works for a demo and not for a person with a day's worth of review.
+
+**Two questions, not one filter with two spellings.** `reviewing=true` sits beside
+`mine=true` and narrows independently, so asking both gives the jobs where the caller is on
+*both* ends of the loop rather than either. That is the reading somebody will expect from
+two filters, and it makes `reviewing=true&state=submitted` — which is what a queue actually
+is — fall out of the existing `state` parameter instead of needing a special case. A
+`reviewer_id` parameter mirrors the `assignee_id` the listing has always accepted, for the
+manager asking what one person is holding.
+
+**The endpoint had no test at all — not one.** Not for `mine`, which the My work page in the
+navigation bar has always run on every visit, and not for the membership subquery that
+decides whose work a caller can see. Five tests now cover it, and writing them turned up the
+trap this file keeps recording: **two of the five passed before the feature existed.**
+FastAPI ignores an unknown query parameter, so `reviewing=true` was silently dropped and the
+assertions happened to hold anyway — one fixture had a single job, so "the list is exactly
+this job" was true of the unfiltered listing too. Both were rewritten with a control job
+that makes the unfiltered answer different from the filtered one. A test that passes before
+its feature exists is not a weak test; it is not a test.
+
+**The queue names the task, which the listing had loaded and never returned.** `GET /jobs`
+has had `selectinload(Job.task)` since it was written, for a field nothing read. Across
+every project, "Job #2 · frames 0–1" identifies a job to the server and to nobody else. A
+new `JobListing` schema carries `task_name` and `project_id` on the cross-project listing
+only: `Job.task` is an ordinary lazy relationship, so putting those on `JobOut` itself would
+oblige every other job route to start loading it for a field they have no use for.
+
+**Split on what can be acted on, not on everything named to you.** Only a `submitted` job
+can be reviewed — the server's rule, and `review.ts`'s `isReviewable`, imported rather than
+restated so the two cannot drift. `myWork.ts` partitions on it, and the summary line counts
+only the actionable half: a reviewer holding four half-drawn jobs has nothing to do today,
+and "4 waiting" would send them looking for work that does not exist. The other half is
+still listed, because "nothing is named to you" and "nothing is ready yet" are different
+things to tell somebody, and an empty panel says the first when it means the second.
+
+**A migration, and the first one in this repository ever run backwards.**
+`ix_job_reviewer_state` is `ix_job_assignee_state` with one column changed, since the queue
+is the same query shape as the annotator's landing page and deserves the same index.
+`docs/CONTRIBUTING.md` has always asked for migrations "tested in both directions" and
+nothing in the suite had ever moved one down — the whole suite only migrated a fresh
+database up to head. `test_the_newest_migration_runs_in_both_directions` drives the head
+revision down and up again on a real SQLite file, and confirmed it bites by stubbing the
+`downgrade` body and watching it fail. That needed `desktop.migrate` split into
+`alembic_config` plus a one-line upgrade, so a test can drive the same configuration the
+application uses rather than a copy of it.
+
+**The harness sabotage is the one worth remembering.** Pointing the page's review query at
+`mine` instead of `reviewing` failed four checks — and left the summary check *passing*,
+reading "1 job waiting on you" exactly as expected, because the fixture happened to contain
+exactly one submitted job either way. A second control job fixes it: under the sabotage the
+page now says "2" and the check fails. Iteration 46's lesson was that a check has to be made
+to fail before it can be believed; this one adds that the **fixture** is part of the check,
+not scenery around it. The sabotage also crashed the harness on a missing click target,
+burying four real failures under a Playwright traceback, so the run now bails out cleanly
+with its failure list when the queue is already wrong.
+
+Verified: `./scripts/check.sh` green, all twelve steps — 535 server tests (6 new: five for
+the listing, one for the migration), 15 SDK (unchanged), 593 web (9 new in `myWork.test.ts`).
+`scripts/verify_review_queue.py`'s twelve checks pass against a rebuilt sidecar, and it is
+registered in `.github/workflows/browser.yml` and `docs/CONTRIBUTING.md`. The sabotage above
+was restored and the rebuilt bundle hash came back byte-identical (`index-CrOWMP8i.js`).
+`verify_job_assignment.py` and `verify_job_review.py` re-run and pass.
 
 ## Iteration 46
 

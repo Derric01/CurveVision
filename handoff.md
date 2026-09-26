@@ -5,10 +5,10 @@
 > [`AGENTS.md`](./AGENTS.md) first; it is the working contract. Update this file after every
 > iteration, including the ones that mostly failed.
 >
-> **Last updated:** 2026-09-26 (iteration 52) · branch `claude/start-work-yx080h` · PRs
-> [#1](https://github.com/Derric01/CurveVision/pull/1)–[#22](https://github.com/Derric01/CurveVision/pull/22)
-> **all merged**, the last of them carrying iterations 45–51. Iteration 52 is pushed to
-> `claude/start-work-yx080h` with no PR opened yet.
+> **Last updated:** 2026-09-26 (iteration 53) · branch `claude/start-work-yx080h` · PRs
+> [#1](https://github.com/Derric01/CurveVision/pull/1)–[#23](https://github.com/Derric01/CurveVision/pull/23)
+> **all merged**, #23 carrying iteration 52. The branch was restarted from `origin/main`
+> after that merge; iteration 53 is pushed to it with no PR opened yet.
 >
 > *Two things worth knowing about this repository's PR rhythm, which replace the
 > PR-by-PR changelog that used to sit here and had stopped helping anybody.* **PRs are
@@ -22,7 +22,7 @@
 > **Keep the session short.** One iteration, then commit, push, update this file and report —
 > `AGENTS.md` § *Continue* and the `start-work` skill both say so now, because they did not
 > before and a single session ran six iterations and roughly a third of a week's budget. The
-> concrete costs, in rough order: re-reading this file (iterations 1–46 now live in
+> concrete costs, in rough order: re-reading this file (iterations 1–47 now live in
 > [`docs/iterations/ARCHIVE.md`](./docs/iterations/ARCHIVE.md), which cut it from 3,800
 > lines to 1,000 — keep it that way); `python desktop/sidecar/build.py`, which is a
 > PyInstaller run of a minute or two and is needed *again* for every sabotage-and-restore
@@ -46,11 +46,23 @@ The desktop shape works: a packaged single-executable server, a Tauri shell that
 it, and folders annotated in place without copying a byte.
 
 **The tree is green.** `./scripts/check.sh` passes all twelve steps: 582 server tests, 15
-SDK, 628 web, and `scripts/` is lint-clean under its own `ruff.toml`. It was **not** green on
-arrival this session: `mypy>=1.10` now installs mypy 2.3.1, which rejected an untouched
-`services/annotations.py`, so the next CI run on `main` would have failed too. Fixed first,
-in its own commit. Twenty-three browser harnesses drive the packaged desktop application in a
-real Chromium, nightly and on every push to `main`.
+SDK, 637 web, and `scripts/` is lint-clean under its own `ruff.toml`. Twenty-four browser
+harnesses drive the packaged desktop application in a real Chromium, nightly and on every
+push to `main`. (Iteration 52 arrived to a red tree — mypy 2 — and fixed it first.)
+
+**Editing a tracked object on the canvas no longer breaks saving, and an undone deletion
+stays undone.** Both were silent data loss on the editor's hottest path, found in iteration
+53 while reading the autosave code for the attribute work. A tracked object is drawn under
+its **track's** id, and autosave sent a drag of one as a *shape* update: the server answered
+404, the whole batch failed, and autosave — which puts a failed batch back to retry — carried
+the bad entry into every later save, so **nothing drawn after touching a tracked box reached
+the server**. Deleting one sent the track id as a shape, which deleted nothing. Now a tracked
+object moved on a frame becomes a keyframe there (CVAT's `Track.savePoints` behaviour), a
+relabel applies to the whole track, and Delete deletes the track, all in the same autosave
+batch. Separately, **deleting an object and pressing Ctrl+Z before the next autosave still
+deleted it on the server** — the undo arrived as an update with the deletion still queued,
+and deletions are applied last. An update now cancels a queued deletion. Both reproduced in a
+real browser first.
 
 **A label's attributes can be edited, and no edit strands a value already recorded.** The
 project page's label form now edits attributes too: add one, rename it, give a select more
@@ -335,6 +347,15 @@ the track — the one distinction here that is easy to get wrong. CVAT's
 `cvat-ui/src/components/annotation-page/standard-workspace/objects-side-bar/`, both confirmed
 to exist on `develop`) are the obvious reading first. Fix the checkbox-default quirk under *Known issues* in the
 same change, since a checkbox control is where it would show.
+
+**For a tracked object, the edit has to go through the track path iteration 53 built,** not
+`updated_shapes`: autosave's `tracks` buffer holds a `CanvasEdit` per track and frame, and
+`applyCanvasEdits` (in `keyframes.ts`) applies them to the track as the server holds it at
+flush time. A `CanvasEdit` carries geometry and label only today. An immutable attribute
+belongs on the track (`track.attributes`) and a mutable one on the keyframe at that frame —
+and `frameAnnotations` in `adapters.ts` currently shows a tracked object with the *track's*
+attributes only, not the keyframe's, so what the panel reads for a mutable attribute needs
+fixing first or it will show the wrong value.
 
 **A second candidate, smaller and unglamorous: generate `web/src/api/types.ts` from the
 OpenAPI schema.** The file is hand-maintained and nothing verifies it against the server —
@@ -644,6 +665,21 @@ as "One or more fields are invalid". It does not offer `required` (see *Next bes
 20 server tests, also run against a real PostgreSQL 16; `scripts/verify_attribute_editor.py`
 drives the form and then the editor, dragging and saving the annotator's box after the edits.
 
+**Editing a tracked object on the canvas** — a drag, a vertex edit or an occlusion toggle on
+a tracked object records a keyframe on that frame carrying the new geometry, and a keyframe
+already there keeps its per-frame attributes (`placeKeyframe` in `keyframes.ts`); a relabel
+applies to the whole track; Delete deletes the track. Autosave carries these in the same
+batch and under the same `annotation_version` as shape edits, as `updated_tracks` and
+`deleted_tracks`, placed on the track as the server holds it at flush time (read fresh, and
+a version mismatch there is reported as the conflict a 409 would be). An edit that leaves a
+tracked object exactly where the track already shows it writes nothing, so an undo — which
+re-emits every object on the frame — does not litter every track on screen with keyframes.
+The timeline's own keyframe writes (`K`, `O`, dragging along a lane) now build their payload
+through the same `toApiTrackUpdate`, which keeps each keyframe's stored `z_order` rather than
+zeroing it. And an update for an object whose deletion is still queued — an undone deletion
+— cancels it, including for an object never saved at all. `keyframes.test.ts` has 9 new
+tests; `scripts/verify_track_canvas_edit.py` drives all of it in a browser (12 checks).
+
 **A reviewer's queue** — `GET /jobs` takes `reviewing=true` beside `mine=true`, and a
 `reviewer_id` parameter mirroring the `assignee_id` it always accepted. They are two
 questions, not one filter with two spellings, and narrow independently. The My work page
@@ -666,7 +702,7 @@ full docs set including seven ADRs.
 
 | Item | Where it stands |
 | --- | --- |
-| Track keyframe **editing** | Complete: `K` adds or removes a keyframe, `O` marks a departure, and a marker can be dragged along its lane. Verified in a browser, not only in unit tests. |
+| Track keyframe **editing** | Complete: `K` adds or removes a keyframe, `O` marks a departure, a marker can be dragged along its lane, and a tracked object moved on the canvas becomes a keyframe on that frame (Delete deletes the track). Verified in a browser, not only in unit tests. |
 | Pre-building chunks after upload | Done: probing chains the build once the frame numbering is settled, so the first annotator no longer pays the decode. Not fused into one pass — see the iteration note for why that is not available in general. |
 | Surfacing an uncorrected frame count | Complete and driven in a browser. `Asset.frame_count_exact` records whether a count was established by decoding; `GET /tasks/{id}/media` reports it and names the estimated files; the task page warns and offers `POST /tasks/{id}/media/recount`. Both ways a count stays provisional are covered — the declined correction and the file nothing could decode. |
 | Webhooks | Complete: signed delivery, capped exponential backoff with jitter, and a retry policy that distinguishes "the receiver is struggling" from "the receiver said no". |
@@ -700,34 +736,44 @@ being updated and this one was not. Check it against* Completed *before trusting
 
 ## Verification performed
 
-Iteration 52, every command run in this container:
+Iteration 53, every command run in this container:
 
-* `./scripts/check.sh` on arrival: **eleven of twelve** — `mypy (server)` failed on an
-  untouched tree (`"Base" has no attribute "confidence"`, `services/annotations.py`, mypy
-  2.3.1). After the fix and all of this iteration: **all twelve pass** — 582 server tests,
-  15 SDK, 628 web, ruff/format/mypy/eslint/tsc clean, notices ok.
-* `pytest server/tests/api/test_label_schema.py`: 35 pass. 18 of the 20 in
-  `TestEditingAttributes` were written before the service change and 16 of those failed
-  against it (one only because of a bug in the test's own helper, fixed); the defect was
-  also reproduced end to end first (a `PUT` removing `colour` → 200, then the
-  editor-shaped save of the untouched shape → `422 Unknown attribute(s) for this label:
-  colour`).
-* The same two test classes (`TestEditingAttributes`, `TestEditingALabel`), 27 tests, run
-  against a **real PostgreSQL 16** with JSONB columns via a throwaway fixture override
-  (not committed; CI's Postgres job only runs migrations). Confirmed the rows landed in
-  PostgreSQL.
-* Sabotage, server: removing the temporary-name step makes the name-trade test fail with
-  `IntegrityError`. Restored.
-* `npm --prefix web run build` (exit 0) → `python desktop/sidecar/build.py --skip-tests`
-  (exit 0) → `scripts/verify_attribute_editor.py`: 16 checks pass. Two sabotage rebuilds:
-  **UI** (save ignores the drafts, type picker enabled) failed 6 checks; **server** (the
-  refusal disabled) failed 8, including the editor's save of the box being refused.
-  Restored; final bundle `index-B7-P7J9E.js`, identical to the server-sabotage build whose
-  web source was already the restored one.
-* `scripts/verify_label_schema.py`, which drives the same edit form: all 17 checks pass.
+* `./scripts/check.sh` on arrival (after restarting the branch from `origin/main`): **all
+  twelve pass**. After this iteration: **all twelve pass** — 582 server, 15 SDK, 637 web
+  (9 new in `keyframes.test.ts`). `main`'s CI and browser workflows were green on the merge
+  of #23.
+* Both defects reproduced in a real browser against the packaged app **before** any fix:
+  dragging a tracked box → `PATCH` 404, "Save failed", and a rectangle drawn afterwards
+  also 404 with 0 shapes on the server; Delete then Ctrl+Z → editor shows 1 object, server
+  holds 0 after the save.
+* `scripts/verify_track_canvas_edit.py` against the **unfixed** build: 5 of its first 8
+  checks failed, one more exposed as vacuous and gated. Against the fixed build: all pass.
+  Against the build with the track fix but not the undo fix: exactly the three undo checks
+  failed. Sabotage C (`placeKeyframe` never reports a no-op): exactly "gives the track
+  nobody moved no keyframe" failed. Sabotage D (the `discarded` bookkeeping removed):
+  exactly "a shape drawn, deleted and undone before it was ever saved" failed. A harness-side
+  sabotage (no Ctrl+Z) failed "undoing a drag … leaves the moved car where it was", proving
+  the drag lands. **One sabotage build failed to compile** (`vite build` exit 1) and
+  silently re-packaged the previous bundle; caught by the unchanged bundle hash, redone.
+  Final bundle `index-C8cNIcBb.js`, the same hash as the first fixed build.
+* On that final build: `verify_track_canvas_edit` (12/12), `verify_mask_brush`,
+  `verify_shape_frame`, `verify_keyframe_editing`, `verify_track_timeline`,
+  `verify_tool_sync`, `verify_skeleton_tool`, `verify_cuboid`, `verify_attribute_editor` —
+  every check in all nine passes.
 
 ## Bugs fixed
 
+* **Editing a tracked object on the canvas poisoned autosave** (iteration 53). Root cause: a
+  tracked object is drawn under its track's id and autosave only knew how to send shapes,
+  so a drag became `updated_shapes` for a nonexistent shape → 404 → the batch put back and
+  retried with the bad entry forever. Every later save failed. Verified by
+  `verify_track_canvas_edit.py` before and after.
+* **Deleting a tracked object deleted nothing** (iteration 53): the track id went out as a
+  shape id. Now `deleted_tracks`.
+* **Undoing a deletion before the next save lost the object anyway** (iteration 53). Root
+  cause: the undo arrived as an update while the deletion stayed queued, and the server
+  applies deletions last; for a never-saved object the undo was ignored outright. Verified
+  for a saved shape, a never-saved shape and a track.
 * **A label edit stranded recorded attribute values** (iteration 52). Root cause: values
   keyed by attribute name, undeclared keys rejected on save, and `update_label` checking
   nothing. Verified by the reproduction above and `TestEditingAttributes`.
@@ -752,9 +798,24 @@ Iteration 52, every command run in this container:
   the stated cost of refusing rather than rewriting (see *Decisions*), and the form says so.
 * **The PostgreSQL run of the attribute tests is manual.** CI's Postgres job only migrates;
   the whole suite runs on SQLite.
+* **A failed flush restores the older copy of a shape over a newer edit.** When a flush
+  fails, autosave puts its batch back with `Map.set`, overwriting an edit to the same shape
+  made while the request was in flight — the next retry sends the older geometry. Found by
+  reading, iteration 53; track edits restored in the same place do keep the newer one. Narrow
+  (an edit during a failing request), not fixed.
+* **An undo on an empty stack still re-emits the frame**, so Ctrl+Z after a save writes a
+  no-op update of every shape on screen and bumps `annotation_version`. Harmless; found while
+  tracing a harness.
+* **Undoing a tracked object's drag after it has been saved is not possible**, like any undo
+  after a save (the save reloads the frame, which clears the undo stack). Pre-existing, and
+  the reason the suspected bug under *Tried and rejected* is not one.
 
 ## Tried and rejected
 
+* **"Undoing a deletion after it has been saved poisons autosave too"** — suspected in
+  iteration 53 by reading, and not reachable: a save's reload runs `setAnnotations`, which
+  clears the undo stack, so there is nothing to undo. Checked in a browser; recorded so
+  nobody chases it again.
 * **Asking the database whether a value is recorded, by JSON path.** SQLAlchemy's
   `attributes[name].as_string()` is portable in form, but its SQLite rendering (`$."name"`)
   does not escape a `"` in the key and attribute names are free text; a dialect-specific
@@ -766,6 +827,13 @@ Iteration 52, every command run in this container:
 
 ## Decisions
 
+* **Delete on a tracked object deletes the whole track** (iteration 53). A track is one
+  object; "it leaves the frame here" already has its own key, `O`. Not checked against
+  CVAT's source, unlike the keyframe-on-move behaviour, which is (`Track.savePoints`).
+* **Tracked edits travel in the autosave batch, not through the timeline's `editTrack`
+  mutation** (iteration 53). A drag emits an update per mouse move; the batch coalesces them
+  and writes once, atomically with shape edits and under the same version. `editTrack`
+  re-reads the version before writing, which skips conflict detection; the batch does not.
 * **Refuse, do not rewrite, when a rename or removal would strand values** (iteration 52).
   Rewriting the stored keys is lossless for a rename and is what CVAT's id-keyed storage
   gives it for free — but it changes annotations behind an open editor's back, so it would
@@ -784,6 +852,44 @@ Iteration 52, every command run in this container:
 ---
 
 ## Last iteration
+
+### 53 — a tracked object can be moved on the canvas without breaking every save after it
+
+Started on the handoff's next best action, the attribute value panel, and stopped before
+writing any of it: reading `useAutosave` to see how a panel's edit would be saved showed that
+a tracked object — drawn under its track's id — would be sent as a shape. A browser run
+confirmed it was already broken without any panel: one drag of a tracked box and **every
+later save in the session failed**, the rectangle drawn afterwards included. `AGENTS.md`
+ranks broken above everything, and a panel built on top would have inherited the defect for
+its tracked half, so this iteration fixes the ground first.
+
+**CVAT read for the behaviour.** `cvat-core/src/annotations-objects/track.ts`,
+`savePoints`: editing a tracked object's points at a frame stores a shape there, copied from
+the interpolated one. `placeKeyframe` is that rule; convention only, no code adapted.
+
+**One design choice worth knowing.** The obvious route was the timeline's existing
+`editTrack` mutation. It is the wrong one for the canvas: a drag emits an update on every
+mouse move, and `editTrack` writes per call and re-reads the version first, which skips
+conflict detection. Autosave already coalesces per object and writes once under the version
+it last read, so the tracked edits went there, into a second buffer keyed by track and frame.
+
+**The sweep found a second defect in the same function.** Delete, then Ctrl+Z before the
+autosave: the editor showed the object and the server deleted it. Confirmed in a browser,
+fixed, including the never-saved case, which failed differently (the undo was ignored).
+
+**The harness caught its author three times**, recorded in `docs/CONTRIBUTING.md`: a
+companion check that passed on the bug because the step before it never saved; an "undo"
+check that pressed Ctrl+Z after a save — where the stack is already empty — and was really
+testing a keypress, found with a request log; and a sabotage that did not compile, so the
+sidecar packaged the previous bundle and everything passed. The unchanged bundle hash gave it
+away.
+
+**What is still not done:** the attribute value panel itself, now unblocked and still the
+next best action.
+
+Verified: see *Verification performed*.
+
+## Iteration 52
 
 ### 52 — a label's attributes can be edited, without stranding what is recorded
 
@@ -810,7 +916,32 @@ recorded in `docs/CONTRIBUTING.md` beside the earlier variants.
 **What the form does not do, deliberately:** offer `required`, and set a value on a shape.
 The second is the next piece of work, and the first waits for it.
 
-Verified: see *Verification performed*.
+Verified, every command run in that session:
+
+
+* `./scripts/check.sh` on arrival: **eleven of twelve** — `mypy (server)` failed on an
+  untouched tree (`"Base" has no attribute "confidence"`, `services/annotations.py`, mypy
+  2.3.1). After the fix and all of this iteration: **all twelve pass** — 582 server tests,
+  15 SDK, 628 web, ruff/format/mypy/eslint/tsc clean, notices ok.
+* `pytest server/tests/api/test_label_schema.py`: 35 pass. 18 of the 20 in
+  `TestEditingAttributes` were written before the service change and 16 of those failed
+  against it (one only because of a bug in the test's own helper, fixed); the defect was
+  also reproduced end to end first (a `PUT` removing `colour` → 200, then the
+  editor-shaped save of the untouched shape → `422 Unknown attribute(s) for this label:
+  colour`).
+* The same two test classes (`TestEditingAttributes`, `TestEditingALabel`), 27 tests, run
+  against a **real PostgreSQL 16** with JSONB columns via a throwaway fixture override
+  (not committed; CI's Postgres job only runs migrations). Confirmed the rows landed in
+  PostgreSQL.
+* Sabotage, server: removing the temporary-name step makes the name-trade test fail with
+  `IntegrityError`. Restored.
+* `npm --prefix web run build` (exit 0) → `python desktop/sidecar/build.py --skip-tests`
+  (exit 0) → `scripts/verify_attribute_editor.py`: 16 checks pass. Two sabotage rebuilds:
+  **UI** (save ignores the drafts, type picker enabled) failed 6 checks; **server** (the
+  refusal disabled) failed 8, including the editor's save of the box being refused.
+  Restored; final bundle `index-B7-P7J9E.js`, identical to the server-sabotage build whose
+  web source was already the restored one.
+* `scripts/verify_label_schema.py`, which drives the same edit form: all 17 checks pass.
 
 ## Iteration 51
 
@@ -1029,80 +1160,9 @@ Verified: `./scripts/check.sh` green, all twelve steps — 543 server tests (8 n
 registered in `.github/workflows/browser.yml` and `docs/CONTRIBUTING.md`. No other harness
 drives the project page, so there was nothing adjacent to re-run for this one.
 
-## Iteration 47
-
-### 47 — a reviewer can ask what is waiting for them
-
-Straight on from iteration 46, and named by this file as next: the assignment existed, the
-decision existed, and between them there was no way in. `GET /jobs?mine=true` has filtered
-on `assignee_id` alone since early in the project, so a reviewer with four jobs named to
-them could not ask for them — they opened each task in turn and read its job list, which
-works for a demo and not for a person with a day's worth of review.
-
-**Two questions, not one filter with two spellings.** `reviewing=true` sits beside
-`mine=true` and narrows independently, so asking both gives the jobs where the caller is on
-*both* ends of the loop rather than either. That is the reading somebody will expect from
-two filters, and it makes `reviewing=true&state=submitted` — which is what a queue actually
-is — fall out of the existing `state` parameter instead of needing a special case. A
-`reviewer_id` parameter mirrors the `assignee_id` the listing has always accepted, for the
-manager asking what one person is holding.
-
-**The endpoint had no test at all — not one.** Not for `mine`, which the My work page in the
-navigation bar has always run on every visit, and not for the membership subquery that
-decides whose work a caller can see. Five tests now cover it, and writing them turned up the
-trap this file keeps recording: **two of the five passed before the feature existed.**
-FastAPI ignores an unknown query parameter, so `reviewing=true` was silently dropped and the
-assertions happened to hold anyway — one fixture had a single job, so "the list is exactly
-this job" was true of the unfiltered listing too. Both were rewritten with a control job
-that makes the unfiltered answer different from the filtered one. A test that passes before
-its feature exists is not a weak test; it is not a test.
-
-**The queue names the task, which the listing had loaded and never returned.** `GET /jobs`
-has had `selectinload(Job.task)` since it was written, for a field nothing read. Across
-every project, "Job #2 · frames 0–1" identifies a job to the server and to nobody else. A
-new `JobListing` schema carries `task_name` and `project_id` on the cross-project listing
-only: `Job.task` is an ordinary lazy relationship, so putting those on `JobOut` itself would
-oblige every other job route to start loading it for a field they have no use for.
-
-**Split on what can be acted on, not on everything named to you.** Only a `submitted` job
-can be reviewed — the server's rule, and `review.ts`'s `isReviewable`, imported rather than
-restated so the two cannot drift. `myWork.ts` partitions on it, and the summary line counts
-only the actionable half: a reviewer holding four half-drawn jobs has nothing to do today,
-and "4 waiting" would send them looking for work that does not exist. The other half is
-still listed, because "nothing is named to you" and "nothing is ready yet" are different
-things to tell somebody, and an empty panel says the first when it means the second.
-
-**A migration, and the first one in this repository ever run backwards.**
-`ix_job_reviewer_state` is `ix_job_assignee_state` with one column changed, since the queue
-is the same query shape as the annotator's landing page and deserves the same index.
-`docs/CONTRIBUTING.md` has always asked for migrations "tested in both directions" and
-nothing in the suite had ever moved one down — the whole suite only migrated a fresh
-database up to head. `test_the_newest_migration_runs_in_both_directions` drives the head
-revision down and up again on a real SQLite file, and confirmed it bites by stubbing the
-`downgrade` body and watching it fail. That needed `desktop.migrate` split into
-`alembic_config` plus a one-line upgrade, so a test can drive the same configuration the
-application uses rather than a copy of it.
-
-**The harness sabotage is the one worth remembering.** Pointing the page's review query at
-`mine` instead of `reviewing` failed four checks — and left the summary check *passing*,
-reading "1 job waiting on you" exactly as expected, because the fixture happened to contain
-exactly one submitted job either way. A second control job fixes it: under the sabotage the
-page now says "2" and the check fails. Iteration 46's lesson was that a check has to be made
-to fail before it can be believed; this one adds that the **fixture** is part of the check,
-not scenery around it. The sabotage also crashed the harness on a missing click target,
-burying four real failures under a Playwright traceback, so the run now bails out cleanly
-with its failure list when the queue is already wrong.
-
-Verified: `./scripts/check.sh` green, all twelve steps — 535 server tests (6 new: five for
-the listing, one for the migration), 15 SDK (unchanged), 593 web (9 new in `myWork.test.ts`).
-`scripts/verify_review_queue.py`'s twelve checks pass against a rebuilt sidecar, and it is
-registered in `.github/workflows/browser.yml` and `docs/CONTRIBUTING.md`. The sabotage above
-was restored and the rebuilt bundle hash came back byte-identical (`index-CrOWMP8i.js`).
-`verify_job_assignment.py` and `verify_job_review.py` re-run and pass.
-
 ## Earlier iterations
 
-Iterations **1–46** are in [`docs/iterations/ARCHIVE.md`](./docs/iterations/ARCHIVE.md) —
+Iterations **1–47** are in [`docs/iterations/ARCHIVE.md`](./docs/iterations/ARCHIVE.md) —
 moved there so that orienting costs a few hundred lines rather than four thousand. Read them
 when `git log` points you at an iteration number, or when you are about to build something
 and want to know whether it was already tried and rejected. The lessons from them that are
