@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import uuid
 from collections import defaultdict
+from collections.abc import Sequence
 from typing import Any, cast
 
 from sqlalchemy import CursorResult, delete, func, select
@@ -550,14 +551,17 @@ async def decide_suggestions(
             counts[key] = 0
             continue
         if accepted:
-            rows = (
+            # Cast because mypy 2 joins the three classes in the tuple above to their common
+            # declarative base, which has no `confidence`; mypy 1 did not.
+            rows = cast(
+                "Sequence[Shape | Track | Tag]",
                 (
                     await session.execute(
                         select(model).where(model.job_id == job.id, model.id.in_(ids))
                     )
                 )
                 .scalars()
-                .all()
+                .all(),
             )
             for row in rows:
                 row.confidence = None
