@@ -5,9 +5,10 @@
 > [`AGENTS.md`](./AGENTS.md) first; it is the working contract. Update this file after every
 > iteration, including the ones that mostly failed.
 >
-> **Last updated:** 2026-09-21 (iteration 51) · branch `claude/start-work-v84c3b` · PRs
-> [#1](https://github.com/Derric01/CurveVision/pull/1)–[#21](https://github.com/Derric01/CurveVision/pull/21)
-> **all merged**, the last of them carrying iterations 42–44.
+> **Last updated:** 2026-09-26 (iteration 52) · branch `claude/start-work-yx080h` · PRs
+> [#1](https://github.com/Derric01/CurveVision/pull/1)–[#22](https://github.com/Derric01/CurveVision/pull/22)
+> **all merged**, the last of them carrying iterations 45–51. Iteration 52 is pushed to
+> `claude/start-work-yx080h` with no PR opened yet.
 >
 > *Two things worth knowing about this repository's PR rhythm, which replace the
 > PR-by-PR changelog that used to sit here and had stopped helping anybody.* **PRs are
@@ -21,7 +22,7 @@
 > **Keep the session short.** One iteration, then commit, push, update this file and report —
 > `AGENTS.md` § *Continue* and the `start-work` skill both say so now, because they did not
 > before and a single session ran six iterations and roughly a third of a week's budget. The
-> concrete costs, in rough order: re-reading this file (iterations 1–45 now live in
+> concrete costs, in rough order: re-reading this file (iterations 1–46 now live in
 > [`docs/iterations/ARCHIVE.md`](./docs/iterations/ARCHIVE.md), which cut it from 3,800
 > lines to 1,000 — keep it that way); `python desktop/sidecar/build.py`, which is a
 > PyInstaller run of a minute or two and is needed *again* for every sabotage-and-restore
@@ -44,11 +45,26 @@ shapes (detection/segmentation, OBB, pose, classification), each declaring in it
 The desktop shape works: a packaged single-executable server, a Tauri shell that supervises
 it, and folders annotated in place without copying a byte.
 
-**The tree is green.** `./scripts/check.sh` passes all twelve steps (the previous session
-added ruff and mypy for the SDK, and ruff for `scripts/`, closing gaps where CI checked
-things the local script silently did not): 562 server tests, 15 SDK, 610 web, and `scripts/`
-is lint-clean under its own `ruff.toml`. Twenty-two browser harnesses drive the packaged
-desktop application in a real Chromium, nightly and on every push to `main`.
+**The tree is green.** `./scripts/check.sh` passes all twelve steps: 582 server tests, 15
+SDK, 628 web, and `scripts/` is lint-clean under its own `ruff.toml`. It was **not** green on
+arrival this session: `mypy>=1.10` now installs mypy 2.3.1, which rejected an untouched
+`services/annotations.py`, so the next CI run on `main` would have failed too. Fixed first,
+in its own commit. Twenty-three browser harnesses drive the packaged desktop application in a
+real Chromium, nightly and on every push to `main`.
+
+**A label's attributes can be edited, and no edit strands a value already recorded.** The
+project page's label form now edits attributes too: add one, rename it, give a select more
+options, set a default, remove one. The server side was the careful part and had a real
+defect in it. Values are stored on each annotation **keyed by attribute name**, and
+`validate_attributes` rejects an undeclared key — so `PUT /labels/{id}` accepted removing or
+renaming an attribute, changing its type or dropping a select option, and every annotation
+carrying the old value was then refused on its **next save**. The editor sends a shape's
+attributes back on every autosave, so the person who found out was the annotator, from a 422
+on a box they had only moved. `update_label` now refuses such an edit before touching
+anything, using CVAT's rules for an attribute that exists (type and per-frame flag fixed,
+options may grow but not shrink) and refusing a rename or removal only while something is
+recorded under the name — which keeps a schema correctable before it is used. What the form
+still cannot do is set an attribute's **value** on a shape: see *Next best action*.
 
 **Every timestamp the API returns is UTC, and says so.** `DateTime(timezone=True)` means
 what it says on PostgreSQL and cannot on SQLite, which has no time-zone type — so the same
@@ -301,19 +317,24 @@ was the last unconnected piece of the desktop application.
 
 ## Next best action
 
-**An attribute editor.** Iteration 49 renamed and recoloured labels by round-tripping
-their attributes untouched, which is the safe half. Changing the attributes themselves —
-adding `occluded` to a label that turned out to need it, fixing a `select`'s list of values,
-retiring one nobody fills in — still has no way in. The server side is written and is the
-careful part: `update_label` reuses an attribute row when the client sends its id back, so
-values already stored on annotations survive, and `validate_attributes` rejects an unknown
-key rather than dropping it. What is missing is the editor and the answer to one real
-question this file should not decide alone: **what happens to values already recorded under
-an attribute being removed or renamed.** The safe answer is to refuse the removal while
-annotations carry values for it, mirroring what `delete_label` already does for labels — but
-that is a product decision with a cost (a schema you cannot correct), and it is worth
-stating in the change rather than choosing quietly. `test_label_schema.py` and
-`labelSchema.ts` are the files.
+**Let an annotator set an attribute's value on a shape, from the editor.** A label's attribute
+*definitions* can now be edited from the project page (iteration 52), and **no screen sets a
+value**: the editor carries `shape.attributes` through every save (`adapters.ts`) and never
+lets a person change one. So `occluded`, `truncated` or a car's colour — the ordinary reason
+a schema has attributes at all — can only be recorded from the SDK, the CLI or an import, or
+by a default. It also leaves a real trap reachable today: an attribute that is `required`
+with no default (settable from the SDK) makes its label **impossible to draw with in the
+editor**, because every tool creates a shape with `attributes: {}` and the server answers
+`422 Attribute 'make' is required` — confirmed this session. The attribute form deliberately
+does not offer `required` until this exists. The work is a panel on the right rail for the
+selected object: one control per attribute by type (checkbox, select, radio, text, number),
+writing through the same autosave path as a move; and for a track, a **mutable** attribute's
+value belongs to the keyframe (`TrackShape.attributes`) while an immutable one belongs to
+the track — the one distinction here that is easy to get wrong. CVAT's
+`object-item-details.tsx` and `object-item-attribute.tsx` (under
+`cvat-ui/src/components/annotation-page/standard-workspace/objects-side-bar/`, both confirmed
+to exist on `develop`) are the obvious reading first. Fix the checkbox-default quirk under *Known issues* in the
+same change, since a checkbox control is where it would show.
 
 **A second candidate, smaller and unglamorous: generate `web/src/api/types.ts` from the
 OpenAPI schema.** The file is hand-maintained and nothing verifies it against the server —
@@ -604,8 +625,24 @@ arrived either — `LabelIn` is strict and rejects the `project_id` and `parent_
 `LabelOut` carries. Deleting a label that annotations reference is refused by the server and
 the refusal is what the panel shows — the reason a delete control can be offered at all.
 `labelSchema.ts` is pure and separately tested; the three label routes, which had no tests
-at all, have fifteen. Editing the **attributes** of a label is **not** built: see *Next best
-action*.
+at all, have fifteen. The same form edits the label's **attributes** — see the next entry.
+
+**Editing a label's attributes** — the label form on the project page adds an attribute,
+renames one, gives a select or radio more options, sets a default, and removes one. The
+server refuses any edit that would leave a recorded value unable to be saved again
+(`_refuse_stranding_values` in `services/projects.py`): an existing attribute's type and
+`mutable` flag are fixed and its options may grow but not shrink, always, which is CVAT's
+rule; a rename or removal is refused while any annotation of the label records a value under
+that name, counted across shapes, tracks, track keyframes and tags; and a new or
+newly-required attribute without a default is refused while annotations lack a value.
+Duplicate attribute names, invalid defaults, and the same-name replacement and name trade
+that used to be 500s are handled. The form shows a saved attribute's fixed controls as
+fixed and catches a blank or repeated name, a select without options and a non-numeric
+number default before Save, because the server's answer to those is a 422 that renders only
+as "One or more fields are invalid". It does not offer `required` (see *Next best action*).
+`attributeSchema.ts` is pure and separately tested (18 tests); `TestEditingAttributes` has
+20 server tests, also run against a real PostgreSQL 16; `scripts/verify_attribute_editor.py`
+drives the form and then the editor, dragging and saving the annotator's box after the edits.
 
 **A reviewer's queue** — `GET /jobs` takes `reviewing=true` beside `mine=true`, and a
 `reviewer_id` parameter mirroring the `assignee_id` it always accepted. They are two
@@ -642,7 +679,7 @@ full docs set including seven ADRs.
 | Choosing individual files (desktop) | Complete and measured in a browser: `choose_files` now has a caller, one `local-import` call per chosen file, a failed file reported in `skipped` without aborting the others, and the results of a whole batch merged into one summary. |
 | Cuboid (2D wireframe box) | Complete and measured in a browser: a two-stage tool (drag the front face, then move and click to set the depth), a wireframe renderer, and CVAT XML export/import using CVAT's own real attribute names. The backend needed no new code at all — `ShapeType.CUBOID`, its minimum-points entry, its IoU comparison and its track interpolation were already there, unused. **Not** the 3D/point-cloud kind — see `docs/ROADMAP.md`'s honestly-unchanged limitation on that. |
 | Resumable uploads | Complete and tested end to end — API, SDK, CLI and the web upload panel: create a session, `PATCH` chunks at a stated offset, read the current offset back, complete, resume by id after a crash or a page reload. Driven in a browser through a deliberately dropped chunk and a real resume. Nothing outstanding. |
-| Label schema | Complete for adding, renaming, recolouring and removing, driven in a browser: a label is added from the project page and appended to the schema, renamed in place with its attributes and position intact, and removed unless annotations still use it — which the server refuses rather than cascading, and the panel reports. **Editing a label's attributes is not built**, deliberately: it needs an editor and an answer for values already recorded under an attribute being removed. |
+| Label schema | Complete, driven in a browser: a label is added, renamed, recoloured and removed, and its **attributes** are added, renamed, extended and removed from the same form — with any edit that would strand a value already recorded refused by the server. What is *not* built is setting an attribute's **value** on a shape from the editor; see *Next best action*. |
 | Job review | Complete end to end and driven in a browser, all three parts: the **assignment** (an annotator picker and a reviewer picker on each job row of the task page, either clearable back to Unassigned), the **queue** (`GET /jobs?reviewing=true`, split on the My work page into what can be reviewed now and what is merely named to you), and the **decision** (accept or send back with a required reason, from the editor's rail). Nothing outstanding. |
 
 *This table went stale once — it still listed the open-folder flow and chunked delivery as
@@ -661,7 +698,121 @@ being updated and this one was not. Check it against* Completed *before trusting
 
 ---
 
+## Verification performed
+
+Iteration 52, every command run in this container:
+
+* `./scripts/check.sh` on arrival: **eleven of twelve** — `mypy (server)` failed on an
+  untouched tree (`"Base" has no attribute "confidence"`, `services/annotations.py`, mypy
+  2.3.1). After the fix and all of this iteration: **all twelve pass** — 582 server tests,
+  15 SDK, 628 web, ruff/format/mypy/eslint/tsc clean, notices ok.
+* `pytest server/tests/api/test_label_schema.py`: 35 pass. 18 of the 20 in
+  `TestEditingAttributes` were written before the service change and 16 of those failed
+  against it (one only because of a bug in the test's own helper, fixed); the defect was
+  also reproduced end to end first (a `PUT` removing `colour` → 200, then the
+  editor-shaped save of the untouched shape → `422 Unknown attribute(s) for this label:
+  colour`).
+* The same two test classes (`TestEditingAttributes`, `TestEditingALabel`), 27 tests, run
+  against a **real PostgreSQL 16** with JSONB columns via a throwaway fixture override
+  (not committed; CI's Postgres job only runs migrations). Confirmed the rows landed in
+  PostgreSQL.
+* Sabotage, server: removing the temporary-name step makes the name-trade test fail with
+  `IntegrityError`. Restored.
+* `npm --prefix web run build` (exit 0) → `python desktop/sidecar/build.py --skip-tests`
+  (exit 0) → `scripts/verify_attribute_editor.py`: 16 checks pass. Two sabotage rebuilds:
+  **UI** (save ignores the drafts, type picker enabled) failed 6 checks; **server** (the
+  refusal disabled) failed 8, including the editor's save of the box being refused.
+  Restored; final bundle `index-B7-P7J9E.js`, identical to the server-sabotage build whose
+  web source was already the restored one.
+* `scripts/verify_label_schema.py`, which drives the same edit form: all 17 checks pass.
+
+## Bugs fixed
+
+* **A label edit stranded recorded attribute values** (iteration 52). Root cause: values
+  keyed by attribute name, undeclared keys rejected on save, and `update_label` checking
+  nothing. Verified by the reproduction above and `TestEditingAttributes`.
+* **Duplicate attribute names, a same-name replacement, and two attributes trading names
+  were 500s** from `uq_attribute_name` (iteration 52). `LabelIn` rejects duplicates; removals
+  and renames are flushed first, renames via a temporary name. The trade test bites.
+* **An invalid default was accepted and written, unchecked, into annotations** (iteration
+  52). `AttributeIn` rejects a select default outside its options, a checkbox default other
+  than true/false, and a non-numeric number default.
+* **`mypy (server)` failed under mypy 2** (iteration 52). A cast in `decide_suggestions`.
+
+## Known issues
+
+* **No screen sets an attribute's value**, and a `required` attribute with no default makes
+  its label undrawable in the editor — *Next best action*.
+* **A default is recorded as a string.** `validate_attributes` fills a missing value with
+  `definition.default_value` uncoerced, so a checkbox default lands as `"false"` while an
+  explicit value lands as `false`; the next save of that annotation coerces it. Found by
+  reading, not by a failing test; harmless to saving, visible in exports.
+* **A rename or removal of an attribute with a default is refused as soon as the label is
+  used**, because a default is recorded on every annotation saved with the label. That is
+  the stated cost of refusing rather than rewriting (see *Decisions*), and the form says so.
+* **The PostgreSQL run of the attribute tests is manual.** CI's Postgres job only migrates;
+  the whole suite runs on SQLite.
+
+## Tried and rejected
+
+* **Asking the database whether a value is recorded, by JSON path.** SQLAlchemy's
+  `attributes[name].as_string()` is portable in form, but its SQLite rendering (`$."name"`)
+  does not escape a `"` in the key and attribute names are free text; a dialect-specific
+  expression would put backend knowledge into `services/`. Read in Python, streamed, and only
+  for an edit that removes, renames or newly requires something.
+* **A type annotation on the `(Shape, Track, Tag)` tuple** for the mypy 2 failure. Does
+  nothing: the join to `Base` happens inside `select()`'s overloads.
+* **Pinning `mypy<2`.** Would only defer the same error.
+
+## Decisions
+
+* **Refuse, do not rewrite, when a rename or removal would strand values** (iteration 52).
+  Rewriting the stored keys is lossless for a rename and is what CVAT's id-keyed storage
+  gives it for free — but it changes annotations behind an open editor's back, so it would
+  also have to bump `annotation_version` on every affected job to push open editors into a
+  409 and a reload. Worth doing if a refused rename turns out to hurt; not worth doing
+  without that evidence. The handoff had flagged this as a product decision to state rather
+  than make quietly; it is stated here, in the code and in the ROADMAP.
+* **Type and `mutable` are fixed for a saved attribute even when nothing is recorded**
+  (CVAT's rule), so the rule a person meets does not depend on data they cannot see. Remove
+  and re-add is the way to change them, and works whenever nothing is recorded.
+* **The attribute form checks names, options and number defaults in the browser**, unlike
+  label names. A label's duplicate is a comparison with other rows and the server's 409
+  message is readable; these are knowable from the form alone and the server's 422 renders
+  as "One or more fields are invalid".
+
+---
+
 ## Last iteration
+
+### 52 — a label's attributes can be edited, without stranding what is recorded
+
+Named by this file as next, with the one product question it said should be decided in the
+open: what happens to values recorded under an attribute being removed or renamed. Reading
+the code first turned the question into a defect. The `PUT` already accepted exactly those
+edits — nobody had a form to send one, but the SDK and curl did — and because values are
+keyed by name and undeclared keys are refused on save, the failure surfaced one step later,
+in somebody else's hands: the annotator's autosave of a box they had only moved. Reproduced
+that before changing anything.
+
+**CVAT read first, as `AGENTS.md` now asks.** Its label form and
+`LabelSerializer._update_attribute` fix an existing attribute's type and `mutable` flag and
+let a select's options grow but not shrink — enforced on the server, not only in the UI. It
+allows rename and delete because its values hang off the attribute's id. Here they hang off
+the name, so those two are refused while anything is recorded under it and allowed when
+nothing is. Convention only; no code was adapted, so ADR 0007's audit does not apply.
+
+**The tests found three more 500s and a silent write** on the way (see *Bugs fixed*), and
+the harness found two of its own checks unable to fail under sabotage — one depending on an
+earlier step having worked, one meaningful only when the step before it succeeded. Both are
+recorded in `docs/CONTRIBUTING.md` beside the earlier variants.
+
+**What the form does not do, deliberately:** offer `required`, and set a value on a shape.
+The second is the next piece of work, and the first waits for it.
+
+Verified: see *Verification performed*.
+
+## Iteration 51
 
 ### 51 — every timestamp is UTC, and says so
 
@@ -949,78 +1100,9 @@ registered in `.github/workflows/browser.yml` and `docs/CONTRIBUTING.md`. The sa
 was restored and the rebuilt bundle hash came back byte-identical (`index-CrOWMP8i.js`).
 `verify_job_assignment.py` and `verify_job_review.py` re-run and pass.
 
-## Iteration 46
-
-### 46 — a job can be handed to a person, and taken back
-
-The item this file named as next, and the other half of the loop iteration 45 opened: a
-reviewer could rule on a job, and nothing in the product could say whose job it was.
-`Job.assignee_id` and `Job.reviewer_id` have been in the domain model, enforced by the policy
-engine (`(JOB, ASSIGN)` floors at `Role.REVIEWER`) and settable through `PATCH /jobs/{id}`
-since the first iterations. No screen set either, and `web/src/api/client.ts` had no
-`members` method at all — so there was not even a way to ask who the candidates *were*.
-Dividing a task between three annotators meant three API calls from a terminal.
-
-**Two server bugs, both found by writing the tests first, and both invisible to a test that
-asserts against the database.** Four went into `TestJobAssignment` before `update_job` was
-touched; three of them failed:
-
-* **A job could be assigned and never unassigned.** `update_job` read an omitted field and an
-  explicit `null` identically — `if payload.assignee_id is not None` — so a nullable column
-  had no route back to null, and nothing else in the product could put it there either.
-  Fixed with `payload.model_fields_set`, which is the only thing that distinguishes "leave it
-  alone" from "clear it" in a partial update, and the reason those schema fields are optional
-  in the first place.
-* **The response named the previous holder.** `assignee` and `reviewer` are `lazy="selectin"`
-  relationships and the sessionmaker is `expire_on_commit=False`, so writing the *id* left
-  the already-loaded relationship object untouched: a job gaining its first assignee came
-  back with `assignee: null`. A picker that renders what the server just returned would have
-  reset itself to Unassigned in front of the person who had that moment assigned it. Fixed by
-  refreshing exactly the fields the request wrote.
-
-Both are about what the API *says* rather than what it stores, which is why they survived
-this long under a suite that reads rows back.
-
-**Who is offered differs by field, and that rule is pure.** `assignment.ts` owns it —
-anyone who can hold work for the annotator, `reviewer` and above for the reviewer, sorted by
-the label each is shown under, with `describePerson` preferring a full name where there is
-one. Nine unit tests pin it, including the one that pairs with the server fix: the empty
-option produces `{"assignee_id": null}`, an explicit null, never a dropped key.
-
-**No client-side permission check, on purpose, for the third panel running.** Whether this
-caller may assign is the policy engine's answer
-([ADR 0002](./docs/adr/0002-in-process-policy-engine.md)): the pickers render, and a caller
-without the rank gets the server's own 403 shown beside the row. A copy of `ROLE_FLOOR` in
-the browser would be a second thing to keep true, and it would be the one that is wrong.
-
-**A harness check that could not fail, caught by trying to make it fail.** The claim that
-using a picker does not navigate is the entire reason they are *siblings* of the row's
-`<Link>` rather than children — the trap the timeline's keyframe markers already hit once.
-Nesting them inside the link deliberately, to watch the check go red, did nothing: it still
-passed, because Playwright's `select_option` dispatches a change event without a click, so
-nothing ever bubbled to the anchor. Clicking first, as a person does, makes it fail exactly
-as it should. Worth stating plainly, because the check had been written, read and run green
-before that: it was asserting nothing, and looked identical from the outside to one that was.
-
-**A false claim removed while here.** `web/src/api/types.ts`'s header said these types "are
-checked against the live OpenAPI schema in CI (`scripts/check-api-types.mjs`)". That script
-has never existed and nothing in the repository references it — a reader trusting the header
-would believe a hand-maintained file was machine-verified against the server. Replaced with
-what is true (nothing checks them) and with the thing that would make it true, now a
-candidate under *Next best action*.
-
-Verified: `./scripts/check.sh` green, all twelve steps — 529 server tests (4 new in
-`TestJobAssignment`), 15 SDK (unchanged), 584 web (9 new in `assignment.test.ts`).
-`scripts/verify_job_assignment.py`'s twelve checks pass against a rebuilt sidecar, and it is
-registered in `.github/workflows/browser.yml` and `docs/CONTRIBUTING.md`. The nesting
-sabotage above was restored and the rebuilt bundle hash came back byte-identical
-(`index-BIxfswFW.js`) before the green run was trusted. Also re-ran `verify_job_review.py`,
-`verify_ground_truth_setup.py` and `verify_frame_count_warning.py` — the other three
-harnesses that drive this page or this job's state — and all pass.
-
 ## Earlier iterations
 
-Iterations **1–45** are in [`docs/iterations/ARCHIVE.md`](./docs/iterations/ARCHIVE.md) —
+Iterations **1–46** are in [`docs/iterations/ARCHIVE.md`](./docs/iterations/ARCHIVE.md) —
 moved there so that orienting costs a few hundred lines rather than four thousand. Read them
 when `git log` points you at an iteration number, or when you are about to build something
 and want to know whether it was already tried and rejected. The lessons from them that are

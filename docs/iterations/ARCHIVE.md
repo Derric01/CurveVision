@@ -1,6 +1,6 @@
 # Iteration archive
 
-> The narrative record of iterations **1–45**, moved out of
+> The narrative record of iterations **1–46**, moved out of
 > [`handoff.md`](../../handoff.md) so that orienting on this project costs a few hundred
 > lines rather than four thousand.
 >
@@ -15,6 +15,75 @@
 > window, append it to the top of this file rather than deleting it.
 
 ---
+
+## Iteration 46
+
+### 46 — a job can be handed to a person, and taken back
+
+The item this file named as next, and the other half of the loop iteration 45 opened: a
+reviewer could rule on a job, and nothing in the product could say whose job it was.
+`Job.assignee_id` and `Job.reviewer_id` have been in the domain model, enforced by the policy
+engine (`(JOB, ASSIGN)` floors at `Role.REVIEWER`) and settable through `PATCH /jobs/{id}`
+since the first iterations. No screen set either, and `web/src/api/client.ts` had no
+`members` method at all — so there was not even a way to ask who the candidates *were*.
+Dividing a task between three annotators meant three API calls from a terminal.
+
+**Two server bugs, both found by writing the tests first, and both invisible to a test that
+asserts against the database.** Four went into `TestJobAssignment` before `update_job` was
+touched; three of them failed:
+
+* **A job could be assigned and never unassigned.** `update_job` read an omitted field and an
+  explicit `null` identically — `if payload.assignee_id is not None` — so a nullable column
+  had no route back to null, and nothing else in the product could put it there either.
+  Fixed with `payload.model_fields_set`, which is the only thing that distinguishes "leave it
+  alone" from "clear it" in a partial update, and the reason those schema fields are optional
+  in the first place.
+* **The response named the previous holder.** `assignee` and `reviewer` are `lazy="selectin"`
+  relationships and the sessionmaker is `expire_on_commit=False`, so writing the *id* left
+  the already-loaded relationship object untouched: a job gaining its first assignee came
+  back with `assignee: null`. A picker that renders what the server just returned would have
+  reset itself to Unassigned in front of the person who had that moment assigned it. Fixed by
+  refreshing exactly the fields the request wrote.
+
+Both are about what the API *says* rather than what it stores, which is why they survived
+this long under a suite that reads rows back.
+
+**Who is offered differs by field, and that rule is pure.** `assignment.ts` owns it —
+anyone who can hold work for the annotator, `reviewer` and above for the reviewer, sorted by
+the label each is shown under, with `describePerson` preferring a full name where there is
+one. Nine unit tests pin it, including the one that pairs with the server fix: the empty
+option produces `{"assignee_id": null}`, an explicit null, never a dropped key.
+
+**No client-side permission check, on purpose, for the third panel running.** Whether this
+caller may assign is the policy engine's answer
+([ADR 0002](./docs/adr/0002-in-process-policy-engine.md)): the pickers render, and a caller
+without the rank gets the server's own 403 shown beside the row. A copy of `ROLE_FLOOR` in
+the browser would be a second thing to keep true, and it would be the one that is wrong.
+
+**A harness check that could not fail, caught by trying to make it fail.** The claim that
+using a picker does not navigate is the entire reason they are *siblings* of the row's
+`<Link>` rather than children — the trap the timeline's keyframe markers already hit once.
+Nesting them inside the link deliberately, to watch the check go red, did nothing: it still
+passed, because Playwright's `select_option` dispatches a change event without a click, so
+nothing ever bubbled to the anchor. Clicking first, as a person does, makes it fail exactly
+as it should. Worth stating plainly, because the check had been written, read and run green
+before that: it was asserting nothing, and looked identical from the outside to one that was.
+
+**A false claim removed while here.** `web/src/api/types.ts`'s header said these types "are
+checked against the live OpenAPI schema in CI (`scripts/check-api-types.mjs`)". That script
+has never existed and nothing in the repository references it — a reader trusting the header
+would believe a hand-maintained file was machine-verified against the server. Replaced with
+what is true (nothing checks them) and with the thing that would make it true, now a
+candidate under *Next best action*.
+
+Verified: `./scripts/check.sh` green, all twelve steps — 529 server tests (4 new in
+`TestJobAssignment`), 15 SDK (unchanged), 584 web (9 new in `assignment.test.ts`).
+`scripts/verify_job_assignment.py`'s twelve checks pass against a rebuilt sidecar, and it is
+registered in `.github/workflows/browser.yml` and `docs/CONTRIBUTING.md`. The nesting
+sabotage above was restored and the rebuilt bundle hash came back byte-identical
+(`index-BIxfswFW.js`) before the green run was trusted. Also re-ran `verify_job_review.py`,
+`verify_ground_truth_setup.py` and `verify_frame_count_warning.py` — the other three
+harnesses that drive this page or this job's state — and all pass.
 
 ## Iteration 45
 
