@@ -460,6 +460,31 @@ export class AnnotationEngine {
     this.invalidate('shapes', 'overlay');
   }
 
+  /**
+   * Set one attribute's value on every selected object — `undefined` clears it.
+   *
+   * An undoable edit like any other, labelled per attribute so that typing into a text
+   * attribute coalesces into one undo step rather than one per keystroke. A locked label's
+   * objects are left alone, as a deletion leaves them.
+   */
+  setSelectionAttribute(name: string, value: unknown): void {
+    const before = this.scene.selected
+      .filter((a) => this.scene.isEditable(a))
+      .map((a) => ({ ...a }));
+    if (before.length === 0) return;
+    const after = before.map((a) => {
+      const attributes = { ...a.attributes };
+      if (value === undefined) delete attributes[name];
+      else attributes[name] = value;
+      return { ...a, attributes };
+    });
+    this.commands.execute(
+      createUpdateCommand(this.commandTarget(), before, after, `Set ${name}`),
+    );
+    this.listeners.annotationsChanged?.({ created: [], updated: after, deletedIds: [] });
+    this.invalidate('shapes', 'overlay');
+  }
+
   toggleOccluded(): void {
     const before = this.scene.selected.map((a) => ({ ...a }));
     if (before.length === 0) return;

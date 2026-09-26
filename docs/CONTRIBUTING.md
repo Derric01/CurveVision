@@ -85,7 +85,7 @@ typo at the point it was made.
 ## Browser harnesses
 
 `./scripts/check.sh` covers everything CI runs on a push, and it does not open a browser.
-Twenty-four scripts in `scripts/` do — they launch the **packaged desktop application**, drive
+Twenty-five scripts in `scripts/` do — they launch the **packaged desktop application**, drive
 it in Chromium, and assert against the **API** rather than the DOM, because the question is
 not "did the page look right" but "is the data now what the user asked for".
 
@@ -154,7 +154,7 @@ and a Save button that is disabled because nothing is pending is a finding, so c
 only when enabled and let the API assertion report it, rather than dying on a timeout.
 
 They run **nightly and on every push to `main`** (`.github/workflows/browser.yml`), not on
-pull requests: a PyInstaller build plus twenty-four end-to-end runs is twenty minutes, and CI
+pull requests: a PyInstaller build plus twenty-five end-to-end runs is twenty minutes, and CI
 that slow stops being run. Trigger one by hand from the Actions tab — the workflow takes a
 single harness name — or run one locally:
 
@@ -178,6 +178,7 @@ python scripts/verify_review_queue.py
 python scripts/verify_label_schema.py
 python scripts/verify_attribute_editor.py
 python scripts/verify_track_canvas_edit.py
+python scripts/verify_attribute_values.py
 ```
 
 **Both build steps, in that order, every time.** The packaged sidecar embeds `web/dist`, so a

@@ -217,3 +217,57 @@ describe('AnnotationEngine: which tool React is told is active', () => {
     expect(seen).toEqual(['rectangle', 'ellipse', 'select']);
   });
 });
+
+describe('AnnotationEngine: setting an attribute on the selection', () => {
+  beforeEach(stubAnimationFrame);
+  afterEach(() => vi.unstubAllGlobals());
+
+  function box(attributes: Record<string, unknown> = {}): Annotation {
+    return {
+      id: 'a1', labelId: 'l1', frame: 0, shapeType: 'rectangle', points: [0, 0, 10, 10],
+      rotation: 0, occluded: false, outside: false, zOrder: 0, source: 'manual', attributes,
+    };
+  }
+
+  function engineWith(annotation: Annotation, locked = false) {
+    const changes: Annotation[][] = [];
+    const engine = new AnnotationEngine({
+      layers: fakeLayers(),
+      listeners: { annotationsChanged: (change) => changes.push(change.updated) },
+    });
+    engine.setLabels([{ ...label(), locked }]);
+    setUpFrame(engine);
+    engine.setAnnotations([annotation]);
+    engine.scene.select(['a1']);
+    return { engine, changes };
+  }
+
+  it('sets the value, keeps the others, and hands the edit to the store', () => {
+    const { engine, changes } = engineWith(box({ colour: 'red' }));
+    engine.setSelectionAttribute('parked', true);
+    expect(engine.scene.get('a1')?.attributes).toEqual({ colour: 'red', parked: true });
+    expect(changes.at(-1)?.[0]?.attributes).toEqual({ colour: 'red', parked: true });
+  });
+
+  it('clears the value when given undefined', () => {
+    const { engine } = engineWith(box({ colour: 'red' }));
+    engine.setSelectionAttribute('colour', undefined);
+    expect(engine.scene.get('a1')?.attributes).toEqual({});
+  });
+
+  it('is undone like any other edit, and repeated edits to one attribute are one step', () => {
+    // Typing into a text attribute is one edit per keystroke; one undo should take it all back.
+    const { engine } = engineWith(box({ note: '' }));
+    engine.setSelectionAttribute('note', 'a');
+    engine.setSelectionAttribute('note', 'ab');
+    engine.handleKey('z', { ctrl: true });
+    expect(engine.scene.get('a1')?.attributes).toEqual({ note: '' });
+  });
+
+  it('leaves an object of a locked label alone', () => {
+    const { engine, changes } = engineWith(box({ colour: 'red' }), true);
+    engine.setSelectionAttribute('colour', 'blue');
+    expect(engine.scene.get('a1')?.attributes).toEqual({ colour: 'red' });
+    expect(changes).toHaveLength(0);
+  });
+});

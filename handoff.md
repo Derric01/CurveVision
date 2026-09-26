@@ -5,10 +5,10 @@
 > [`AGENTS.md`](./AGENTS.md) first; it is the working contract. Update this file after every
 > iteration, including the ones that mostly failed.
 >
-> **Last updated:** 2026-09-26 (iteration 53) · branch `claude/start-work-yx080h` · PRs
-> [#1](https://github.com/Derric01/CurveVision/pull/1)–[#23](https://github.com/Derric01/CurveVision/pull/23)
-> **all merged**, #23 carrying iteration 52. The branch was restarted from `origin/main`
-> after that merge; iteration 53 is pushed to it with no PR opened yet.
+> **Last updated:** 2026-09-26 (iteration 54) · branch `claude/start-work-yx080h` · PRs
+> [#1](https://github.com/Derric01/CurveVision/pull/1)–[#24](https://github.com/Derric01/CurveVision/pull/24)
+> **all merged**, #24 carrying iteration 53. The branch was restarted from `origin/main`
+> after that merge; iteration 54 is pushed to it with no PR opened yet.
 >
 > *Two things worth knowing about this repository's PR rhythm, which replace the
 > PR-by-PR changelog that used to sit here and had stopped helping anybody.* **PRs are
@@ -22,7 +22,7 @@
 > **Keep the session short.** One iteration, then commit, push, update this file and report —
 > `AGENTS.md` § *Continue* and the `start-work` skill both say so now, because they did not
 > before and a single session ran six iterations and roughly a third of a week's budget. The
-> concrete costs, in rough order: re-reading this file (iterations 1–47 now live in
+> concrete costs, in rough order: re-reading this file (iterations 1–48 now live in
 > [`docs/iterations/ARCHIVE.md`](./docs/iterations/ARCHIVE.md), which cut it from 3,800
 > lines to 1,000 — keep it that way); `python desktop/sidecar/build.py`, which is a
 > PyInstaller run of a minute or two and is needed *again* for every sabotage-and-restore
@@ -46,9 +46,17 @@ The desktop shape works: a packaged single-executable server, a Tauri shell that
 it, and folders annotated in place without copying a byte.
 
 **The tree is green.** `./scripts/check.sh` passes all twelve steps: 582 server tests, 15
-SDK, 637 web, and `scripts/` is lint-clean under its own `ruff.toml`. Twenty-four browser
+SDK, 653 web, and `scripts/` is lint-clean under its own `ruff.toml`. Twenty-five browser
 harnesses drive the packaged desktop application in a real Chromium, nightly and on every
 push to `main`. (Iteration 52 arrived to a red tree — mypy 2 — and fixed it first.)
+
+**An annotator can set an object's attribute values from the editor** (iteration 54). The
+right rail shows an Attributes panel for the one selected object — a control per attribute
+by type — and every change is an undoable engine edit saved by autosave. On a tracked object
+a mutable value goes on the keyframe at that frame and any other on the track, and the
+editor now *shows* a tracked object's values as the server exports them (the track's merged
+with those held since the last keyframe; it showed the track's alone). A keyframe added
+with `K` or by a drag starts from the values in force instead of resetting them.
 
 **Editing a tracked object on the canvas no longer breaks saving, and an undone deletion
 stays undone.** Both were silent data loss on the editor's hottest path, found in iteration
@@ -329,33 +337,21 @@ was the last unconnected piece of the desktop application.
 
 ## Next best action
 
-**Let an annotator set an attribute's value on a shape, from the editor.** A label's attribute
-*definitions* can now be edited from the project page (iteration 52), and **no screen sets a
-value**: the editor carries `shape.attributes` through every save (`adapters.ts`) and never
-lets a person change one. So `occluded`, `truncated` or a car's colour — the ordinary reason
-a schema has attributes at all — can only be recorded from the SDK, the CLI or an import, or
-by a default. It also leaves a real trap reachable today: an attribute that is `required`
-with no default (settable from the SDK) makes its label **impossible to draw with in the
-editor**, because every tool creates a shape with `attributes: {}` and the server answers
-`422 Attribute 'make' is required` — confirmed this session. The attribute form deliberately
-does not offer `required` until this exists. The work is a panel on the right rail for the
-selected object: one control per attribute by type (checkbox, select, radio, text, number),
-writing through the same autosave path as a move; and for a track, a **mutable** attribute's
-value belongs to the keyframe (`TrackShape.attributes`) while an immutable one belongs to
-the track — the one distinction here that is easy to get wrong. CVAT's
-`object-item-details.tsx` and `object-item-attribute.tsx` (under
-`cvat-ui/src/components/annotation-page/standard-workspace/objects-side-bar/`, both confirmed
-to exist on `develop`) are the obvious reading first. Fix the checkbox-default quirk under *Known issues* in the
-same change, since a checkbox control is where it would show.
-
-**For a tracked object, the edit has to go through the track path iteration 53 built,** not
-`updated_shapes`: autosave's `tracks` buffer holds a `CanvasEdit` per track and frame, and
-`applyCanvasEdits` (in `keyframes.ts`) applies them to the track as the server holds it at
-flush time. A `CanvasEdit` carries geometry and label only today. An immutable attribute
-belongs on the track (`track.attributes`) and a mutable one on the keyframe at that frame —
-and `frameAnnotations` in `adapters.ts` currently shows a tracked object with the *track's*
-attributes only, not the keyframe's, so what the panel reads for a mutable attribute needs
-fixing first or it will show the wrong value.
+**Stop a refused save from poisoning autosave — starting with a `required` attribute.**
+An attribute that is `required` with no default (settable from the SDK) makes every newly
+drawn shape of its label a 422 on its first save, because a tool creates a shape with
+`attributes: {}` and nobody could have set the value yet. Worse than a refusal: autosave
+puts the failed batch back and retries it, so — exactly the failure iteration 53 fixed for
+tracked objects — **every later save in the session fails with it** (inferred from the
+retry path, which iteration 53 observed for tracked objects; the 422 itself was confirmed
+in iteration 52 — reproduce the poisoning before fixing it). Two parts, and the
+second is the one that matters beyond this case: (1) a newly drawn shape should start with
+the value its label demands (the first option of a select/radio, `false` for a checkbox;
+text and number have none, so the panel has to be where it is filled in before the save —
+or the create deferred until it is); (2) a 4xx other than 409 should not be retried
+forever with the whole batch — find the offending entry (the server's message names it)
+and surface it on the object instead. Only then should the label form offer `required`.
+`useAutosave.ts`, `canvas/tools.ts` (`draftAnnotation`) and `AttributesPanel.tsx`.
 
 **A second candidate, smaller and unglamorous: generate `web/src/api/types.ts` from the
 OpenAPI schema.** The file is hand-maintained and nothing verifies it against the server —
@@ -665,6 +661,17 @@ as "One or more fields are invalid". It does not offer `required` (see *Next bes
 20 server tests, also run against a real PostgreSQL 16; `scripts/verify_attribute_editor.py`
 drives the form and then the editor, dragging and saving the annotator's box after the edits.
 
+**Setting attribute values in the editor** — `AttributesPanel.tsx` on the right rail, for
+the one selected object (read from the engine's scene, so a box drawn a moment ago has one
+before any save): checkbox, select, radio, text and number controls; a blank text or number
+clears the value rather than storing `""`, and a number mid-typing is not sent until it
+parses (`attributeValues.ts`, pure and tested). Changes go through
+`engine.setSelectionAttribute`, undoable, coalesced per attribute so typing is one undo
+step, skipping locked labels. Tracked objects: `applyCanvasEdits` splits values by the
+label's mutable set — per-frame on the keyframe, the rest on the track — and
+`frameAnnotations` shows `attributesAt(track, frame)`. `scripts/verify_attribute_values.py`
+(8 checks).
+
 **Editing a tracked object on the canvas** — a drag, a vertex edit or an occlusion toggle on
 a tracked object records a keyframe on that frame carrying the new geometry, and a keyframe
 already there keeps its per-frame attributes (`placeKeyframe` in `keyframes.ts`); a relabel
@@ -715,7 +722,7 @@ full docs set including seven ADRs.
 | Choosing individual files (desktop) | Complete and measured in a browser: `choose_files` now has a caller, one `local-import` call per chosen file, a failed file reported in `skipped` without aborting the others, and the results of a whole batch merged into one summary. |
 | Cuboid (2D wireframe box) | Complete and measured in a browser: a two-stage tool (drag the front face, then move and click to set the depth), a wireframe renderer, and CVAT XML export/import using CVAT's own real attribute names. The backend needed no new code at all — `ShapeType.CUBOID`, its minimum-points entry, its IoU comparison and its track interpolation were already there, unused. **Not** the 3D/point-cloud kind — see `docs/ROADMAP.md`'s honestly-unchanged limitation on that. |
 | Resumable uploads | Complete and tested end to end — API, SDK, CLI and the web upload panel: create a session, `PATCH` chunks at a stated offset, read the current offset back, complete, resume by id after a crash or a page reload. Driven in a browser through a deliberately dropped chunk and a real resume. Nothing outstanding. |
-| Label schema | Complete, driven in a browser: a label is added, renamed, recoloured and removed, and its **attributes** are added, renamed, extended and removed from the same form — with any edit that would strand a value already recorded refused by the server. What is *not* built is setting an attribute's **value** on a shape from the editor; see *Next best action*. |
+| Label schema | Complete, driven in a browser: a label is added, renamed, recoloured and removed, and its **attributes** are added, renamed, extended and removed from the same form — with any edit that would strand a value already recorded refused by the server. Attribute **values** are set from the editor's right rail (iteration 54). The form does not offer `required`; see *Next best action*. |
 | Job review | Complete end to end and driven in a browser, all three parts: the **assignment** (an annotator picker and a reviewer picker on each job row of the task page, either clearable back to Unassigned), the **queue** (`GET /jobs?reviewing=true`, split on the My work page into what can be reviewed now and what is merely named to you), and the **decision** (accept or send back with a required reason, from the editor's rail). Nothing outstanding. |
 
 *This table went stale once — it still listed the open-folder flow and chunked delivery as
@@ -736,33 +743,29 @@ being updated and this one was not. Check it against* Completed *before trusting
 
 ## Verification performed
 
-Iteration 53, every command run in this container:
+Iteration 54:
 
-* `./scripts/check.sh` on arrival (after restarting the branch from `origin/main`): **all
-  twelve pass**. After this iteration: **all twelve pass** — 582 server, 15 SDK, 637 web
-  (9 new in `keyframes.test.ts`). `main`'s CI and browser workflows were green on the merge
-  of #23.
-* Both defects reproduced in a real browser against the packaged app **before** any fix:
-  dragging a tracked box → `PATCH` 404, "Save failed", and a rectangle drawn afterwards
-  also 404 with 0 shapes on the server; Delete then Ctrl+Z → editor shows 1 object, server
-  holds 0 after the save.
-* `scripts/verify_track_canvas_edit.py` against the **unfixed** build: 5 of its first 8
-  checks failed, one more exposed as vacuous and gated. Against the fixed build: all pass.
-  Against the build with the track fix but not the undo fix: exactly the three undo checks
-  failed. Sabotage C (`placeKeyframe` never reports a no-op): exactly "gives the track
-  nobody moved no keyframe" failed. Sabotage D (the `discarded` bookkeeping removed):
-  exactly "a shape drawn, deleted and undone before it was ever saved" failed. A harness-side
-  sabotage (no Ctrl+Z) failed "undoing a drag … leaves the moved car where it was", proving
-  the drag lands. **One sabotage build failed to compile** (`vite build` exit 1) and
-  silently re-packaged the previous bundle; caught by the unchanged bundle hash, redone.
-  Final bundle `index-C8cNIcBb.js`, the same hash as the first fixed build.
-* On that final build: `verify_track_canvas_edit` (12/12), `verify_mask_brush`,
-  `verify_shape_frame`, `verify_keyframe_editing`, `verify_track_timeline`,
-  `verify_tool_sync`, `verify_skeleton_tool`, `verify_cuboid`, `verify_attribute_editor` —
-  every check in all nine passes.
+* `./scripts/check.sh` after the change: **all twelve pass** — 582 server, 15 SDK, 653 web
+  (16 new: 4 engine, 8 `attributeValues`, 4 track-attribute tests in `keyframes.test.ts`).
+  The baseline run at the start was killed with its shell and not repeated; `main` had been
+  green in CI on the merge of #24.
+* `scripts/verify_attribute_values.py` against the build from before the change: 6 of 8
+  checks fail. After: all 8 pass. Sabotage E (`frameAnnotations` back to the track's
+  attributes only): exactly "on the next frame the editor shows the value as held" fails.
+  Sabotage F (autosave told nothing is mutable): exactly the two track checks fail. Each
+  sabotage build's hash was checked to differ; the final bundle `index-CwZHHqck.js` matches
+  the first good build.
+* On the final build `verify_track_canvas_edit`, `verify_keyframe_editing`,
+  `verify_shape_frame` and `verify_attribute_editor` also pass.
 
 ## Bugs fixed
 
+* **A keyframe added with `K` or by a canvas drag reset every mutable attribute value from
+  that frame on** (iteration 54): it was created with `attributes: {}`, and the server
+  holds a value only until the next keyframe changes it. Now it starts from the values in
+  force. Pinned in `keyframes.test.ts`.
+* **The editor showed a tracked object with the track's attributes only**, hiding every
+  per-frame value (iteration 54). Pinned by sabotage E.
 * **Editing a tracked object on the canvas poisoned autosave** (iteration 53). Root cause: a
   tracked object is drawn under its track's id and autosave only knew how to send shapes,
   so a drag became `updated_shapes` for a nonexistent shape → 404 → the batch put back and
@@ -787,8 +790,8 @@ Iteration 53, every command run in this container:
 
 ## Known issues
 
-* **No screen sets an attribute's value**, and a `required` attribute with no default makes
-  its label undrawable in the editor — *Next best action*.
+* **A `required` attribute with no default poisons autosave** on the first save of any
+  newly drawn shape of its label — *Next best action*.
 * **A default is recorded as a string.** `validate_attributes` fills a missing value with
   `definition.default_value` uncoerced, so a checkbox default lands as `"false"` while an
   explicit value lands as `false`; the next save of that annotation coerces it. Found by
@@ -853,6 +856,27 @@ Iteration 53, every command run in this container:
 
 ## Last iteration
 
+### 54 — an annotator can set an object's attribute values
+
+The next best action since iteration 52, unblocked by 53. Mostly assembly: the engine
+already had the undoable-edit pattern (`toggleOccluded`), autosave already routed tracked
+objects, and CVAT's split of per-frame versus per-track values is the server's own rule
+(`interpolate_track`: values "hold until the next keyframe changes them"), so the web side
+copies that rule rather than inventing one.
+
+**Two defects found on the way**, both in the track half: the editor displayed a tracked
+object with the track's attributes only, so a per-frame value was invisible; and every
+keyframe added in the browser started with no attributes, silently resetting mutable values
+from that frame on. See *Bugs fixed*.
+
+**Deliberately not done:** offering `required` on the label form. A required attribute
+with no default still makes a newly drawn shape's first save fail and — worse — poison
+autosave; that is the new next best action.
+
+Verified: see *Verification performed*.
+
+## Iteration 53
+
 ### 53 — a tracked object can be moved on the canvas without breaking every save after it
 
 Started on the handoff's next best action, the attribute value panel, and stopped before
@@ -884,10 +908,33 @@ testing a keypress, found with a request log; and a sabotage that did not compil
 sidecar packaged the previous bundle and everything passed. The unchanged bundle hash gave it
 away.
 
-**What is still not done:** the attribute value panel itself, now unblocked and still the
-next best action.
+**What was still not done:** the attribute value panel itself — built in iteration 54.
 
-Verified: see *Verification performed*.
+Verified, every command run in that session:
+
+
+* `./scripts/check.sh` on arrival (after restarting the branch from `origin/main`): **all
+  twelve pass**. After this iteration: **all twelve pass** — 582 server, 15 SDK, 637 web
+  (9 new in `keyframes.test.ts`). `main`'s CI and browser workflows were green on the merge
+  of #23.
+* Both defects reproduced in a real browser against the packaged app **before** any fix:
+  dragging a tracked box → `PATCH` 404, "Save failed", and a rectangle drawn afterwards
+  also 404 with 0 shapes on the server; Delete then Ctrl+Z → editor shows 1 object, server
+  holds 0 after the save.
+* `scripts/verify_track_canvas_edit.py` against the **unfixed** build: 5 of its first 8
+  checks failed, one more exposed as vacuous and gated. Against the fixed build: all pass.
+  Against the build with the track fix but not the undo fix: exactly the three undo checks
+  failed. Sabotage C (`placeKeyframe` never reports a no-op): exactly "gives the track
+  nobody moved no keyframe" failed. Sabotage D (the `discarded` bookkeeping removed):
+  exactly "a shape drawn, deleted and undone before it was ever saved" failed. A harness-side
+  sabotage (no Ctrl+Z) failed "undoing a drag … leaves the moved car where it was", proving
+  the drag lands. **One sabotage build failed to compile** (`vite build` exit 1) and
+  silently re-packaged the previous bundle; caught by the unchanged bundle hash, redone.
+  Final bundle `index-C8cNIcBb.js`, the same hash as the first fixed build.
+* On that final build: `verify_track_canvas_edit` (12/12), `verify_mask_brush`,
+  `verify_shape_frame`, `verify_keyframe_editing`, `verify_track_timeline`,
+  `verify_tool_sync`, `verify_skeleton_tool`, `verify_cuboid`, `verify_attribute_editor` —
+  every check in all nine passes.
 
 ## Iteration 52
 
@@ -1094,75 +1141,9 @@ Verified: `./scripts/check.sh` green, all twelve steps — 550 server tests (7 n
 rebuilt sidecar; the partial-payload sabotage was confirmed to fail exactly the two rename
 checks and was then restored, with the bundle hash back to `index-BaAzC0sN.js`.
 
-## Iteration 48
-
-### 48 — a project's label schema can be changed after the project exists
-
-Named by this file as next, and found the same way the last four were: `api.createLabel` sat
-in the web client with no caller. The consequence is about as ordinary as this product gets
-— a project created with `car` and `pedestrian`, and then a van in the third photograph.
-`POST`, `PUT` and `DELETE /projects/{id}/labels` have all existed since the initial schema,
-the policy engine gates them at `MAINTAINER`, and the only way to reach any of them was the
-SDK, the CLI or curl.
-
-**A defect the tests found before the panel existed: a label added later sorted into the
-middle.** The listing orders by `(position, name)` and every label sent without a position
-took 0, so `aardvark` added to a `car`/`pedestrian` schema came back *first*. That is not
-cosmetic: the schema's order is the order the editor's label picker shows and the order its
-number-key shortcuts run in, so adding a class silently renumbered the shortcuts an
-annotator had learned. The route now counts the project's existing top-level labels and
-passes that as the default position — `create_label` already took a `default_position`
-parameter for exactly this, used when a project is created and by nothing else. An explicit
-position is still honoured, which a test pins.
-
-**Delete is offered because the server already made it safe.** `delete_label` counts the
-shapes, tracks and tags referencing the label and refuses with a 409 rather than cascading,
-which its own docstring has always said. That is what turns "delete a label" from a
-destructive button into an ordinary one: the panel shows the server's own refusal, and the
-harness checks that both the label and the annotation are still there afterwards. A
-courtesy count beside each label comes from the class distribution the statistics panel
-already fetched, so the usual case is not "press delete, read an error".
-
-**What is deliberately not built, and why.** Editing a label in place. `PUT` replaces a
-label's attributes wholesale — `update_label` reuses an existing attribute row only when the
-client sends its id back — so a rename box posting `{name, color}` would delete every
-attribute definition on that label and the schema validating the values already stored on
-annotations with it. That needs an attribute editor, which is its own piece of work, and it
-is now *Next best action* rather than a quiet gap.
-
-**No duplicate check in the browser, on purpose.** The server's comparison is a
-case-sensitive string match in one place; a second copy here would be a second thing to keep
-true, and it would be the one that was wrong. The panel sends the name and renders "A label
-named 'car' already exists in this project". What the pure module *does* do is trim the name
-and collapse its internal whitespace, because "school  bus" and "school bus" are the same
-class to everybody except a string comparison — and a string comparison is what decides
-whether it is a duplicate.
-
-**A third variant of the same harness mistake, in one iteration's own draft.** Iteration 46
-learned that a check has to be made to fail; 47 added that the fixture is part of the check;
-this one adds **do not wait for the thing you are about to assert**. The first draft waited
-for the new label's name to appear in the editor and then checked that it had — which can
-time out, but can never print a FAIL. Rewritten to wait for the label list as a whole and
-assert on that label's own id. The delete sabotage found a second, related one: reading
-`[data-label-error]` with `inner_text` on a page where nothing rendered it killed the run
-with a Playwright timeout instead of reporting the two failures, so a `text_of` helper now
-returns `""` for an element that is not there. A check looking for something *missing* has
-to read defensively.
-
-**Both sabotages confirmed to bite.** Reverting the position default put `van` back in the
-middle and failed exactly that check; deleting the error banner failed exactly the two
-checks about the server's refusal reaching the screen, and nothing else. Restored, rebuilt,
-and the bundle hash came back byte-identical (`index-Cg6bXkv6.js`).
-
-Verified: `./scripts/check.sh` green, all twelve steps — 543 server tests (8 new in
-`test_label_schema.py`), 15 SDK (unchanged), 605 web (12 new in `labelSchema.test.ts`).
-`scripts/verify_label_schema.py`'s twelve checks pass against a rebuilt sidecar, and it is
-registered in `.github/workflows/browser.yml` and `docs/CONTRIBUTING.md`. No other harness
-drives the project page, so there was nothing adjacent to re-run for this one.
-
 ## Earlier iterations
 
-Iterations **1–47** are in [`docs/iterations/ARCHIVE.md`](./docs/iterations/ARCHIVE.md) —
+Iterations **1–48** are in [`docs/iterations/ARCHIVE.md`](./docs/iterations/ARCHIVE.md) —
 moved there so that orienting costs a few hundred lines rather than four thousand. Read them
 when `git log` points you at an iteration number, or when you are about to build something
 and want to know whether it was already tried and rejected. The lessons from them that are

@@ -604,9 +604,16 @@ Planned: LabelMe, Open Images, TFRecord, Datumaro bridge.
   `uq_attribute_name` and are not now, and a default the attribute would itself refuse is a
   422 at the schema. `scripts/verify_attribute_editor.py` drives it, ending in the editor:
   after every edit, the annotator's box is dragged and saved and keeps its recorded value.
-  Setting an attribute's **value** on a shape from the editor is not built, which is also
-  why the form does not offer `required` — a required attribute with no default would make
-  its label impossible to draw with from the application.
+  An attribute's **value** is set from the editor (iteration 54): an Attributes panel on the
+  right rail for the one selected object, one control per attribute by type, through an
+  undoable `engine.setSelectionAttribute`. For a tracked object a mutable value goes on the
+  keyframe at that frame and any other on the track, and the editor now shows a tracked
+  object's values the way the server exports them — the track's merged with those held
+  since the last keyframe, where before it showed the track's alone. A keyframe added with
+  `K` or by a drag starts from the values in force rather than from none. The form still
+  does not offer `required`: a required attribute with no default is still refused on the
+  first save of a newly drawn shape, before anybody could set it.
+  `scripts/verify_attribute_values.py` drives it.
 * **Merging overlapping jobs** (**Done**): a task with `overlap > 0` hands the same frames to
   two annotators so a track can cross a job seam. Export reconciles those frames instead of
   concatenating them — `services/merge.py`, adapted from the upstream design. Two shapes are

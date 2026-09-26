@@ -81,6 +81,7 @@ function asCanvasEdit(annotation: Annotation & { trackId: string }): CanvasEdit 
     points: annotation.points,
     rotation: annotation.rotation,
     occluded: annotation.occluded,
+    attributes: annotation.attributes,
   };
 }
 
@@ -141,6 +142,9 @@ export async function loadDraft(jobId: string): Promise<unknown | null> {
 
 // ------------------------------------------------------------------ tracked objects
 
+/** Which of a label's attributes may change from frame to frame. */
+export type MutableAttributes = (labelId: string) => ReadonlySet<string>;
+
 /** The job changed under a pending track edit: the same answer a 409 would have given. */
 class StaleTracks extends Error {}
 
@@ -157,13 +161,14 @@ async function trackWrites(
   jobId: string,
   batch: PendingBatch,
   version: number,
+  mutable: MutableAttributes,
 ): Promise<Record<string, unknown>> {
   if (batch.tracks.size === 0 && batch.deletedTracks.size === 0) return {};
   const document = await api.annotations(jobId);
   if (document.annotation_version !== version) throw new StaleTracks();
   const surviving = document.tracks.filter((track) => !batch.deletedTracks.has(track.id));
   return {
-    updated_tracks: applyCanvasEdits(surviving, [...batch.tracks.values()]).map(
+    updated_tracks: applyCanvasEdits(surviving, [...batch.tracks.values()], mutable).map(
       toApiTrackUpdate,
     ),
     deleted_tracks: [...batch.deletedTracks],
@@ -192,7 +197,11 @@ export function useAutosave(
   jobId: string,
   version: number,
   onSaved: (result: { annotation_version: number; id_map: Record<string, string> }) => void,
+  mutableAttributes: MutableAttributes = () => new Set(),
 ): AutosaveApi {
+  // A ref, so the label schema arriving late does not rebuild `flush` and its timer.
+  const mutableRef = useRef(mutableAttributes);
+  mutableRef.current = mutableAttributes;
   const batch = useRef<PendingBatch>(emptyBatch());
   const versionRef = useRef(version);
   const flushing = useRef(false);
@@ -282,7 +291,7 @@ export function useAutosave(
         created_shapes: [...current.created.values()].map(toApiShape),
         updated_shapes: [...current.updated.values()].map(toApiShape),
         deleted_shapes: [...current.deleted],
-        ...(await trackWrites(jobId, current, versionRef.current)),
+        ...(await trackWrites(jobId, current, versionRef.current, mutableRef.current)),
       });
       versionRef.current = result.annotation_version;
       onSaved(result);

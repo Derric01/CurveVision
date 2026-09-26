@@ -17,6 +17,7 @@ import { describe, expect, it } from 'vitest';
 import type { ApiTrack } from '@/api/types';
 import {
   applyCanvasEdits,
+  attributesAt,
   framesThatMoved,
   keyframeAt,
   markDeparture,
@@ -359,6 +360,7 @@ describe('applyCanvasEdits', () => {
     points: [x, 0, x + 20, 20],
     rotation: 0,
     occluded: false,
+    attributes: {},
     ...overrides,
   });
 
@@ -383,5 +385,46 @@ describe('applyCanvasEdits', () => {
 
   it('skips an edit to a track the document no longer has', () => {
     expect(applyCanvasEdits([], [edit(5, 50)])).toEqual([]);
+  });
+});
+
+describe('attributes on a track', () => {
+  const withValues = () =>
+    movingTrack([
+      { ...shape(0, 0), attributes: { lights: 'off' } },
+      { ...shape(10, 100), attributes: { lights: 'on' } },
+    ]);
+  const mutable = () => new Set(['lights']);
+  const edit = (frame: number, attributes: Record<string, unknown>) => {
+    const track = withValues();
+    const shown = positionAt(track, frame)!;
+    return { trackId: 'track-1', frame, labelId: 'label-1', ...shown, attributes };
+  };
+
+  it("shows the track's values merged with those held since the last keyframe", () => {
+    const track = { ...withValues(), attributes: { colour: 'red' } };
+    expect(attributesAt(track, 5)).toEqual({ colour: 'red', lights: 'off' });
+    expect(attributesAt(track, 10)).toEqual({ colour: 'red', lights: 'on' });
+  });
+
+  it('a keyframe added with K keeps the values in force, rather than resetting them', () => {
+    const [after] = [toggleKeyframe(withValues(), 5)].map(ok);
+    expect(keyframeAt(after!, 5)?.attributes).toEqual({ lights: 'off' });
+  });
+
+  it('puts a mutable value on this frame only, and anything else on the track', () => {
+    const [after] = applyCanvasEdits(
+      [withValues()],
+      [edit(5, { lights: 'on', colour: 'blue' })],
+      mutable,
+    );
+    expect(after?.attributes).toEqual({ colour: 'blue' });
+    expect(after && keyframeAt(after, 5)?.attributes).toEqual({ lights: 'on' });
+    // Neighbouring keyframes keep their own values.
+    expect(after && keyframeAt(after, 0)?.attributes).toEqual({ lights: 'off' });
+  });
+
+  it('changes nothing when the values are the ones already shown', () => {
+    expect(applyCanvasEdits([withValues()], [edit(5, { lights: 'off' })], mutable)).toEqual([]);
   });
 });

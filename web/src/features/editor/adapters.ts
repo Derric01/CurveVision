@@ -22,6 +22,7 @@ import type {
   SkeletonElement,
 } from '@/canvas/types';
 import { interpolateTrack, type Keyframe } from './interpolate';
+import { attributesAt } from './keyframes';
 
 export function toAnnotation(shape: ApiShape): Annotation {
   return {
@@ -213,7 +214,9 @@ export function frameAnnotations(
       group: track.group,
       source: position.keyframe ? track.source : 'interpolated',
       confidence: track.confidence,
-      attributes: track.attributes,
+      // The track's values and this frame's, as the server merges them for an export:
+      // showing the track's alone hid every value that changes from frame to frame.
+      attributes: attributesAt(track, frame),
     });
   }
 
