@@ -92,7 +92,7 @@ export function canAddLabel(raw: string): boolean {
  */
 export function labelToPayload(
   label: LabelForEditing,
-  changes: Partial<Pick<LabelPayload, 'name' | 'color'>> = {},
+  changes: Partial<Pick<LabelPayload, 'name' | 'color' | 'attributes'>> = {},
 ): LabelPayload {
   return {
     name: label.name,

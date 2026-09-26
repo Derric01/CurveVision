@@ -22,7 +22,7 @@ means designed, not built.
 | | Status |
 | --- | --- |
 | Users, organizations, projects, tasks, jobs | **Done** |
-| Label schema with typed attributes | **Done** — and editable after the project exists: a label is added from the project page and appended to the schema, renamed or recoloured in place, and removed unless annotations still use it, which the server refuses rather than cascading. A rename carries the whole label, so it keeps the label's attributes, its position and its shape restriction — `PUT` is a replace. Editing the **attributes** themselves is not built |
+| Label schema with typed attributes | **Done** — and editable after the project exists: a label is added from the project page and appended to the schema, renamed or recoloured in place, and removed unless annotations still use it, which the server refuses rather than cascading. A rename carries the whole label, so it keeps the label's attributes, its position and its shape restriction — `PUT` is a replace. A label's **attributes** are edited from the same form: added, renamed, given more options or a default, and removed — and an edit that would leave values already recorded unable to be saved again is refused. Following CVAT, a saved attribute's type and per-frame flag are fixed and a select may gain options but not lose them; a rename or removal is refused while any annotation records a value under that name, since values are stored by name. Setting an attribute's **value** on a shape from the editor is not built |
 | Image upload with content-addressed deduplication | **Done** |
 | Annotation editor: rectangle, polygon, polyline, points, ellipse | **Done** |
 | Selection, move, vertex editing, marquee | **Done** |

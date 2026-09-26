@@ -85,7 +85,7 @@ typo at the point it was made.
 ## Browser harnesses
 
 `./scripts/check.sh` covers everything CI runs on a push, and it does not open a browser.
-Twenty-two scripts in `scripts/` do — they launch the **packaged desktop application**, drive
+Twenty-three scripts in `scripts/` do — they launch the **packaged desktop application**, drive
 it in Chromium, and assert against the **API** rather than the DOM, because the question is
 not "did the page look right" but "is the data now what the user asked for".
 
@@ -133,9 +133,17 @@ timeout instead of printing the two FAIL lines it should have. Its rename checks
 the fixture variant one iteration later: the sabotage that proved "keeps its attributes"
 left "stays where it was in the schema" passing, because the label under test sat at
 position 0 and a partial payload sends position 0. The seed now puts another label first.
+`verify_attribute_editor.py` found two more, both by sabotage. **A check that depends on an
+earlier step having worked**: "an unused attribute is removed" asserted its *name* was
+gone, which is just as true when the earlier rename never happened — so it passed under a
+save that sent no attribute changes at all, until it asserted on the attribute's id. And **a
+companion check that means nothing when the step it follows failed**: "the box keeps its
+recorded value" passed when the editor's save was refused, because a refused save changes
+nothing. It now requires the save to have landed. A check can be made unable to fail by
+what happened *before* it, not only by its own fixture.
 
 They run **nightly and on every push to `main`** (`.github/workflows/browser.yml`), not on
-pull requests: a PyInstaller build plus twenty-two end-to-end runs is twenty minutes, and CI
+pull requests: a PyInstaller build plus twenty-three end-to-end runs is twenty minutes, and CI
 that slow stops being run. Trigger one by hand from the Actions tab — the workflow takes a
 single harness name — or run one locally:
 
@@ -157,6 +165,7 @@ python scripts/verify_job_review.py
 python scripts/verify_job_assignment.py
 python scripts/verify_review_queue.py
 python scripts/verify_label_schema.py
+python scripts/verify_attribute_editor.py
 ```
 
 **Both build steps, in that order, every time.** The packaged sidecar embeds `web/dist`, so a

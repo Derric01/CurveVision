@@ -21,6 +21,17 @@ import {
   nextLabelColor,
   normaliseLabelName,
 } from './labelSchema';
+import {
+  ATTRIBUTE_TYPES,
+  type AttributeDraft,
+  attributeProblem,
+  blankAttribute,
+  defaultChoices,
+  draftFromAttribute,
+  draftToPayload,
+  isSaved,
+  needsOptions,
+} from './attributeSchema';
 
 export function ProjectPage() {
   const { projectId = '' } = useParams();
@@ -241,17 +252,18 @@ export function ProjectPage() {
 }
 
 /**
- * A project's label schema, and the two ways it changes after the project exists.
+ * A project's label schema, and the ways it changes after the project exists.
  *
  * Until this existed the schema was fixed at creation from the application: the endpoints,
  * the policy and `api.createLabel` were all there, and nothing called the last of them. A
  * project that needed a `van` class had to get one from the SDK, the CLI or curl.
  *
- * Renaming and recolouring go through `labelToPayload`, which rebuilds the whole label
- * from the one the server reported. `PUT` is a replace: a form that posted only the fields
- * it changed would reset the label's position, lift its shape restriction and delete every
- * attribute definition on it. **Editing the attributes themselves is still not offered** —
- * that is an attribute editor, and its own piece of work.
+ * Editing a label — its name, its colour and its attributes — goes through
+ * `labelToPayload`, which rebuilds the whole label from the one the server reported. `PUT`
+ * is a replace: a form that posted only the fields it changed would reset the label's
+ * position, lift its shape restriction and delete every attribute definition on it. What
+ * an attribute edit may change without stranding values already recorded is the server's
+ * rule; `attributeSchema.ts` says what it is and how the form follows it.
  */
 function LabelSchemaPanel({
   projectId,
@@ -292,6 +304,10 @@ function LabelSchemaPanel({
       api.updateLabel(projectId, label.id, labelToPayload(label, {
         name: normaliseLabelName(changes.name),
         color: changes.color,
+        // Always through the drafts, even when no attribute was touched: that is what
+        // drops a default an older server accepted and this one would refuse, so a label
+        // carrying one can still be renamed.
+        attributes: changes.attributes.map(draftToPayload),
       })),
     onSuccess: () => {
       setEditing(null);
@@ -325,15 +341,14 @@ function LabelSchemaPanel({
                 />
                 <span className="text-ink-200">{label.name}</span>
                 {label.attributes.length > 0 && (
-                  <span className="text-xs text-ink-500">
-                    {label.attributes.length} attribute
-                    {label.attributes.length === 1 ? '' : 's'}
+                  <span className="min-w-0 truncate text-xs text-ink-500" data-label-attributes="">
+                    {label.attributes.map((attribute) => attribute.name).join(', ')}
                   </span>
                 )}
                 <button
                   type="button"
                   className="ml-auto shrink-0 rounded p-1 text-ink-500 hover:bg-ink-800 hover:text-curve-300"
-                  aria-label={`Rename ${label.name}`}
+                  aria-label={`Edit ${label.name}`}
                   data-label-edit={label.id}
                   onClick={() => setEditing(label.id)}
                 >
@@ -403,14 +418,17 @@ function LabelSchemaPanel({
 interface EditedLabel {
   name: string;
   color: string;
+  attributes: AttributeDraft[];
 }
 
 /**
- * One label's row, while it is being renamed.
+ * One label's row, while it is being edited: its name and colour, and its attributes.
  *
- * The form holds only the two fields a person can change here; everything else about the
- * label travels through `labelToPayload` untouched. Escape cancels, because a rename
- * started by accident should not need a mouse to get out of.
+ * Everything else about the label travels through `labelToPayload` untouched. Escape
+ * cancels, because an edit started by accident should not need a mouse to get out of.
+ * Save stays disabled while `attributeProblem` has something to say, and says it, because
+ * the server's answer to those is a 422 that reaches the screen only as "One or more
+ * fields are invalid".
  */
 function LabelEditor({
   label,
@@ -425,55 +443,233 @@ function LabelEditor({
 }) {
   const [name, setName] = useState(label.name);
   const [color, setColor] = useState(label.color);
+  const [attributes, setAttributes] = useState(() => label.attributes.map(draftFromAttribute));
+  const problem = attributeProblem(attributes);
+
+  const change = (index: number, next: Partial<AttributeDraft>) =>
+    setAttributes((drafts) =>
+      drafts.map((draft, at) => (at === index ? { ...draft, ...next } : draft)),
+    );
 
   return (
     <form
-      className="flex items-center gap-2"
+      className="space-y-2 rounded-md border border-ink-800 p-2"
       onSubmit={(event) => {
         event.preventDefault();
-        if (canAddLabel(name)) onSave({ name, color });
+        if (canAddLabel(name) && problem === null) onSave({ name, color, attributes });
       }}
       onKeyDown={(event) => {
         if (event.key === 'Escape') onCancel();
       }}
     >
-      <input
-        type="color"
-        className="h-8 w-8 shrink-0 cursor-pointer rounded-md border border-ink-700 bg-ink-950"
-        value={color}
-        aria-label={`Colour for ${label.name}`}
-        data-label-edit-color=""
-        onChange={(event) => setColor(event.target.value)}
-      />
-      <input
-        className="h-8 w-full min-w-0 rounded-md border border-ink-700 bg-ink-950 px-2 text-sm text-ink-100 focus:border-curve-400"
-        value={name}
-        // The row was replaced by this form on a deliberate click, so the caret belongs
-        // here; landing it anywhere else would make the pencil a two-step control.
-        autoFocus
-        aria-label={`Name for ${label.name}`}
-        data-label-edit-name=""
-        onChange={(event) => setName(event.target.value)}
-      />
-      <button
-        type="submit"
-        className="shrink-0 rounded p-1 text-ink-400 hover:bg-ink-800 hover:text-curve-300 disabled:opacity-50"
-        aria-label="Save"
-        data-label-edit-save=""
-        disabled={pending || !canAddLabel(name)}
-      >
-        <Check size={14} />
-      </button>
-      <button
-        type="button"
-        className="shrink-0 rounded p-1 text-ink-500 hover:bg-ink-800 hover:text-ink-200"
-        aria-label="Cancel"
-        data-label-edit-cancel=""
-        onClick={onCancel}
-      >
-        <X size={14} />
-      </button>
+      <div className="flex items-center gap-2">
+        <input
+          type="color"
+          className="h-8 w-8 shrink-0 cursor-pointer rounded-md border border-ink-700 bg-ink-950"
+          value={color}
+          aria-label={`Colour for ${label.name}`}
+          data-label-edit-color=""
+          onChange={(event) => setColor(event.target.value)}
+        />
+        <input
+          className="h-8 w-full min-w-0 rounded-md border border-ink-700 bg-ink-950 px-2 text-sm text-ink-100 focus:border-curve-400"
+          value={name}
+          // The row was replaced by this form on a deliberate click, so the caret belongs
+          // here; landing it anywhere else would make the pencil a two-step control.
+          autoFocus
+          aria-label={`Name for ${label.name}`}
+          data-label-edit-name=""
+          onChange={(event) => setName(event.target.value)}
+        />
+        <button
+          type="submit"
+          className="shrink-0 rounded p-1 text-ink-400 hover:bg-ink-800 hover:text-curve-300 disabled:opacity-50"
+          aria-label="Save"
+          data-label-edit-save=""
+          disabled={pending || !canAddLabel(name) || problem !== null}
+        >
+          <Check size={14} />
+        </button>
+        <button
+          type="button"
+          className="shrink-0 rounded p-1 text-ink-500 hover:bg-ink-800 hover:text-ink-200"
+          aria-label="Cancel"
+          data-label-edit-cancel=""
+          onClick={onCancel}
+        >
+          <X size={14} />
+        </button>
+      </div>
+
+      {attributes.map((draft, index) => (
+        <AttributeEditor
+          // A saved attribute is keyed by its id; a new one by where it sits. Removing an
+          // earlier row shifts that, which costs a remount and nothing more: the row holds
+          // no state of its own, only the draft it is handed.
+          key={draft.id ?? `new-${index}`}
+          draft={draft}
+          onChange={(next) => change(index, next)}
+          onRemove={() => setAttributes((drafts) => drafts.filter((_, at) => at !== index))}
+        />
+      ))}
+      <div className="flex items-center gap-2">
+        <button
+          type="button"
+          className="flex items-center gap-1 rounded px-1.5 py-1 text-xs text-ink-400 hover:bg-ink-800 hover:text-curve-300"
+          data-attribute-add=""
+          onClick={() => setAttributes((drafts) => [...drafts, blankAttribute()])}
+        >
+          <Plus size={12} /> Add attribute
+        </button>
+        {problem && (
+          <span className="text-xs text-amber-300" data-attribute-problem="">
+            {problem}
+          </span>
+        )}
+      </div>
+      {attributes.some((draft) => draft.default_value) && (
+        <p className="text-xs text-ink-500">
+          A default is recorded on every annotation saved with this label, and an attribute
+          something is recorded under cannot be renamed or removed.
+        </p>
+      )}
     </form>
+  );
+}
+
+/**
+ * One attribute inside the label editor.
+ *
+ * A saved attribute's type and its "changes per frame" flag are shown but fixed, and its
+ * saved options are shown as chips that cannot be removed: the server refuses all three,
+ * because each would leave values already recorded unable to be saved again. A new
+ * attribute has no such history, so every control is live.
+ */
+function AttributeEditor({
+  draft,
+  onChange,
+  onRemove,
+}: {
+  draft: AttributeDraft;
+  onChange: (next: Partial<AttributeDraft>) => void;
+  onRemove: () => void;
+}) {
+  const saved = isSaved(draft);
+  const choices = defaultChoices(draft);
+  const fixed = saved ? 'Fixed once saved. Remove the attribute and add a new one to change it.' : undefined;
+  const control =
+    'h-7 rounded border border-ink-700 bg-ink-950 px-1.5 text-xs text-ink-100 focus:border-curve-400 disabled:opacity-60';
+
+  return (
+    <div
+      className="space-y-1.5 rounded border border-ink-800 bg-ink-950/40 p-2"
+      data-attribute-row={draft.id ?? 'new'}
+    >
+      <div className="flex items-center gap-2">
+        <input
+          className={`${control} w-full min-w-0`}
+          value={draft.name}
+          placeholder="occluded"
+          aria-label="Attribute name"
+          data-attribute-name=""
+          onChange={(event) => onChange({ name: event.target.value })}
+        />
+        <select
+          className={control}
+          value={draft.attribute_type}
+          disabled={saved}
+          title={fixed}
+          aria-label="Attribute type"
+          data-attribute-type=""
+          // A default chosen for the old type means nothing for the new one.
+          onChange={(event) =>
+            onChange({
+              attribute_type: event.target.value as AttributeDraft['attribute_type'],
+              default_value: '',
+            })
+          }
+        >
+          {ATTRIBUTE_TYPES.map((type) => (
+            <option key={type} value={type}>
+              {type}
+            </option>
+          ))}
+        </select>
+        <button
+          type="button"
+          className="shrink-0 rounded p-1 text-ink-500 hover:bg-ink-800 hover:text-red-300"
+          aria-label={`Remove attribute ${draft.name || '(new)'}`}
+          data-attribute-remove=""
+          onClick={onRemove}
+        >
+          <Trash2 size={12} />
+        </button>
+      </div>
+
+      {needsOptions(draft.attribute_type) && (
+        <div className="flex flex-wrap items-center gap-1">
+          {draft.savedOptions.map((option) => (
+            <span
+              key={option}
+              className="rounded bg-ink-800 px-1.5 py-0.5 text-xs text-ink-300"
+              title="Saved options can be added to, not removed."
+              data-attribute-saved-option=""
+            >
+              {option}
+            </span>
+          ))}
+          <input
+            className={`${control} min-w-0 flex-1`}
+            value={draft.addedOptions}
+            placeholder={saved ? 'add: green, grey' : 'options: red, blue'}
+            aria-label="Options, comma separated"
+            data-attribute-options=""
+            onChange={(event) => onChange({ addedOptions: event.target.value })}
+          />
+        </div>
+      )}
+
+      <div className="flex flex-wrap items-center gap-3 text-xs text-ink-400">
+        <label className="flex items-center gap-1">
+          Default
+          {choices ? (
+            <select
+              className={control}
+              // A default outside the choices is one an older server accepted; it is
+              // dropped on save, so it is shown as what will be sent.
+              value={choices.includes(draft.default_value) ? draft.default_value : ''}
+              data-attribute-default=""
+              onChange={(event) => onChange({ default_value: event.target.value })}
+            >
+              <option value="">none</option>
+              {choices.map((choice) => (
+                <option key={choice} value={choice}>
+                  {choice}
+                </option>
+              ))}
+            </select>
+          ) : (
+            <input
+              className={`${control} w-24`}
+              value={draft.default_value}
+              placeholder="none"
+              data-attribute-default=""
+              onChange={(event) => onChange({ default_value: event.target.value })}
+            />
+          )}
+        </label>
+        <label className="flex items-center gap-1" title={fixed}>
+          <input
+            type="checkbox"
+            checked={draft.mutable}
+            disabled={saved}
+            data-attribute-mutable=""
+            onChange={(event) => onChange({ mutable: event.target.checked })}
+          />
+          changes per frame
+        </label>
+      </div>
+    </div>
   );
 }
 

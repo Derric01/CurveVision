@@ -36,6 +36,30 @@ class AttributeIn(StrictModel):
         )
         if needs_choices and not self.values:
             raise ValueError(f"{self.attribute_type} attributes require at least one value")
+        if self.default_value is not None:
+            self._check_default(self.default_value, needs_choices=needs_choices)
+
+    def _check_default(self, default: str, *, needs_choices: bool) -> None:
+        """Refuse a default the attribute would itself refuse as a value.
+
+        `validate_attributes` writes the default into every annotation drawn without a
+        value, and does not check it on the way — so an invalid one used to be recorded
+        silently and then refused on that annotation's next save.
+        """
+        if needs_choices and default not in self.values:
+            raise ValueError(
+                f"The default of {self.name!r} must be one of: {', '.join(self.values)}"
+            )
+        if self.attribute_type is AttributeType.CHECKBOX and default.lower() not in (
+            "true",
+            "false",
+        ):
+            raise ValueError(f"The default of {self.name!r} must be true or false")
+        if self.attribute_type is AttributeType.NUMBER:
+            try:
+                float(default)
+            except ValueError as exc:
+                raise ValueError(f"The default of {self.name!r} must be a number") from exc
 
 
 class AttributeOut(ORMModel):
@@ -59,6 +83,15 @@ class LabelIn(StrictModel):
     attributes: list[AttributeIn] = Field(default_factory=list)
     #: Keypoint sub-labels, for skeleton labels.
     children: list[LabelIn] = Field(default_factory=list)
+
+    def model_post_init(self, _context: object) -> None:
+        # Values are stored on annotations keyed by attribute name, so two attributes of one
+        # name would share one value -- and the table's unique constraint would turn the
+        # write into a 500 rather than saying why.
+        names = [attribute.name for attribute in self.attributes]
+        duplicates = sorted({name for name in names if names.count(name) > 1})
+        if duplicates:
+            raise ValueError(f"A label cannot have two attributes named {', '.join(duplicates)}")
 
 
 class LabelOut(ORMModel):
