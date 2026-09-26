@@ -42,7 +42,7 @@ import type { AnnotationChange, LabelStyle, ToolName } from '@/canvas/types';
 import type { ApiTrack } from '@/api/types';
 import { Badge, Button, ErrorNotice, Kbd, Spinner, jobStateTone } from '@/ui/primitives';
 import { AnnotationCanvas, type CanvasHandle } from './AnnotationCanvas';
-import { drawableLabels, frameAnnotations, toLabelStyles } from './adapters';
+import { drawableLabels, frameAnnotations, toApiTrackUpdate, toLabelStyles } from './adapters';
 import { useFrameObjectUrl } from './useFrameObjectUrl';
 import { TrackTimeline } from './TrackTimeline';
 import { adjacentKeyframe, trackRows } from './timeline';
@@ -172,8 +172,19 @@ export function EditorPage() {
   }, [issues.data, currentFrame, openIssueId, pickedPoint]);
 
   const handleChange = useCallback(
-    (change: AnnotationChange) => autosave.record(change),
-    [autosave],
+    (change: AnnotationChange) => {
+      // A tracked object is drawn under its track's id, so a deletion names the track. It
+      // has to be sent as one: as a shape id it matches no shape and deletes nothing, and
+      // the object is back the next time the job is opened.
+      const trackIds = new Set(annotations.data?.tracks.map((track) => track.id));
+      autosave.record({
+        created: change.created,
+        updated: change.updated,
+        deletedIds: change.deletedIds.filter((id) => !trackIds.has(id)),
+        deletedTrackIds: change.deletedIds.filter((id) => trackIds.has(id)),
+      });
+    },
+    [autosave, annotations.data],
   );
 
   const submitJob = useMutation({
@@ -224,28 +235,7 @@ export function EditorPage() {
       }
       await api.writeAnnotations(jobId, {
         annotation_version: current.annotation_version,
-        updated_tracks: [
-          {
-            id: result.track.id,
-            label_id: result.track.label_id,
-            shape_type: result.track.shape_type,
-            group: result.track.group,
-            object_id: result.track.object_id,
-            source: result.track.source,
-            attributes: result.track.attributes,
-            shapes: result.track.shapes.map((shape) => ({
-              frame: shape.frame,
-              shape_type: result.track!.shape_type,
-              points: shape.points,
-              rotation: shape.rotation,
-              occluded: shape.occluded,
-              outside: shape.outside,
-              keyframe: shape.keyframe,
-              z_order: 0,
-              attributes: shape.attributes ?? {},
-            })),
-          },
-        ],
+        updated_tracks: [toApiTrackUpdate(result.track)],
       });
       return { refused: null };
     },

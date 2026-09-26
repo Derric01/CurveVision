@@ -15,7 +15,8 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { ApiError, api } from '@/api/client';
 import type { Annotation } from '@/canvas/types';
-import { toApiShape } from './adapters';
+import { toApiShape, toApiTrackUpdate } from './adapters';
+import { applyCanvasEdits, type CanvasEdit } from './keyframes';
 
 const FLUSH_INTERVAL_MS = 4_000;
 const DB_NAME = 'curvevision-drafts';
@@ -27,14 +28,60 @@ interface PendingBatch {
   created: Map<string, Annotation>;
   updated: Map<string, Annotation>;
   deleted: Set<string>;
+  /**
+   * Tracked objects moved on the canvas, keyed by track and frame: a track moved on two
+   * frames before a save is two keyframes, not one.
+   *
+   * These cannot travel with the shapes. A tracked object is drawn under its *track's* id,
+   * so sent as an `updated_shapes` entry it names a shape that does not exist — a 404 that
+   * failed the whole batch, which autosave then put back and retried, so every edit made
+   * after touching a tracked object was lost with it.
+   */
+  tracks: Map<string, CanvasEdit>;
+  deletedTracks: Set<string>;
+  /**
+   * Objects created and then deleted before any save, so nothing was ever sent for them.
+   * Kept only so that undoing the deletion can put them back into `created`: an undo
+   * arrives as an *update*, and an update for an object the server has never seen is
+   * otherwise ignored.
+   */
+  discarded: Set<string>;
 }
 
 function emptyBatch(): PendingBatch {
-  return { created: new Map(), updated: new Map(), deleted: new Set() };
+  return {
+    created: new Map(),
+    updated: new Map(),
+    deleted: new Set(),
+    tracks: new Map(),
+    deletedTracks: new Set(),
+    discarded: new Set(),
+  };
+}
+
+function sizeOf(batch: PendingBatch): number {
+  return (
+    batch.created.size +
+    batch.updated.size +
+    batch.deleted.size +
+    batch.tracks.size +
+    batch.deletedTracks.size
+  );
 }
 
 function isEmpty(batch: PendingBatch): boolean {
-  return batch.created.size === 0 && batch.updated.size === 0 && batch.deleted.size === 0;
+  return sizeOf(batch) === 0;
+}
+
+function asCanvasEdit(annotation: Annotation & { trackId: string }): CanvasEdit {
+  return {
+    trackId: annotation.trackId,
+    frame: annotation.frame,
+    labelId: annotation.labelId,
+    points: annotation.points,
+    rotation: annotation.rotation,
+    occluded: annotation.occluded,
+  };
 }
 
 // --------------------------------------------------------------- write-ahead buffer
@@ -92,6 +139,37 @@ export async function loadDraft(jobId: string): Promise<unknown | null> {
   });
 }
 
+// ------------------------------------------------------------------ tracked objects
+
+/** The job changed under a pending track edit: the same answer a 409 would have given. */
+class StaleTracks extends Error {}
+
+/**
+ * `updated_tracks` and `deleted_tracks` for the tracked objects in a batch, or nothing.
+ *
+ * `updated_tracks` replaces a track's shapes outright, so the keyframes are placed on the
+ * track as the server holds it *now*, read fresh rather than from the editor's cache —
+ * which is a save behind right after a flush, and would drop the keyframe that flush
+ * wrote. If the job has moved on from the version this batch was built against, somebody
+ * else edited it, and that is a conflict to report, not a track to overwrite.
+ */
+async function trackWrites(
+  jobId: string,
+  batch: PendingBatch,
+  version: number,
+): Promise<Record<string, unknown>> {
+  if (batch.tracks.size === 0 && batch.deletedTracks.size === 0) return {};
+  const document = await api.annotations(jobId);
+  if (document.annotation_version !== version) throw new StaleTracks();
+  const surviving = document.tracks.filter((track) => !batch.deletedTracks.has(track.id));
+  return {
+    updated_tracks: applyCanvasEdits(surviving, [...batch.tracks.values()]).map(
+      toApiTrackUpdate,
+    ),
+    deleted_tracks: [...batch.deletedTracks],
+  };
+}
+
 // -------------------------------------------------------------------------- the hook
 
 export interface AutosaveApi {
@@ -103,6 +181,8 @@ export interface AutosaveApi {
     created?: Annotation[];
     updated?: Annotation[];
     deletedIds?: string[];
+    /** Tracks deleted from the canvas: the whole object, on every frame. */
+    deletedTrackIds?: string[];
   }) => void;
   /** Flush now; awaited by the "save" button and by job submission. */
   flush: () => Promise<void>;
@@ -125,8 +205,7 @@ export function useAutosave(
   }, [version]);
 
   const updateCount = useCallback(() => {
-    const current = batch.current;
-    setPendingCount(current.created.size + current.updated.size + current.deleted.size);
+    setPendingCount(sizeOf(batch.current));
   }, []);
 
   const record: AutosaveApi['record'] = useCallback(
@@ -137,15 +216,38 @@ export function useAutosave(
         current.created.set(annotation.id, annotation);
       }
       for (const annotation of change.updated ?? []) {
+        // An update for an object whose deletion is still queued is that deletion being
+        // undone — the only way a deleted object comes back onto the canvas. Leaving the
+        // deletion queued sent both, and the server applies deletions last, so the object
+        // the annotator had just restored was deleted on the next save.
+        current.deleted.delete(annotation.id);
+        if (annotation.trackId) current.deletedTracks.delete(annotation.trackId);
+        if (current.discarded.delete(annotation.id)) {
+          current.created.set(annotation.id, annotation);
+          continue;
+        }
         // An object created but not yet saved stays in `created`: sending it as an update
         // would reference a server id that does not exist.
         if (current.created.has(annotation.id)) current.created.set(annotation.id, annotation);
-        else if (!annotation.pending) current.updated.set(annotation.id, annotation);
+        else if (annotation.pending) continue;
+        else if (annotation.trackId) {
+          const edit = asCanvasEdit({ ...annotation, trackId: annotation.trackId });
+          current.tracks.set(`${edit.trackId}@${edit.frame}`, edit);
+        } else current.updated.set(annotation.id, annotation);
       }
       for (const id of change.deletedIds ?? []) {
-        if (current.created.delete(id)) continue; // never saved; nothing to delete server-side
+        if (current.created.delete(id)) {
+          current.discarded.add(id); // never saved; nothing to delete server-side
+          continue;
+        }
         current.updated.delete(id);
         current.deleted.add(id);
+      }
+      for (const id of change.deletedTrackIds ?? []) {
+        for (const [key, edit] of current.tracks) {
+          if (edit.trackId === id) current.tracks.delete(key);
+        }
+        current.deletedTracks.add(id);
       }
 
       updateCount();
@@ -156,6 +258,8 @@ export function useAutosave(
           created: [...current.created.values()],
           updated: [...current.updated.values()],
           deleted: [...current.deleted],
+          tracks: [...current.tracks.values()],
+          deletedTracks: [...current.deletedTracks],
         });
       }
     },
@@ -178,6 +282,7 @@ export function useAutosave(
         created_shapes: [...current.created.values()].map(toApiShape),
         updated_shapes: [...current.updated.values()].map(toApiShape),
         deleted_shapes: [...current.deleted],
+        ...(await trackWrites(jobId, current, versionRef.current)),
       });
       versionRef.current = result.annotation_version;
       onSaved(result);
@@ -191,9 +296,14 @@ export function useAutosave(
       for (const [id, annotation] of current.created) restored.created.set(id, annotation);
       for (const [id, annotation] of current.updated) restored.updated.set(id, annotation);
       for (const id of current.deleted) restored.deleted.add(id);
+      // A newer edit to the same track and frame, made while this flush was in flight, wins.
+      for (const [key, edit] of current.tracks) {
+        if (!restored.tracks.has(key)) restored.tracks.set(key, edit);
+      }
+      for (const id of current.deletedTracks) restored.deletedTracks.add(id);
       updateCount();
 
-      if (caught instanceof ApiError && caught.status === 409) {
+      if (caught instanceof StaleTracks || (caught instanceof ApiError && caught.status === 409)) {
         setStatus('conflict');
         setError('These annotations changed elsewhere. Reload the job before saving.');
       } else {

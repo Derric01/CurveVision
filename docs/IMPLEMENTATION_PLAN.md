@@ -376,6 +376,23 @@ mask instead of starting a new one, and deletes the object outright when a strok
 down to no pixels), and the cuboid tool (drag the front face, then move and click to set the
 depth; the 8 corners land in CVAT's own on-disk order, so a box drawn here exports through
 `cvat_xml` as the same box real CVAT would write).
+
+**Fixed since, and worth knowing about:** editing a *tracked* object on the canvas broke
+saving for the rest of the session. A tracked object is drawn under its track's id, and
+autosave sent a drag of one as an `updated_shapes` entry naming a shape that does not
+exist — a 404 that failed the whole batch, which autosave put back and retried, so nothing
+drawn afterwards reached the server either. Deleting one sent the track's id as a shape,
+which matched nothing. Now a drag, a vertex edit or an occlusion toggle on a tracked object
+records a **keyframe on that frame** carrying the new geometry, as CVAT does
+(`Track.savePoints`); a relabel applies to the whole track; and Delete deletes the track.
+Those edits travel in the same autosave batch as shape edits, as `updated_tracks` and
+`deleted_tracks`, placed on the track as the server holds it at flush time. An edit that
+leaves an object exactly where the track already shows it writes nothing, because an undo
+re-emits every object on the frame. The same sweep found that **undoing a deletion before
+the next save lost the object anyway**: the undo reaches autosave as an update while the
+deletion is still queued, both were sent, and the server applies deletions last — for a
+never-saved object the undo was dropped outright. An update for an object whose deletion is
+queued now cancels it. `scripts/verify_track_canvas_edit.py` drives all of it.
 **Planned:** magnetic lasso, multi-user presence cursors.
 
 ---
