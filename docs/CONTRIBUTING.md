@@ -85,7 +85,7 @@ typo at the point it was made.
 ## Browser harnesses
 
 `./scripts/check.sh` covers everything CI runs on a push, and it does not open a browser.
-Twenty-three scripts in `scripts/` do — they launch the **packaged desktop application**, drive
+Twenty-four scripts in `scripts/` do — they launch the **packaged desktop application**, drive
 it in Chromium, and assert against the **API** rather than the DOM, because the question is
 not "did the page look right" but "is the data now what the user asked for".
 
@@ -140,10 +140,21 @@ save that sent no attribute changes at all, until it asserted on the attribute's
 companion check that means nothing when the step it follows failed**: "the box keeps its
 recorded value" passed when the editor's save was refused, because a refused save changes
 nothing. It now requires the save to have landed. A check can be made unable to fail by
-what happened *before* it, not only by its own fixture.
+what happened *before* it, not only by its own fixture. `verify_track_canvas_edit.py` hit
+the same trap in its first draft and found one more: **an undo after a save undoes
+nothing**, because the save reloads the frame and that clears the undo stack — its "undo
+does not litter other tracks" check pressed Ctrl+Z after a save and was testing only that a
+keypress re-emits the frame. A request log showed it; the check now drags, undoes and
+*then* saves. And a sabotage that does not compile is not a sabotage: `vite build` fails,
+the sidecar packages the previous bundle, and every check passes. Compare the bundle hash
+in `web/dist/index.html` before and after, every time. Two smaller habits from the same
+harness: compare a count with the one taken **just before its own step**, not with a
+running total, so one failure cannot make the next check fail (or pass) for its reason;
+and a Save button that is disabled because nothing is pending is a finding, so click it
+only when enabled and let the API assertion report it, rather than dying on a timeout.
 
 They run **nightly and on every push to `main`** (`.github/workflows/browser.yml`), not on
-pull requests: a PyInstaller build plus twenty-three end-to-end runs is twenty minutes, and CI
+pull requests: a PyInstaller build plus twenty-four end-to-end runs is twenty minutes, and CI
 that slow stops being run. Trigger one by hand from the Actions tab — the workflow takes a
 single harness name — or run one locally:
 
@@ -166,6 +177,7 @@ python scripts/verify_job_assignment.py
 python scripts/verify_review_queue.py
 python scripts/verify_label_schema.py
 python scripts/verify_attribute_editor.py
+python scripts/verify_track_canvas_edit.py
 ```
 
 **Both build steps, in that order, every time.** The packaged sidecar embeds `web/dist`, so a

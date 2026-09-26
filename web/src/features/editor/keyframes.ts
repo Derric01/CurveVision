@@ -233,6 +233,95 @@ export function moveKeyframe(track: ApiTrack, from: number, to: number): EditRes
   return { ok: true, track: withShapes(track, [...others, { ...moving, frame: to }]) };
 }
 
+/** Where an object was put on one frame: what a drag, a vertex edit or an occlusion toggle changes. */
+export interface Placement {
+  points: number[];
+  rotation: number;
+  occluded: boolean;
+}
+
+/**
+ * Record where a tracked object was put on `frame`, as a keyframe there.
+ *
+ * This is what editing a tracked object on the canvas means: the frame being edited becomes
+ * a keyframe carrying the new geometry, and the frames between it and its neighbours now
+ * interpolate towards it — which is the point, since the object moved. CVAT does the same
+ * (`Track.savePoints` in `cvat-core`): a frame that was only interpolated is copied into a
+ * stored shape with the new points.
+ *
+ * A keyframe already on that frame keeps its per-frame attributes; only its geometry
+ * changes, and it stops being a departure, because an object somebody just moved on this
+ * frame is visibly here.
+ *
+ * `null` when the placement is exactly what the track already shows at that frame. An
+ * undo hands back every object on the frame, moved or not, and writing a keyframe for each
+ * of them would litter every track on screen with keyframes that change nothing.
+ */
+export function placeKeyframe(track: ApiTrack, frame: number, placement: Placement): ApiTrack | null {
+  const shown = positionAt(track, frame);
+  if (
+    shown &&
+    shown.rotation === placement.rotation &&
+    shown.occluded === placement.occluded &&
+    samePoints(shown.points, placement.points)
+  ) {
+    return null;
+  }
+
+  const existing = keyframeAt(track, frame);
+  const others = track.shapes.filter((shape) => shape.frame !== frame);
+  return withShapes(track, [
+    ...others,
+    {
+      frame,
+      z_order: existing?.z_order ?? 0,
+      attributes: existing?.attributes ?? {},
+      points: [...placement.points],
+      rotation: placement.rotation,
+      occluded: placement.occluded,
+      outside: false,
+      keyframe: true,
+    },
+  ]);
+}
+
+/** One tracked object as the canvas left it on one frame. */
+export interface CanvasEdit extends Placement {
+  trackId: string;
+  frame: number;
+  labelId: string;
+}
+
+/**
+ * The tracks a batch of canvas edits actually changes, with the edits applied.
+ *
+ * Each edit becomes a keyframe through `placeKeyframe`, in frame order, so a track moved on
+ * two frames before a save gets both. A relabel applies to the whole track — a track is one
+ * object, and "this car is a van on frame 7 only" is not something the model can hold.
+ * Tracks the batch leaves unchanged are not returned, so they are not rewritten; nor is a
+ * track the document no longer has, since there is nothing left to put a keyframe on.
+ */
+export function applyCanvasEdits(
+  tracks: readonly ApiTrack[],
+  edits: readonly CanvasEdit[],
+): ApiTrack[] {
+  const byId = new Map(tracks.map((track) => [track.id, track]));
+  const changed = new Map<string, ApiTrack>();
+  for (const edit of [...edits].sort((a, b) => a.frame - b.frame)) {
+    const track = changed.get(edit.trackId) ?? byId.get(edit.trackId);
+    if (!track) continue;
+    const relabelled = track.label_id === edit.labelId ? track : { ...track, label_id: edit.labelId };
+    const placed = placeKeyframe(relabelled, edit.frame, edit);
+    if (placed) changed.set(track.id, placed);
+    else if (relabelled !== track) changed.set(track.id, relabelled);
+  }
+  return [...changed.values()];
+}
+
+function samePoints(a: readonly number[], b: readonly number[]): boolean {
+  return a.length === b.length && a.every((value, index) => Math.abs(value - (b[index] ?? 0)) < 1e-6);
+}
+
 /**
  * Every frame in `[start, stop]` where the track's displayed shape differs from `before`.
  *
@@ -257,10 +346,7 @@ export function framesThatMoved(
       moved.push(frame);
       continue;
     }
-    const same =
-      a.points.length === b.points.length &&
-      a.points.every((value, index) => Math.abs(value - (b.points[index] ?? 0)) < 1e-6);
-    if (!same) moved.push(frame);
+    if (!samePoints(a.points, b.points)) moved.push(frame);
   }
   return moved;
 }

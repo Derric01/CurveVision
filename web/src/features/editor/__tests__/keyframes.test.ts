@@ -16,10 +16,12 @@ import { describe, expect, it } from 'vitest';
 
 import type { ApiTrack } from '@/api/types';
 import {
+  applyCanvasEdits,
   framesThatMoved,
   keyframeAt,
   markDeparture,
   moveKeyframe,
+  placeKeyframe,
   positionAt,
   removeKeyframe,
   toggleKeyframe,
@@ -303,5 +305,83 @@ describe('framesThatMoved', () => {
     const before = movingTrack();
     const after = movingTrack([shape(0, 0), shape(6, 60, true), shape(10, 100)]);
     expect(framesThatMoved(before, after, 0, 10)).toContain(7);
+  });
+});
+
+describe('placeKeyframe — moving a tracked object on the canvas', () => {
+  const moved = { points: [50, 30, 70, 50], rotation: 0, occluded: false };
+
+  it('turns an interpolated frame into a keyframe carrying the new geometry', () => {
+    const track = movingTrack();
+    const after = placeKeyframe(track, 5, moved);
+    expect(after && frames(after)).toEqual([0, 5, 10]);
+    expect(after && keyframeAt(after, 5)).toMatchObject({ ...moved, keyframe: true, outside: false });
+  });
+
+  it('moves the object only between the neighbouring keyframes', () => {
+    // It moved on frame 5, so frames 1-9 now interpolate towards it; the two keyframes the
+    // annotator did not touch, and everything outside them, stay exactly where they were.
+    const before = movingTrack([shape(0, 0), shape(10, 100), shape(20, 200)]);
+    const after = placeKeyframe(before, 5, moved);
+    expect(after).not.toBeNull();
+    expect(framesThatMoved(before, after!, 0, 20)).toEqual([1, 2, 3, 4, 5, 6, 7, 8, 9]);
+  });
+
+  it('replaces a keyframe already on that frame, keeping its per-frame attributes', () => {
+    const track = movingTrack([shape(0, 0), { ...shape(10, 100), attributes: { parked: true } }]);
+    const after = placeKeyframe(track, 10, moved);
+    expect(after && frames(after)).toEqual([0, 10]);
+    expect(after && keyframeAt(after, 10)).toMatchObject({ points: moved.points, attributes: { parked: true } });
+  });
+
+  it('records an occlusion toggle the same way, since it changes that frame only', () => {
+    const track = movingTrack();
+    const shown = positionAt(track, 5)!;
+    const after = placeKeyframe(track, 5, { ...shown, occluded: true });
+    expect(after && keyframeAt(after, 5)?.occluded).toBe(true);
+  });
+
+  it('writes nothing when the object is exactly where the track already shows it', () => {
+    // An undo re-emits every object on the frame, moved or not. Writing a keyframe for each
+    // would litter every track on screen with keyframes that change nothing.
+    const track = movingTrack();
+    const shown = positionAt(track, 5)!;
+    expect(placeKeyframe(track, 5, shown)).toBeNull();
+    expect(placeKeyframe(track, 0, positionAt(track, 0)!)).toBeNull();
+  });
+});
+
+describe('applyCanvasEdits', () => {
+  const edit = (frame: number, x: number, overrides = {}) => ({
+    trackId: 'track-1',
+    frame,
+    labelId: 'label-1',
+    points: [x, 0, x + 20, 20],
+    rotation: 0,
+    occluded: false,
+    ...overrides,
+  });
+
+  it('places every edited frame of a track, not only the last one', () => {
+    const [after] = applyCanvasEdits([movingTrack()], [edit(7, 90), edit(3, 10)]);
+    expect(after && frames(after)).toEqual([0, 3, 7, 10]);
+  });
+
+  it('leaves out a track the batch did not change, so it is not rewritten', () => {
+    const track = movingTrack();
+    const shown = positionAt(track, 5)!;
+    expect(applyCanvasEdits([track], [edit(5, 0, { points: shown.points })])).toEqual([]);
+  });
+
+  it('relabels the whole track, even when nothing moved', () => {
+    const track = movingTrack();
+    const shown = positionAt(track, 5)!;
+    const [after] = applyCanvasEdits([track], [edit(5, 0, { points: shown.points, labelId: 'van' })]);
+    expect(after?.label_id).toBe('van');
+    expect(after && frames(after)).toEqual([0, 10]);
+  });
+
+  it('skips an edit to a track the document no longer has', () => {
+    expect(applyCanvasEdits([], [edit(5, 50)])).toEqual([]);
   });
 });

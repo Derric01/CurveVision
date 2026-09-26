@@ -6,7 +6,13 @@
  * place that changes.
  */
 
-import type { AnnotationDocument, ApiShape, ApiSkeletonElement, Label } from '@/api/types';
+import type {
+  AnnotationDocument,
+  ApiShape,
+  ApiSkeletonElement,
+  ApiTrack,
+  Label,
+} from '@/api/types';
 import { skeletonSchema } from '@/canvas/skeleton';
 import type {
   Annotation,
@@ -79,6 +85,36 @@ export function toApiShape(annotation: Annotation): Record<string, unknown> {
     // Same shape on both sides, so it travels as-is rather than through a per-field mapping
     // that would be one more place for the encoding to drift.
     ...(annotation.mask ? { mask: annotation.mask } : {}),
+  };
+}
+
+/**
+ * A whole track as `updated_tracks` takes it.
+ *
+ * `updated_tracks` replaces a track's shapes outright, so every stored shape travels, not
+ * only the one that changed — and each carries its own per-frame attributes, which are the
+ * values of the label's mutable attributes at that keyframe.
+ */
+export function toApiTrackUpdate(track: ApiTrack): Record<string, unknown> {
+  return {
+    id: track.id,
+    label_id: track.label_id,
+    shape_type: track.shape_type,
+    group: track.group,
+    object_id: track.object_id,
+    source: track.source,
+    attributes: track.attributes,
+    shapes: track.shapes.map((shape) => ({
+      frame: shape.frame,
+      shape_type: track.shape_type,
+      points: shape.points,
+      rotation: shape.rotation,
+      occluded: shape.occluded,
+      outside: shape.outside,
+      keyframe: shape.keyframe,
+      z_order: shape.z_order ?? 0,
+      attributes: shape.attributes ?? {},
+    })),
   };
 }
 
