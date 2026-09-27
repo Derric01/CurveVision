@@ -53,6 +53,14 @@ describe('withUnsaved', () => {
     ]);
   });
 
+  it('does not draw a new object twice when its save landed in what the server returned', () => {
+    // A save in flight when the frame was read can have committed before the read did: the
+    // server's copy and the local one would both be drawn.
+    const drawn = box('local-1', { clientId: 'c1', pending: true });
+    const stored = box('s9', { clientId: 'c1' });
+    expect(withUnsaved([stored], unsaved({ annotations: [drawn] }))).toEqual([stored]);
+  });
+
   it('does not draw back a change to something the server no longer has', () => {
     // Deleted elsewhere; drawing the local copy would be a ghost nobody could save.
     expect(withUnsaved([], unsaved({ annotations: [box('gone')] }))).toEqual([]);

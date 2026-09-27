@@ -64,7 +64,7 @@ import { AutoAnnotatePanel } from './AutoAnnotatePanel';
 import { SuggestionsPanel } from './SuggestionsPanel';
 import { ReviewPanel } from './ReviewPanel';
 import { canSubmit } from './review';
-import { useAutosave, type Refusal } from './useAutosave';
+import { useAutosave, type Recovered, type Refusal } from './useAutosave';
 import { AttributesPanel } from './AttributesPanel';
 import { attributesFor, mutableNames } from './attributeValues';
 
@@ -383,9 +383,18 @@ export function EditorPage() {
             // Submitting hands the job to a reviewer, who would review it without the
             // objects the server refused — the annotator is still looking at them.
             disabled={
-              submitJob.isPending || !canSubmit(job.data?.state) || autosave.refused.size > 0
+              submitJob.isPending ||
+              !canSubmit(job.data?.state) ||
+              autosave.refused.size > 0 ||
+              autosave.recovered !== null
             }
-            title={autosave.refused.size > 0 ? 'Fix the objects that were not saved first' : undefined}
+            title={
+              autosave.refused.size > 0
+                ? 'Fix the objects that were not saved first'
+                : autosave.recovered !== null
+                  ? 'Restore or discard the unsaved changes first'
+                  : undefined
+            }
           >
             <Send size={13} />
             Submit
@@ -397,6 +406,14 @@ export function EditorPage() {
         <div className="border-b border-red-500/30 bg-red-500/10 px-3 py-1.5 text-xs text-red-300">
           {autosave.error}
         </div>
+      )}
+
+      {autosave.recovered && (
+        <RecoveredNotice
+          recovered={autosave.recovered}
+          onRestore={() => void autosave.restore()}
+          onDiscard={autosave.discard}
+        />
       )}
 
       {autosave.refused.size > 0 && (
@@ -701,6 +718,48 @@ function RailButton({
     >
       {children}
     </button>
+  );
+}
+
+/**
+ * Work an earlier session left unsaved in this browser, offered back rather than put back:
+ * the annotator may have left meaning to throw it away, and the job may have moved on.
+ */
+function RecoveredNotice({
+  recovered,
+  onRestore,
+  onDiscard,
+}: {
+  recovered: Recovered;
+  onRestore: () => void;
+  onDiscard: () => void;
+}) {
+  const { changes, savedAt, changedSince } = recovered;
+  return (
+    <div
+      className="flex items-start gap-3 border-b border-curve-500/30 bg-curve-500/10 px-3 py-1.5 text-xs text-ink-200"
+      data-recovered-notice=""
+    >
+      <p className="flex-1">
+        {changes === 1 ? 'One change' : `${changes} changes`} to this job, made{' '}
+        {new Date(savedAt).toLocaleString()}, never reached the server and{' '}
+        {changes === 1 ? 'was' : 'were'} kept in this browser.
+        {changedSince && (
+          <>
+            {' '}
+            The job has been saved since, here or elsewhere: restoring puts them on top of
+            that — anything already saved is skipped, and a change to an object replaces what
+            it holds now.
+          </>
+        )}
+      </p>
+      <Button size="sm" variant="primary" onClick={onRestore} data-recovered-restore="">
+        Restore
+      </Button>
+      <Button size="sm" onClick={onDiscard} data-recovered-discard="">
+        Discard
+      </Button>
+    </div>
   );
 }
 

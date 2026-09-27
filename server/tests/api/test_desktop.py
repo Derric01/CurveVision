@@ -210,6 +210,56 @@ def test_the_server_is_offered_a_bindable_loopback_port() -> None:
         server.bind(("127.0.0.1", port))
 
 
+class TestTheSamePortAcrossLaunches:
+    """The page's origin includes the port, and what it keeps for after a crash is per origin.
+
+    A new port each launch put the editor's copy of unsaved work where no later launch
+    could read it (see `desktop.port_for`).
+    """
+
+    def test_a_second_launch_gets_the_port_the_first_one_had(self, tmp_path: Path) -> None:
+        first = desktop.port_for(tmp_path)
+        assert 1024 < first < 65536
+        assert desktop.port_for(tmp_path) == first
+
+    def test_a_remembered_port_somebody_holds_is_not_taken_or_forgotten(
+        self, tmp_path: Path
+    ) -> None:
+        import socket
+
+        first = desktop.port_for(tmp_path)
+        with socket.socket() as holder:
+            holder.bind(("127.0.0.1", first))
+            holder.listen()
+            # A second instance, say: this launch gets another port rather than failing...
+            elsewhere = desktop.port_for(tmp_path)
+            assert elsewhere != first
+        # ...and the first one's port, and with it its origin, is still the one preferred.
+        assert desktop.port_for(tmp_path) == first
+
+    def test_a_port_the_last_run_just_let_go_of_is_reused(self, tmp_path: Path) -> None:
+        """Straight after a crash its connections sit in TIME_WAIT on the port."""
+        import socket
+
+        port = desktop.port_for(tmp_path)
+        with socket.socket() as server:
+            server.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+            server.bind(("127.0.0.1", port))
+            server.listen()
+            with socket.create_connection(("127.0.0.1", port)) as client:
+                accepted, _ = server.accept()
+                accepted.close()  # the server end closes first, so it is the one in TIME_WAIT
+                client.recv(1)
+        assert desktop.port_for(tmp_path) == port
+
+    def test_an_unreadable_remembered_port_is_replaced(self, tmp_path: Path) -> None:
+        (tmp_path / "port").write_text("not a port")
+        chosen = desktop.port_for(tmp_path)
+        assert (tmp_path / "port").read_text() == str(chosen)
+        (tmp_path / "port").write_text("80")  # never one the OS handed out here
+        assert desktop.port_for(tmp_path) != 80
+
+
 async def test_request_handlers_read_the_app_s_settings_not_the_environment(
     settings: Settings,
 ) -> None:

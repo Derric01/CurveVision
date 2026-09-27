@@ -9,8 +9,9 @@ Three properties matter:
 
 * **Zero configuration.** No secret key to generate, no database to install, no bucket to
   create. A person who double-clicks an installer should be annotating within seconds.
-* **Loopback only.** The server binds `127.0.0.1` on an ephemeral port. Nothing is
-  reachable from the network, which is what makes the auto-provisioned account safe.
+* **Loopback only.** The server binds `127.0.0.1`, on the port it used last time if that is
+  still free. Nothing is reachable from the network, which is what makes the
+  auto-provisioned account safe.
 * **A real upgrade path.** The schema is migrated with Alembic, not `create_all`, because
   a desktop user will open v2 with a database written by v1 and must not lose it.
 """
@@ -82,6 +83,48 @@ def _free_port() -> int:
     with socket.socket() as probe:
         probe.bind(("127.0.0.1", 0))
         return int(probe.getsockname()[1])
+
+
+def _port_is_free(port: int) -> bool:
+    with socket.socket() as probe:
+        # As uvicorn binds: without this, the connections the previous run closed a moment
+        # ago hold the port in TIME_WAIT, and a relaunch straight after a crash -- the case
+        # this exists for -- would find it taken. Windows needs no such help, and there the
+        # option would let this bind over a port somebody else is listening on.
+        if os.name != "nt":
+            probe.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        try:
+            probe.bind(("127.0.0.1", port))
+        except OSError:
+            return False
+    return True
+
+
+def port_for(app_data_dir: Path) -> int:
+    """The port this installation used last time if it is still free, or a free one.
+
+    The window loads the application from `http://127.0.0.1:<port>`, and a browser keeps what
+    a page stores -- the editor's copy of work not yet saved among it -- per origin, and the
+    port is part of the origin. A new port on every launch was a new, empty origin on every
+    launch, so whatever the editor kept for after a crash was somewhere no later launch could
+    look. Remembering the port keeps the origin; falling back to a free one means a second
+    instance, or anything else holding the port, cannot stop this one starting. A port that
+    is only busy is not forgotten: the instance holding it is usually the first one, whose
+    origin is the one worth keeping.
+    """
+    remembered = app_data_dir / "port"
+    try:
+        preferred = int(remembered.read_text().strip())
+    except (OSError, ValueError):
+        preferred = 0
+    if 1024 <= preferred <= 65535:
+        return preferred if _port_is_free(preferred) else _free_port()
+    chosen = _free_port()
+    try:
+        remembered.write_text(str(chosen))
+    except OSError:  # pragma: no cover - a read-only data directory still runs
+        logger.debug("could not remember the port", extra={"port": chosen})
+    return chosen
 
 
 def _persistent_secret(app_data_dir: Path) -> str:
@@ -329,7 +372,7 @@ def serve(
     from curvevision.main import create_app
 
     settings, token = bootstrap(app_data_dir)
-    chosen = port or _free_port()
+    chosen = port or port_for(Path(settings.app_data_dir or "."))
 
     handshake = Handshake(
         url=f"http://127.0.0.1:{chosen}",
@@ -398,7 +441,7 @@ def main(argv: list[str] | None = None) -> int:
         "--port",
         type=int,
         default=None,
-        help="Bind a specific loopback port instead of asking the OS for a free one.",
+        help="Bind this loopback port instead of the one used last time, or a free one.",
     )
     parser.add_argument(
         "--print-data-dir",

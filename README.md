@@ -194,9 +194,10 @@ rendering costs what is *on screen* rather than what is in the dataset.
 One developer machine, and your numbers will differ — the shape will not, and the gap widens
 with size. Run `npm run bench` in `web/` and check for yourself.
 
-Autosave keeps a local write-ahead buffer in IndexedDB, so a browser crash does not cost
-you an afternoon — and a stale write is rejected with a conflict rather than silently
-merged over somebody else's.
+Autosave keeps a copy of whatever the server has not confirmed in the browser, and offers
+it back when the job is opened again, so a crash or a dropped connection does not cost you
+an afternoon — and a stale write is rejected with a conflict rather than silently merged
+over somebody else's.
 
 ### AI-assisted annotation — bring your own model
 

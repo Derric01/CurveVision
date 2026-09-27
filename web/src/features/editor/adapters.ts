@@ -269,8 +269,15 @@ export function withUnsaved(
     } else result.push(annotation);
   }
   // Only what the server has never had. A change to something it no longer has is not
-  // drawn back: that object was deleted elsewhere, and drawing it would be a ghost.
-  for (const annotation of local.values()) if (annotation.pending) result.push(annotation);
+  // drawn back: that object was deleted elsewhere, and drawing it would be a ghost. Nor is
+  // a drawn object whose save the server already holds, by its client id — a save in
+  // flight when this frame was read can have landed in what was read.
+  const saved = new Set(onServer.map((annotation) => annotation.clientId));
+  for (const annotation of local.values()) {
+    if (annotation.pending && !saved.has(annotation.clientId ?? annotation.id)) {
+      result.push(annotation);
+    }
+  }
   return result;
 }
 

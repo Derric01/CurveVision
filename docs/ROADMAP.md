@@ -27,7 +27,7 @@ means designed, not built.
 | Annotation editor: rectangle, polygon, polyline, points, ellipse | **Done** |
 | Selection, move, vertex editing, marquee | **Done** |
 | Undo/redo, zoom/pan, keyboard-first workflow | **Done** — and an undo is now what gets saved: until iteration 53, deleting an object and undoing it before the next autosave still deleted it on the server |
-| Autosave with crash recovery | **In Progress** — autosave is done, and since iteration 55 one object the server refuses no longer fails every save after it. **Crash recovery is not**: the IndexedDB draft is written on every edit and nothing ever reads it back (`loadDraft` has no caller), so a crash loses what was unsaved. This row said Done until iteration 55 |
+| Autosave with crash recovery | **Done** in a browser, driven through a closed page, a dropped connection and a save that landed unheard; since iteration 55 one object the server refuses no longer fails every save after it, and since iteration 56 what never reached the server is offered back when the job is opened again. Desktop: the local server now keeps its port, so the page keeps its origin and its copy across a relaunch — verified with the packaged server and a persistent Chromium profile, not yet in the Tauri shell's own webview. (This row said Done through iteration 54 while the copy was never read back.) |
 | Export: COCO, YOLO (detection + segmentation), Pascal VOC, CurveVision JSON | **Done** |
 | Export: YOLO OBB, Pose and Classification — the other three Ultralytics tasks | **Done** — OBB imports too, and is the only YOLO variant that keeps a rotated box's angle |
 | Export/import: KITTI, MOTChallenge, CVAT XML | **Done** — the robotics/driving convention, multi-object tracking with identity, and a two-way bridge to CVAT |
@@ -130,7 +130,7 @@ Redis and no object store.
 | | Status |
 | --- | --- |
 | Zero-configuration local mode: app data dir, Alembic migration, one local account | **Done** |
-| Handshake: loopback-only OS-assigned port, fresh token per launch, previous one revoked | **Done** |
+| Handshake: loopback only, the same port each launch when it is free, fresh token per launch, previous one revoked | **Done** |
 | Packaged server (~38 MB, ~1.5–2.1 s from spawn to handshake on Linux) | **Done** |
 | Tauri shell: process supervision, no-sign-in token injection, native folder dialogs | **Done** |
 | Annotating local folders in place, with nothing copied | **Done** |

@@ -33,7 +33,7 @@ Two things it is easy to skip and expensive to skip:
 | --- | --- |
 | [`AGENTS.md`](./AGENTS.md) | The working contract — start here |
 | [`handoff.md`](./handoff.md) | Current state, in flight, next best action |
-| [`docs/iterations/ARCHIVE.md`](./docs/iterations/ARCHIVE.md) | Why things are the way they are — iterations 1–49 |
+| [`docs/iterations/ARCHIVE.md`](./docs/iterations/ARCHIVE.md) | Why things are the way they are — iterations 1–50 |
 | [`docs/IMPLEMENTATION_PLAN.md`](./docs/IMPLEMENTATION_PLAN.md) | Plan of record, with honest status markers |
 | [`docs/ARCHITECTURE.md`](./docs/ARCHITECTURE.md) | §1.1 two shapes · §2 layering rules · §8 build-vs-extend |
 | [`docs/adr/`](./docs/adr/) | Decisions already made — supersede, do not quietly rewrite |

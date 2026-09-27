@@ -5,10 +5,10 @@
 > [`AGENTS.md`](./AGENTS.md) first; it is the working contract. Update this file after every
 > iteration, including the ones that mostly failed.
 >
-> **Last updated:** 2026-09-27 (iteration 55) · branch `claude/start-work-yx080h` · PRs
-> [#1](https://github.com/Derric01/CurveVision/pull/1)–[#25](https://github.com/Derric01/CurveVision/pull/25)
-> **all merged**, #25 carrying iteration 54. The branch was restarted from `origin/main`
-> after that merge; iteration 55 is pushed to it with no PR opened yet.
+> **Last updated:** 2026-09-27 (iteration 56) · branch `claude/start-work-yx080h` · PRs
+> [#1](https://github.com/Derric01/CurveVision/pull/1)–[#26](https://github.com/Derric01/CurveVision/pull/26)
+> **all merged**, #26 carrying iteration 55. The branch was restarted from `origin/main`
+> after that merge; iteration 56 is pushed to it with no PR opened yet.
 >
 > *Two things worth knowing about this repository's PR rhythm, which replace the
 > PR-by-PR changelog that used to sit here and had stopped helping anybody.* **PRs are
@@ -22,7 +22,7 @@
 > **Keep the session short.** One iteration, then commit, push, update this file and report —
 > `AGENTS.md` § *Continue* and the `start-work` skill both say so now, because they did not
 > before and a single session ran six iterations and roughly a third of a week's budget. The
-> concrete costs, in rough order: re-reading this file (iterations 1–49 now live in
+> concrete costs, in rough order: re-reading this file (iterations 1–50 now live in
 > [`docs/iterations/ARCHIVE.md`](./docs/iterations/ARCHIVE.md), which cut it from 3,800
 > lines to 1,000 — keep it that way); `python desktop/sidecar/build.py`, which is a
 > PyInstaller run of a minute or two and is needed *again* for every sabotage-and-restore
@@ -45,8 +45,8 @@ shapes (detection/segmentation, OBB, pose, classification), each declaring in it
 The desktop shape works: a packaged single-executable server, a Tauri shell that supervises
 it, and folders annotated in place without copying a byte.
 
-**The tree is green.** `./scripts/check.sh` passes all twelve steps: 584 server tests, 15
-SDK, 671 web, and `scripts/` is lint-clean under its own `ruff.toml`. Twenty-six browser
+**The tree is green.** `./scripts/check.sh` passes all twelve steps: 588 server tests, 15
+SDK, 686 web, and `scripts/` is lint-clean under its own `ruff.toml`. Twenty-seven browser
 harnesses drive the packaged desktop application in a real Chromium, nightly and on every
 push to `main`. (Iteration 52 arrived to a red tree — mypy 2 — and fixed it first.)
 
@@ -67,9 +67,21 @@ poisoning: a box deleted between its save and the reload that follows went out u
 **local** id, which the server cannot parse — a 422 naming no entry, every save after it.
 It now goes out under the id its save returned.
 
-**Crash recovery was never built, though the roadmap said Done** (found in iteration 55,
-not fixed). The autosave draft is written to IndexedDB on every edit, and `loadDraft`, which
-would read it back, has no caller. The ROADMAP row now says so — see *Next best action*.
+**Work that never reached the server is offered back when the job is opened again**
+(iteration 56). Autosave had written a copy of unsaved work to IndexedDB on every edit
+since early in the project, and nothing ever read it back, while the roadmap called crash
+recovery done — found in iteration 55. Now the copy holds everything the server has not
+confirmed (what is queued, what a request is carrying, what the server refused), and
+opening the job offers back whatever of it the server does not already have: a notice with
+Restore and Discard, and Submit waits on the answer. A drawn object is recognised on the
+server by its client id, so work whose save landed although the browser never heard is not
+offered, or saved, twice; and restoring never overwrites what the session has changed since.
+**In the desktop shape it could not have worked at all**: the local server took a new port
+every launch, the page's origin includes the port, and IndexedDB is per origin — so every
+launch began with an empty one. The server now takes the port it had last time when that is
+free (`desktop.port_for`). Driven in a browser through a closed page, a dropped connection,
+a save that landed unheard and a killed-and-relaunched server; not yet in the Tauri shell's
+own webview.
 
 **An annotator can set an object's attribute values from the editor** (iteration 54). The
 right rail shows an Attributes panel for the one selected object — a control per attribute
@@ -358,31 +370,24 @@ was the last unconnected piece of the desktop application.
 
 ## Next best action
 
-**Build the crash recovery the roadmap said was Done.** `useAutosave` writes every pending
-change to IndexedDB (`persistDraft`) before the network is touched, and exports `loadDraft`
-to read it back — which **nothing calls**. So its own header's promise, that "a browser
-crash, a closed laptop or a dropped connection leaves the work recoverable", is false: a
-crash or a reload loses whatever was unsaved. Found in iteration 55 by asking who calls
-`loadDraft` — the "client method nobody calls" tell again (see below). The ROADMAP row is
-corrected to *In Progress*. What it needs: on opening a job, read the draft; if it holds
-anything, **offer** to restore it rather than doing so silently, since the job may have
-moved on — the draft does not record the `annotation_version` it was built against yet, and
-a stale draft is a conflict to show, not to apply. Restoring is `autosave.record` with its
-contents; the display half already exists — `withUnsaved` (iteration 55) lays what autosave
-holds over the server's frame. Decide on the way: objects held as refused are not in the
-draft, and the draft is keyed by job alone, so two tabs on one job overwrite each other's.
-`useAutosave.ts`, `EditorPage.tsx`. Reproduce the loss in a browser first (draw, reload
-before the 4-second flush, and the box is gone).
+**Offer `required` on the label form.** Iteration 55 made it safe — a required attribute
+nobody has filled in no longer takes a session's saves down with it; the object is held,
+named and marked — and the server side is done: `_refuse_stranding_values` refuses making an
+attribute required without a default while annotations lack a value. What is left is the
+form: a checkbox beside "changes per frame" in `attributeSchema.ts`'s drafts and the label
+form, carried through `draftToPayload`, and the server's refusal shown when it comes. The
+form's own tests and `verify_attribute_editor.py` show the pattern.
 
-**Then offer `required` on the label form**, which this iteration unblocked: a required
-attribute no longer takes a session's saves down with it. The server side is done —
-`_refuse_stranding_values` already refuses making an attribute required without a default
-while annotations lack a value. `attributeSchema.ts` and the label form; the form's own
-tests show the pattern.
+**Then, found this iteration and small: a duplicate `client_id` is a 500.** The server
+keeps one `client_id` per job (`uq_shape_client_id`) and does not check for it, so a create
+resent after its first attempt landed is an `IntegrityError`. The editor cannot reach it —
+a resend carries a stale `annotation_version` and gets a 409 first, and a restore skips what
+the server has — but `annotation_version` is optional, so a script that omits it and retries
+can. Found by reading, not reproduced. A named 422 through `_entry`, or treating it as the
+retry it is and answering with the existing id, are the two shapes of fix.
 
-*The previous next best action — a refused save poisoning autosave, starting with
-`required` — was iteration 55. Its handoff suggested starting a required select at its
-first option; that was not done, and why is under* Tried and rejected.
+*The previous next best action, crash recovery, was iteration 56; the one before it,
+iteration 55.*
 
 **A second candidate, smaller and unglamorous: generate `web/src/api/types.ts` from the
 OpenAPI schema.** The file is hand-maintained and nothing verifies it against the server —
@@ -501,14 +506,15 @@ streaming registry with COCO, YOLO, Pascal VOC and native, plus entry-point plug
 Layered Canvas2D, R-tree viewport culling and O(log n) picking, tool state machines, a
 command stack with drag coalescing, rAF-throttled input. Rectangle, polygon, polyline,
 points, ellipse; selection, move, vertex editing, marquee; undo/redo, zoom/pan, keyboard
-first. Autosave with 409 surfaced as a conflict. *(This line said "through an IndexedDB
-write-ahead buffer" until iteration 55: the buffer is written and never read back, so it
-recovers nothing yet — see* Next best action.*)*
+first. Autosave with 409 surfaced as a conflict, and a copy of unsaved work in IndexedDB
+that is offered back — see the crash recovery entry below. *(This line claimed the buffer
+before iteration 56, when nothing read it back.)*
 
 **Desktop** — `curvevision.desktop` resolves the per-OS app data directory, migrates SQLite
 with Alembic (not `create_all`), provisions one local account and workspace on first launch,
-mints a fresh API token each launch while revoking the previous one, binds `127.0.0.1` on an
-OS-assigned port, and prints one line of JSON for the shell. PyInstaller packaging
+mints a fresh API token each launch while revoking the previous one, binds `127.0.0.1` on the
+port it had last launch when that is free (an OS-assigned one when not), and prints one line
+of JSON for the shell. PyInstaller packaging
 (`desktop/sidecar/`), and a 457-line Tauri shell (`desktop/shell/`) that supervises it,
 injects the token, and provides native dialogs and menus.
 
@@ -707,6 +713,21 @@ label's mutable set — per-frame on the keyframe, the rest on the track — and
 `frameAnnotations` shows `attributesAt(track, frame)`. `scripts/verify_attribute_values.py`
 (8 checks).
 
+**Crash recovery** — `drafts.ts` keeps the copy and decides what comes back; the hook drives
+it. The copy (`draftOf`) is the batch in flight, the one queued behind it and the refused
+objects, with deletions under server ids (a never-confirmed object's under its client id),
+stamped with the `annotation_version` it was made against, rewritten 250 ms after an edit
+and at once on each save's answer, and deleted when nothing is left. On opening a job,
+`loadDraft` → `readDraft` (which drops anything malformed) → `planRestore` against the
+server's document: a created object whose client id the server has is skipped, an update or
+deletion of something the server no longer has is dropped, and anything the session has
+touched is left alone. Only a non-empty plan is offered; the copy is not rewritten until
+Restore or Discard, and Submit waits. Restore queues the plan, lays it on the canvas even if
+saves are failing (`unsavedOn` now includes the batch in flight; `withUnsaved` skips a
+drawn object the server's frame already has by client id) and saves. Desktop:
+`desktop.port_for` reuses the last port when free, so the origin and its IndexedDB survive a
+relaunch. 4 server tests, 15 web; `scripts/verify_crash_recovery.py` (10 checks).
+
 **A refused save does not poison autosave** — `write_annotations` names the entry a
 refusal came from (`_entry` in `services/annotations.py`: `errors: [{"location": ["body",
 "created_shapes", 1], ...}]`, documented in `docs/API.md`), for `ValidationError` and
@@ -777,7 +798,7 @@ full docs set including seven ADRs.
 | Cuboid (2D wireframe box) | Complete and measured in a browser: a two-stage tool (drag the front face, then move and click to set the depth), a wireframe renderer, and CVAT XML export/import using CVAT's own real attribute names. The backend needed no new code at all — `ShapeType.CUBOID`, its minimum-points entry, its IoU comparison and its track interpolation were already there, unused. **Not** the 3D/point-cloud kind — see `docs/ROADMAP.md`'s honestly-unchanged limitation on that. |
 | Resumable uploads | Complete and tested end to end — API, SDK, CLI and the web upload panel: create a session, `PATCH` chunks at a stated offset, read the current offset back, complete, resume by id after a crash or a page reload. Driven in a browser through a deliberately dropped chunk and a real resume. Nothing outstanding. |
 | Label schema | Complete, driven in a browser: a label is added, renamed, recoloured and removed, and its **attributes** are added, renamed, extended and removed from the same form — with any edit that would strand a value already recorded refused by the server. Attribute **values** are set from the editor's right rail (iteration 54), and a required one nobody has set no longer poisons autosave (iteration 55). The form does not offer `required`; see *Next best action*. |
-| Autosave crash recovery | **Not built**, though the roadmap said Done until iteration 55: the IndexedDB draft is written on every edit and `loadDraft` has no caller. The next best action. |
+| Autosave crash recovery | Complete in a browser (iteration 56), driven through a closed page, a dropped connection, a save that landed unheard and a killed-and-relaunched desktop server. Not yet checked in the Tauri shell's own webview, whose storage persisting across launches is the platform default. |
 | Job review | Complete end to end and driven in a browser, all three parts: the **assignment** (an annotator picker and a reviewer picker on each job row of the task page, either clearable back to Unassigned), the **queue** (`GET /jobs?reviewing=true`, split on the My work page into what can be reviewed now and what is merely named to you), and the **decision** (accept or send back with a required reason, from the editor's rail). Nothing outstanding. |
 
 *This table went stale once — it still listed the open-folder flow and chunked delivery as
@@ -797,6 +818,36 @@ being updated and this one was not. Check it against* Completed *before trusting
 ---
 
 ## Verification performed
+
+Iteration 56:
+
+* `./scripts/check.sh` on arrival (branch restarted from `origin/main` after #26 merged):
+  **all twelve pass** — 584 server, 15 SDK, 671 web. After: **all twelve pass** — 588
+  server (4 new, `TestTheSamePortAcrossLaunches`), 15 SDK, 686 web (15 new: 14 in
+  `drafts.test.ts`, 1 in `unsaved.test.ts`).
+* Server sabotage: without `SO_REUSEADDR` in the probe, exactly "a port the last run just
+  let go of is reused" fails (the TIME_WAIT case); with the remembered port ignored, the
+  three tests that depend on it fail. Restored.
+* `scripts/verify_crash_recovery.py`, 10 checks. Against the pre-change build (saved before
+  any edit, `index-C6upVjdo.js`): 8 fail — nothing is offered, and the relaunched server
+  comes back on another port; the two that pass are guards against offering too much, which
+  a build that offers nothing trivially meets. Against the final build
+  (`index-B55s3UYP.js`): all 10 pass. One combined sabotage build (`index-O2zLKjtu.js`:
+  restore without the client-id check, and the server ignoring its remembered port): exactly
+  the landed-unheard check (the offer read "2 changes") and the two desktop checks fail.
+* The first run on the new code failed two checks, both found and fixed rather than
+  explained away: the restored box was not drawn while saves failed (`restore` saves at
+  once, and `unsavedOn` did not include the batch in flight); and the relaunch took a new
+  port because `process.kill()` had killed only the packaged binary's bootloader, leaving
+  its server child holding the port — a harness fault, fixed with `crash()`.
+* On the build before the last two small changes (`index-Dq2XEwlK.js`: restore's error
+  message and the notice's grammar), every check passes in `verify_crash_recovery`,
+  `verify_save_refusals`, `verify_track_canvas_edit`, `verify_attribute_values`,
+  `verify_attribute_editor`, `verify_shape_frame`, `verify_keyframe_editing`,
+  `verify_label_schema`, `verify_mask_brush`, `verify_skeleton_tool`, `verify_cuboid`,
+  `verify_tool_sync`, `verify_job_review`, `verify_local_import` and
+  `verify_resumable_upload`; on the final build, `verify_crash_recovery` and
+  `verify_save_refusals` again. No `curvevision-local` left running after any of them.
 
 Iteration 55:
 
@@ -862,6 +913,17 @@ Iteration 54:
 
 ## Bugs fixed
 
+* **Crash recovery did not exist, though the roadmap said Done** (iteration 56). Root
+  cause: the IndexedDB copy was written and nothing read it. Now read on opening and
+  offered. Verified by `verify_crash_recovery.py` before and after.
+* **In the desktop shape a new port each launch hid everything the page kept** (iteration
+  56) — storage is per origin, and the origin includes the port. `desktop.port_for`.
+* **The copy dropped what a save was carrying** (iteration 56): rewritten from the queue
+  alone, an edit during a save removed the in-flight objects from it. And it was never
+  rewritten when the queue emptied, so a box drawn and then deleted stayed in it; and each
+  write opened its own connection, so two in quick succession could land in either order.
+  Pinned in `drafts.test.ts` (the first), by construction (the rest).
+
 * **One object the server refused failed every save after it** (iteration 55). Root cause:
   a batch is refused whole, the refusal named no entry, and autosave put the whole batch
   back to retry, so it was refused again every time. The trigger found first was a
@@ -905,8 +967,20 @@ Iteration 54:
 
 ## Known issues
 
-* **Crash recovery does not exist** — the draft is written and never read. *Next best
-  action*.
+* **The Tauri webviews' storage across launches is not verified.** Recovery in the
+  desktop shape rests on the webview keeping IndexedDB for an origin from one launch to the
+  next — the default for WebView2, WKWebView and Tauri's WebKitGTK setup, but not run
+  here, where the shell has no display. Everything up to that is verified with the packaged
+  server and a persistent Chromium profile.
+* **Until an offer is restored or discarded, new work is not copied**: rewriting the copy
+  would replace what was found. New work still saves every four seconds; what is lost to a
+  crash in that window is at most what failed to save meanwhile.
+* **Two tabs on one job share one copy**, keyed by job: the later write wins, so a tab that
+  crashes while another keeps working can lose its copy. Two tabs on one job also 409 each
+  other at the server, so this is not a way anybody works.
+* **A desktop relaunch that starts before the last server has let go of its port** takes
+  another port, and so another origin, for that launch; the remembered port is kept, so the
+  next launch is back on it.
 * **An edit to a new object made during its first save, or before the reload after it, is
   dropped.** `record` skips an update for a `pending` object not in `created`, which is
   where a new object is while its save is in flight and until the reload swaps its server
@@ -948,6 +1022,18 @@ Iteration 54:
 
 ## Tried and rejected
 
+* **Restoring the copy without asking** (iteration 56). A crash and a deliberate "Leave
+  site" look the same from the next launch, and the job may have moved on; an offer costs
+  one click. Only the offer is automatic, and only when the server lacks something in it.
+* **Keeping the copy on the server instead** (iteration 56): it would survive a desktop
+  relaunch on any port, but not the case the browser copy exists for in the server shape —
+  a dropped connection — and it is a table, a migration and routes. The desktop problem was
+  the origin, and keeping the port fixes that at the edge.
+* **Loading the desktop window from the shell's bundled frontend** for a fixed origin
+  (`tauri://…`) (iteration 56): every API call would become cross-origin, with CORS and CSP
+  to get right, and it changes how the page reaches the server — ADR-sized, for what one
+  remembered port does.
+
 * **Starting a required select or radio at its first option**, as the previous handoff
   suggested (iteration 55). Rejected: it records a choice nobody made, and makes `required`
   mean "defaults to the first option" — which a schema author who meant that could have
@@ -979,6 +1065,11 @@ Iteration 54:
 * **Pinning `mypy<2`.** Would only defer the same error.
 
 ## Decisions
+
+* **Offer, do not put back, and put back nothing the server has** (iteration 56). The plan
+  is checked against the server's document when offered and again when restored.
+* **A remembered port that is busy is not forgotten** (iteration 56): the instance holding
+  it is usually the first one, and its origin is the one with the copy in it.
 
 * **A refused object is held until it is edited, not retried on every flush** (iteration
   55). Unchanged it can only be refused again, and each retry would cost the rest of the
@@ -1015,6 +1106,38 @@ Iteration 54:
 ---
 
 ## Last iteration
+
+### 56 — unsaved work survives a crash, in both shapes
+
+The next best action from iteration 55, which had found that crash recovery was a false
+Done: the copy was written on every edit and never read. Orienting turned up the reason it
+could not have worked on the desktop even if it had been read. The window loads the page
+from `http://127.0.0.1:<port>`, the local server took a new port every launch, and a
+browser keeps IndexedDB per origin — port included — so every launch started with an empty
+one. Nothing in an ADR fixes the port; `_free_port`'s objection is to a *fixed* one
+colliding, which a remembered port with a fallback avoids. A stable origin was checked for
+side effects first: `index.html` is served `no-cache`, assets are content-hashed, and
+nothing in `localStorage` depends on starting empty.
+
+**CVAT was looked at for the recovery itself and has none to port** — its client keeps
+unsaved changes in memory and warns on leaving — so the design is this project's own: offer
+rather than restore, check the offer against the server by client id, and never overwrite
+what the session has changed since.
+
+**Reproduced first, as a harness against the build from before the change**: a box drawn
+while saves fail and the page closed is not offered back, and a killed-and-relaunched
+server comes back on another port. The first run against the new code then failed twice —
+the restored box was not drawn while saves still failed, and the relaunch took a new port.
+The first was a real gap (`unsavedOn` ignored the batch in flight); the second was the
+harness killing only the packaged binary's bootloader. Both are written up above, the
+second in `docs/CONTRIBUTING.md`.
+
+**Found, not fixed:** a resent create whose `client_id` the job already has is a 500 —
+the editor cannot reach it, a script can. See *Next best action*.
+
+Verified: see *Verification performed*.
+
+## Iteration 55
 
 ### 55 — one refused object no longer fails every save after it
 
@@ -1237,52 +1360,9 @@ Verified: `./scripts/check.sh` green, all twelve steps — 562 server tests (2 n
 `test_timestamps.py`), 15 SDK and 610 web unchanged. `TestAWriteAgreesWithTheNextRead` now
 compares whole bodies, with nothing excluded.
 
-## Iteration 50
-
-### 50 — the fourth and fifth instances of a bug found by looking, not by tripping
-
-Three iterations in a row had each turned up the same pair of defects while building a
-screen: a nullable field an `is not None` test could set but never clear, and a response
-carrying an eagerly-loaded relationship from before the write. Job assignment in 46, label
-attributes in 49. At three, it is a pattern rather than a coincidence, and the honest next
-move is to go and find the rest rather than wait for the sixth to be reported by somebody
-using the product.
-
-**The audit is small, because the surface is small.** Five relationships in the whole domain
-are `lazy="selectin"` (`Project.owner`, `Task.owner`, `Task.assignee`, `Job.assignee`,
-`Job.reviewer`), and every route that writes one of them and returns it is a candidate.
-`PATCH /tasks/{id}` and `PATCH /projects/{id}` had both defects, on `assignee_id` and
-`owner_id` — and `description` had the clearing half on each, which is the same bug wearing
-plainer clothes: a task description could be written and never removed.
-
-**And a third kind of staleness in the same sweep.** `PATCH /tasks/{id}` returns
-`TaskDetail`, the same model `GET` returns, with `progress` left null — `read_task` computed
-it and the update route did not. One response model with two shapes is a trap for exactly
-the caller these fixes are for: a screen rendering what a write answered would blank the
-progress bar it was showing a moment earlier. Both routes now build the response through one
-`_task_detail`.
-
-**The test that states the property, rather than ten tests that state instances.**
-`TestAWriteAgreesWithTheNextRead` asserts that a `PATCH`'s body equals the next `GET`'s,
-over the whole body rather than field by field, for a task, a project and a job. That is the
-property all three defects violate, and it is the one a future route will violate too.
-
-**It found a fourth thing, which is deliberately not fixed here.** The whole-body comparison
-fails on `created_at`/`updated_at` — not because the instants differ, but because the same
-instant serialises as `...Z` from a freshly-written instance and with no suffix once read
-back from SQLite. That is a real defect and a nastier one than it looks (a browser reads a
-suffix-less timestamp as *local* time, so the desktop shape shows every time shifted by the
-viewer's offset), but it is a cross-cutting change to a column type and belongs in its own
-diff rather than folded into this one. The test excludes exactly those two fields, says why
-in a comment, and *Next best action* carries it as the next piece of work.
-
-Verified: `./scripts/check.sh` green, all twelve steps — 560 server tests (10 new in
-`test_partial_updates.py`), 15 SDK and 610 web (both unchanged; no client code touched).
-No browser harness: nothing on any screen changed, and the three routes are API-level.
-
 ## Earlier iterations
 
-Iterations **1–49** are in [`docs/iterations/ARCHIVE.md`](./docs/iterations/ARCHIVE.md) —
+Iterations **1–50** are in [`docs/iterations/ARCHIVE.md`](./docs/iterations/ARCHIVE.md) —
 moved there so that orienting costs a few hundred lines rather than four thousand. Read them
 when `git log` points you at an iteration number, or when you are about to build something
 and want to know whether it was already tried and rejected. The lessons from them that are

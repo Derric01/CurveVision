@@ -1,6 +1,6 @@
 # Iteration archive
 
-> The narrative record of iterations **1–49**, moved out of
+> The narrative record of iterations **1–50**, moved out of
 > [`handoff.md`](../../handoff.md) so that orienting on this project costs a few hundred
 > lines rather than four thousand.
 >
@@ -15,6 +15,49 @@
 > window, append it to the top of this file rather than deleting it.
 
 ---
+
+## Iteration 50
+
+### 50 — the fourth and fifth instances of a bug found by looking, not by tripping
+
+Three iterations in a row had each turned up the same pair of defects while building a
+screen: a nullable field an `is not None` test could set but never clear, and a response
+carrying an eagerly-loaded relationship from before the write. Job assignment in 46, label
+attributes in 49. At three, it is a pattern rather than a coincidence, and the honest next
+move is to go and find the rest rather than wait for the sixth to be reported by somebody
+using the product.
+
+**The audit is small, because the surface is small.** Five relationships in the whole domain
+are `lazy="selectin"` (`Project.owner`, `Task.owner`, `Task.assignee`, `Job.assignee`,
+`Job.reviewer`), and every route that writes one of them and returns it is a candidate.
+`PATCH /tasks/{id}` and `PATCH /projects/{id}` had both defects, on `assignee_id` and
+`owner_id` — and `description` had the clearing half on each, which is the same bug wearing
+plainer clothes: a task description could be written and never removed.
+
+**And a third kind of staleness in the same sweep.** `PATCH /tasks/{id}` returns
+`TaskDetail`, the same model `GET` returns, with `progress` left null — `read_task` computed
+it and the update route did not. One response model with two shapes is a trap for exactly
+the caller these fixes are for: a screen rendering what a write answered would blank the
+progress bar it was showing a moment earlier. Both routes now build the response through one
+`_task_detail`.
+
+**The test that states the property, rather than ten tests that state instances.**
+`TestAWriteAgreesWithTheNextRead` asserts that a `PATCH`'s body equals the next `GET`'s,
+over the whole body rather than field by field, for a task, a project and a job. That is the
+property all three defects violate, and it is the one a future route will violate too.
+
+**It found a fourth thing, which is deliberately not fixed here.** The whole-body comparison
+fails on `created_at`/`updated_at` — not because the instants differ, but because the same
+instant serialises as `...Z` from a freshly-written instance and with no suffix once read
+back from SQLite. That is a real defect and a nastier one than it looks (a browser reads a
+suffix-less timestamp as *local* time, so the desktop shape shows every time shifted by the
+viewer's offset), but it is a cross-cutting change to a column type and belongs in its own
+diff rather than folded into this one. The test excludes exactly those two fields, says why
+in a comment, and *Next best action* carries it as the next piece of work.
+
+Verified: `./scripts/check.sh` green, all twelve steps — 560 server tests (10 new in
+`test_partial_updates.py`), 15 SDK and 610 web (both unchanged; no client code touched).
+No browser harness: nothing on any screen changed, and the three routes are API-level.
 
 ## Iteration 49
 

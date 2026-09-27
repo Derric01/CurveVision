@@ -44,8 +44,11 @@ The shell spawns the executable and reads its standard output until one line beg
 }
 ```
 
-* **`url`** — always loopback, always an OS-assigned port. A fixed port would collide with
-  a second instance and with whatever else the user is running.
+* **`url`** — always loopback, on the port this installation used last launch if it is
+  still free, and otherwise one the OS assigns. The page's origin includes the port, and the
+  editor keeps unsaved work per origin: a new port every launch hid that work from the next
+  one. A fixed port would collide with a second instance and with whatever else the user is
+  running, which is why a busy one is not waited for.
 * **`token`** — a fresh API token, minted on every launch, with the previous one revoked.
   A token that ends up in a log or a crash report stops working when the app restarts.
 * **`data_dir`** — the database, media and signing key for this installation.
