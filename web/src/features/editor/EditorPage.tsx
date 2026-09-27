@@ -10,6 +10,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
+  AlertTriangle,
   ArrowLeft,
   Box,
   Brush,
@@ -42,7 +43,13 @@ import type { AnnotationChange, LabelStyle, ToolName } from '@/canvas/types';
 import type { ApiTrack } from '@/api/types';
 import { Badge, Button, ErrorNotice, Kbd, Spinner, jobStateTone } from '@/ui/primitives';
 import { AnnotationCanvas, type CanvasHandle } from './AnnotationCanvas';
-import { drawableLabels, frameAnnotations, toApiTrackUpdate, toLabelStyles } from './adapters';
+import {
+  drawableLabels,
+  frameAnnotations,
+  toApiTrackUpdate,
+  toLabelStyles,
+  withUnsaved,
+} from './adapters';
 import { useFrameObjectUrl } from './useFrameObjectUrl';
 import { TrackTimeline } from './TrackTimeline';
 import { adjacentKeyframe, trackRows } from './timeline';
@@ -57,7 +64,7 @@ import { AutoAnnotatePanel } from './AutoAnnotatePanel';
 import { SuggestionsPanel } from './SuggestionsPanel';
 import { ReviewPanel } from './ReviewPanel';
 import { canSubmit } from './review';
-import { useAutosave } from './useAutosave';
+import { useAutosave, type Refusal } from './useAutosave';
 import { AttributesPanel } from './AttributesPanel';
 import { attributesFor, mutableNames } from './attributeValues';
 
@@ -160,9 +167,13 @@ export function EditorPage() {
   useEffect(() => setLiveAttributes({}), [annotations.data]);
 
   const currentFrame = frame ?? job.data?.start_frame ?? 0;
+  // What autosave holds is laid back over the server's frame when that frame is (re)loaded,
+  // and deliberately only then: `unsavedOn` is stable, so an edit does not recompute this,
+  // and the canvas is not reloaded — clearing its undo stack — under the annotator's hand.
+  const { unsavedOn } = autosave;
   const visible = useMemo(
-    () => frameAnnotations(annotations.data, currentFrame),
-    [annotations.data, currentFrame],
+    () => withUnsaved(frameAnnotations(annotations.data, currentFrame), unsavedOn(currentFrame)),
+    [annotations.data, currentFrame, unsavedOn],
   );
 
   const imageUrl = useFrameObjectUrl(task.data?.id, currentFrame);
@@ -357,7 +368,11 @@ export function EditorPage() {
         </div>
 
         <div className="flex items-center gap-3">
-          <SaveIndicator status={autosave.status} pending={autosave.pendingCount} />
+          <SaveIndicator
+            status={autosave.status}
+            pending={autosave.pendingCount}
+            refused={autosave.refused.size}
+          />
           <Button size="sm" onClick={() => void autosave.flush()} disabled={autosave.pendingCount === 0}>
             Save
           </Button>
@@ -365,7 +380,12 @@ export function EditorPage() {
             size="sm"
             variant="primary"
             onClick={() => submitJob.mutate()}
-            disabled={submitJob.isPending || !canSubmit(job.data?.state)}
+            // Submitting hands the job to a reviewer, who would review it without the
+            // objects the server refused — the annotator is still looking at them.
+            disabled={
+              submitJob.isPending || !canSubmit(job.data?.state) || autosave.refused.size > 0
+            }
+            title={autosave.refused.size > 0 ? 'Fix the objects that were not saved first' : undefined}
           >
             <Send size={13} />
             Submit
@@ -377,6 +397,15 @@ export function EditorPage() {
         <div className="border-b border-red-500/30 bg-red-500/10 px-3 py-1.5 text-xs text-red-300">
           {autosave.error}
         </div>
+      )}
+
+      {autosave.refused.size > 0 && (
+        <RefusedNotice
+          refused={autosave.refused}
+          labels={labelStyles}
+          currentFrame={currentFrame}
+          onSeek={setFrame}
+        />
       )}
 
       {/* A submit can still fail for a reason the disabled state cannot predict -- somebody
@@ -523,6 +552,7 @@ export function EditorPage() {
             annotations={visible}
             labels={labelStyles}
             selection={selection}
+            refused={autosave.refused}
             onFocus={(id) => engine?.focusAnnotation(id)}
           />
 
@@ -674,7 +704,64 @@ function RailButton({
   );
 }
 
-function SaveIndicator({ status, pending }: { status: string; pending: number }) {
+/**
+ * What the server refused and why, with a way to get to it.
+ *
+ * Before refusals were set aside, one of these meant nothing after it would be saved.
+ */
+function RefusedNotice({
+  refused,
+  labels,
+  currentFrame,
+  onSeek,
+}: {
+  refused: ReadonlyMap<string, Refusal>;
+  labels: LabelStyle[];
+  currentFrame: number;
+  onSeek: (frame: number) => void;
+}) {
+  const nameOf = (labelId: string) => labels.find((l) => l.id === labelId)?.name ?? 'object';
+  return (
+    <div
+      className="border-b border-amber-500/30 bg-amber-500/10 px-3 py-1.5 text-xs text-amber-200"
+      data-refused-notice=""
+    >
+      <p>
+        {refused.size === 1 ? 'One object was' : `${refused.size} objects were`} not saved, and
+        will be as soon as {refused.size === 1 ? 'it is' : 'each is'} fixed. Nothing else is
+        held back by {refused.size === 1 ? 'it' : 'them'}.
+      </p>
+      <ul className="mt-0.5">
+        {[...refused].map(([id, refusal]) => (
+          <li key={id} data-refused-object={id}>
+            {refusal.frame === currentFrame ? (
+              <span className="font-medium">{nameOf(refusal.labelId)}</span>
+            ) : (
+              <button
+                type="button"
+                className="font-medium underline decoration-dotted hover:text-amber-100"
+                onClick={() => onSeek(refusal.frame)}
+              >
+                {nameOf(refusal.labelId)} on frame {refusal.frame}
+              </button>
+            )}
+            : {refusal.reason}
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
+}
+
+function SaveIndicator({
+  status,
+  pending,
+  refused,
+}: {
+  status: string;
+  pending: number;
+  refused: number;
+}) {
   if (status === 'saving') {
     return (
       <span className="flex items-center gap-1.5 text-xs text-ink-400">
@@ -686,6 +773,7 @@ function SaveIndicator({ status, pending }: { status: string; pending: number })
   if (status === 'conflict') return <Badge tone="danger">Conflict</Badge>;
   if (status === 'error') return <Badge tone="danger">Save failed</Badge>;
   if (pending > 0) return <Badge tone="warning">{pending} unsaved</Badge>;
+  if (refused > 0) return <Badge tone="danger">{refused} not saved</Badge>;
   if (status === 'saved') {
     return (
       <span className="flex items-center gap-1 text-xs text-emerald-400">
@@ -829,11 +917,13 @@ function ObjectList({
   annotations,
   labels,
   selection,
+  refused,
   onFocus,
 }: {
   annotations: { id: string; labelId: string; shapeType: string; source: string; confidence?: number | null }[];
   labels: LabelStyle[];
   selection: string[];
+  refused: ReadonlyMap<string, Refusal>;
   onFocus: (id: string) => void;
 }) {
   const colorOf = (labelId: string) => labels.find((l) => l.id === labelId)?.color ?? '#38bdf8';
@@ -885,6 +975,16 @@ function ObjectList({
                     aria-label="Awaiting review"
                     data-unreviewed=""
                   />
+                )}
+                {refused.has(annotation.id) && (
+                  <span title={`Not saved: ${refused.get(annotation.id)!.reason}`}>
+                    <AlertTriangle
+                      size={11}
+                      className="text-amber-400"
+                      aria-label="Not saved"
+                      data-refused=""
+                    />
+                  </span>
                 )}
               </button>
             </li>

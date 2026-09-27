@@ -127,6 +127,7 @@ jobs:
               scripts/verify_attribute_editor.py
               scripts/verify_track_canvas_edit.py
               scripts/verify_attribute_values.py
+              scripts/verify_save_refusals.py
             )
           fi
 

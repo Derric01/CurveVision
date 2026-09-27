@@ -57,6 +57,12 @@ the right credential for anything unattended.
   }
   ```
 
+  An annotation batch (`PATCH /jobs/{id}/annotations`) is one transaction and is refused
+  whole, but a refusal of one of its entries names that entry the same way — a `422` for
+  `"Attribute 'plate' is required"`, or a `404` for a shape the job does not have, carries
+  `"errors": [{"location": ["body", "created_shapes", 1], ...}]`. A client can set that entry
+  aside and send the rest; the editor's autosave does exactly that.
+
 * **Pagination** is offset-based with one envelope everywhere:
   `{ "count": 412, "limit": 50, "offset": 0, "results": [...] }`
 

@@ -271,3 +271,37 @@ describe('AnnotationEngine: setting an attribute on the selection', () => {
     expect(changes).toHaveLength(0);
   });
 });
+
+describe('AnnotationEngine: the attribute values a new object starts with', () => {
+  beforeEach(stubAnimationFrame);
+  afterEach(() => vi.unstubAllGlobals());
+
+  function drawWith(style: LabelStyle): Annotation[] {
+    const created: Annotation[] = [];
+    const engine = new AnnotationEngine({
+      layers: fakeLayers(),
+      listeners: { created: (annotation) => created.push(annotation) },
+    });
+    engine.setLabels([style]);
+    engine.setActiveLabel(style.id);
+    engine.setTool('rectangle');
+    setUpFrame(engine);
+    drawRectangle(engine);
+    return created;
+  }
+
+  it("starts from its label's initial values, which no tool knows about", () => {
+    const created = drawWith({ ...label(), initialAttributes: { parked: false, colour: 'red' } });
+    expect(created[0]?.attributes).toEqual({ parked: false, colour: 'red' });
+  });
+
+  it('does not share one values object between the label and every object drawn with it', () => {
+    const initial = { parked: false };
+    const created = drawWith({ ...label(), initialAttributes: initial });
+    expect(created[0]?.attributes).not.toBe(initial);
+  });
+
+  it('starts with none for a label that declares none', () => {
+    expect(drawWith(label())[0]?.attributes).toEqual({});
+  });
+});

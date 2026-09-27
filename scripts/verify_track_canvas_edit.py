@@ -233,17 +233,31 @@ def main() -> int:
                       "a saved shape deleted and undone before saving is still there",
                       "the shape was deleted although the deletion was undone")
 
-                before = shape_count()
-                page.get_by_title("Rectangle (R)").click()
-                page.mouse.move(*at(20, 170))
-                page.mouse.down()
-                page.mouse.move(*at(80, 220), steps=6)
-                page.mouse.up()
-                page.wait_for_timeout(300)
-                page.keyboard.press("Delete")
-                page.wait_for_timeout(200)
-                page.keyboard.press("Control+z")
-                page.wait_for_timeout(300)
+                # "Before it was ever saved" is a premise the editor's 4-second autosave can
+                # break: if it saves the box before the Ctrl+Z and the reload lands first, the
+                # reload clears the undo stack and this is not the case under test (it is the
+                # known "an undo after a save undoes nothing"). An attempt an autosave went
+                # out during is repeated, against a count taken just before that attempt.
+                sent: list[str] = []
+                page.on("request", lambda request: sent.append(request.url)
+                        if "/annotations" in request.url and request.method == "PATCH" else None)
+                for _attempt in range(3):
+                    before = shape_count()
+                    already = len(sent)
+                    page.get_by_title("Rectangle (R)").click()
+                    page.mouse.move(*at(20, 170))
+                    page.mouse.down()
+                    page.mouse.move(*at(80, 220), steps=6)
+                    page.mouse.up()
+                    page.wait_for_timeout(300)
+                    page.keyboard.press("Delete")
+                    page.wait_for_timeout(200)
+                    page.keyboard.press("Control+z")
+                    page.wait_for_timeout(300)
+                    if len(sent) == already:
+                        break
+                    print("  (an autosave landed inside the step; trying it again)")
+                    save()
                 save()
                 check(shape_count() == before + 1,
                       "so is a shape drawn, deleted and undone before it was ever saved",

@@ -5,10 +5,10 @@
 > [`AGENTS.md`](./AGENTS.md) first; it is the working contract. Update this file after every
 > iteration, including the ones that mostly failed.
 >
-> **Last updated:** 2026-09-26 (iteration 54) · branch `claude/start-work-yx080h` · PRs
-> [#1](https://github.com/Derric01/CurveVision/pull/1)–[#24](https://github.com/Derric01/CurveVision/pull/24)
-> **all merged**, #24 carrying iteration 53. The branch was restarted from `origin/main`
-> after that merge; iteration 54 is pushed to it with no PR opened yet.
+> **Last updated:** 2026-09-27 (iteration 55) · branch `claude/start-work-yx080h` · PRs
+> [#1](https://github.com/Derric01/CurveVision/pull/1)–[#25](https://github.com/Derric01/CurveVision/pull/25)
+> **all merged**, #25 carrying iteration 54. The branch was restarted from `origin/main`
+> after that merge; iteration 55 is pushed to it with no PR opened yet.
 >
 > *Two things worth knowing about this repository's PR rhythm, which replace the
 > PR-by-PR changelog that used to sit here and had stopped helping anybody.* **PRs are
@@ -22,7 +22,7 @@
 > **Keep the session short.** One iteration, then commit, push, update this file and report —
 > `AGENTS.md` § *Continue* and the `start-work` skill both say so now, because they did not
 > before and a single session ran six iterations and roughly a third of a week's budget. The
-> concrete costs, in rough order: re-reading this file (iterations 1–48 now live in
+> concrete costs, in rough order: re-reading this file (iterations 1–49 now live in
 > [`docs/iterations/ARCHIVE.md`](./docs/iterations/ARCHIVE.md), which cut it from 3,800
 > lines to 1,000 — keep it that way); `python desktop/sidecar/build.py`, which is a
 > PyInstaller run of a minute or two and is needed *again* for every sabotage-and-restore
@@ -45,10 +45,31 @@ shapes (detection/segmentation, OBB, pose, classification), each declaring in it
 The desktop shape works: a packaged single-executable server, a Tauri shell that supervises
 it, and folders annotated in place without copying a byte.
 
-**The tree is green.** `./scripts/check.sh` passes all twelve steps: 582 server tests, 15
-SDK, 653 web, and `scripts/` is lint-clean under its own `ruff.toml`. Twenty-five browser
+**The tree is green.** `./scripts/check.sh` passes all twelve steps: 584 server tests, 15
+SDK, 671 web, and `scripts/` is lint-clean under its own `ruff.toml`. Twenty-six browser
 harnesses drive the packaged desktop application in a real Chromium, nightly and on every
 push to `main`. (Iteration 52 arrived to a red tree — mypy 2 — and fixed it first.)
+
+**One object the server refuses no longer fails every save after it** (iteration 55). A
+save is one batch and one transaction, refused whole, and autosave put a refused batch back
+to retry — so a box of a label with a `required` attribute nobody had filled in failed its
+save, and **every save after it in the session failed with it**, whatever was drawn.
+Reproduced in a browser first: a `car` refused for its `plate`, a `sign` drawn afterwards,
+and the server holding neither. The server now names the entry a refusal came from, in the
+`errors[].location` convention request validation already used (`["body",
+"created_shapes", 1]`). Autosave sets that one object aside with the server's reason, saves
+the rest at once, keeps it on the canvas across the reload that follows (it is on no server,
+so the reload used to wipe it), and sends it again as soon as it is edited. A banner names
+it, the object list marks it, the panel marks the missing value, and Submit waits. A new
+object starts with its label's defaults, typed, and a required checkbox unticked — CVAT's
+`appendDefaultAttributes`. And the new harness surfaced a second road to the same
+poisoning: a box deleted between its save and the reload that follows went out under its
+**local** id, which the server cannot parse — a 422 naming no entry, every save after it.
+It now goes out under the id its save returned.
+
+**Crash recovery was never built, though the roadmap said Done** (found in iteration 55,
+not fixed). The autosave draft is written to IndexedDB on every edit, and `loadDraft`, which
+would read it back, has no caller. The ROADMAP row now says so — see *Next best action*.
 
 **An annotator can set an object's attribute values from the editor** (iteration 54). The
 right rail shows an Attributes panel for the one selected object — a control per attribute
@@ -83,8 +104,8 @@ attributes back on every autosave, so the person who found out was the annotator
 on a box they had only moved. `update_label` now refuses such an edit before touching
 anything, using CVAT's rules for an attribute that exists (type and per-frame flag fixed,
 options may grow but not shrink) and refusing a rename or removal only while something is
-recorded under the name — which keeps a schema correctable before it is used. What the form
-still cannot do is set an attribute's **value** on a shape: see *Next best action*.
+recorded under the name — which keeps a schema correctable before it is used. An
+attribute's **value** is set from the editor (iteration 54, above).
 
 **Every timestamp the API returns is UTC, and says so.** `DateTime(timezone=True)` means
 what it says on PostgreSQL and cannot on SQLite, which has no time-zone type — so the same
@@ -337,21 +358,31 @@ was the last unconnected piece of the desktop application.
 
 ## Next best action
 
-**Stop a refused save from poisoning autosave — starting with a `required` attribute.**
-An attribute that is `required` with no default (settable from the SDK) makes every newly
-drawn shape of its label a 422 on its first save, because a tool creates a shape with
-`attributes: {}` and nobody could have set the value yet. Worse than a refusal: autosave
-puts the failed batch back and retries it, so — exactly the failure iteration 53 fixed for
-tracked objects — **every later save in the session fails with it** (inferred from the
-retry path, which iteration 53 observed for tracked objects; the 422 itself was confirmed
-in iteration 52 — reproduce the poisoning before fixing it). Two parts, and the
-second is the one that matters beyond this case: (1) a newly drawn shape should start with
-the value its label demands (the first option of a select/radio, `false` for a checkbox;
-text and number have none, so the panel has to be where it is filled in before the save —
-or the create deferred until it is); (2) a 4xx other than 409 should not be retried
-forever with the whole batch — find the offending entry (the server's message names it)
-and surface it on the object instead. Only then should the label form offer `required`.
-`useAutosave.ts`, `canvas/tools.ts` (`draftAnnotation`) and `AttributesPanel.tsx`.
+**Build the crash recovery the roadmap said was Done.** `useAutosave` writes every pending
+change to IndexedDB (`persistDraft`) before the network is touched, and exports `loadDraft`
+to read it back — which **nothing calls**. So its own header's promise, that "a browser
+crash, a closed laptop or a dropped connection leaves the work recoverable", is false: a
+crash or a reload loses whatever was unsaved. Found in iteration 55 by asking who calls
+`loadDraft` — the "client method nobody calls" tell again (see below). The ROADMAP row is
+corrected to *In Progress*. What it needs: on opening a job, read the draft; if it holds
+anything, **offer** to restore it rather than doing so silently, since the job may have
+moved on — the draft does not record the `annotation_version` it was built against yet, and
+a stale draft is a conflict to show, not to apply. Restoring is `autosave.record` with its
+contents; the display half already exists — `withUnsaved` (iteration 55) lays what autosave
+holds over the server's frame. Decide on the way: objects held as refused are not in the
+draft, and the draft is keyed by job alone, so two tabs on one job overwrite each other's.
+`useAutosave.ts`, `EditorPage.tsx`. Reproduce the loss in a browser first (draw, reload
+before the 4-second flush, and the box is gone).
+
+**Then offer `required` on the label form**, which this iteration unblocked: a required
+attribute no longer takes a session's saves down with it. The server side is done —
+`_refuse_stranding_values` already refuses making an attribute required without a default
+while annotations lack a value. `attributeSchema.ts` and the label form; the form's own
+tests show the pattern.
+
+*The previous next best action — a refused save poisoning autosave, starting with
+`required` — was iteration 55. Its handoff suggested starting a required select at its
+first option; that was not done, and why is under* Tried and rejected.
 
 **A second candidate, smaller and unglamorous: generate `web/src/api/types.ts` from the
 OpenAPI schema.** The file is hand-maintained and nothing verifies it against the server —
@@ -384,14 +415,16 @@ on the list" is exactly the "next unchecked box" `AGENTS.md` says not to default
 > from this list.** Iteration 42 found a docstring that named endpoints which did not exist.
 > Iteration 45 listed every method on the web API client and grepped each for a caller:
 > `reviewJob` had none, and neither did `createLabel`, `deleteTask`, `taskProgress` or
-> `frameInfo`. `reviewJob` was wired that iteration; the other four are still uncalled — a
-> label cannot be added to a project after it is created, and a task cannot be deleted, from
-> the application. Iteration 46 came from the same sweep, one level out: `api.members` did
+> `frameInfo`. `reviewJob` was wired that iteration and `createLabel` in iteration 48; the
+> other three are still uncalled (checked again in iteration 55) — a task cannot be deleted
+> from the application. Iteration 46 came from the same sweep, one level out: `api.members` did
 > not exist *to* be called, which is the same gap wearing a different hat. **A client method
 > nobody calls is this
 > codebase's most reliable tell** for a feature that is complete everywhere except where a
 > person could reach it: it is how the auto-annotate panel, the suggestion review and the
 > issues panel were each found missing, and now this.
+> Iteration 55 found the crash-recovery gap the same way, one level down: not an API
+> method but an exported hook helper, `loadDraft`, with no caller.
 
 *This section previously listed an auto-annotate editor surface, the mask brush, a
 ground-truth UI, dragging a keyframe along its lane, an issues panel and a browser harness
@@ -468,7 +501,9 @@ streaming registry with COCO, YOLO, Pascal VOC and native, plus entry-point plug
 Layered Canvas2D, R-tree viewport culling and O(log n) picking, tool state machines, a
 command stack with drag coalescing, rAF-throttled input. Rectangle, polygon, polyline,
 points, ellipse; selection, move, vertex editing, marquee; undo/redo, zoom/pan, keyboard
-first. Autosave through an IndexedDB write-ahead buffer with 409 surfaced as a conflict.
+first. Autosave with 409 surfaced as a conflict. *(This line said "through an IndexedDB
+write-ahead buffer" until iteration 55: the buffer is written and never read back, so it
+recovers nothing yet — see* Next best action.*)*
 
 **Desktop** — `curvevision.desktop` resolves the per-OS app data directory, migrates SQLite
 with Alembic (not `create_all`), provisions one local account and workspace on first launch,
@@ -672,6 +707,25 @@ label's mutable set — per-frame on the keyframe, the rest on the track — and
 `frameAnnotations` shows `attributesAt(track, frame)`. `scripts/verify_attribute_values.py`
 (8 checks).
 
+**A refused save does not poison autosave** — `write_annotations` names the entry a
+refusal came from (`_entry` in `services/annotations.py`: `errors: [{"location": ["body",
+"created_shapes", 1], ...}]`, documented in `docs/API.md`), for `ValidationError` and
+`NotFoundError` alike; the batch is still one transaction. `refusedEntries`
+(`refusals.ts`) reads that and request validation's own locations the same way. Autosave
+holds a refused created shape, updated shape or tracked object (all its frames' edits) out
+of the queue with the reason, tries the rest at once, and releases it into the queue on the
+next edit — a never-saved one back as a creation; deleting a held never-saved object
+discards it. `withUnsaved` (`adapters.ts`) lays what autosave holds — queued or refused —
+over a frame when it is loaded from the server, read only then so an edit never reloads
+the canvas. The editor shows a banner naming each object (and its frame, as a button, when
+it is elsewhere), marks its row, marks a missing required value on its control
+(`isMissing`), and disables Submit while anything is held. A new object starts with
+`initialAttributes` — its label's defaults, typed, and `false` for a required checkbox
+with none — laid under it in `AnnotationEngine.applyResult`. Queued shape deletions are
+sent under the server id each object's first save returned (`id_map`), and dropped for an
+object never saved; a failed first save of an object deleted meanwhile cancels out.
+2 server tests, 18 web; `scripts/verify_save_refusals.py` (14 checks).
+
 **Editing a tracked object on the canvas** — a drag, a vertex edit or an occlusion toggle on
 a tracked object records a keyframe on that frame carrying the new geometry, and a keyframe
 already there keeps its per-frame attributes (`placeKeyframe` in `keyframes.ts`); a relabel
@@ -722,7 +776,8 @@ full docs set including seven ADRs.
 | Choosing individual files (desktop) | Complete and measured in a browser: `choose_files` now has a caller, one `local-import` call per chosen file, a failed file reported in `skipped` without aborting the others, and the results of a whole batch merged into one summary. |
 | Cuboid (2D wireframe box) | Complete and measured in a browser: a two-stage tool (drag the front face, then move and click to set the depth), a wireframe renderer, and CVAT XML export/import using CVAT's own real attribute names. The backend needed no new code at all — `ShapeType.CUBOID`, its minimum-points entry, its IoU comparison and its track interpolation were already there, unused. **Not** the 3D/point-cloud kind — see `docs/ROADMAP.md`'s honestly-unchanged limitation on that. |
 | Resumable uploads | Complete and tested end to end — API, SDK, CLI and the web upload panel: create a session, `PATCH` chunks at a stated offset, read the current offset back, complete, resume by id after a crash or a page reload. Driven in a browser through a deliberately dropped chunk and a real resume. Nothing outstanding. |
-| Label schema | Complete, driven in a browser: a label is added, renamed, recoloured and removed, and its **attributes** are added, renamed, extended and removed from the same form — with any edit that would strand a value already recorded refused by the server. Attribute **values** are set from the editor's right rail (iteration 54). The form does not offer `required`; see *Next best action*. |
+| Label schema | Complete, driven in a browser: a label is added, renamed, recoloured and removed, and its **attributes** are added, renamed, extended and removed from the same form — with any edit that would strand a value already recorded refused by the server. Attribute **values** are set from the editor's right rail (iteration 54), and a required one nobody has set no longer poisons autosave (iteration 55). The form does not offer `required`; see *Next best action*. |
+| Autosave crash recovery | **Not built**, though the roadmap said Done until iteration 55: the IndexedDB draft is written on every edit and `loadDraft` has no caller. The next best action. |
 | Job review | Complete end to end and driven in a browser, all three parts: the **assignment** (an annotator picker and a reviewer picker on each job row of the task page, either clearable back to Unassigned), the **queue** (`GET /jobs?reviewing=true`, split on the My work page into what can be reviewed now and what is merely named to you), and the **decision** (accept or send back with a required reason, from the editor's rail). Nothing outstanding. |
 
 *This table went stale once — it still listed the open-folder flow and chunked delivery as
@@ -743,6 +798,53 @@ being updated and this one was not. Check it against* Completed *before trusting
 
 ## Verification performed
 
+Iteration 55:
+
+* `./scripts/check.sh` on arrival (branch restarted from `origin/main` after #25 merged):
+  **all twelve pass** — 582 server, 15 SDK, 653 web.
+* The defect reproduced first, in a browser against the packaged pre-change build: a `car`
+  box with a required `plate` → `422 Attribute 'plate' is required`; a `sign` drawn after
+  it → 422 again, and again on the timer; the server held 0 shapes; the banner named the
+  attribute and no object.
+* Server: `pytest tests/api/test_workflow.py -k TestAnnotationEngine` — 10 pass. With
+  `_entry` made a no-op, both new tests fail. Restored.
+* `./scripts/check.sh` after: **all twelve pass** — 584 server (2 new), 15 SDK, 671 web
+  (18 new: 3 engine, 6 `attributeValues`, 3 `refusals`, 6 `unsaved`).
+* `scripts/verify_save_refusals.py`, 14 checks. Against the pre-change build (the 12 it had
+  then): 10 fail — every check but "mounts" and "raises nothing". Against the final build:
+  all 14 pass. Sabotage A+C, one build (`index-BfeNfpst.js`: overlay emptied, seeding
+  removed): exactly "still on the canvas after that save", "after that save the bus still
+  shows the route cleared" and the van check fail, plus the two fix checks that depend on
+  them. Sabotage B (a held object never released): **the first attempt did not compile**
+  (`web exit 1`, a narrowing to `never`) and the sidecar packaged the previous bundle —
+  caught by the exit status; redone (`index-dMuKk8-_.js`): exactly the two "fixing it saves"
+  checks fail. The Submit check failed on the build without the guard and passes with it;
+  the deletion check failed on the build without the translation (`[150, 150] → [150, 150,
+  250]`: the deleted box still there, the next never saved) and passes with it. Its first
+  draft **could not fail** (it counted boxes) — see `docs/CONTRIBUTING.md`.
+* `verify_track_canvas_edit.py` **failed once**, two checks with a 422 on every later save,
+  in about fourteen runs this session. Twelve re-runs (six on the pre-change build, six on
+  the new) did not repeat it. A scratch probe holding the editor's reads back two seconds
+  reproduced the same signature every run — `deleted_shapes: ["local-…"]` → 422, every save
+  after — which check 8 above now pins. That the one failure took exactly this road is
+  inferred from the signature, not proven.
+* After the translation fix it **failed once more, differently**: "the never-saved shape was
+  lost although its deletion was undone". Cause: the harness's own premise. The 4-second
+  autosave saved the box before its Delete, the reload landed before the Ctrl+Z and cleared
+  the undo stack, and the deletion — now sent correctly — deleted it. (Before this
+  iteration the same race poisoned every later save instead.) The step now repeats an
+  attempt an autosave went out during; in the next four runs one attempt was repeated, and
+  all four passed. The same race showed a real display bug, fixed: after that reload the
+  deleted box reappeared until the next save, because the overlay hid it by its local id.
+* `./scripts/check.sh` on the final code: all twelve pass. On the final build
+  (`index-C6upVjdo.js`): `verify_save_refusals` and `verify_track_canvas_edit` (four runs)
+  pass. The build before the last two fixes (`index-StK0f35Z.js`, differing only in the
+  overlay's deleted ids and the notice's wording) also passed `verify_attribute_values`,
+  `verify_attribute_editor`, `verify_shape_frame`, `verify_keyframe_editing`,
+  `verify_label_schema`, `verify_mask_brush`, `verify_skeleton_tool`, `verify_cuboid`,
+  `verify_tool_sync`, `verify_job_review`, `verify_track_timeline`, `verify_scissors` and
+  `verify_view_settings`.
+
 Iteration 54:
 
 * `./scripts/check.sh` after the change: **all twelve pass** — 582 server, 15 SDK, 653 web
@@ -760,6 +862,19 @@ Iteration 54:
 
 ## Bugs fixed
 
+* **One object the server refused failed every save after it** (iteration 55). Root cause:
+  a batch is refused whole, the refusal named no entry, and autosave put the whole batch
+  back to retry, so it was refused again every time. The trigger found first was a
+  `required` attribute with no default on a newly drawn box; any per-entry refusal did the
+  same. Verified by `verify_save_refusals.py` before and after.
+* **A box deleted between its save and the reload that follows poisoned autosave the same
+  way** (iteration 55). Root cause: until the reload the canvas knows a new object by a
+  local id, and the deletion was sent under it — a parse error for the whole request. Now
+  sent under the id `id_map` returned. Pinned by check 8, which holds the reload back.
+* **A required checkbox with no default showed unticked and was refused for having no
+  value** (iteration 55): it now starts `false`. And an object drawn in the editor records
+  its label's defaults typed — a checkbox default as a boolean, not the string the server
+  fills in.
 * **A keyframe added with `K` or by a canvas drag reset every mutable attribute value from
   that frame on** (iteration 54): it was created with `attributes: {}`, and the server
   holds a value only until the next keyframe changes it. Now it starts from the values in
@@ -790,12 +905,30 @@ Iteration 54:
 
 ## Known issues
 
-* **A `required` attribute with no default poisons autosave** on the first save of any
-  newly drawn shape of its label — *Next best action*.
-* **A default is recorded as a string.** `validate_attributes` fills a missing value with
-  `definition.default_value` uncoerced, so a checkbox default lands as `"false"` while an
-  explicit value lands as `false`; the next save of that annotation coerces it. Found by
-  reading, not by a failing test; harmless to saving, visible in exports.
+* **Crash recovery does not exist** — the draft is written and never read. *Next best
+  action*.
+* **An edit to a new object made during its first save, or before the reload after it, is
+  dropped.** `record` skips an update for a `pending` object not in `created`, which is
+  where a new object is while its save is in flight and until the reload swaps its server
+  id in. Typing into the attribute panel right after drawing can lose keystrokes that way;
+  the reload then shows the saved value. Found by reading in iteration 55; the `local` map
+  added for deletions could carry the reload half, the in-flight half needs more.
+* **A refusal of an entry autosave cannot set aside still puts the batch back whole** —
+  anything outside `created_shapes`, `updated_shapes` and `updated_tracks`. After iteration
+  55 nothing autosave sends is known to hit this, but the fallback is the old behaviour.
+* **`verify_track_canvas_edit.py`'s other undo steps share the timer race** its "never
+  saved" step now guards against: an autosave landing between an edit and its Ctrl+Z
+  makes the undo a no-op (the reload clears the stack), and the step then fails. Seen in
+  that one step this session (twice in about twenty runs); the drag-undo, saved-shape and
+  track steps have the same exposure over shorter windows and were not seen to fail. The
+  guard there is the pattern to copy if they are.
+* **Submit can still go ahead when a refusal arrives during its own flush**: the guard reads
+  what is held before Submit is pressed, and `flush` does not report what it held back.
+* **A default is recorded as a string** when the *server* fills it in —
+  `validate_attributes` writes `definition.default_value` uncoerced, so a checkbox default
+  lands as `"false"` from the SDK, the CLI or an import, while the editor now sends it
+  typed (iteration 55). The next save of that annotation coerces it. Harmless to saving,
+  visible in exports.
 * **A rename or removal of an attribute with a default is refused as soon as the label is
   used**, because a default is recorded on every annotation saved with the label. That is
   the stated cost of refusing rather than rewriting (see *Decisions*), and the form says so.
@@ -815,6 +948,23 @@ Iteration 54:
 
 ## Tried and rejected
 
+* **Starting a required select or radio at its first option**, as the previous handoff
+  suggested (iteration 55). Rejected: it records a choice nobody made, and makes `required`
+  mean "defaults to the first option" — which a schema author who meant that could have
+  said with a default. A checkbox is different only because unticked is what the control
+  shows.
+* **Checking `required` in the browser and holding the save** (iteration 55). Rejected: a
+  second copy of the server's rule (`attributeValues.ts` says why it has none), and it
+  would cover one refusal of several — a label moved out of the project, a shape type the
+  label no longer permits, a frame outside the job. The server naming the entry covers all
+  of them. The panel *marks* a missing value; it does not hold anything back.
+* **Recomputing the displayed frame whenever autosave's contents change** (iteration 55).
+  Rejected before building: that list feeds `setAnnotations`, which reloads the scene and
+  clears the undo stack, so it would do both on every mouse move of a drag. `unsavedOn` is
+  read only when the server's document or the frame changes.
+* **Re-running an intermittent harness failure until it repeats** (iteration 55): twelve
+  runs, no repeat. Holding the editor's reads back with `page.route` reproduced it every
+  run.
 * **"Undoing a deletion after it has been saved poisons autosave too"** — suspected in
   iteration 53 by reading, and not reachable: a save's reload runs `setAnnotations`, which
   clears the undo stack, so there is nothing to undo. Checked in a browser; recorded so
@@ -830,6 +980,16 @@ Iteration 54:
 
 ## Decisions
 
+* **A refused object is held until it is edited, not retried on every flush** (iteration
+  55). Unchanged it can only be refused again, and each retry would cost the rest of the
+  batch a round trip. The edit is presumed to be the fix; if it is not, the server says so
+  and it is held again.
+* **The server names the refused entry in `errors[].location`**, the shape request
+  validation already used, rather than in a new field (iteration 55): one reader on the
+  client for a malformed entry and a refused one, and nothing new in `docs/API.md` beyond
+  a paragraph.
+* **Submit is disabled while anything is held** (iteration 55). A reviewer would otherwise
+  be handed a job without an object the annotator is still looking at.
 * **Delete on a tracked object deletes the whole track** (iteration 53). A track is one
   object; "it leaves the frame here" already has its own key, `O`. Not checked against
   CVAT's source, unlike the keyframe-on-move behaviour, which is (`Track.savePoints`).
@@ -855,6 +1015,46 @@ Iteration 54:
 ---
 
 ## Last iteration
+
+### 55 — one refused object no longer fails every save after it
+
+The next best action since iteration 54, and it was a defect before it was a feature: the
+handoff inferred from the retry path that a `required` attribute would poison autosave and
+said to reproduce it first. It did, in a browser, on the first try — the `car` refused, the
+`sign` after it refused with it, nothing on the server. `AGENTS.md` ranks broken first.
+
+**The fix is the server's to start.** The client could not set the bad object aside because
+nothing said which one it was: `"Attribute 'plate' is required"` names an attribute, and the
+same batch can hold ten boxes of that label. `write_annotations` now names the entry, in the
+`errors[].location` shape request validation already used, so one client reader handles
+both. CVAT was read first (`cvat-core`'s `annotations-saver.ts` and
+`annotation-common.ts`): its saver fails a whole save too, and it avoids *this* trigger by
+giving every attribute a default (`appendDefaultAttributes`) and having no `required` —
+which is where starting a new object from its defaults came from. Convention only; no code
+adapted.
+
+**The hard part was the display, not the queue.** Setting an object aside and saving the
+rest is a few lines. But a save reloads the frame from the server, and a refused new box is
+on no server, so the reload that followed a partial save **wiped it off the canvas** — held,
+named in a banner, and impossible to select. `withUnsaved` lays what autosave holds back
+over the frame, read only when the frame is (re)loaded: on every edit, it would reload the
+scene and clear the undo stack under the pointer.
+
+**The harness found one more road to the same place.** `verify_track_canvas_edit.py` failed
+once in about fourteen runs, with a 422 on every save after a certain point. It would not
+repeat; holding the editor's reads back with `page.route` made it repeat every time: a box
+deleted between its save and the reload is still known by its local id, and the deletion
+went out under it — unparseable, so the whole request was a 422 naming nothing. Fixed with
+the `id_map` every save already returns. Two harness lessons from it are in
+`docs/CONTRIBUTING.md`, including a check that could not fail because it counted boxes.
+
+**Found and not fixed: crash recovery does not exist**, though the roadmap said Done. The
+draft is written on every edit and nothing reads it. Corrected in `docs/ROADMAP.md` and the
+plan; it is the next best action.
+
+Verified: see *Verification performed*.
+
+## Iteration 54
 
 ### 54 — an annotator can set an object's attribute values
 
@@ -1080,70 +1280,9 @@ Verified: `./scripts/check.sh` green, all twelve steps — 560 server tests (10 
 `test_partial_updates.py`), 15 SDK and 610 web (both unchanged; no client code touched).
 No browser harness: nothing on any screen changed, and the three routes are API-level.
 
-## Iteration 49
-
-### 49 — a label can be renamed, without losing what is attached to it
-
-The other half of iteration 48, and the half that had a stated reason for waiting. It turned
-out the reason was overstated: I wrote here that a rename "is not a name box; it is an
-attribute editor, and the two ship together or not at all". Not so. `PUT` is a replace, but
-a payload rebuilt from the label **as the server reported it** carries the attributes
-through untouched — `update_label` reuses an attribute row whose id comes back — so renaming
-is safe without touching attribute editing at all. Correcting that here because the previous
-entry would have sent the next session after a much larger piece of work than this needed.
-
-**Two server defects, both found by writing the tests before the panel.**
-
-* **A rename walked straight around the duplicate-name rule.** `create_label` has always
-  refused a second label of the same name; `update_label` did not check at all, so
-  `pedestrian` could simply be renamed to `car`. That does not stay cosmetic: exports key
-  classes *by name* — COCO categories, a YOLO class list, this project's own class
-  distribution, which is a `Record<string, number>` — so two labels called `car` merge or
-  collide the moment the dataset leaves.
-* **The response reported attributes it had just deleted.** `_label_out` re-reads the label
-  with `selectinload` after the commit, but SQLAlchemy skips loader options for an instance
-  already in the session, and `expire_on_commit=False` leaves the old collection in place.
-  A `PUT` that emptied a label's attributes came back still listing them. This is the third
-  appearance of this exact bug shape in four iterations (the job's `assignee`, then
-  `reviewer`, now this), and the third different fix for it — `session.refresh` there,
-  `populate_existing=True` here, because the read is a fresh query rather than the written
-  instance.
-
-**`LabelOut` cannot be sent back to `PUT`, which is worth knowing before writing a client.**
-`LabelIn` is a `StrictModel`, so the `project_id` and `parent_id` every read carries are
-rejected outright with a 422. The natural safe pattern — read it, change a field, send it
-back — does not work without stripping them first, and that knowledge now lives in one
-function (`labelToPayload`) with a test, rather than being rediscovered. The alternative
-would have been to let the input schema ignore those fields; rejected, because this codebase
-deliberately rejects unknown keys rather than dropping them, and the same reasoning applies
-here.
-
-**A fixture that made a check unable to fail, again, and caught the same way.** Sabotaging
-the rename to post a partial payload correctly failed "keeps its attribute definitions" —
-and left "stays where it was in the schema" **passing**, because the label under test was
-`car` at position 0 and the sabotage sets position 0. The seed now puts `pedestrian` first
-so the renamed label sits at position 1, and the check asserts that too, so a fixture
-change that quietly reintroduces the hole fails rather than passes. That is the same lesson
-as iteration 47's summary line, in a different disguise.
-
-**And the build trap caught something real, for the first time since it was written down.**
-`npm run build` failed on a `tsc -b` error in the new unit test file — which `npm run
-typecheck` had not reported, since the two use different project configurations. Because
-`vite build` never ran, the sidecar packaged the *previous* bundle, and the harness ran
-happily against code that did not include this iteration's changes at all. Caught by
-checking the build's exit status rather than trusting the command, exactly as iterations 36,
-39 and 45 say to. Worth noting that the harness's failure was a Playwright timeout on a
-missing element, which looks nothing like "you tested the wrong bundle".
-
-Verified: `./scripts/check.sh` green, all twelve steps — 550 server tests (7 new in
-`TestEditingALabel`), 15 SDK (unchanged), 610 web (5 new for `labelToPayload`).
-`scripts/verify_label_schema.py` grew from twelve checks to seventeen and all pass against a
-rebuilt sidecar; the partial-payload sabotage was confirmed to fail exactly the two rename
-checks and was then restored, with the bundle hash back to `index-BaAzC0sN.js`.
-
 ## Earlier iterations
 
-Iterations **1–48** are in [`docs/iterations/ARCHIVE.md`](./docs/iterations/ARCHIVE.md) —
+Iterations **1–49** are in [`docs/iterations/ARCHIVE.md`](./docs/iterations/ARCHIVE.md) —
 moved there so that orienting costs a few hundred lines rather than four thousand. Read them
 when `git log` points you at an iteration number, or when you are about to build something
 and want to know whether it was already tried and rejected. The lessons from them that are

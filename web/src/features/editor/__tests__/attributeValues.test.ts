@@ -1,6 +1,13 @@
 import { describe, expect, it } from 'vitest';
 import type { AttributeDefinition } from '@/api/types';
-import { attributesFor, inputFromValue, mutableNames, valueFromInput } from '../attributeValues';
+import {
+  attributesFor,
+  initialAttributes,
+  inputFromValue,
+  isMissing,
+  mutableNames,
+  valueFromInput,
+} from '../attributeValues';
 
 function def(overrides: Partial<AttributeDefinition> = {}): AttributeDefinition {
   return {
@@ -66,5 +73,60 @@ describe('attributesFor and mutableNames', () => {
 
   it('names the mutable ones per label', () => {
     expect([...(mutableNames(labels).get('car') ?? [])]).toEqual(['b']);
+  });
+});
+
+describe('initialAttributes', () => {
+  it('starts from every default, typed as the server stores an explicit value', () => {
+    // A default the server fills in itself is stored uncoerced — "false", the string — so
+    // sending it typed is what makes a new object record the boolean.
+    expect(
+      initialAttributes([
+        def({ name: 'parked', attribute_type: 'checkbox', default_value: 'False' }),
+        def({ name: 'count', attribute_type: 'number', default_value: '2' }),
+        def({ name: 'colour', attribute_type: 'select', values: ['red', 'blue'], default_value: 'blue' }),
+        def({ name: 'note', default_value: 'none' }),
+      ]),
+    ).toEqual({ parked: false, count: 2, colour: 'blue', note: 'none' });
+  });
+
+  it('starts a required checkbox with no default unticked, which is what the box shows', () => {
+    const parked = def({ name: 'parked', attribute_type: 'checkbox', required: true });
+    expect(initialAttributes([parked])).toEqual({ parked: false });
+    expect(initialAttributes([{ ...parked, required: false }])).toEqual({});
+  });
+
+  it('chooses nothing for a required select, text or number with no default', () => {
+    // Picking the first option would record a choice nobody made.
+    expect(
+      initialAttributes([
+        def({ name: 'colour', attribute_type: 'select', values: ['red'], required: true }),
+        def({ name: 'plate', required: true }),
+        def({ name: 'count', attribute_type: 'number', required: true }),
+      ]),
+    ).toEqual({});
+  });
+
+  it('leaves out a default the attribute would refuse, as an older server stored some', () => {
+    expect(
+      initialAttributes([
+        def({ attribute_type: 'select', values: ['red'], default_value: 'green' }),
+        def({ name: 'count', attribute_type: 'number', default_value: 'many' }),
+      ]),
+    ).toEqual({});
+  });
+});
+
+describe('isMissing', () => {
+  it('is a required attribute with no value and no default to stand in for one', () => {
+    const plate = def({ name: 'plate', required: true });
+    expect(isMissing(plate, undefined)).toBe(true);
+    expect(isMissing(plate, 'AB12')).toBe(false);
+    expect(isMissing({ ...plate, default_value: 'unknown' }, undefined)).toBe(false);
+    expect(isMissing({ ...plate, required: false }, undefined)).toBe(false);
+  });
+
+  it('counts an unticked checkbox as a value', () => {
+    expect(isMissing(def({ attribute_type: 'checkbox', required: true }), false)).toBe(false);
   });
 });

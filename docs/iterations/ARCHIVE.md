@@ -1,6 +1,6 @@
 # Iteration archive
 
-> The narrative record of iterations **1–48**, moved out of
+> The narrative record of iterations **1–49**, moved out of
 > [`handoff.md`](../../handoff.md) so that orienting on this project costs a few hundred
 > lines rather than four thousand.
 >
@@ -15,6 +15,67 @@
 > window, append it to the top of this file rather than deleting it.
 
 ---
+
+## Iteration 49
+
+### 49 — a label can be renamed, without losing what is attached to it
+
+The other half of iteration 48, and the half that had a stated reason for waiting. It turned
+out the reason was overstated: I wrote here that a rename "is not a name box; it is an
+attribute editor, and the two ship together or not at all". Not so. `PUT` is a replace, but
+a payload rebuilt from the label **as the server reported it** carries the attributes
+through untouched — `update_label` reuses an attribute row whose id comes back — so renaming
+is safe without touching attribute editing at all. Correcting that here because the previous
+entry would have sent the next session after a much larger piece of work than this needed.
+
+**Two server defects, both found by writing the tests before the panel.**
+
+* **A rename walked straight around the duplicate-name rule.** `create_label` has always
+  refused a second label of the same name; `update_label` did not check at all, so
+  `pedestrian` could simply be renamed to `car`. That does not stay cosmetic: exports key
+  classes *by name* — COCO categories, a YOLO class list, this project's own class
+  distribution, which is a `Record<string, number>` — so two labels called `car` merge or
+  collide the moment the dataset leaves.
+* **The response reported attributes it had just deleted.** `_label_out` re-reads the label
+  with `selectinload` after the commit, but SQLAlchemy skips loader options for an instance
+  already in the session, and `expire_on_commit=False` leaves the old collection in place.
+  A `PUT` that emptied a label's attributes came back still listing them. This is the third
+  appearance of this exact bug shape in four iterations (the job's `assignee`, then
+  `reviewer`, now this), and the third different fix for it — `session.refresh` there,
+  `populate_existing=True` here, because the read is a fresh query rather than the written
+  instance.
+
+**`LabelOut` cannot be sent back to `PUT`, which is worth knowing before writing a client.**
+`LabelIn` is a `StrictModel`, so the `project_id` and `parent_id` every read carries are
+rejected outright with a 422. The natural safe pattern — read it, change a field, send it
+back — does not work without stripping them first, and that knowledge now lives in one
+function (`labelToPayload`) with a test, rather than being rediscovered. The alternative
+would have been to let the input schema ignore those fields; rejected, because this codebase
+deliberately rejects unknown keys rather than dropping them, and the same reasoning applies
+here.
+
+**A fixture that made a check unable to fail, again, and caught the same way.** Sabotaging
+the rename to post a partial payload correctly failed "keeps its attribute definitions" —
+and left "stays where it was in the schema" **passing**, because the label under test was
+`car` at position 0 and the sabotage sets position 0. The seed now puts `pedestrian` first
+so the renamed label sits at position 1, and the check asserts that too, so a fixture
+change that quietly reintroduces the hole fails rather than passes. That is the same lesson
+as iteration 47's summary line, in a different disguise.
+
+**And the build trap caught something real, for the first time since it was written down.**
+`npm run build` failed on a `tsc -b` error in the new unit test file — which `npm run
+typecheck` had not reported, since the two use different project configurations. Because
+`vite build` never ran, the sidecar packaged the *previous* bundle, and the harness ran
+happily against code that did not include this iteration's changes at all. Caught by
+checking the build's exit status rather than trusting the command, exactly as iterations 36,
+39 and 45 say to. Worth noting that the harness's failure was a Playwright timeout on a
+missing element, which looks nothing like "you tested the wrong bundle".
+
+Verified: `./scripts/check.sh` green, all twelve steps — 550 server tests (7 new in
+`TestEditingALabel`), 15 SDK (unchanged), 610 web (5 new for `labelToPayload`).
+`scripts/verify_label_schema.py` grew from twelve checks to seventeen and all pass against a
+rebuilt sidecar; the partial-payload sabotage was confirmed to fail exactly the two rename
+checks and was then restored, with the bundle hash back to `index-BaAzC0sN.js`.
 
 ## Iteration 48
 

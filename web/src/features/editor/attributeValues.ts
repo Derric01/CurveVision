@@ -48,6 +48,57 @@ export function inputFromValue(
 }
 
 /**
+ * The values a newly drawn object of a label starts with.
+ *
+ * Every default, typed, which is CVAT's `appendDefaultAttributes`: the panel then shows
+ * what the save will record, and a checkbox default is sent as the boolean an explicit value
+ * is stored as, rather than filled in server-side as the string `"false"`. And `false` for a
+ * required checkbox with no default — an unticked box is what the control shows, so without
+ * it the object displayed a value it was then refused for not having. A required select,
+ * radio, text or number with no default gets nothing: choosing is the annotator's job, and
+ * the save names the object until they have.
+ */
+export function initialAttributes(
+  definitions: readonly AttributeDefinition[],
+): Record<string, unknown> {
+  const values: Record<string, unknown> = {};
+  for (const definition of definitions) {
+    const fallback = definition.default_value;
+    if (fallback === null || fallback === undefined) {
+      if (definition.required && definition.attribute_type === 'checkbox') {
+        values[definition.name] = false;
+      }
+      continue;
+    }
+    const typed = inputFromValue(definition, fallback);
+    if (definition.attribute_type === 'checkbox') values[definition.name] = typed;
+    else if (definition.attribute_type === 'number') {
+      const parsed = valueFromInput(definition, fallback);
+      if (typeof parsed === 'number') values[definition.name] = parsed;
+    } else if (definition.attribute_type === 'text' || definition.values.includes(fallback)) {
+      // A select default outside its options, which an older server accepted, is left to
+      // the server to fill in as it always has rather than sent and refused.
+      values[definition.name] = fallback;
+    }
+  }
+  return values;
+}
+
+/**
+ * A required attribute the object has no value for, which its save will be refused over.
+ *
+ * Only for marking the control: whether a save is refused is still the server's answer.
+ * A default counts as a value, since the server fills it in (`validate_attributes`).
+ */
+export function isMissing(definition: AttributeDefinition, value: unknown): boolean {
+  return (
+    definition.required &&
+    (definition.default_value === null || definition.default_value === undefined) &&
+    (value === undefined || value === null)
+  );
+}
+
+/**
  * The attributes the panel offers for a label, in the schema's order.
  *
  * `required` is marked on the control rather than enforced here: the server is what
