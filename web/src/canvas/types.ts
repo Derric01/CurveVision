@@ -126,6 +126,11 @@ export interface LabelStyle {
    * fetched separately so both read one source and cannot disagree about joint order.
    */
   skeleton?: SkeletonSchema;
+  /**
+   * The attribute values an object of this label starts with when it is drawn. The tools
+   * build every new object with none; `AnnotationEngine.applyResult` lays these under it.
+   */
+  initialAttributes?: Readonly<Record<string, unknown>>;
 }
 
 /** Viewport transform: image space -> screen space. */

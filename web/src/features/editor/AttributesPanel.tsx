@@ -13,8 +13,9 @@
  */
 
 import { useState } from 'react';
+import clsx from 'clsx';
 import type { AttributeDefinition } from '@/api/types';
-import { inputFromValue, valueFromInput } from './attributeValues';
+import { inputFromValue, isMissing, valueFromInput } from './attributeValues';
 
 export function AttributesPanel({
   objectId,
@@ -67,21 +68,30 @@ function AttributeControl({
   // What is typed into a number box is kept apart from what is stored, so "-" or "1." can
   // be typed on the way to a number without being refused or rewritten underneath.
   const [typed, setTyped] = useState<string | null>(null);
-  const control =
-    'h-7 w-full min-w-0 rounded border border-ink-700 bg-ink-950 px-1.5 text-xs text-ink-100 focus:border-curve-400';
+  // The save will be refused until this has a value, so say which control that is.
+  const missing = isMissing(definition, value);
+  const control = clsx(
+    'h-7 w-full min-w-0 rounded border bg-ink-950 px-1.5 text-xs text-ink-100 focus:border-curve-400',
+    missing ? 'border-amber-500/70' : 'border-ink-700',
+  );
   const hint = tracked && definition.mutable ? 'Recorded on this frame, and held until the next keyframe changes it.' : undefined;
 
   const label = (
     <span className="flex items-center gap-1 text-xs text-ink-300" title={hint}>
       {definition.name}
-      {definition.required && <span className="text-amber-300" title="Required">*</span>}
+      {definition.required && (
+        <span className="text-amber-300" title={missing ? 'Required, and not set yet' : 'Required'}>
+          *
+        </span>
+      )}
       {tracked && definition.mutable && <span className="text-[10px] text-ink-500">(this frame)</span>}
     </span>
   );
+  const marks = missing ? { 'data-attribute-missing': '' } : {};
 
   if (definition.attribute_type === 'checkbox') {
     return (
-      <label className="flex items-center gap-2" data-attribute={definition.name}>
+      <label className="flex items-center gap-2" data-attribute={definition.name} {...marks}>
         <input
           type="checkbox"
           checked={shown === true}
@@ -94,7 +104,11 @@ function AttributeControl({
 
   if (definition.attribute_type === 'select' || definition.attribute_type === 'radio') {
     return (
-      <label className="grid grid-cols-[6rem_1fr] items-center gap-2" data-attribute={definition.name}>
+      <label
+        className="grid grid-cols-[6rem_1fr] items-center gap-2"
+        data-attribute={definition.name}
+        {...marks}
+      >
         {label}
         <select
           className={control}
@@ -113,7 +127,11 @@ function AttributeControl({
   }
 
   return (
-    <label className="grid grid-cols-[6rem_1fr] items-center gap-2" data-attribute={definition.name}>
+    <label
+      className="grid grid-cols-[6rem_1fr] items-center gap-2"
+      data-attribute={definition.name}
+      {...marks}
+    >
       {label}
       <input
         className={control}

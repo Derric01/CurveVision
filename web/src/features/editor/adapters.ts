@@ -21,8 +21,9 @@ import type {
   ShapeType,
   SkeletonElement,
 } from '@/canvas/types';
+import { initialAttributes } from './attributeValues';
 import { interpolateTrack, type Keyframe } from './interpolate';
-import { attributesAt } from './keyframes';
+import { attributesAt, type CanvasEdit } from './keyframes';
 
 export function toAnnotation(shape: ApiShape): Annotation {
   return {
@@ -135,6 +136,7 @@ export function toLabelStyles(labels: Label[]): LabelStyle[] {
       children: label.children,
       skeletonEdges: label.skeleton_edges,
     });
+    const initial = initialAttributes(label.attributes);
     styles.push({
       id: label.id,
       name: label.name,
@@ -142,6 +144,7 @@ export function toLabelStyles(labels: Label[]): LabelStyle[] {
       visible: true,
       locked: false,
       ...(schema ? { skeleton: schema } : {}),
+      ...(Object.keys(initial).length > 0 ? { initialAttributes: initial } : {}),
     });
     for (const child of label.children ?? []) {
       styles.push({
@@ -220,6 +223,54 @@ export function frameAnnotations(
     });
   }
 
+  return result;
+}
+
+/** What autosave holds for one frame that the server does not have yet. */
+export interface UnsavedFrame {
+  /** Objects drawn or changed here: queued, or refused and waiting to be fixed. */
+  annotations: readonly Annotation[];
+  /** Tracked objects moved or changed on this frame. */
+  tracks: readonly CanvasEdit[];
+  /** Shapes and tracks whose deletion has not been sent. */
+  deletedIds: ReadonlySet<string>;
+}
+
+/**
+ * One frame as the server has it, with what autosave has not saved yet laid back on top.
+ *
+ * A save reloads the frame from the server, and the canvas shows only what it is given — so
+ * an object the server refused, which is on no server, vanished with the reload that
+ * followed the rest of its batch being saved, and nobody could select it to fix it. An
+ * object drawn while a save was in flight vanished the same way until the next one.
+ */
+export function withUnsaved(
+  onServer: readonly Annotation[],
+  unsaved: UnsavedFrame,
+): Annotation[] {
+  const local = new Map(unsaved.annotations.map((annotation) => [annotation.id, annotation]));
+  const moved = new Map(unsaved.tracks.map((edit) => [edit.trackId, edit]));
+  const result: Annotation[] = [];
+  for (const annotation of onServer) {
+    if (unsaved.deletedIds.has(annotation.id)) continue;
+    const changed = local.get(annotation.id);
+    local.delete(annotation.id);
+    const edit = annotation.trackId ? moved.get(annotation.trackId) : undefined;
+    if (changed) result.push(changed);
+    else if (edit) {
+      result.push({
+        ...annotation,
+        labelId: edit.labelId,
+        points: edit.points,
+        rotation: edit.rotation,
+        occluded: edit.occluded,
+        attributes: edit.attributes,
+      });
+    } else result.push(annotation);
+  }
+  // Only what the server has never had. A change to something it no longer has is not
+  // drawn back: that object was deleted elsewhere, and drawing it would be a ghost.
+  for (const annotation of local.values()) if (annotation.pending) result.push(annotation);
   return result;
 }
 

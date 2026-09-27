@@ -338,6 +338,94 @@ class TestAnnotationEngine:
         assert response.status_code == 422
         assert "colours" in response.text
 
+    async def test_a_refusal_names_the_entry_it_came_from(
+        self, owner: ApiActor, project: dict[str, Any]
+    ) -> None:
+        """A client must be able to set one bad object aside and save the rest.
+
+        Refused whole, and naming nothing, a batch can only be resent whole — which is how
+        one bad object failed every autosave after it.
+        """
+        _task, jobs = await make_task(owner, project, frames=1)
+        job_id = jobs[0]["id"]
+        box = {"frame": 0, "shape_type": "rectangle", "points": [0, 0, 10, 10]}
+        response = await owner.patch(
+            f"/api/v1/jobs/{job_id}/annotations",
+            json={
+                "annotation_version": 0,
+                "created_shapes": [
+                    {**box, "label_id": label_id(project, "pedestrian")},
+                    {**box, "label_id": label_id(project, "car"), "attributes": {"colour": "x"}},
+                ],
+            },
+        )
+        assert response.status_code == 422
+        body = response.json()
+        assert body["errors"] == [
+            {
+                "location": ["body", "created_shapes", 1],
+                "message": body["detail"],
+                "type": "validation_error",
+            }
+        ]
+        assert "colour" in body["detail"]
+
+        # Still one transaction: the good entry before it was not written either.
+        document = (await owner.get(f"/api/v1/jobs/{job_id}/annotations")).json()
+        assert document["shapes"] == []
+        assert document["annotation_version"] == 0
+
+    async def test_a_refused_track_or_missing_shape_names_its_entry_too(
+        self, owner: ApiActor, project: dict[str, Any]
+    ) -> None:
+        _task, jobs = await make_task(owner, project, frames=2)
+        job_id = jobs[0]["id"]
+        car = label_id(project, "car")
+        keyframe = {"frame": 0, "shape_type": "rectangle", "points": [0, 0, 10, 10]}
+        seeded = await owner.patch(
+            f"/api/v1/jobs/{job_id}/annotations",
+            json={
+                "annotation_version": 0,
+                "created_tracks": [
+                    {"label_id": car, "shape_type": "rectangle", "shapes": [keyframe]},
+                    {"label_id": car, "shape_type": "rectangle", "shapes": [keyframe]},
+                ],
+            },
+        )
+        assert seeded.status_code == 200, seeded.text
+        tracks = (await owner.get(f"/api/v1/jobs/{job_id}/annotations")).json()["tracks"]
+
+        def update(track: dict[str, Any], **changes: Any) -> dict[str, Any]:
+            return {
+                "id": track["id"],
+                "label_id": car,
+                "shape_type": "rectangle",
+                "shapes": [keyframe],
+                **changes,
+            }
+
+        refused_track = await owner.patch(
+            f"/api/v1/jobs/{job_id}/annotations",
+            json={
+                "annotation_version": 1,
+                "updated_tracks": [update(tracks[0]), update(tracks[1], attributes={"size": 1})],
+            },
+        )
+        assert refused_track.status_code == 422
+        assert refused_track.json()["errors"][0]["location"] == ["body", "updated_tracks", 1]
+
+        missing = await owner.patch(
+            f"/api/v1/jobs/{job_id}/annotations",
+            json={
+                "annotation_version": 1,
+                "updated_shapes": [
+                    {**keyframe, "id": tracks[0]["id"], "label_id": car},
+                ],
+            },
+        )
+        assert missing.status_code == 404
+        assert missing.json()["errors"][0]["location"] == ["body", "updated_shapes", 0]
+
     async def test_attribute_value_must_be_in_the_allowed_set(
         self, owner: ApiActor, project: dict[str, Any]
     ) -> None:

@@ -357,6 +357,8 @@ React mounts and talks to via a small command API:
 * **Undo/redo**: a command stack of inverse-pair operations, with coalescing for drags.
 * **Autosave**: dirty-set flushing on an interval and on frame change, with a local
   IndexedDB write-ahead buffer so a browser crash or network drop does not lose work.
+  *Status:* the flushing is built; the buffer is written and **never read back** —
+  nothing offers to restore a draft — so the crash half of that sentence is not true yet.
 
 ### Interaction requirements
 
@@ -393,6 +395,16 @@ the next save lost the object anyway**: the undo reaches autosave as an update w
 deletion is still queued, both were sent, and the server applies deletions last — for a
 never-saved object the undo was dropped outright. An update for an object whose deletion is
 queued now cancels it. `scripts/verify_track_canvas_edit.py` drives all of it.
+**Fixed since (iteration 55): one refused object failed every save after it.** A save is
+one batch and one transaction, refused whole, and autosave put a refused batch back to
+retry — so a box the server would never accept (a `required` attribute nobody had filled
+in) took every later edit in the session down with it. The server now names the entry it
+refused (`errors[].location`, the convention request validation already used), and
+autosave sets that object aside with the reason, saves the rest at once, keeps it on the
+canvas across the reload, and sends it again when it is edited; Submit waits until nothing
+is held. A deletion made between a save and the reload that follows it went out under the
+object's local id, which the server cannot parse — the same poisoning by another road —
+and now goes out under the id the save returned. `scripts/verify_save_refusals.py`.
 **Planned:** magnetic lasso, multi-user presence cursors.
 
 ---
@@ -610,9 +622,11 @@ Planned: LabelMe, Open Images, TFRecord, Datumaro bridge.
   keyframe at that frame and any other on the track, and the editor now shows a tracked
   object's values the way the server exports them — the track's merged with those held
   since the last keyframe, where before it showed the track's alone. A keyframe added with
-  `K` or by a drag starts from the values in force rather than from none. The form still
-  does not offer `required`: a required attribute with no default is still refused on the
-  first save of a newly drawn shape, before anybody could set it.
+  `K` or by a drag starts from the values in force rather than from none. A new object
+  starts with its label's defaults, typed (CVAT's `appendDefaultAttributes`), and a
+  required checkbox unticked; a required select, text or number with no default is marked
+  on its control, and the save that is refused for it no longer stops anything else being
+  saved (iteration 55). The form still does not offer `required`.
   `scripts/verify_attribute_values.py` drives it.
 * **Merging overlapping jobs** (**Done**): a task with `overlap > 0` hands the same frames to
   two annotators so a track can cross a job seam. Export reconciles those frames instead of

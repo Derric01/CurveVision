@@ -547,8 +547,16 @@ export class AnnotationEngine {
     if (result.created) {
       // Every tool builds its draft with `frame: 0` as a placeholder (see `currentFrame`);
       // this is the one place that placeholder becomes the frame actually being viewed,
-      // so no tool has to know the current frame to get this right.
-      const created = { ...result.created, frame: this.currentFrame };
+      // so no tool has to know the current frame to get this right. The same goes for the
+      // label's starting attribute values, which no tool knows either.
+      const created = {
+        ...result.created,
+        frame: this.currentFrame,
+        attributes: {
+          ...this.scene.label(result.created.labelId)?.initialAttributes,
+          ...result.created.attributes,
+        },
+      };
       this.commands.execute(createAddCommand(this.commandTarget(), created));
       this.scene.select([created.id]);
       this.listeners.created?.(created);

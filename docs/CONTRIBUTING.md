@@ -85,7 +85,7 @@ typo at the point it was made.
 ## Browser harnesses
 
 `./scripts/check.sh` covers everything CI runs on a push, and it does not open a browser.
-Twenty-five scripts in `scripts/` do — they launch the **packaged desktop application**, drive
+Twenty-six scripts in `scripts/` do — they launch the **packaged desktop application**, drive
 it in Chromium, and assert against the **API** rather than the DOM, because the question is
 not "did the page look right" but "is the data now what the user asked for".
 
@@ -152,9 +152,25 @@ harness: compare a count with the one taken **just before its own step**, not wi
 running total, so one failure cannot make the next check fail (or pass) for its reason;
 and a Save button that is disabled because nothing is pending is a finding, so click it
 only when enabled and let the API assertion report it, rather than dying on a timeout.
+`verify_save_refusals.py` added three. **A count cannot tell two failures from one
+success**: "a box deleted before its save's reload is deleted, and the next one saves" first
+asserted one more sign than before — which is also what the bug leaves, the deleted box
+still there and the next never saved. It asserts positions now, and fails on the bug for
+the stated reason. **Selecting from the object list zooms onto the object**, so a box drawn
+afterwards at "image x=150" landed at 45; the harness fits the frame before every draw.
+And **a window a timer has to hit is widened, not re-run**: the deletion-before-reload
+defect surfaced as one unexplained failure of `verify_track_canvas_edit.py` in about
+fourteen runs. Twelve re-runs did not repeat it; holding the editor's reads back two
+seconds with `page.route` reproduces it on every run. A sabotage failed to compile again
+this time too (a narrowing to `never`), and the build's exit status gave it away. And **the
+editor's own autosave is a party to every harness**: it saves every four seconds whenever
+anything is pending, and a save reloads the frame and clears the undo stack. A step that
+edits and then presses Ctrl+Z assumes no save in between; `verify_track_canvas_edit.py`'s
+"never saved" step now counts the `PATCH`es sent during it and repeats an attempt one
+landed in, rather than reporting the timer's failure as the product's.
 
 They run **nightly and on every push to `main`** (`.github/workflows/browser.yml`), not on
-pull requests: a PyInstaller build plus twenty-five end-to-end runs is twenty minutes, and CI
+pull requests: a PyInstaller build plus twenty-six end-to-end runs is twenty minutes, and CI
 that slow stops being run. Trigger one by hand from the Actions tab — the workflow takes a
 single harness name — or run one locally:
 
@@ -179,6 +195,7 @@ python scripts/verify_label_schema.py
 python scripts/verify_attribute_editor.py
 python scripts/verify_track_canvas_edit.py
 python scripts/verify_attribute_values.py
+python scripts/verify_save_refusals.py
 ```
 
 **Both build steps, in that order, every time.** The packaged sidecar embeds `web/dist`, so a

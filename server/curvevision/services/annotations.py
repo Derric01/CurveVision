@@ -12,14 +12,20 @@ from __future__ import annotations
 
 import uuid
 from collections import defaultdict
-from collections.abc import Sequence
+from collections.abc import Iterator, Sequence
+from contextlib import contextmanager
 from typing import Any, cast
 
 from sqlalchemy import CursorResult, delete, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
-from curvevision.core.errors import ConflictError, NotFoundError, ValidationError
+from curvevision.core.errors import (
+    ConflictError,
+    CurveVisionError,
+    NotFoundError,
+    ValidationError,
+)
 from curvevision.domain.annotation import Shape, Tag, Track, TrackShape
 from curvevision.domain.enums import AnnotationSource, ShapeType
 from curvevision.domain.identity import User
@@ -256,40 +262,46 @@ async def write_annotations(
     deleted: dict[str, int] = defaultdict(int)
     id_map: dict[str, uuid.UUID] = {}
 
-    for incoming_shape in payload.created_shapes:
-        shape = await _create_shape(session, job, incoming_shape, schema, actor)
+    for index, incoming_shape in enumerate(payload.created_shapes):
+        with _entry("created_shapes", index):
+            shape = await _create_shape(session, job, incoming_shape, schema, actor)
         created["shapes"] += 1
         if incoming_shape.client_id:
             id_map[incoming_shape.client_id] = shape.id
 
-    for incoming_shape in payload.updated_shapes:
-        await _update_shape(session, job, incoming_shape, schema)
+    for index, incoming_shape in enumerate(payload.updated_shapes):
+        with _entry("updated_shapes", index):
+            await _update_shape(session, job, incoming_shape, schema)
         updated["shapes"] += 1
 
     if payload.deleted_shapes:
         deleted["shapes"] = await _delete_rows(session, Shape, job.id, payload.deleted_shapes)
 
-    for incoming_track in payload.created_tracks:
-        track = await _create_track(session, job, incoming_track, schema, actor)
+    for index, incoming_track in enumerate(payload.created_tracks):
+        with _entry("created_tracks", index):
+            track = await _create_track(session, job, incoming_track, schema, actor)
         created["tracks"] += 1
         if incoming_track.client_id:
             id_map[incoming_track.client_id] = track.id
 
-    for incoming_track in payload.updated_tracks:
-        await _update_track(session, job, incoming_track, schema)
+    for index, incoming_track in enumerate(payload.updated_tracks):
+        with _entry("updated_tracks", index):
+            await _update_track(session, job, incoming_track, schema)
         updated["tracks"] += 1
 
     if payload.deleted_tracks:
         deleted["tracks"] = await _delete_rows(session, Track, job.id, payload.deleted_tracks)
 
-    for incoming_tag in payload.created_tags:
-        tag = await _create_tag(session, job, incoming_tag, schema, actor)
+    for index, incoming_tag in enumerate(payload.created_tags):
+        with _entry("created_tags", index):
+            tag = await _create_tag(session, job, incoming_tag, schema, actor)
         created["tags"] += 1
         if incoming_tag.client_id:
             id_map[incoming_tag.client_id] = tag.id
 
-    for incoming_tag in payload.updated_tags:
-        await _update_tag(session, job, incoming_tag, schema)
+    for index, incoming_tag in enumerate(payload.updated_tags):
+        with _entry("updated_tags", index):
+            await _update_tag(session, job, incoming_tag, schema)
         updated["tags"] += 1
 
     if payload.deleted_tags:
@@ -318,6 +330,24 @@ async def write_annotations(
         "deleted": dict(deleted),
         "id_map": id_map,
     }
+
+
+@contextmanager
+def _entry(field: str, index: int) -> Iterator[None]:
+    """Name the batch entry a refusal came from, as request validation names a field.
+
+    The batch is still refused whole — it is one transaction. But a client that cannot tell
+    which of its entries was refused can only resend all of them, and an autosave that did
+    exactly that failed every save after one bad object, however many good ones followed.
+    """
+    try:
+        yield
+    except CurveVisionError as exc:
+        exc.extra.setdefault(
+            "errors",
+            [{"location": ["body", field, index], "message": exc.detail, "type": exc.error_type}],
+        )
+        raise
 
 
 async def _create_shape(
