@@ -631,7 +631,9 @@ Planned: LabelMe, Open Images, TFRecord, Datumaro bridge.
   starts with its label's defaults, typed (CVAT's `appendDefaultAttributes`), and a
   required checkbox unticked; a required select, text or number with no default is marked
   on its control, and the save that is refused for it no longer stops anything else being
-  saved (iteration 55). The form still does not offer `required`.
+  saved (iteration 55). The form offers `required` (iteration 57); the server refuses it
+  while an annotation of the label has no value and there is no default, and the form
+  shows that refusal.
   `scripts/verify_attribute_values.py` drives it.
 * **Merging overlapping jobs** (**Done**): a task with `overlap > 0` hands the same frames to
   two annotators so a track can cross a job seam. Export reconciles those frames instead of

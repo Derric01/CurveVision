@@ -5,10 +5,10 @@
 > [`AGENTS.md`](./AGENTS.md) first; it is the working contract. Update this file after every
 > iteration, including the ones that mostly failed.
 >
-> **Last updated:** 2026-09-27 (iteration 56) · branch `claude/start-work-yx080h` · PRs
+> **Last updated:** 2026-10-07 (iteration 57) · branch `claude/start-work-yx080h` · PRs
 > [#1](https://github.com/Derric01/CurveVision/pull/1)–[#26](https://github.com/Derric01/CurveVision/pull/26)
-> **all merged**, #26 carrying iteration 55. The branch was restarted from `origin/main`
-> after that merge; iteration 56 is pushed to it with no PR opened yet.
+> **all merged**, #26 carrying iteration 55. Iterations 56 and 57 are pushed to the branch,
+> unmerged, with no PR opened yet.
 >
 > *Two things worth knowing about this repository's PR rhythm, which replace the
 > PR-by-PR changelog that used to sit here and had stopped helping anybody.* **PRs are
@@ -22,7 +22,7 @@
 > **Keep the session short.** One iteration, then commit, push, update this file and report —
 > `AGENTS.md` § *Continue* and the `start-work` skill both say so now, because they did not
 > before and a single session ran six iterations and roughly a third of a week's budget. The
-> concrete costs, in rough order: re-reading this file (iterations 1–50 now live in
+> concrete costs, in rough order: re-reading this file (iterations 1–51 now live in
 > [`docs/iterations/ARCHIVE.md`](./docs/iterations/ARCHIVE.md), which cut it from 3,800
 > lines to 1,000 — keep it that way); `python desktop/sidecar/build.py`, which is a
 > PyInstaller run of a minute or two and is needed *again* for every sabotage-and-restore
@@ -370,15 +370,7 @@ was the last unconnected piece of the desktop application.
 
 ## Next best action
 
-**Offer `required` on the label form.** Iteration 55 made it safe — a required attribute
-nobody has filled in no longer takes a session's saves down with it; the object is held,
-named and marked — and the server side is done: `_refuse_stranding_values` refuses making an
-attribute required without a default while annotations lack a value. What is left is the
-form: a checkbox beside "changes per frame" in `attributeSchema.ts`'s drafts and the label
-form, carried through `draftToPayload`, and the server's refusal shown when it comes. The
-form's own tests and `verify_attribute_editor.py` show the pattern.
-
-**Then, found this iteration and small: a duplicate `client_id` is a 500.** The server
+**Make a duplicate `client_id` a named refusal, not a 500** (found in iteration 56). The server
 keeps one `client_id` per job (`uq_shape_client_id`) and does not check for it, so a create
 resent after its first attempt landed is an `IntegrityError`. The editor cannot reach it —
 a resend carries a stale `annotation_version` and gets a 409 first, and a restore skips what
@@ -386,8 +378,7 @@ the server has — but `annotation_version` is optional, so a script that omits 
 can. Found by reading, not reproduced. A named 422 through `_entry`, or treating it as the
 retry it is and answering with the existing id, are the two shapes of fix.
 
-*The previous next best action, crash recovery, was iteration 56; the one before it,
-iteration 55.*
+*Offering `required` on the label form was iteration 57; crash recovery, 56.*
 
 **A second candidate, smaller and unglamorous: generate `web/src/api/types.ts` from the
 OpenAPI schema.** The file is hand-maintained and nothing verifies it against the server —
@@ -697,7 +688,8 @@ Duplicate attribute names, invalid defaults, and the same-name replacement and n
 that used to be 500s are handled. The form shows a saved attribute's fixed controls as
 fixed and catches a blank or repeated name, a select without options and a non-numeric
 number default before Save, because the server's answer to those is a 422 that renders only
-as "One or more fields are invalid". It does not offer `required` (see *Next best action*).
+as "One or more fields are invalid". It offers `required` since iteration 57, never shown
+fixed; the server's refusal of a requirement some annotation cannot meet is what is shown.
 `attributeSchema.ts` is pure and separately tested (18 tests); `TestEditingAttributes` has
 20 server tests, also run against a real PostgreSQL 16; `scripts/verify_attribute_editor.py`
 drives the form and then the editor, dragging and saving the annotator's box after the edits.
@@ -797,7 +789,7 @@ full docs set including seven ADRs.
 | Choosing individual files (desktop) | Complete and measured in a browser: `choose_files` now has a caller, one `local-import` call per chosen file, a failed file reported in `skipped` without aborting the others, and the results of a whole batch merged into one summary. |
 | Cuboid (2D wireframe box) | Complete and measured in a browser: a two-stage tool (drag the front face, then move and click to set the depth), a wireframe renderer, and CVAT XML export/import using CVAT's own real attribute names. The backend needed no new code at all — `ShapeType.CUBOID`, its minimum-points entry, its IoU comparison and its track interpolation were already there, unused. **Not** the 3D/point-cloud kind — see `docs/ROADMAP.md`'s honestly-unchanged limitation on that. |
 | Resumable uploads | Complete and tested end to end — API, SDK, CLI and the web upload panel: create a session, `PATCH` chunks at a stated offset, read the current offset back, complete, resume by id after a crash or a page reload. Driven in a browser through a deliberately dropped chunk and a real resume. Nothing outstanding. |
-| Label schema | Complete, driven in a browser: a label is added, renamed, recoloured and removed, and its **attributes** are added, renamed, extended and removed from the same form — with any edit that would strand a value already recorded refused by the server. Attribute **values** are set from the editor's right rail (iteration 54), and a required one nobody has set no longer poisons autosave (iteration 55). The form does not offer `required`; see *Next best action*. |
+| Label schema | Complete, driven in a browser: a label is added, renamed, recoloured and removed, and its **attributes** are added, renamed, extended and removed from the same form — with any edit that would strand a value already recorded refused by the server. Attribute **values** are set from the editor's right rail (iteration 54), and a required one nobody has set no longer poisons autosave (iteration 55). The form offers `required` (iteration 57). |
 | Autosave crash recovery | Complete in a browser (iteration 56), driven through a closed page, a dropped connection, a save that landed unheard and a killed-and-relaunched desktop server. Not yet checked in the Tauri shell's own webview, whose storage persisting across launches is the platform default. |
 | Job review | Complete end to end and driven in a browser, all three parts: the **assignment** (an annotator picker and a reviewer picker on each job row of the task page, either clearable back to Unassigned), the **queue** (`GET /jobs?reviewing=true`, split on the My work page into what can be reviewed now and what is merely named to you), and the **decision** (accept or send back with a required reason, from the editor's rail). Nothing outstanding. |
 
@@ -818,6 +810,14 @@ being updated and this one was not. Check it against* Completed *before trusting
 ---
 
 ## Verification performed
+
+Iteration 57:
+
+* `./scripts/check.sh` after: **all twelve pass** — 588 server, 15 SDK, 686 web (no unit
+  change: `draftToPayload` already carried `required`, and was already tested for it).
+* `verify_attribute_editor.py` gained step 7b. Against the build before the change, exactly
+  its two new checks fail (no control to tick). Against the new build (`index-D7GUoz04.js`)
+  all checks pass, as do `verify_label_schema` and `verify_save_refusals`.
 
 Iteration 56:
 
@@ -1107,6 +1107,21 @@ Iteration 54:
 
 ## Last iteration
 
+### 57 — the label form offers `required`
+
+The next best action, and small: iterations 54 and 55 removed the two reasons it was held
+back (no way to set a value; one refused object failing every later save), and the server
+rule was already there — `_refuse_stranding_values` refuses a newly required attribute
+while an annotation of the label has no value and there is no default. One checkbox per
+attribute row, never shown fixed, because whether it is allowed depends on data the form
+cannot see; the refusal arrives through the panel's existing error line. The harness's first
+draft of the new step died on a Playwright timeout against the old build (no checkbox to
+tick); it now reports a missing control as the two FAILs it should be.
+
+Verified: see *Verification performed*.
+
+## Iteration 56
+
 ### 56 — unsaved work survives a crash, in both shapes
 
 The next best action from iteration 55, which had found that crash recovery was a false
@@ -1313,56 +1328,9 @@ Verified, every command run in that session:
   web source was already the restored one.
 * `scripts/verify_label_schema.py`, which drives the same edit form: all 17 checks pass.
 
-## Iteration 51
-
-### 51 — every timestamp is UTC, and says so
-
-The defect iteration 50 found and deliberately left for its own diff. `DateTime(timezone=
-True)` is honoured by PostgreSQL's `timestamptz` and cannot be honoured by SQLite, which has
-no time-zone type: the same column handed back an aware `datetime` from one backend and a
-naive one from the other.
-
-**Two ways that escaped, and the quiet one is the one that mattered.** In Python it is loud
-— comparing a naive value read from SQLite against an aware `utcnow()` raises `TypeError`,
-so it announces itself. Over the wire it said nothing: the same instant came back as
-`...Z` from an instance that had just been written and with **no suffix at all** once the
-row had been read back, and `new Date('2026-09-21T08:29:23')` in a browser is *local* time.
-The desktop shape is the SQLite one, so every time it displayed was shifted by the viewer's
-own UTC offset — silently, and correctly-looking for anybody sitting in UTC.
-`ProjectsPage` renders `new Date(project.created_at).toLocaleDateString()` and `issues.ts`
-orders threads by comparing these as strings, which two formats break.
-
-**`core/types.py` is where this belongs, by that file's own rule.** Its docstring already
-says the decorators there "are the only place that difference [between PostgreSQL and
-SQLite] is allowed to exist", and `EnumString` exists for an exactly analogous reason — a
-value read back being an ordinary `str` so that `is SomeEnum.MEMBER` is silently false.
-`UTCDateTime` joins them: aware UTC on the way in and on the way out, a naive value assumed
-to be UTC because `utcnow` is the only thing that writes one, and an offset value converted
-rather than relabelled. All fifteen `DateTime(timezone=True)` columns now use it.
-
-**No migration, deliberately.** `load_dialect_impl` returns `DateTime(timezone=True)`, so
-the DDL emitted is the DDL that was already there; nothing about the stored data changes,
-only how it is read. A migration would have been a no-op with a version number.
-
-**Confirmed both tests bite** by making `process_result_value` return the value untouched:
-the two new ones in `test_timestamps.py` fail, and so do all three of iteration 50's
-whole-body comparisons, which is the point — that property is now strict rather than
-excluding two fields with an apology.
-
-**No browser harness for this, and not because it is hard.** This container runs in UTC, so
-a harness that rendered a date and compared it against the API would pass whether or not the
-bug is present: local and UTC are the same thing here. A check that cannot fail is the trap
-the last four iterations have each recorded a version of, and adding one here would have
-been the most literal case of it yet. The API-level assertion — that both spellings of the
-same instant carry an offset — is the one that actually distinguishes the two states.
-
-Verified: `./scripts/check.sh` green, all twelve steps — 562 server tests (2 new in
-`test_timestamps.py`), 15 SDK and 610 web unchanged. `TestAWriteAgreesWithTheNextRead` now
-compares whole bodies, with nothing excluded.
-
 ## Earlier iterations
 
-Iterations **1–50** are in [`docs/iterations/ARCHIVE.md`](./docs/iterations/ARCHIVE.md) —
+Iterations **1–51** are in [`docs/iterations/ARCHIVE.md`](./docs/iterations/ARCHIVE.md) —
 moved there so that orienting costs a few hundred lines rather than four thousand. Read them
 when `git log` points you at an iteration number, or when you are about to build something
 and want to know whether it was already tried and rejected. The lessons from them that are

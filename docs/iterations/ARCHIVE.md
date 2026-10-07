@@ -1,6 +1,6 @@
 # Iteration archive
 
-> The narrative record of iterations **1–50**, moved out of
+> The narrative record of iterations **1–51**, moved out of
 > [`handoff.md`](../../handoff.md) so that orienting on this project costs a few hundred
 > lines rather than four thousand.
 >
@@ -15,6 +15,53 @@
 > window, append it to the top of this file rather than deleting it.
 
 ---
+
+## Iteration 51
+
+### 51 — every timestamp is UTC, and says so
+
+The defect iteration 50 found and deliberately left for its own diff. `DateTime(timezone=
+True)` is honoured by PostgreSQL's `timestamptz` and cannot be honoured by SQLite, which has
+no time-zone type: the same column handed back an aware `datetime` from one backend and a
+naive one from the other.
+
+**Two ways that escaped, and the quiet one is the one that mattered.** In Python it is loud
+— comparing a naive value read from SQLite against an aware `utcnow()` raises `TypeError`,
+so it announces itself. Over the wire it said nothing: the same instant came back as
+`...Z` from an instance that had just been written and with **no suffix at all** once the
+row had been read back, and `new Date('2026-09-21T08:29:23')` in a browser is *local* time.
+The desktop shape is the SQLite one, so every time it displayed was shifted by the viewer's
+own UTC offset — silently, and correctly-looking for anybody sitting in UTC.
+`ProjectsPage` renders `new Date(project.created_at).toLocaleDateString()` and `issues.ts`
+orders threads by comparing these as strings, which two formats break.
+
+**`core/types.py` is where this belongs, by that file's own rule.** Its docstring already
+says the decorators there "are the only place that difference [between PostgreSQL and
+SQLite] is allowed to exist", and `EnumString` exists for an exactly analogous reason — a
+value read back being an ordinary `str` so that `is SomeEnum.MEMBER` is silently false.
+`UTCDateTime` joins them: aware UTC on the way in and on the way out, a naive value assumed
+to be UTC because `utcnow` is the only thing that writes one, and an offset value converted
+rather than relabelled. All fifteen `DateTime(timezone=True)` columns now use it.
+
+**No migration, deliberately.** `load_dialect_impl` returns `DateTime(timezone=True)`, so
+the DDL emitted is the DDL that was already there; nothing about the stored data changes,
+only how it is read. A migration would have been a no-op with a version number.
+
+**Confirmed both tests bite** by making `process_result_value` return the value untouched:
+the two new ones in `test_timestamps.py` fail, and so do all three of iteration 50's
+whole-body comparisons, which is the point — that property is now strict rather than
+excluding two fields with an apology.
+
+**No browser harness for this, and not because it is hard.** This container runs in UTC, so
+a harness that rendered a date and compared it against the API would pass whether or not the
+bug is present: local and UTC are the same thing here. A check that cannot fail is the trap
+the last four iterations have each recorded a version of, and adding one here would have
+been the most literal case of it yet. The API-level assertion — that both spellings of the
+same instant carry an offset — is the one that actually distinguishes the two states.
+
+Verified: `./scripts/check.sh` green, all twelve steps — 562 server tests (2 new in
+`test_timestamps.py`), 15 SDK and 610 web unchanged. `TestAWriteAgreesWithTheNextRead` now
+compares whole bodies, with nothing excluded.
 
 ## Iteration 50
 

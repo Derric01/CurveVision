@@ -22,9 +22,12 @@
  * the screen only as "One or more fields are invalid" — and all of them are knowable from
  * the form alone, unlike a label's duplicate name, which is a comparison with other rows.
  *
- * `required` is **carried through, not offered**. The editor cannot yet set an attribute's
- * value on a shape, so a required attribute with no default would make its label
- * impossible to draw with from the application at all.
+ * `required` is offered, and never fixed. Making an attribute required is refused by the
+ * server while an annotation of the label has no value for it and there is no default —
+ * the same refusal-shown-as-it-arrives as a rename. It was carried through without being
+ * offered until iteration 57: before the editor could set a value (54) and set a refused
+ * object aside rather than fail every save after it (55), a required attribute with no
+ * default made its label impossible to draw with.
  */
 
 import type { AttributeDefinition, AttributePayload } from '@/api/types';
