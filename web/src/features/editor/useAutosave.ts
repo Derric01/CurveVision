@@ -3,10 +3,10 @@
  *
  * Two properties matter more than anything else here:
  *
- * 1. **Nothing is lost.** Every pending change is mirrored into IndexedDB before the
- *    network is touched, so a browser crash, a closed laptop or a dropped connection
- *    leaves the work recoverable. Losing an hour of annotation to a refresh is the single
- *    worst failure this class of tool has.
+ * 1. **Nothing is lost.** Everything the server has not confirmed is mirrored into
+ *    IndexedDB (`drafts.ts`), so a browser crash, a closed laptop or a dropped connection
+ *    leaves the work recoverable, and opening the job again offers it back. Losing an hour
+ *    of annotation to a refresh is the single worst failure this class of tool has.
  * 2. **Concurrent edits are detected, not merged.** The batch carries the version the
  *    client last read; a 409 means someone else edited the job and the user is told, rather
  *    than one of them silently winning.
@@ -19,12 +19,23 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { ApiError, api } from '@/api/client';
 import type { Annotation } from '@/canvas/types';
 import { toApiShape, toApiTrackUpdate, type UnsavedFrame } from './adapters';
+import {
+  draftOf,
+  isEmptyDraft,
+  loadDraft,
+  planRestore,
+  restoreSize,
+  trackKey,
+  writeDraft,
+  type Draft,
+  type LocalObject,
+} from './drafts';
 import { applyCanvasEdits, type CanvasEdit } from './keyframes';
 import { refusedEntries } from './refusals';
 
 const FLUSH_INTERVAL_MS = 4_000;
-const DB_NAME = 'curvevision-drafts';
-const STORE = 'pending';
+/** How long an edit waits before the copy in the browser is rewritten: a drag is many edits. */
+const COPY_DELAY_MS = 250;
 
 export type SaveStatus = 'idle' | 'pending' | 'saving' | 'saved' | 'error' | 'conflict';
 
@@ -113,61 +124,6 @@ function asCanvasEdit(annotation: Annotation & { trackId: string }): CanvasEdit 
   };
 }
 
-// --------------------------------------------------------------- write-ahead buffer
-
-async function openDatabase(): Promise<IDBDatabase | null> {
-  if (typeof indexedDB === 'undefined') return null;
-  return new Promise((resolve) => {
-    try {
-      const request = indexedDB.open(DB_NAME, 1);
-      request.onupgradeneeded = () => {
-        request.result.createObjectStore(STORE);
-      };
-      request.onsuccess = () => resolve(request.result);
-      request.onerror = () => resolve(null);
-    } catch {
-      resolve(null);
-    }
-  });
-}
-
-async function persistDraft(jobId: string, payload: unknown): Promise<void> {
-  const database = await openDatabase();
-  if (!database) return;
-  try {
-    const transaction = database.transaction(STORE, 'readwrite');
-    transaction.objectStore(STORE).put(payload, jobId);
-  } catch {
-    /* A failed buffer write must never block the actual save. */
-  }
-}
-
-async function clearDraft(jobId: string): Promise<void> {
-  const database = await openDatabase();
-  if (!database) return;
-  try {
-    const transaction = database.transaction(STORE, 'readwrite');
-    transaction.objectStore(STORE).delete(jobId);
-  } catch {
-    /* ignore */
-  }
-}
-
-/** Recover a draft left behind by a crash, so the editor can offer to restore it. */
-export async function loadDraft(jobId: string): Promise<unknown | null> {
-  const database = await openDatabase();
-  if (!database) return null;
-  return new Promise((resolve) => {
-    try {
-      const request = database.transaction(STORE, 'readonly').objectStore(STORE).get(jobId);
-      request.onsuccess = () => resolve(request.result ?? null);
-      request.onerror = () => resolve(null);
-    } catch {
-      resolve(null);
-    }
-  });
-}
-
 // ------------------------------------------------------------------ tracked objects
 
 /** Which of a label's attributes may change from frame to frame. */
@@ -210,6 +166,15 @@ async function trackWrites(
 
 // -------------------------------------------------------------------------- the hook
 
+/** Unsaved work found in the browser when the job was opened, waiting to be put back. */
+export interface Recovered {
+  savedAt: number;
+  /** Objects it would add, change or delete. */
+  changes: number;
+  /** Made against an older version of the job than the one open now, or an unknown one. */
+  changedSince: boolean;
+}
+
 export interface AutosaveApi {
   status: SaveStatus;
   pendingCount: number;
@@ -234,6 +199,14 @@ export interface AutosaveApi {
    * the canvas under the annotator's pointer.
    */
   unsavedOn: (frame: number) => UnsavedFrame;
+  /**
+   * What an earlier session left unsaved, when there is anything the server does not
+   * already have. Until it is restored or discarded, the copy it came from is kept as it is.
+   */
+  recovered: Recovered | null;
+  /** Queue what was recovered for saving, and save it. */
+  restore: () => Promise<void>;
+  discard: () => void;
 }
 
 export function useAutosave(
@@ -248,6 +221,8 @@ export function useAutosave(
   const batch = useRef<PendingBatch>(emptyBatch());
   const versionRef = useRef(version);
   const flushing = useRef(false);
+  /** The batch a request is carrying: unsaved until its answer arrives, so kept too. */
+  const inFlight = useRef<PendingBatch | null>(null);
   const held = useRef(new Map<string, Refused>());
   /**
    * Every object drawn in this session, by the local id the canvas knows it by, and the
@@ -258,11 +233,25 @@ export function useAutosave(
    * cannot even parse a local id, so the request was a 422 naming no object, and every
    * save after it failed the same way.
    */
-  const local = useRef(new Map<string, string | null>());
+  const local = useRef(new Map<string, LocalObject>());
+  /**
+   * Everything this session has changed, by id and track key (`trackKey`), and the ids of
+   * tracks it deleted. A restore leaves these alone: the session's copy is the newer one.
+   */
+  const touched = useRef(new Set<string>());
+  /**
+   * The draft found on opening the job, until somebody restores or discards it; `loading`
+   * until the browser has been asked. The copy is not rewritten meanwhile, which would
+   * replace what was found with this session's work.
+   */
+  const found = useRef<Draft | 'loading' | null>('loading');
+  const copyTimer = useRef<number | null>(null);
   const [status, setStatus] = useState<SaveStatus>('idle');
   const [pendingCount, setPendingCount] = useState(0);
   const [error, setError] = useState<string | null>(null);
   const [refused, setRefused] = useState<ReadonlyMap<string, Refusal>>(new Map());
+  const [recovered, setRecovered] = useState<Recovered | null>(null);
+  const [restores, setRestores] = useState(0);
 
   useEffect(() => {
     versionRef.current = version;
@@ -271,6 +260,28 @@ export function useAutosave(
   const updateCount = useCallback(() => {
     setPendingCount(sizeOf(batch.current));
   }, []);
+
+  /** Rewrite the browser's copy now: after a save's answer, and when the page goes. */
+  const copyNow = useCallback(() => {
+    if (copyTimer.current !== null) {
+      window.clearTimeout(copyTimer.current);
+      copyTimer.current = null;
+    }
+    if (found.current !== null) return;
+    const draft = draftOf({
+      queues: inFlight.current ? [inFlight.current, batch.current] : [batch.current],
+      held: held.current.values(),
+      local: local.current,
+      annotationVersion: versionRef.current,
+      savedAt: Date.now(),
+    });
+    void writeDraft(jobId, isEmptyDraft(draft) ? null : draft);
+  }, [jobId]);
+
+  /** Rewrite it shortly: an edit arrives on every pointer move of a drag. */
+  const copySoon = useCallback(() => {
+    if (copyTimer.current === null) copyTimer.current = window.setTimeout(copyNow, COPY_DELAY_MS);
+  }, [copyNow]);
 
   const publishRefused = useCallback(() => {
     setRefused(
@@ -308,9 +319,20 @@ export function useAutosave(
 
       for (const annotation of change.created ?? []) {
         current.created.set(annotation.id, annotation);
-        if (!local.current.has(annotation.id)) local.current.set(annotation.id, null);
+        touched.current.add(annotation.id);
+        if (!local.current.has(annotation.id)) {
+          local.current.set(annotation.id, {
+            clientId: annotation.clientId ?? annotation.id,
+            saved: null,
+          });
+        }
       }
       for (const annotation of change.updated ?? []) {
+        touched.current.add(
+          annotation.trackId
+            ? trackKey({ trackId: annotation.trackId, frame: annotation.frame })
+            : annotation.id,
+        );
         // Never saved, so the server has no id for it: it can only go back as a creation.
         if (release(annotation.id)?.created) {
           current.created.set(annotation.id, annotation);
@@ -336,6 +358,7 @@ export function useAutosave(
         } else current.updated.set(annotation.id, annotation);
       }
       for (const id of change.deletedIds ?? []) {
+        touched.current.add(id);
         const refusal = release(id);
         if (current.created.delete(id) || refusal?.created) {
           current.discarded.add(id); // never saved; nothing to delete server-side
@@ -345,6 +368,7 @@ export function useAutosave(
         current.deleted.add(id);
       }
       for (const id of change.deletedTrackIds ?? []) {
+        touched.current.add(id);
         release(id);
         for (const [key, edit] of current.tracks) {
           if (edit.trackId === id) current.tracks.delete(key);
@@ -354,19 +378,12 @@ export function useAutosave(
 
       if (releasedAny) publishRefused();
       updateCount();
-      if (!isEmpty(current)) {
-        setStatus('pending');
-        void persistDraft(jobId, {
-          savedAt: Date.now(),
-          created: [...current.created.values()],
-          updated: [...current.updated.values()],
-          deleted: [...current.deleted],
-          tracks: [...current.tracks.values()],
-          deletedTracks: [...current.deletedTracks],
-        });
-      }
+      if (!isEmpty(current)) setStatus('pending');
+      // Also when the queue has just emptied: a copy still holding a box drawn and then
+      // deleted would put it back after a crash.
+      copySoon();
     },
-    [jobId, updateCount, release, publishRefused],
+    [updateCount, release, publishRefused, copySoon],
   );
 
   /**
@@ -425,6 +442,7 @@ export function useAutosave(
   const flushOnce = useCallback(async (): Promise<boolean> => {
     const current = batch.current;
     batch.current = emptyBatch();
+    inFlight.current = current;
     updateCount();
     setStatus('saving');
 
@@ -442,21 +460,24 @@ export function useAutosave(
         // Under the id its save gave it; a local id with none was never saved, so there
         // is nothing on the server to delete.
         deleted_shapes: [...current.deleted].flatMap((id) => {
-          if (!local.current.has(id)) return [id];
-          const saved = local.current.get(id);
-          return saved ? [saved] : [];
+          const object = local.current.get(id);
+          if (!object) return [id];
+          return object.saved ? [object.saved] : [];
         }),
         ...sent.tracks,
       });
       for (const annotation of sent.created) {
         const saved = result.id_map[annotation.clientId ?? annotation.id];
-        if (saved) local.current.set(annotation.id, saved);
+        if (saved) local.current.set(annotation.id, { clientId: annotation.clientId ?? annotation.id, saved });
       }
       versionRef.current = result.annotation_version;
+      inFlight.current = null;
+      // At once rather than soon: a tab closed straight after its last save would otherwise
+      // leave a copy of work the server has, offered back on the next open.
+      copyNow();
       onSaved(result);
       setStatus('saved');
       setError(null);
-      await clearDraft(jobId);
       return false;
     } catch (caught) {
       const again = setAside(caught, current, sent);
@@ -479,6 +500,8 @@ export function useAutosave(
         if (!restored.tracks.has(key)) restored.tracks.set(key, edit);
       }
       for (const id of current.deletedTracks) restored.deletedTracks.add(id);
+      inFlight.current = null;
+      copyNow();
       updateCount();
 
       if (again) {
@@ -495,7 +518,7 @@ export function useAutosave(
       }
       return false;
     }
-  }, [jobId, onSaved, updateCount, setAside]);
+  }, [jobId, onSaved, updateCount, setAside, copyNow]);
 
   const flush = useCallback(async () => {
     if (flushing.current) return;
@@ -512,8 +535,14 @@ export function useAutosave(
 
   const unsavedOn = useCallback((frame: number): UnsavedFrame => {
     const current = batch.current;
-    const annotations = [...current.created.values(), ...current.updated.values()];
-    const tracks = [...current.tracks.values()];
+    // The batch in flight too: a restore saves at once, so by the time the editor asks,
+    // what it restored is in a request — which may yet fail.
+    const queues = inFlight.current ? [inFlight.current, current] : [current];
+    const annotations = queues.flatMap((queue) => [
+      ...queue.created.values(),
+      ...queue.updated.values(),
+    ]);
+    const tracks = queues.flatMap((queue) => [...queue.tracks.values()]);
     for (const refusal of held.current.values()) {
       if (refusal.created) annotations.push(refusal.created);
       if (refusal.updated) annotations.push(refusal.updated);
@@ -521,13 +550,107 @@ export function useAutosave(
     }
     // A deletion queued under a local id is of the object the reload shows under its server
     // id; hidden only by the local one, a deleted box came back until the next save.
-    const deleted = [...current.deleted].map((id) => local.current.get(id) ?? id);
+    const deleted = queues.flatMap((queue) =>
+      [...queue.deleted].map((id) => local.current.get(id)?.saved ?? id),
+    );
     return {
       annotations: annotations.filter((annotation) => annotation.frame === frame),
       tracks: tracks.filter((edit) => edit.frame === frame),
-      deletedIds: new Set([...deleted, ...current.deletedTracks]),
+      deletedIds: new Set([...deleted, ...queues.flatMap((queue) => [...queue.deletedTracks])]),
     };
-  }, []);
+    // `restores` is not read. A new identity is how the editor learns that what this returns
+    // changed without the canvas changing it — a restore — and lays that work on the canvas.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [restores]);
+
+  // What an earlier session left, looked for once per job, and offered only when the server
+  // does not already have it: a copy of work that did reach it is just forgotten.
+  useEffect(() => {
+    let cancelled = false;
+    found.current = 'loading';
+    setRecovered(null);
+    void (async () => {
+      const draft = await loadDraft(jobId);
+      if (cancelled) return;
+      let offer: Recovered | null = null;
+      if (draft) {
+        try {
+          const document = await api.annotations(jobId);
+          if (cancelled) return;
+          const changes = restoreSize(planRestore(draft, document, touched.current));
+          if (changes > 0) {
+            offer = {
+              savedAt: draft.savedAt,
+              changes,
+              changedSince: draft.annotationVersion !== document.annotation_version,
+            };
+          }
+        } catch {
+          // Cannot tell what the server has, so offer all of it: restoring checks again.
+          const everything = {
+            ...draft,
+            deleted: [...draft.deleted, ...draft.deletedClientIds],
+          };
+          offer = { savedAt: draft.savedAt, changes: restoreSize(everything), changedSince: true };
+        }
+      }
+      found.current = offer && draft ? draft : null;
+      setRecovered(offer);
+      if (!offer) copyNow();
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [jobId, copyNow]);
+
+  const restore = useCallback(async () => {
+    const draft = found.current;
+    if (!draft || draft === 'loading') return;
+    let document;
+    try {
+      document = await api.annotations(jobId);
+    } catch {
+      // Without knowing what the server already has, restoring could send a drawn object a
+      // second time. The offer stays, to be taken up when the server can be reached.
+      setError('Could not reach the server to check what it already has. Try restoring again.');
+      return;
+    }
+    const taken = new Set(touched.current);
+    for (const [id, refusal] of held.current) {
+      taken.add(id);
+      for (const edit of refusal.tracks ?? []) taken.add(trackKey(edit));
+    }
+    const plan = planRestore(draft, document, taken);
+    const current = batch.current;
+    for (const annotation of plan.created) {
+      current.created.set(annotation.id, annotation);
+      local.current.set(annotation.id, {
+        clientId: annotation.clientId ?? annotation.id,
+        saved: null,
+      });
+    }
+    for (const annotation of plan.updated) current.updated.set(annotation.id, annotation);
+    for (const id of plan.deleted) current.deleted.add(id);
+    for (const edit of plan.tracks) current.tracks.set(trackKey(edit), edit);
+    for (const id of plan.deletedTracks) current.deletedTracks.add(id);
+    found.current = null;
+    setRecovered(null);
+    setRestores((count) => count + 1);
+    updateCount();
+    if (!isEmpty(current)) setStatus('pending');
+    copyNow();
+    await flush();
+  }, [jobId, updateCount, copyNow, flush]);
+
+  const discard = useCallback(() => {
+    found.current = null;
+    setRecovered(null);
+    // Replaces what was found with this session's own copy, or with nothing.
+    copyNow();
+  }, [copyNow]);
+
+  // A copy waiting on its timer is written before the page or the job goes.
+  useEffect(() => () => copyNow(), [copyNow]);
 
   // Periodic flush.
   useEffect(() => {
@@ -539,6 +662,7 @@ export function useAutosave(
   // unsaved work too, and leaving is the one way it is lost for good.
   useEffect(() => {
     function beforeUnload(event: BeforeUnloadEvent) {
+      copyNow();
       if (pendingCount > 0 || refused.size > 0) {
         void flush();
         event.preventDefault();
@@ -547,7 +671,18 @@ export function useAutosave(
     }
     window.addEventListener('beforeunload', beforeUnload);
     return () => window.removeEventListener('beforeunload', beforeUnload);
-  }, [flush, pendingCount, refused]);
+  }, [flush, pendingCount, refused, copyNow]);
 
-  return { status, pendingCount, error, record, flush, refused, unsavedOn };
+  return {
+    status,
+    pendingCount,
+    error,
+    record,
+    flush,
+    refused,
+    unsavedOn,
+    recovered,
+    restore,
+    discard,
+  };
 }

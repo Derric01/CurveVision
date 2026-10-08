@@ -90,7 +90,7 @@ different things plugged into its four seams, running as a child process of a na
 | Job queue | `inline` — runs in-process | `dramatiq` — Redis + worker processes |
 | Web bundle | Served by the app itself (`web_root`) | Served by nginx in front |
 | Sign-in | None; one local account, token injected by the shell | Real accounts, roles, orgs |
-| Reachability | `127.0.0.1` on an OS-assigned port | Whatever the operator exposes |
+| Reachability | `127.0.0.1`, on the port it had last launch or a free one | Whatever the operator exposes |
 | `local_mode` | `True` — unlocks annotating local paths | `False` — those routes 404 |
 
 Every row is a **Settings value**, not a branch in the business logic. `services/` cannot

@@ -98,19 +98,20 @@ def frame_size(name: str) -> tuple[int, int]:
 
 
 def start_server(
-    data_dir: Path, env: dict[str, str] | None = None
+    data_dir: Path, env: dict[str, str] | None = None, *, fresh: bool = True
 ) -> tuple[subprocess.Popen[str], dict[str, str]]:
     """Launch the packaged server and wait for its handshake.
 
     `env` adds to this process's environment, for the settings a harness needs to vary —
-    `CURVEVISION_FRAMES_PER_CHUNK=0` to check a fallback path, say.
+    `CURVEVISION_FRAMES_PER_CHUNK=0` to check a fallback path, say. `fresh=False` launches
+    it again on the installation an earlier launch left, as the desktop app does.
     """
     if not SIDECAR.is_file():
         raise SystemExit(
             f"the packaged server is missing at {SIDECAR}\n"
             "build it first: python desktop/sidecar/build.py"
         )
-    if data_dir.exists():
+    if fresh and data_dir.exists():
         shutil.rmtree(data_dir)
 
     process = subprocess.Popen(

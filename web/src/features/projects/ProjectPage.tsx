@@ -668,6 +668,20 @@ function AttributeEditor({
           />
           changes per frame
         </label>
+        {/* Not fixed like the two above: the server allows it whenever every annotation of
+            the label already answers it, or it has a default, and says so when not. */}
+        <label
+          className="flex items-center gap-1"
+          title="Every object of this label must record a value. With no default, a new one cannot be saved until it has one."
+        >
+          <input
+            type="checkbox"
+            checked={draft.required}
+            data-attribute-required=""
+            onChange={(event) => onChange({ required: event.target.checked })}
+          />
+          required
+        </label>
       </div>
     </div>
   );

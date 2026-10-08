@@ -64,7 +64,7 @@ Open the printed URL in any browser and you get the complete application.
 | | |
 | --- | --- |
 | Zero-configuration local mode — app data dir, Alembic migration, one local account | **Done** |
-| Handshake — loopback-only OS-assigned port, fresh token each launch, previous revoked | **Done** |
+| Handshake — loopback only, on the port it had last launch when that is free (else one the OS assigns), fresh token each launch, previous revoked | **Done** |
 | Packaged server: ~38 MB, ~1.5–2.1 s spawn to handshake (Linux, x86-64) | **Done** |
 | Shell: process supervision, no-sign-in token injection, native dialogs, menus (6.2 MB release binary) | **Done** |
 | Never orphans the server — verified by `kill -9` on the shell | **Done** |
@@ -112,7 +112,7 @@ and is deliberately short.
 ## Security
 
 The auto-provisioned account with no password is safe for exactly one reason: **the server
-binds `127.0.0.1` on an OS-assigned port and is reachable from nothing else.** Verified by
+binds `127.0.0.1` and is reachable from nothing else.** Verified by
 connecting to the host's non-loopback address and being refused.
 
 Two further properties:

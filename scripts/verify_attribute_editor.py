@@ -24,6 +24,8 @@ that just claimed it; the two about what the form offers (1 and 8) read the form
 5. A select gains an option, after the ones it already had.
 6. A new attribute is added, with its default.
 7. An attribute nothing records is removed.
+7b. Requiring an attribute an annotation has no value for, with no default, is refused
+   with the server's reason shown; requiring one every annotation answers is saved.
 8. Two attributes of one name are caught before Save, with the reason shown, and nothing
    is sent — the server's answer to that is a 422 that would reach the screen only as
    "One or more fields are invalid".
@@ -250,6 +252,32 @@ def main() -> int:
                 check(now.get("colour", {}).get("id") == saved["colour"]["id"],
                       "and the attributes already there keep their ids",
                       "saving replaced an existing attribute instead of keeping it")
+
+                # ----------------------------------------------- 6b: required
+                # The box records a colour and nothing under `stationary`, which has no
+                # default: requiring it would make the box unsaveable, and is refused.
+                def require(attribute_id: str) -> bool:
+                    box = row(attribute_id).locator("[data-attribute-required]")
+                    if box.count() == 0:
+                        return False  # reported by the checks below, not as a timeout
+                    box.check()
+                    save()
+                    return True
+
+                open_editor()
+                offered = require(saved["parked"]["id"])
+                refusal = text_of(page, "[data-label-error]")
+                check(offered and not attributes()["stationary"]["required"]
+                      and "no value" in refusal,
+                      "requiring an attribute an annotation has no value for is refused, "
+                      "and says why",
+                      f"stationary required={attributes()['stationary']['required']}; "
+                      f"the panel reported {refusal.strip()!r}")
+                open_editor()
+                offered = require(saved["colour"]["id"])
+                check(offered and attributes()["colour"]["required"],
+                      "requiring one every annotation answers is saved",
+                      "colour is still not required after checking the box and saving")
 
                 # ---------------------------------------- 7: remove, nothing recorded
                 open_editor()

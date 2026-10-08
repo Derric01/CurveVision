@@ -85,7 +85,7 @@ typo at the point it was made.
 ## Browser harnesses
 
 `./scripts/check.sh` covers everything CI runs on a push, and it does not open a browser.
-Twenty-six scripts in `scripts/` do — they launch the **packaged desktop application**, drive
+Twenty-seven scripts in `scripts/` do — they launch the **packaged desktop application**, drive
 it in Chromium, and assert against the **API** rather than the DOM, because the question is
 not "did the page look right" but "is the data now what the user asked for".
 
@@ -168,9 +168,16 @@ anything is pending, and a save reloads the frame and clears the undo stack. A s
 edits and then presses Ctrl+Z assumes no save in between; `verify_track_canvas_edit.py`'s
 "never saved" step now counts the `PATCH`es sent during it and repeats an attempt one
 landed in, rather than reporting the timer's failure as the product's.
+`verify_crash_recovery.py` kills the packaged server to simulate a crash, and found that
+**a SIGKILL to the packaged server kills only its bootloader**: a one-file PyInstaller
+binary runs the server as a child, and a signal that cannot be caught cannot be passed on.
+The orphan kept the port, so the relaunch took another one, and the check that the port
+survives a relaunch failed on the fixed code for the harness's reason. It kills the child
+first now (`crash()`); `terminate()`, which every other harness uses, is forwarded and is
+fine. A leftover `curvevision-local` in `ps` after a run is the tell.
 
 They run **nightly and on every push to `main`** (`.github/workflows/browser.yml`), not on
-pull requests: a PyInstaller build plus twenty-six end-to-end runs is twenty minutes, and CI
+pull requests: a PyInstaller build plus twenty-seven end-to-end runs is twenty minutes, and CI
 that slow stops being run. Trigger one by hand from the Actions tab — the workflow takes a
 single harness name — or run one locally:
 
@@ -196,6 +203,7 @@ python scripts/verify_attribute_editor.py
 python scripts/verify_track_canvas_edit.py
 python scripts/verify_attribute_values.py
 python scripts/verify_save_refusals.py
+python scripts/verify_crash_recovery.py
 ```
 
 **Both build steps, in that order, every time.** The packaged sidecar embeds `web/dist`, so a

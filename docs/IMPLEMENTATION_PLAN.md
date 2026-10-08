@@ -357,8 +357,13 @@ React mounts and talks to via a small command API:
 * **Undo/redo**: a command stack of inverse-pair operations, with coalescing for drags.
 * **Autosave**: dirty-set flushing on an interval and on frame change, with a local
   IndexedDB write-ahead buffer so a browser crash or network drop does not lose work.
-  *Status:* the flushing is built; the buffer is written and **never read back** —
-  nothing offers to restore a draft — so the crash half of that sentence is not true yet.
+  *Status:* built (iteration 56). The copy holds what is queued, what is in flight and
+  what the server refused; opening the job offers back whatever of it the server does not
+  have — a drawn object is recognised by its client id — and restoring never overwrites
+  what the session has changed since. Until iteration 56 the buffer was written and never
+  read back. In the desktop shape the page's origin includes the port, so the local server
+  keeps its port across launches; that the Tauri webviews keep IndexedDB across launches is
+  their default, and has not been checked in the real shell.
 
 ### Interaction requirements
 
@@ -626,7 +631,9 @@ Planned: LabelMe, Open Images, TFRecord, Datumaro bridge.
   starts with its label's defaults, typed (CVAT's `appendDefaultAttributes`), and a
   required checkbox unticked; a required select, text or number with no default is marked
   on its control, and the save that is refused for it no longer stops anything else being
-  saved (iteration 55). The form still does not offer `required`.
+  saved (iteration 55). The form offers `required` (iteration 57); the server refuses it
+  while an annotation of the label has no value and there is no default, and the form
+  shows that refusal.
   `scripts/verify_attribute_values.py` drives it.
 * **Merging overlapping jobs** (**Done**): a task with `overlap > 0` hands the same frames to
   two annotators so a track can cross a job seam. Export reconciles those frames instead of
@@ -763,7 +770,9 @@ Not an add-on: one of the two shapes the product ships in ([Two deployment shape
   `create_all` — a desktop user opens v2 against a v1 database and must not lose it),
   provisions one local account and workspace on first launch, mints a fresh API token each
   launch and revokes the previous one, and prints a single line of JSON on stdout.
-* **Loopback-only binding** — **Done.** `127.0.0.1` on an OS-assigned port. This is what
+* **Loopback-only binding** — **Done.** `127.0.0.1`, on the port it had last launch when
+  that is free and on an OS-assigned one when not (iteration 56: the page's origin includes
+  the port, and the editor keeps unsaved work per origin). This is what
   makes an auto-provisioned password-less account safe, and it is verified by a test that
   connects to the host's non-loopback address and expects refusal. An unauthenticated
   request is still 401.
