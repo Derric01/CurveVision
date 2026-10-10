@@ -1,16 +1,18 @@
 /**
  * API contract types.
  *
- * Hand-written to mirror the server's Pydantic models, and **nothing checks that they still
- * do**. This header used to claim they were verified against the live OpenAPI schema in CI
- * by `scripts/check-api-types.mjs`; no such script has ever existed and no workflow
- * referenced it, so the reassurance was worse than silence — it invited trusting a net that
- * was not there. Drift shows up as a field that is quietly `undefined` at runtime, because
- * `tsc` is only ever checking this file against itself.
+ * Hand-written to mirror the server's Pydantic models — kept for their comments and for the
+ * narrower unions the editor relies on — and **checked**, since iteration 59: `schema.ts` is
+ * generated from the server's own OpenAPI document by `scripts/api_types.py`, which
+ * `./scripts/check.sh` and CI fail on when it is out of date, and
+ * `__tests__/contract.ts` makes `tsc` fail when a field declared here is missing from what
+ * the server sends, or typed differently.
  *
- * Until something does check it, the discipline is manual: change a Pydantic schema, change
- * the interface here in the same commit. `handoff.md` carries generating these from the
- * OpenAPI document as a candidate piece of work.
+ * (An earlier header claimed a check by `scripts/check-api-types.mjs` that never existed;
+ * iteration 46 found that. This one is run by `./scripts/check.sh`.)
+ *
+ * Change a Pydantic schema the client reads → run `python scripts/api_types.py` → fix what
+ * `tsc` then names here.
  */
 
 export type Role = 'viewer' | 'annotator' | 'reviewer' | 'maintainer' | 'admin' | 'owner';

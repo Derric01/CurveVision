@@ -304,6 +304,7 @@ Rules:
 | `cd desktop/shell/src-tauri && cargo test` | Rust shell (boots the real packaged server) |
 | `python desktop/sidecar/build.py` | Packages the desktop server, then smoke-tests what it built |
 | `server/.venv/bin/python scripts/check_notices.py` | Dependency attribution gate |
+| `server/.venv/bin/python scripts/api_types.py` | Regenerate `web/src/api/schema.ts` after changing a schema the web client reads (`--check` is in `check.sh`) |
 
 If a tool is missing in your environment, say so in handoff.md rather than silently skipping
 the check — an unrun check is not a passing check.
