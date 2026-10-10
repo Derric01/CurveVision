@@ -355,6 +355,25 @@ async def _create_shape(
 ) -> Shape:
     _check_frame(job, incoming.frame)
     schema.check_shape_type(incoming.label_id, incoming.shape_type)
+    if incoming.client_id:
+        existing = await session.scalar(
+            select(Shape).where(Shape.job_id == job.id, Shape.client_id == incoming.client_id)
+        )
+        if existing is not None:
+            # The job keeps one shape per client id. The same object again is a create
+            # resent because its answer was lost, and is answered with the shape it made;
+            # a different one is a client reusing an id, refused rather than dropped.
+            if (
+                existing.label_id == incoming.label_id
+                and existing.frame == incoming.frame
+                and existing.shape_type == incoming.shape_type
+                and existing.points == incoming.points
+            ):
+                return existing
+            raise ValidationError(
+                f"Client id {incoming.client_id!r} already names shape {existing.id} in this "
+                "job, which is a different object"
+            )
     shape = Shape(
         job_id=job.id,
         client_id=incoming.client_id,
@@ -408,6 +427,21 @@ async def _create_track(
     session: AsyncSession, job: Job, incoming: TrackIn, schema: LabelSchema, actor: User
 ) -> Track:
     schema.check_shape_type(incoming.label_id, incoming.shape_type)
+    if incoming.client_id:
+        existing = await session.scalar(
+            select(Track).where(Track.job_id == job.id, Track.client_id == incoming.client_id)
+        )
+        if existing is not None:
+            # As for a shape (`_create_shape`): a resend is answered, a reuse refused.
+            if (
+                existing.label_id == incoming.label_id
+                and existing.shape_type == incoming.shape_type
+            ):
+                return existing
+            raise ValidationError(
+                f"Client id {incoming.client_id!r} already names track {existing.id} in this "
+                "job, which is a different object"
+            )
     track = Track(
         job_id=job.id,
         client_id=incoming.client_id,

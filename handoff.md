@@ -5,10 +5,10 @@
 > [`AGENTS.md`](./AGENTS.md) first; it is the working contract. Update this file after every
 > iteration, including the ones that mostly failed.
 >
-> **Last updated:** 2026-10-07 (iteration 57) · branch `claude/start-work-yx080h` · PRs
-> [#1](https://github.com/Derric01/CurveVision/pull/1)–[#26](https://github.com/Derric01/CurveVision/pull/26)
-> **all merged**, #26 carrying iteration 55. Iterations 56 and 57 are pushed to the branch,
-> unmerged, with no PR opened yet.
+> **Last updated:** 2026-10-10 (iteration 58) · branch `claude/start-work-yx080h` · PRs
+> [#1](https://github.com/Derric01/CurveVision/pull/1)–[#27](https://github.com/Derric01/CurveVision/pull/27)
+> **all merged**, #27 carrying iterations 56–57. The branch was restarted from `origin/main`
+> after that merge; iteration 58 is pushed to it with no PR opened yet.
 >
 > *Two things worth knowing about this repository's PR rhythm, which replace the
 > PR-by-PR changelog that used to sit here and had stopped helping anybody.* **PRs are
@@ -22,7 +22,7 @@
 > **Keep the session short.** One iteration, then commit, push, update this file and report —
 > `AGENTS.md` § *Continue* and the `start-work` skill both say so now, because they did not
 > before and a single session ran six iterations and roughly a third of a week's budget. The
-> concrete costs, in rough order: re-reading this file (iterations 1–51 now live in
+> concrete costs, in rough order: re-reading this file (iterations 1–52 now live in
 > [`docs/iterations/ARCHIVE.md`](./docs/iterations/ARCHIVE.md), which cut it from 3,800
 > lines to 1,000 — keep it that way); `python desktop/sidecar/build.py`, which is a
 > PyInstaller run of a minute or two and is needed *again* for every sabotage-and-restore
@@ -45,7 +45,7 @@ shapes (detection/segmentation, OBB, pose, classification), each declaring in it
 The desktop shape works: a packaged single-executable server, a Tauri shell that supervises
 it, and folders annotated in place without copying a byte.
 
-**The tree is green.** `./scripts/check.sh` passes all twelve steps: 588 server tests, 15
+**The tree is green.** `./scripts/check.sh` passes all twelve steps: 591 server tests, 15
 SDK, 686 web, and `scripts/` is lint-clean under its own `ruff.toml`. Twenty-seven browser
 harnesses drive the packaged desktop application in a real Chromium, nightly and on every
 push to `main`. (Iteration 52 arrived to a red tree — mypy 2 — and fixed it first.)
@@ -370,15 +370,9 @@ was the last unconnected piece of the desktop application.
 
 ## Next best action
 
-**Make a duplicate `client_id` a named refusal, not a 500** (found in iteration 56). The server
-keeps one `client_id` per job (`uq_shape_client_id`) and does not check for it, so a create
-resent after its first attempt landed is an `IntegrityError`. The editor cannot reach it —
-a resend carries a stale `annotation_version` and gets a 409 first, and a restore skips what
-the server has — but `annotation_version` is optional, so a script that omits it and retries
-can. Found by reading, not reproduced. A named 422 through `_entry`, or treating it as the
-retry it is and answering with the existing id, are the two shapes of fix.
-
-*Offering `required` on the label form was iteration 57; crash recovery, 56.*
+*A duplicate `client_id` was iteration 58; `required` on the label form, 57; crash
+recovery, 56. With those done, the next candidate below is the one this file has carried
+longest.*
 
 **A second candidate, smaller and unglamorous: generate `web/src/api/types.ts` from the
 OpenAPI schema.** The file is hand-maintained and nothing verifies it against the server —
@@ -811,6 +805,14 @@ being updated and this one was not. Check it against* Completed *before trusting
 
 ## Verification performed
 
+Iteration 58:
+
+* `TestAResentCreate` (3 tests) written first: the resent shape failed with an
+  `IntegrityError` on `uq_shape_client_id` before the change. All three pass after, and all
+  three fail again with the client-id lookup disabled.
+* `./scripts/check.sh`: **all twelve pass** — 591 server, 15 SDK, 686 web. No browser
+  harness: nothing the editor sends changed, and it could not reach the defect.
+
 Iteration 57:
 
 * `./scripts/check.sh` after: **all twelve pass** — 588 server, 15 SDK, 686 web (no unit
@@ -912,6 +914,12 @@ Iteration 54:
   `verify_shape_frame` and `verify_attribute_editor` also pass.
 
 ## Bugs fixed
+
+* **A create resent with a `client_id` the job already had was a 500** (iteration 58), for
+  shapes and tracks alike: `uq_*_client_id` and no check before the insert. Reachable by a
+  script that omits `annotation_version` and retries after a lost answer. Now the same object
+  again is answered with the one it made, and a different object under the id is a named
+  422.
 
 * **Crash recovery did not exist, though the roadmap said Done** (iteration 56). Root
   cause: the IndexedDB copy was written and nothing read it. Now read on opening and
@@ -1107,6 +1115,19 @@ Iteration 54:
 
 ## Last iteration
 
+### 58 — a resent create is answered, not a 500
+
+The next best action, found by reading in iteration 56. Reproduced as a test first. The fix
+treats the job's one-object-per-client-id rule as what it is for: idempotent retries. The
+same object again — label, frame, type and points for a shape, label and type for a track —
+gets the id it already has; anything else under a reused id is refused through `_entry`,
+so it is named, rather than silently dropped. A retry still bumps `annotation_version`,
+like any accepted batch.
+
+Verified: see *Verification performed*.
+
+## Iteration 57
+
 ### 57 — the label form offers `required`
 
 The next best action, and small: iterations 54 and 55 removed the two reasons it was held
@@ -1147,7 +1168,7 @@ The first was a real gap (`unsavedOn` ignored the batch in flight); the second w
 harness killing only the packaged binary's bootloader. Both are written up above, the
 second in `docs/CONTRIBUTING.md`.
 
-**Found, not fixed:** a resent create whose `client_id` the job already has is a 500 —
+**Found, not fixed:** a resent create whose `client_id` the job already has was a 500 (fixed in iteration 58) —
 the editor cannot reach it, a script can. See *Next best action*.
 
 Verified: see *Verification performed*.
@@ -1274,63 +1295,9 @@ Verified, every command run in that session:
   `verify_tool_sync`, `verify_skeleton_tool`, `verify_cuboid`, `verify_attribute_editor` —
   every check in all nine passes.
 
-## Iteration 52
-
-### 52 — a label's attributes can be edited, without stranding what is recorded
-
-Named by this file as next, with the one product question it said should be decided in the
-open: what happens to values recorded under an attribute being removed or renamed. Reading
-the code first turned the question into a defect. The `PUT` already accepted exactly those
-edits — nobody had a form to send one, but the SDK and curl did — and because values are
-keyed by name and undeclared keys are refused on save, the failure surfaced one step later,
-in somebody else's hands: the annotator's autosave of a box they had only moved. Reproduced
-that before changing anything.
-
-**CVAT read first, as `AGENTS.md` now asks.** Its label form and
-`LabelSerializer._update_attribute` fix an existing attribute's type and `mutable` flag and
-let a select's options grow but not shrink — enforced on the server, not only in the UI. It
-allows rename and delete because its values hang off the attribute's id. Here they hang off
-the name, so those two are refused while anything is recorded under it and allowed when
-nothing is. Convention only; no code was adapted, so ADR 0007's audit does not apply.
-
-**The tests found three more 500s and a silent write** on the way (see *Bugs fixed*), and
-the harness found two of its own checks unable to fail under sabotage — one depending on an
-earlier step having worked, one meaningful only when the step before it succeeded. Both are
-recorded in `docs/CONTRIBUTING.md` beside the earlier variants.
-
-**What the form does not do, deliberately:** offer `required`, and set a value on a shape.
-The second is the next piece of work, and the first waits for it.
-
-Verified, every command run in that session:
-
-
-* `./scripts/check.sh` on arrival: **eleven of twelve** — `mypy (server)` failed on an
-  untouched tree (`"Base" has no attribute "confidence"`, `services/annotations.py`, mypy
-  2.3.1). After the fix and all of this iteration: **all twelve pass** — 582 server tests,
-  15 SDK, 628 web, ruff/format/mypy/eslint/tsc clean, notices ok.
-* `pytest server/tests/api/test_label_schema.py`: 35 pass. 18 of the 20 in
-  `TestEditingAttributes` were written before the service change and 16 of those failed
-  against it (one only because of a bug in the test's own helper, fixed); the defect was
-  also reproduced end to end first (a `PUT` removing `colour` → 200, then the
-  editor-shaped save of the untouched shape → `422 Unknown attribute(s) for this label:
-  colour`).
-* The same two test classes (`TestEditingAttributes`, `TestEditingALabel`), 27 tests, run
-  against a **real PostgreSQL 16** with JSONB columns via a throwaway fixture override
-  (not committed; CI's Postgres job only runs migrations). Confirmed the rows landed in
-  PostgreSQL.
-* Sabotage, server: removing the temporary-name step makes the name-trade test fail with
-  `IntegrityError`. Restored.
-* `npm --prefix web run build` (exit 0) → `python desktop/sidecar/build.py --skip-tests`
-  (exit 0) → `scripts/verify_attribute_editor.py`: 16 checks pass. Two sabotage rebuilds:
-  **UI** (save ignores the drafts, type picker enabled) failed 6 checks; **server** (the
-  refusal disabled) failed 8, including the editor's save of the box being refused.
-  Restored; final bundle `index-B7-P7J9E.js`, identical to the server-sabotage build whose
-  web source was already the restored one.
-* `scripts/verify_label_schema.py`, which drives the same edit form: all 17 checks pass.
-
 ## Earlier iterations
 
-Iterations **1–51** are in [`docs/iterations/ARCHIVE.md`](./docs/iterations/ARCHIVE.md) —
+Iterations **1–52** are in [`docs/iterations/ARCHIVE.md`](./docs/iterations/ARCHIVE.md) —
 moved there so that orienting costs a few hundred lines rather than four thousand. Read them
 when `git log` points you at an iteration number, or when you are about to build something
 and want to know whether it was already tried and rejected. The lessons from them that are

@@ -63,6 +63,10 @@ the right credential for anything unattended.
   `"errors": [{"location": ["body", "created_shapes", 1], ...}]`. A client can set that entry
   aside and send the rest; the editor's autosave does exactly that.
 
+  A create carries a `client_id`, unique per job. Sending one again — a retry after its
+  answer was lost — is answered with the object it already made, in `id_map`; the same id
+  on a different object is a named `422`.
+
 * **Pagination** is offset-based with one envelope everywhere:
   `{ "count": 412, "limit": 50, "offset": 0, "results": [...] }`
 

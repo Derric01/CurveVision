@@ -893,3 +893,76 @@ class TestAiAssistedWorkflow:
         assert base64.b64decode(sent["image"])[:4] == b"\x89PNG"
 
         await model_client.aclose()
+
+
+class TestAResentCreate:
+    """A create resent after its first attempt landed, without the version that would 409.
+
+    The server keeps one client id per job; resending one was an unhandled IntegrityError.
+    """
+
+    async def test_is_answered_with_the_shape_it_already_made(
+        self, owner: ApiActor, project: dict[str, Any]
+    ) -> None:
+        _task, jobs = await make_task(owner, project, frames=1)
+        job_id = jobs[0]["id"]
+        shape = {
+            "client_id": "local-1",
+            "label_id": label_id(project, "pedestrian"),
+            "frame": 0,
+            "shape_type": "rectangle",
+            "points": [0, 0, 10, 10],
+        }
+        first = await owner.patch(
+            f"/api/v1/jobs/{job_id}/annotations", json={"created_shapes": [shape]}
+        )
+        assert first.status_code == 200, first.text
+        again = await owner.patch(
+            f"/api/v1/jobs/{job_id}/annotations", json={"created_shapes": [shape]}
+        )
+        assert again.status_code == 200, again.text
+        assert again.json()["id_map"] == first.json()["id_map"]
+        document = (await owner.get(f"/api/v1/jobs/{job_id}/annotations")).json()
+        assert len(document["shapes"]) == 1
+
+    async def test_a_different_object_under_the_same_id_is_refused_and_named(
+        self, owner: ApiActor, project: dict[str, Any]
+    ) -> None:
+        _task, jobs = await make_task(owner, project, frames=1)
+        job_id = jobs[0]["id"]
+        shape = {
+            "client_id": "local-1",
+            "label_id": label_id(project, "pedestrian"),
+            "frame": 0,
+            "shape_type": "rectangle",
+            "points": [0, 0, 10, 10],
+        }
+        await owner.patch(f"/api/v1/jobs/{job_id}/annotations", json={"created_shapes": [shape]})
+        other = await owner.patch(
+            f"/api/v1/jobs/{job_id}/annotations",
+            json={"created_shapes": [{**shape, "points": [5, 5, 20, 20]}]},
+        )
+        assert other.status_code == 422
+        assert other.json()["errors"][0]["location"] == ["body", "created_shapes", 0]
+
+    async def test_a_resent_track_is_answered_with_the_track_it_made(
+        self, owner: ApiActor, project: dict[str, Any]
+    ) -> None:
+        _task, jobs = await make_task(owner, project, frames=1)
+        job_id = jobs[0]["id"]
+        track = {
+            "client_id": "local-t",
+            "label_id": label_id(project, "pedestrian"),
+            "shape_type": "rectangle",
+            "shapes": [{"frame": 0, "shape_type": "rectangle", "points": [0, 0, 10, 10]}],
+        }
+        first = await owner.patch(
+            f"/api/v1/jobs/{job_id}/annotations", json={"created_tracks": [track]}
+        )
+        again = await owner.patch(
+            f"/api/v1/jobs/{job_id}/annotations", json={"created_tracks": [track]}
+        )
+        assert again.status_code == 200, again.text
+        assert again.json()["id_map"] == first.json()["id_map"]
+        document = (await owner.get(f"/api/v1/jobs/{job_id}/annotations")).json()
+        assert len(document["tracks"]) == 1
