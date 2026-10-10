@@ -38,6 +38,8 @@ EXEMPT = {
     "@types/react",
     "@types/react-dom",
     "@types/rbush",
+    # Generates web/src/api/schema.ts at development time; nothing of it ships.
+    "openapi-typescript",
     "@typescript-eslint/eslint-plugin",
     "@typescript-eslint/parser",
     "@vitejs/plugin-react",

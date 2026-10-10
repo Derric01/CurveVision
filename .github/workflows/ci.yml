@@ -44,6 +44,20 @@ jobs:
       - name: Ruff (scripts/)
         run: ruff check scripts
 
+      # The generated web API types must match the schema this server declares. Needs the
+      # web's generator, so Node comes in here too; the contract between those types and
+      # the hand-written ones is checked by the web job's TypeScript step.
+      - uses: actions/setup-node@v5
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+
+      - name: API types match the server
+        run: |
+          npm ci --prefix web --no-audit --no-fund
+          python scripts/api_types.py --check
+
       - name: Mypy
         working-directory: server
         run: mypy curvevision

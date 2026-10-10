@@ -1,6 +1,6 @@
 # Iteration archive
 
-> The narrative record of iterations **1–52**, moved out of
+> The narrative record of iterations **1–53**, moved out of
 > [`handoff.md`](../../handoff.md) so that orienting on this project costs a few hundred
 > lines rather than four thousand.
 >
@@ -15,6 +15,67 @@
 > window, append it to the top of this file rather than deleting it.
 
 ---
+
+## Iteration 53
+
+### 53 — a tracked object can be moved on the canvas without breaking every save after it
+
+Started on the handoff's next best action, the attribute value panel, and stopped before
+writing any of it: reading `useAutosave` to see how a panel's edit would be saved showed that
+a tracked object — drawn under its track's id — would be sent as a shape. A browser run
+confirmed it was already broken without any panel: one drag of a tracked box and **every
+later save in the session failed**, the rectangle drawn afterwards included. `AGENTS.md`
+ranks broken above everything, and a panel built on top would have inherited the defect for
+its tracked half, so this iteration fixes the ground first.
+
+**CVAT read for the behaviour.** `cvat-core/src/annotations-objects/track.ts`,
+`savePoints`: editing a tracked object's points at a frame stores a shape there, copied from
+the interpolated one. `placeKeyframe` is that rule; convention only, no code adapted.
+
+**One design choice worth knowing.** The obvious route was the timeline's existing
+`editTrack` mutation. It is the wrong one for the canvas: a drag emits an update on every
+mouse move, and `editTrack` writes per call and re-reads the version first, which skips
+conflict detection. Autosave already coalesces per object and writes once under the version
+it last read, so the tracked edits went there, into a second buffer keyed by track and frame.
+
+**The sweep found a second defect in the same function.** Delete, then Ctrl+Z before the
+autosave: the editor showed the object and the server deleted it. Confirmed in a browser,
+fixed, including the never-saved case, which failed differently (the undo was ignored).
+
+**The harness caught its author three times**, recorded in `docs/CONTRIBUTING.md`: a
+companion check that passed on the bug because the step before it never saved; an "undo"
+check that pressed Ctrl+Z after a save — where the stack is already empty — and was really
+testing a keypress, found with a request log; and a sabotage that did not compile, so the
+sidecar packaged the previous bundle and everything passed. The unchanged bundle hash gave it
+away.
+
+**What was still not done:** the attribute value panel itself — built in iteration 54.
+
+Verified, every command run in that session:
+
+
+* `./scripts/check.sh` on arrival (after restarting the branch from `origin/main`): **all
+  twelve pass**. After this iteration: **all twelve pass** — 582 server, 15 SDK, 637 web
+  (9 new in `keyframes.test.ts`). `main`'s CI and browser workflows were green on the merge
+  of #23.
+* Both defects reproduced in a real browser against the packaged app **before** any fix:
+  dragging a tracked box → `PATCH` 404, "Save failed", and a rectangle drawn afterwards
+  also 404 with 0 shapes on the server; Delete then Ctrl+Z → editor shows 1 object, server
+  holds 0 after the save.
+* `scripts/verify_track_canvas_edit.py` against the **unfixed** build: 5 of its first 8
+  checks failed, one more exposed as vacuous and gated. Against the fixed build: all pass.
+  Against the build with the track fix but not the undo fix: exactly the three undo checks
+  failed. Sabotage C (`placeKeyframe` never reports a no-op): exactly "gives the track
+  nobody moved no keyframe" failed. Sabotage D (the `discarded` bookkeeping removed):
+  exactly "a shape drawn, deleted and undone before it was ever saved" failed. A harness-side
+  sabotage (no Ctrl+Z) failed "undoing a drag … leaves the moved car where it was", proving
+  the drag lands. **One sabotage build failed to compile** (`vite build` exit 1) and
+  silently re-packaged the previous bundle; caught by the unchanged bundle hash, redone.
+  Final bundle `index-C8cNIcBb.js`, the same hash as the first fixed build.
+* On that final build: `verify_track_canvas_edit` (12/12), `verify_mask_brush`,
+  `verify_shape_frame`, `verify_keyframe_editing`, `verify_track_timeline`,
+  `verify_tool_sync`, `verify_skeleton_tool`, `verify_cuboid`, `verify_attribute_editor` —
+  every check in all nine passes.
 
 ## Iteration 52
 

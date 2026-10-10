@@ -5,10 +5,10 @@
 > [`AGENTS.md`](./AGENTS.md) first; it is the working contract. Update this file after every
 > iteration, including the ones that mostly failed.
 >
-> **Last updated:** 2026-10-10 (iteration 58) · branch `claude/start-work-yx080h` · PRs
-> [#1](https://github.com/Derric01/CurveVision/pull/1)–[#27](https://github.com/Derric01/CurveVision/pull/27)
-> **all merged**, #27 carrying iterations 56–57. The branch was restarted from `origin/main`
-> after that merge; iteration 58 is pushed to it with no PR opened yet.
+> **Last updated:** 2026-10-10 (iteration 59) · branch `claude/start-work-yx080h` · PRs
+> [#1](https://github.com/Derric01/CurveVision/pull/1)–[#28](https://github.com/Derric01/CurveVision/pull/28)
+> **all merged**, #28 carrying iteration 58. The branch was moved to `origin/main` after that
+> merge; iteration 59 is pushed to it with no PR opened yet.
 >
 > *Two things worth knowing about this repository's PR rhythm, which replace the
 > PR-by-PR changelog that used to sit here and had stopped helping anybody.* **PRs are
@@ -22,7 +22,7 @@
 > **Keep the session short.** One iteration, then commit, push, update this file and report —
 > `AGENTS.md` § *Continue* and the `start-work` skill both say so now, because they did not
 > before and a single session ran six iterations and roughly a third of a week's budget. The
-> concrete costs, in rough order: re-reading this file (iterations 1–52 now live in
+> concrete costs, in rough order: re-reading this file (iterations 1–53 now live in
 > [`docs/iterations/ARCHIVE.md`](./docs/iterations/ARCHIVE.md), which cut it from 3,800
 > lines to 1,000 — keep it that way); `python desktop/sidecar/build.py`, which is a
 > PyInstaller run of a minute or two and is needed *again* for every sabotage-and-restore
@@ -45,7 +45,7 @@ shapes (detection/segmentation, OBB, pose, classification), each declaring in it
 The desktop shape works: a packaged single-executable server, a Tauri shell that supervises
 it, and folders annotated in place without copying a byte.
 
-**The tree is green.** `./scripts/check.sh` passes all twelve steps: 591 server tests, 15
+**The tree is green.** `./scripts/check.sh` passes all thirteen steps: 591 server tests, 15
 SDK, 686 web, and `scripts/` is lint-clean under its own `ruff.toml`. Twenty-seven browser
 harnesses drive the packaged desktop application in a real Chromium, nightly and on every
 push to `main`. (Iteration 52 arrived to a red tree — mypy 2 — and fixed it first.)
@@ -370,16 +370,20 @@ was the last unconnected piece of the desktop application.
 
 ## Next best action
 
-*A duplicate `client_id` was iteration 58; `required` on the label form, 57; crash
-recovery, 56. With those done, the next candidate below is the one this file has carried
-longest.*
+*Generated API types were iteration 59; a duplicate `client_id`, 58; `required` on the
+label form, 57; crash recovery, 56.*
 
-**A second candidate, smaller and unglamorous: generate `web/src/api/types.ts` from the
-OpenAPI schema.** The file is hand-maintained and nothing verifies it against the server —
-its own header claimed otherwise until iteration 46 corrected it (see below). A drifted type
-is not caught by `tsc`, which only knows what the file says; it is caught by a person
-debugging a field that is always `undefined`. The server already serves the schema, so this
-is a build step and a check, not a design problem.
+**Make a COCO keypoint import store joints the editor can read.** Found by iteration 59's
+contract check: `formats/coco.py` reads each keypoint as `{"name", "points", "occluded",
+"outside"}`, and `api/v1/datasets.py` stores `record.elements` as it comes — so an imported
+skeleton's joints carry a *name* and no `label_id`, while everything that draws or exports
+a joint drawn here (`ApiSkeletonElement`, the skeleton tool, `yolo_pose`) keys it by
+`label_id`. Found by reading, not reproduced end to end: reproduce first (import a COCO
+keypoints file, open the job, export it again). The fix is to resolve names to the
+skeleton's child label ids at import, against `LabelSpec`'s children; then type `elements`
+on `ShapeOut`/`TrackShapeOut` as `list[SkeletonElement]` and delete `WithoutJoints` in
+`web/src/api/__tests__/contract.ts`. Check `yolo_pose` import, and model predictions
+(`ml/http_provider.py` passes `elements` through unchecked), for the same thing.
 
 **Then, still needing the user:**
 
@@ -465,6 +469,15 @@ a mutation that flushes the shape buffer, re-reads `annotation_version`, then wr
 </details>
 
 ## Completed
+
+**The web client's API types are checked against the server** — `scripts/api_types.py`
+builds the OpenAPI document from the app itself (no server, no database) and generates
+`web/src/api/schema.ts` with `openapi-typescript`; `--check` runs in `./scripts/check.sh`
+and in CI's server job. `web/src/api/__tests__/contract.ts` makes `tsc` fail when a field
+the hand-written `types.ts` declares for a response is missing from what the server sends
+or typed differently, for 29 response types; fields the schema marks optional only because
+they have a default are treated as sent, since response models serialise them. One gap is
+held open by name — skeleton `elements` — with the reason beside it.
 
 Functionality that works and is covered by tests.
 
@@ -805,6 +818,18 @@ being updated and this one was not. Check it against* Completed *before trusting
 
 ## Verification performed
 
+Iteration 59:
+
+* `./scripts/check.sh`: **all thirteen pass** (the new step is `api types`) — 591 server,
+  15 SDK, 686 web.
+* Both directions bite. Renaming `z_order` in `ApiShape` makes `tsc -b` *and* `npm run
+  typecheck` (what CI's web job runs) fail with `["missing", "zorder"]`; renaming a field
+  of a server schema makes `scripts/api_types.py --check` exit 1. Both restored.
+* Typing `elements` on the server made the contract hold with no exception, and the server
+  suite passed — but the change was reverted on reading the import path, which stores
+  joints the strict type would refuse on read (see *Next best action*). Not run: CI's new
+  "API types match the server" step, which only runs on GitHub.
+
 Iteration 58:
 
 * `TestAResentCreate` (3 tests) written first: the resent shape failed with an
@@ -1115,6 +1140,26 @@ Iteration 54:
 
 ## Last iteration
 
+### 59 — the hand-written API types are checked against the server
+
+The candidate this file had carried longest. The hand-written `types.ts` stays — it holds
+the comments and the narrower unions the editor relies on — and is held to a generated
+`schema.ts` by a compile-time contract, rather than replaced by it. `openapi-typescript`
+generates; writing a generator was not considered (`AGENTS.md`: reuse first). It is dev-only
+and joins the notices gate's exempt list beside `vite` and `typescript`.
+
+**The contract's first run named 22 mismatches; 20 were optionality** (a field with a default
+is optional in the schema and always serialised), handled once in the contract rather than
+by loosening `types.ts`. **The other two were real**: `ShapeOut.elements` is `list[dict]` on
+the server while the client relies on `label_id` in each joint. Typing it on the server made
+everything pass — and would have turned every job holding an imported COCO skeleton into a
+500 on read, because the import stores joints by name. Reverted; the gap is held open by name
+in the contract, and fixing the import is the next best action.
+
+Verified: see *Verification performed*.
+
+## Iteration 58
+
 ### 58 — a resent create is answered, not a 500
 
 The next best action, found by reading in iteration 56. Reproduced as a test first. The fix
@@ -1234,70 +1279,9 @@ autosave; that is the new next best action.
 
 Verified: see *Verification performed*.
 
-## Iteration 53
-
-### 53 — a tracked object can be moved on the canvas without breaking every save after it
-
-Started on the handoff's next best action, the attribute value panel, and stopped before
-writing any of it: reading `useAutosave` to see how a panel's edit would be saved showed that
-a tracked object — drawn under its track's id — would be sent as a shape. A browser run
-confirmed it was already broken without any panel: one drag of a tracked box and **every
-later save in the session failed**, the rectangle drawn afterwards included. `AGENTS.md`
-ranks broken above everything, and a panel built on top would have inherited the defect for
-its tracked half, so this iteration fixes the ground first.
-
-**CVAT read for the behaviour.** `cvat-core/src/annotations-objects/track.ts`,
-`savePoints`: editing a tracked object's points at a frame stores a shape there, copied from
-the interpolated one. `placeKeyframe` is that rule; convention only, no code adapted.
-
-**One design choice worth knowing.** The obvious route was the timeline's existing
-`editTrack` mutation. It is the wrong one for the canvas: a drag emits an update on every
-mouse move, and `editTrack` writes per call and re-reads the version first, which skips
-conflict detection. Autosave already coalesces per object and writes once under the version
-it last read, so the tracked edits went there, into a second buffer keyed by track and frame.
-
-**The sweep found a second defect in the same function.** Delete, then Ctrl+Z before the
-autosave: the editor showed the object and the server deleted it. Confirmed in a browser,
-fixed, including the never-saved case, which failed differently (the undo was ignored).
-
-**The harness caught its author three times**, recorded in `docs/CONTRIBUTING.md`: a
-companion check that passed on the bug because the step before it never saved; an "undo"
-check that pressed Ctrl+Z after a save — where the stack is already empty — and was really
-testing a keypress, found with a request log; and a sabotage that did not compile, so the
-sidecar packaged the previous bundle and everything passed. The unchanged bundle hash gave it
-away.
-
-**What was still not done:** the attribute value panel itself — built in iteration 54.
-
-Verified, every command run in that session:
-
-
-* `./scripts/check.sh` on arrival (after restarting the branch from `origin/main`): **all
-  twelve pass**. After this iteration: **all twelve pass** — 582 server, 15 SDK, 637 web
-  (9 new in `keyframes.test.ts`). `main`'s CI and browser workflows were green on the merge
-  of #23.
-* Both defects reproduced in a real browser against the packaged app **before** any fix:
-  dragging a tracked box → `PATCH` 404, "Save failed", and a rectangle drawn afterwards
-  also 404 with 0 shapes on the server; Delete then Ctrl+Z → editor shows 1 object, server
-  holds 0 after the save.
-* `scripts/verify_track_canvas_edit.py` against the **unfixed** build: 5 of its first 8
-  checks failed, one more exposed as vacuous and gated. Against the fixed build: all pass.
-  Against the build with the track fix but not the undo fix: exactly the three undo checks
-  failed. Sabotage C (`placeKeyframe` never reports a no-op): exactly "gives the track
-  nobody moved no keyframe" failed. Sabotage D (the `discarded` bookkeeping removed):
-  exactly "a shape drawn, deleted and undone before it was ever saved" failed. A harness-side
-  sabotage (no Ctrl+Z) failed "undoing a drag … leaves the moved car where it was", proving
-  the drag lands. **One sabotage build failed to compile** (`vite build` exit 1) and
-  silently re-packaged the previous bundle; caught by the unchanged bundle hash, redone.
-  Final bundle `index-C8cNIcBb.js`, the same hash as the first fixed build.
-* On that final build: `verify_track_canvas_edit` (12/12), `verify_mask_brush`,
-  `verify_shape_frame`, `verify_keyframe_editing`, `verify_track_timeline`,
-  `verify_tool_sync`, `verify_skeleton_tool`, `verify_cuboid`, `verify_attribute_editor` —
-  every check in all nine passes.
-
 ## Earlier iterations
 
-Iterations **1–52** are in [`docs/iterations/ARCHIVE.md`](./docs/iterations/ARCHIVE.md) —
+Iterations **1–53** are in [`docs/iterations/ARCHIVE.md`](./docs/iterations/ARCHIVE.md) —
 moved there so that orienting costs a few hundred lines rather than four thousand. Read them
 when `git log` points you at an iteration number, or when you are about to build something
 and want to know whether it was already tried and rejected. The lessons from them that are

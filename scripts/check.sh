@@ -31,6 +31,9 @@ step "mypy (sdk)"       run_py mypy --config-file sdk/python/pyproject.toml sdk/
 step "pytest (server)"  run_py pytest server/tests -q
 step "pytest (sdk)"     run_py pytest sdk/python/tests -q
 step "notices"          "$PY" scripts/check_notices.py
+# The web client's generated API types against the server's own schema; the hand-written
+# ones are then held to those by `tsc` (web/src/api/__tests__/contract.ts).
+step "api types"        "$PY" scripts/api_types.py --check
 step "eslint (web)"     npm --prefix web run lint
 step "tsc (web)"        npm --prefix web run typecheck
 step "vitest (web)"     npm --prefix web run test
