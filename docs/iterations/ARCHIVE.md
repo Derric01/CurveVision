@@ -1,6 +1,6 @@
 # Iteration archive
 
-> The narrative record of iterations **1–51**, moved out of
+> The narrative record of iterations **1–52**, moved out of
 > [`handoff.md`](../../handoff.md) so that orienting on this project costs a few hundred
 > lines rather than four thousand.
 >
@@ -15,6 +15,60 @@
 > window, append it to the top of this file rather than deleting it.
 
 ---
+
+## Iteration 52
+
+### 52 — a label's attributes can be edited, without stranding what is recorded
+
+Named by this file as next, with the one product question it said should be decided in the
+open: what happens to values recorded under an attribute being removed or renamed. Reading
+the code first turned the question into a defect. The `PUT` already accepted exactly those
+edits — nobody had a form to send one, but the SDK and curl did — and because values are
+keyed by name and undeclared keys are refused on save, the failure surfaced one step later,
+in somebody else's hands: the annotator's autosave of a box they had only moved. Reproduced
+that before changing anything.
+
+**CVAT read first, as `AGENTS.md` now asks.** Its label form and
+`LabelSerializer._update_attribute` fix an existing attribute's type and `mutable` flag and
+let a select's options grow but not shrink — enforced on the server, not only in the UI. It
+allows rename and delete because its values hang off the attribute's id. Here they hang off
+the name, so those two are refused while anything is recorded under it and allowed when
+nothing is. Convention only; no code was adapted, so ADR 0007's audit does not apply.
+
+**The tests found three more 500s and a silent write** on the way (see *Bugs fixed*), and
+the harness found two of its own checks unable to fail under sabotage — one depending on an
+earlier step having worked, one meaningful only when the step before it succeeded. Both are
+recorded in `docs/CONTRIBUTING.md` beside the earlier variants.
+
+**What the form does not do, deliberately:** offer `required`, and set a value on a shape.
+The second is the next piece of work, and the first waits for it.
+
+Verified, every command run in that session:
+
+
+* `./scripts/check.sh` on arrival: **eleven of twelve** — `mypy (server)` failed on an
+  untouched tree (`"Base" has no attribute "confidence"`, `services/annotations.py`, mypy
+  2.3.1). After the fix and all of this iteration: **all twelve pass** — 582 server tests,
+  15 SDK, 628 web, ruff/format/mypy/eslint/tsc clean, notices ok.
+* `pytest server/tests/api/test_label_schema.py`: 35 pass. 18 of the 20 in
+  `TestEditingAttributes` were written before the service change and 16 of those failed
+  against it (one only because of a bug in the test's own helper, fixed); the defect was
+  also reproduced end to end first (a `PUT` removing `colour` → 200, then the
+  editor-shaped save of the untouched shape → `422 Unknown attribute(s) for this label:
+  colour`).
+* The same two test classes (`TestEditingAttributes`, `TestEditingALabel`), 27 tests, run
+  against a **real PostgreSQL 16** with JSONB columns via a throwaway fixture override
+  (not committed; CI's Postgres job only runs migrations). Confirmed the rows landed in
+  PostgreSQL.
+* Sabotage, server: removing the temporary-name step makes the name-trade test fail with
+  `IntegrityError`. Restored.
+* `npm --prefix web run build` (exit 0) → `python desktop/sidecar/build.py --skip-tests`
+  (exit 0) → `scripts/verify_attribute_editor.py`: 16 checks pass. Two sabotage rebuilds:
+  **UI** (save ignores the drafts, type picker enabled) failed 6 checks; **server** (the
+  refusal disabled) failed 8, including the editor's save of the box being refused.
+  Restored; final bundle `index-B7-P7J9E.js`, identical to the server-sabotage build whose
+  web source was already the restored one.
+* `scripts/verify_label_schema.py`, which drives the same edit form: all 17 checks pass.
 
 ## Iteration 51
 
