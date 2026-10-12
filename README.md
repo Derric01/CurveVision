@@ -284,7 +284,7 @@ Eleven formats, each declaring **honestly** what it can represent:
 
 | Format | Round-trips |
 | --- | --- |
-| **CurveVision JSON** | everything, losslessly |
+| **CurveVision JSON** | everything: shapes, tracks, attributes, tags, masks, skeletons — re-imported as `imported` |
 | **CVAT XML 1.1** | boxes, polygons, polylines, points, ellipses, **masks**, tags, attributes, tracks |
 | **COCO** | rectangles, polygons, keypoints |
 | **YOLO** | boxes, segmentation polygons |

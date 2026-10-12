@@ -344,6 +344,31 @@ X-CurveVision-Warnings: COCO 1.0 cannot represent polyline; those annotations we
 Silently dropping annotations is how people discover a broken dataset during training,
 which is far too late.
 
+### What an import keeps
+
+```http
+POST /api/v1/tasks/{id}/import?format=cvat_xml&conflict_policy=append
+→ { "shapes_imported": 41, "tracks_imported": 3, "tags_imported": 0, "frames_matched": 120,
+    "labels_created": [], "warnings": ["Dropped attributes the project's labels do not declare: car.speed"] }
+```
+
+Frames are matched to the task's media by image name. `conflict_policy=replace` clears the
+task's jobs first; `append`, the default, adds to what is there.
+
+* **Attributes** are kept where the label declares them and accepts the value. The rest
+  are dropped and named in `warnings` — CVAT's importer, by default, also keeps only declared
+  ones. Storing a value the label would refuse makes the annotation's next save fail.
+* **Tracks** come back as tracks. Every format sees a track as one record per frame it is on;
+  the import gives each listed frame a keyframe, and marks the object as gone (`outside`)
+  wherever the file stops listing it — between two runs and after the last. A track that
+  crosses into another job becomes one track in each, and one listed on a single frame is
+  stored as a shape, which is how a tracked CVAT dump writes a shape that was never tracked.
+  *Until iteration 62 every imported shape lost its attributes, and a track came back as one
+  unrelated box per frame.*
+* **Skeleton joints** are matched to the label's joints by name.
+* **Provenance is not carried in**: everything an import writes is `source: "imported"`,
+  whatever the file says it was.
+
 ### Shipped formats
 
 | Format | Import | Export | Carries | Use it for |

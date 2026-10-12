@@ -10,7 +10,8 @@ from __future__ import annotations
 import hashlib
 import json
 import uuid
-from collections.abc import AsyncIterator, Iterator
+from collections.abc import AsyncIterator, Callable, Iterator
+from dataclasses import dataclass, field
 from typing import Any
 
 from sqlalchemy import select
@@ -19,7 +20,7 @@ from sqlalchemy.orm import selectinload
 
 from curvevision.core.db import utcnow
 from curvevision.core.errors import ConflictError, NotFoundError, ValidationError
-from curvevision.domain.annotation import Shape, Tag, Track
+from curvevision.domain.annotation import Shape, Tag, Track, TrackShape
 from curvevision.domain.enums import (
     AnnotationSource,
     DatasetVersionState,
@@ -41,8 +42,11 @@ from curvevision.formats import (
     get_format,
 )
 from curvevision.formats.base import AttributeSpec
+from curvevision.services import annotations as annotation_service
 from curvevision.services import media as media_service
 from curvevision.services import merge
+from curvevision.services import projects as project_service
+from curvevision.services import skeletons as skeleton_service
 from curvevision.services.interpolation import Keyframe, interpolate_track
 from curvevision.storage import Storage
 
@@ -444,6 +448,280 @@ async def build_import_context(
     )
 
 
+@dataclass(slots=True)
+class ImportWritten:
+    """What an import stored, and what it said about what it did not."""
+
+    shapes: int = 0
+    tracks: int = 0
+    tags: int = 0
+    warnings: list[str] = field(default_factory=list)
+
+
+async def write_import(
+    session: AsyncSession,
+    *,
+    project_id: uuid.UUID,
+    jobs: list[Job],
+    result: ImportResult,
+    label_ids: dict[str, str],
+    actor_id: uuid.UUID,
+) -> ImportWritten:
+    """Store what a format read, as shapes, tracks and tags in the task's jobs.
+
+    **Attributes are kept** where the label declares them and accepts the value, and the
+    rest are dropped and named: storing one the label would refuse makes the annotation's
+    next save fail, since every save validates its attributes. CVAT's importer keeps only
+    the attributes a label declares too, unless `soft_attribute_import` is switched on.
+
+    **Records sharing a `track_id` are one track again.** Formats see a track as one record
+    per frame it is on (`_collect_job_annotations`), so each listed frame becomes a
+    keyframe, and an `outside` keyframe goes wherever the track stops being listed — between
+    two runs, and after the last, since the server holds a track's last position to the end
+    of the job otherwise. A track is split where it crosses into another job, and one listed
+    on a single frame is stored as a shape.
+
+    Both were thrown away until iteration 62: every imported shape had no attributes, and a
+    track came back as one unrelated box per frame.
+    """
+    schema = await annotation_service.LabelSchema.load(session, project_id)
+    joints = await skeleton_service.skeleton_joints(session, project_id)
+    written = ImportWritten()
+    unmatched_labels: set[str] = set()
+    jointless: set[str] = set()
+    unknown_joints: set[str] = set()
+    undeclared: set[str] = set()
+    refused: set[str] = set()
+
+    def kept(label_id: uuid.UUID, label: str, values: dict[str, Any]) -> dict[str, Any]:
+        definitions = {definition.name: definition for definition in schema.definitions(label_id)}
+        cleaned: dict[str, Any] = {}
+        for name, value in values.items():
+            definition = definitions.get(name)
+            if definition is None:
+                undeclared.add(f"{label}.{name}")
+                continue
+            try:
+                cleaned.update(project_service.validate_attributes({name: value}, [definition]))
+            except ValidationError:
+                refused.add(f"{label}.{name}={value!r}")
+        return cleaned
+
+    def resolved(record: ShapeRecord, label_id: str) -> list[dict[str, Any]] | None:
+        """The record's joints as this project stores them; None when it has none to use."""
+        if record.shape_type is not ShapeType.SKELETON:
+            return record.elements
+        if label_id not in joints:
+            jointless.add(record.label)
+            return None
+        elements, unknown = skeleton_service.resolve_joints(record.elements, joints[label_id])
+        unknown_joints.update(unknown)
+        return elements
+
+    tracked: dict[tuple[int, str, ShapeType], list[tuple[int, ShapeRecord]]] = {}
+    loose: list[tuple[int, ShapeRecord]] = []
+    for frame, record in result.shapes:
+        if record.track_id is None:
+            loose.append((frame, record))
+        else:
+            key = (record.track_id, record.label, record.shape_type)
+            tracked.setdefault(key, []).append((frame, record))
+    # A track listed on one frame is a shape: it is how a tracked CVAT dump writes a shape
+    # that was never tracked (a one-frame track, closed by `outside`), and over one frame
+    # the two are the same object.
+    for key, records in list(tracked.items()):
+        if len({frame for frame, _record in records}) == 1:
+            loose.append(records[0])
+            del tracked[key]
+
+    for frame, record in loose:
+        target = _job_for_frame(jobs, frame)
+        label_id = label_ids.get(record.label)
+        if target is None:
+            continue
+        if label_id is None:
+            unmatched_labels.add(record.label)
+            continue
+        elements = resolved(record, label_id)
+        if elements is None:
+            continue
+        session.add(
+            Shape(
+                job_id=target.id,
+                label_id=uuid.UUID(label_id),
+                frame=frame,
+                shape_type=record.shape_type,
+                points=record.points,
+                rotation=record.rotation,
+                occluded=record.occluded,
+                z_order=record.z_order,
+                group=record.group,
+                source=AnnotationSource.IMPORTED,
+                attributes=kept(uuid.UUID(label_id), record.label, record.attributes),
+                mask=record.mask,
+                elements=elements,
+                created_by_id=actor_id,
+            )
+        )
+        written.shapes += 1
+
+    for (_track, label, shape_type), records in tracked.items():
+        label_id = label_ids.get(label)
+        if label_id is None:
+            unmatched_labels.add(label)
+            continue
+        for job, run in _by_job(jobs, sorted(records, key=lambda item: item[0])):
+            if _write_track(
+                session,
+                job=job,
+                label=label,
+                label_id=label_id,
+                shape_type=shape_type,
+                run=run,
+                mutable=schema.mutable_attribute_names(uuid.UUID(label_id)),
+                kept=kept,
+                resolved=resolved,
+                actor_id=actor_id,
+            ):
+                written.tracks += 1
+
+    for frame, label_name in result.tags:
+        target = _job_for_frame(jobs, frame)
+        label_id = label_ids.get(label_name)
+        if target is None or label_id is None:
+            continue
+        session.add(
+            Tag(
+                job_id=target.id,
+                label_id=uuid.UUID(label_id),
+                frame=frame,
+                source=AnnotationSource.IMPORTED,
+                attributes={},
+                created_by_id=actor_id,
+            )
+        )
+        written.tags += 1
+
+    await session.flush()
+    for job in jobs:
+        job.annotation_version += 1
+        await annotation_service.refresh_counts(session, job)
+
+    for message, names in (
+        ("Skipped annotations for labels not present in the project", unmatched_labels),
+        ("Skipped skeletons of labels that declare no joints in this project", jointless),
+        ("Dropped joints the project's skeleton labels do not declare", unknown_joints),
+        ("Dropped attributes the project's labels do not declare", undeclared),
+        ("Dropped attribute values the project's labels would refuse", refused),
+    ):
+        if names:
+            written.warnings.append(f"{message}: {', '.join(sorted(names))}")
+    return written
+
+
+def _job_for_frame(jobs: list[Job], frame: int) -> Job | None:
+    for job in jobs:
+        if job.contains_frame(frame):
+            return job
+    return None
+
+
+def _by_job(
+    jobs: list[Job], records: list[tuple[int, ShapeRecord]]
+) -> list[tuple[Job, list[tuple[int, ShapeRecord]]]]:
+    """A track's records, split into a run per job they fall in, in frame order."""
+    runs: list[tuple[Job, list[tuple[int, ShapeRecord]]]] = []
+    seen: set[int] = set()
+    for frame, record in records:
+        if frame in seen:
+            continue  # One position per frame; a file listing two keeps the first.
+        seen.add(frame)
+        job = _job_for_frame(jobs, frame)
+        if job is None:
+            continue
+        if runs and runs[-1][0] is job:
+            runs[-1][1].append((frame, record))
+        else:
+            runs.append((job, [(frame, record)]))
+    return runs
+
+
+def _write_track(
+    session: AsyncSession,
+    *,
+    job: Job,
+    label: str,
+    label_id: str,
+    shape_type: ShapeType,
+    run: list[tuple[int, ShapeRecord]],
+    mutable: set[str],
+    kept: Callable[[uuid.UUID, str, dict[str, Any]], dict[str, Any]],
+    resolved: Callable[[ShapeRecord, str], list[dict[str, Any]] | None],
+    actor_id: uuid.UUID,
+) -> bool:
+    """One track from one job's run of records; False when its records cannot be stored."""
+    elements = [resolved(record, label_id) for _frame, record in run]
+    if any(joints is None for joints in elements):
+        return False
+    label_uuid = uuid.UUID(label_id)
+    first = run[0][1]
+    track = Track(
+        id=uuid.uuid4(),
+        job_id=job.id,
+        label_id=label_uuid,
+        shape_type=shape_type,
+        group=first.group,
+        source=AnnotationSource.IMPORTED,
+        # What does not vary per frame lives on the track, as the editor writes it.
+        attributes={
+            k: v for k, v in kept(label_uuid, label, first.attributes).items() if k not in mutable
+        },
+        created_by_id=actor_id,
+    )
+    session.add(track)
+    for index, ((frame, record), joints) in enumerate(zip(run, elements, strict=True)):
+        following = run[index + 1][0] if index + 1 < len(run) else None
+        session.add(
+            TrackShape(
+                track_id=track.id,
+                frame=frame,
+                points=record.points,
+                rotation=record.rotation,
+                occluded=record.occluded,
+                outside=False,
+                keyframe=True,
+                z_order=record.z_order,
+                attributes={
+                    k: v
+                    for k, v in kept(label_uuid, label, record.attributes).items()
+                    if k in mutable
+                },
+                mask=record.mask,
+                elements=joints or [],
+            )
+        )
+        # Not listed on the next frame: it left. Without this the server would interpolate
+        # across the gap, or hold the last position to the end of the job.
+        leaves = frame + 1
+        if (following is None or following > leaves) and leaves <= job.stop_frame:
+            session.add(
+                TrackShape(
+                    track_id=track.id,
+                    frame=leaves,
+                    points=record.points,
+                    rotation=record.rotation,
+                    occluded=False,
+                    outside=True,
+                    keyframe=True,
+                    z_order=record.z_order,
+                    attributes={},
+                    mask=record.mask,
+                    elements=joints or [],
+                )
+            )
+    return True
+
+
 def summarise_import(result: ImportResult) -> dict[str, Any]:
     return {
         "shapes": len(result.shapes),
@@ -564,6 +842,7 @@ async def iter_dataset_frames(view: DatasetView) -> AsyncIterator[FrameRecord]:
 
 __all__ = [
     "AnnotationSource",
+    "ImportWritten",
     "build_dataset_view",
     "build_import_context",
     "create_dataset_version",
@@ -571,4 +850,5 @@ __all__ = [
     "get_dataset_version",
     "release_dataset_version",
     "summarise_import",
+    "write_import",
 ]
