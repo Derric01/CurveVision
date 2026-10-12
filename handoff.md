@@ -5,10 +5,10 @@
 > [`AGENTS.md`](./AGENTS.md) first; it is the working contract. Update this file after every
 > iteration, including the ones that mostly failed.
 >
-> **Last updated:** 2026-10-12 (iteration 62) · branch `claude/start-work-yx080h` · PRs
+> **Last updated:** 2026-10-12 (iteration 63) · branch `claude/start-work-yx080h` · PRs
 > [#1](https://github.com/Derric01/CurveVision/pull/1)–[#30](https://github.com/Derric01/CurveVision/pull/30)
-> **all merged**, #30 carrying iterations 60 and 61 (merged mid-session, while iteration 62
-> was being written). Iteration 62 is rebased onto that merge and pushed with no PR yet.
+> **all merged**, #30 carrying iterations 60 and 61. Iterations 62 and 63 are pushed to the
+> branch with no PR yet.
 >
 > *Two things worth knowing about this repository's PR rhythm, which replace the
 > PR-by-PR changelog that used to sit here and had stopped helping anybody.* **PRs are
@@ -22,7 +22,7 @@
 > **Keep the session short.** One iteration, then commit, push, update this file and report —
 > `AGENTS.md` § *Continue* and the `start-work` skill both say so now, because they did not
 > before and a single session ran six iterations and roughly a third of a week's budget. The
-> concrete costs, in rough order: re-reading this file (iterations 1–56 now live in
+> concrete costs, in rough order: re-reading this file (iterations 1–57 now live in
 > [`docs/iterations/ARCHIVE.md`](./docs/iterations/ARCHIVE.md), which cut it from 3,800
 > lines to 1,000 — keep it that way); `python desktop/sidecar/build.py`, which is a
 > PyInstaller run of a minute or two and is needed *again* for every sabotage-and-restore
@@ -45,10 +45,22 @@ shapes (detection/segmentation, OBB, pose, classification), each declaring in it
 The desktop shape works: a packaged single-executable server, a Tauri shell that supervises
 it, and folders annotated in place without copying a byte.
 
-**The tree is green.** `./scripts/check.sh` passes all thirteen steps: 624 server tests, 15
-SDK, 699 web, and `scripts/` is lint-clean under its own `ruff.toml`. Twenty-eight browser
+**The tree is green.** `./scripts/check.sh` passes all thirteen steps: 647 server tests, 15
+SDK, 711 web, and `scripts/` is lint-clean under its own `ruff.toml`. Twenty-nine browser
 harnesses drive the packaged desktop application in a real Chromium, nightly and on every
 push to `main`. (Iteration 52 arrived to a red tree — mypy 2 — and fixed it first.)
+
+**AI-assisted annotation works with an API key** (iteration 63, asked for by the user).
+The Models page opens on hosted services: Claude (through Anthropic's official SDK) and,
+through one OpenAI-compatible provider, OpenAI, Google Gemini, xAI Grok, OpenRouter, Mistral,
+Groq, Together and a local Ollama — or any other service at a typed base URL. Pick one,
+paste the key, *Connect*, pick a model from the service's own list of models that take
+images, *Add*; the editor's Auto-annotate panel then runs it on the project's own labels
+and the boxes land as suggestions. [ADR 0010](./docs/adr/0010-hosted-vision-language-models.md)
+amends ADR 0005 and says what this costs: **boxes from a general vision-language model are
+approximate** (a first draft to review, not a trained detector), boxes only, and **frames go
+to the service and its bill** — said on the form. **Not verified against any real service**:
+every test and harness uses a fake of each request shape, because a real call needs a key.
 
 **An import keeps attributes and tracks** (iteration 62). Every format's reader produced
 both, and the import route threw both away: each imported shape was stored with no
@@ -404,8 +416,17 @@ was the last unconnected piece of the desktop application.
 
 ## Next best action
 
-*Import keeping attributes and tracks was iteration 62; adding a model from the
-application, 61; joints that arrive from outside, 60; generated API types, 59.*
+*Hosted AI by API key was iteration 63; import keeping attributes and tracks, 62; adding a
+model from the application, 61; joints that arrive from outside, 60.*
+
+**First, if a key is available: try iteration 63 against the real services.** Add Claude,
+OpenAI and one OpenRouter vision model on the Models page with real keys, run each on a few
+frames of a real project, and record here what each gets right and where its boxes land.
+Nothing in this repository has called a real service; the request shapes are pinned against
+fakes written from each API's documentation. The likely adjustments are in
+`ml/vision_llm.py` (prompt wording, the 0–1000 convention) and the `NOT_CHAT` filter in
+`ml/openai_compatible.py`. This needs the user's keys — ask rather than skip it.
+
 
 **Import annotations from the task page.** `POST /tasks/{id}/import` has no caller in the
 web client: a dataset in COCO, CVAT XML, YOLO or any other importable format can be brought
@@ -540,6 +561,14 @@ a mutation that flushes the shape buffer, re-reads `annotation_version`, then wr
 </details>
 
 ## Completed
+
+**Hosted AI models by API key** (iteration 63) — `ml/anthropic_provider.py` (Claude via the
+`anthropic` SDK: Models API filtered to `image_input`, structured outputs where supported,
+`fallbacks: "default"` on the models that take it, refusals read per frame),
+`ml/openai_compatible.py` (`GET /models` + `POST /chat/completions` over `httpx`), and
+`ml/vision_llm.py` (prompt, 0–1000 boxes to pixels, lenient reading, image downscaling,
+four frames at a time). The Models page's *Hosted AI service* tab with ten presets. Tested
+against fakes of each request shape — never a real service.
 
 **Imports keep attributes and tracks** (iteration 62) — `services/datasets.write_import`
 stores what a format read: attributes the label declares and accepts (the rest dropped and
@@ -901,15 +930,38 @@ being updated and this one was not. Check it against* Completed *before trusting
 
 ## Remaining high-priority work
 
-1. **No model ships, so auto-annotate cannot be tried.** ADR 0005 accepted this
-   deliberately ("No out-of-the-box models… a genuine onboarding cost") and planned
-   reference servers in separate repositories. The contract is now ready for one.
+1. **Hosted AI is unverified against the real services** (iteration 63): an API key now
+   gets a model, but no request has gone to Anthropic, OpenAI or any other real endpoint.
+   A trained detector for production volume still needs a model server — no reference one
+   exists yet (ADR 0005's separate repositories).
 2. **Signed installers in CI** — *blocked outside the repository*: one runner per platform
    (PyInstaller does not cross-compile) and signing certificates the project does not have.
 
 ---
 
 ## Verification performed
+
+Iteration 63:
+
+* `tests/unit/test_hosted_vision.py` (22): answer reading (fences, case, swapped corners,
+  percentages, no JSON), image downscaling, Claude through the real SDK on an `httpx2` mock
+  transport (image block, schema, `fallbacks` + beta header on Opus 5.5 and not on Haiku
+  5.5, refusal, wrong key, unknown model), and the OpenAI-compatible provider (data URL, no
+  `response_format`/`temperature`, answer in parts, model-list filtering, wrong key and
+  base URL). The first run caught a real bug: rounding the downscaled size landed 102
+  pixels over the 1.15-megapixel cap; it floors now.
+* `test_model_registration.py::TestHostedModels`: discover, register and run a hosted model
+  through the API; the box lands in the frame's pixels and the prompt names the project's
+  labels.
+* `verify_hosted_model.py` (15 checks) against the packaged server and a real localhost
+  OpenAI-shaped service, through *Other OpenAI-compatible service*. Made to fail first: one
+  sabotage build (unscaled boxes, no non-chat filter, no privacy note, no class names in the
+  prompt) failed exactly those four checks. `verify_model_registration.py` updated for the
+  new tab and passing.
+* The packaged desktop server builds with the SDK in it and passes its smoke test.
+* `./scripts/check.sh`: **all thirteen pass** — 647 server, 15 SDK, 711 web; notices cover
+  `anthropic`, `httpx2`, `jiter`, `docstring-parser`.
+* **Not done: any call to a real service.** No key was available.
 
 Iteration 62:
 
@@ -1177,6 +1229,15 @@ Iteration 54:
 
 ## Known issues
 
+* **Hosted models have never met a real service** (iteration 63). The request shapes come
+  from each API's documentation and the Anthropic SDK; how good the boxes are, and whether
+  a given service's model list or JSON habits need adjusting, is unknown until somebody runs
+  it with a key.
+* **A hosted run is one request per frame**, four at a time, inside the HTTP request that
+  started it: a run over hundreds of frames is slow and can hit the service's rate limit,
+  reported as a 502 that says so. Run it on a frame range.
+* **Boxes only** from hosted models: no masks, polygons, keypoints or whole-frame tags yet.
+
 * **An imported track has a keyframe on every frame the file lists**, not only on the
   frames somebody keyed: no format here carries which frames were keyframes (CVAT XML's
   `keyframe` attribute is not read), so the timeline shows a dense lane. The positions are
@@ -1331,6 +1392,25 @@ Iteration 54:
 
 ## Last iteration
 
+### 63 — AI-assisted annotation with an API key: Claude, OpenAI, Gemini, xAI, OpenRouter…
+
+Asked for directly: "add the API key and it will work", for every standard service. That
+reversed part of a recorded decision — ADR 0005's "a new user cannot click auto-annotate
+without standing something up first" — so it got its own ADR (0010) rather than a quiet
+rewrite. The design follows the request shapes, not the vendors: Anthropic's Messages API
+through Anthropic's official SDK (the supported way to call it), and one OpenAI Chat
+Completions provider that eight services and a local Ollama all accept, with base URLs as
+presets in the web client and model names always from the service's own list.
+
+The honest part is in the ADR and on the form: a general vision-language model draws
+approximate boxes, which is acceptable only because they arrive as suggestions; and frames
+go to the service. Boxes are asked for in 0–1000 coordinates because every service resizes
+images by rules the caller cannot see.
+
+Verified: see *Verification performed* — against fakes only.
+
+## Iteration 62
+
 ### 62 — an import keeps attributes and tracks
 
 Started on "make import reachable from the application", found by sweeping the server's
@@ -1427,24 +1507,9 @@ like any accepted batch.
 
 Verified: see *Verification performed*.
 
-## Iteration 57
-
-### 57 — the label form offers `required`
-
-The next best action, and small: iterations 54 and 55 removed the two reasons it was held
-back (no way to set a value; one refused object failing every later save), and the server
-rule was already there — `_refuse_stranding_values` refuses a newly required attribute
-while an annotation of the label has no value and there is no default. One checkbox per
-attribute row, never shown fixed, because whether it is allowed depends on data the form
-cannot see; the refusal arrives through the panel's existing error line. The harness's first
-draft of the new step died on a Playwright timeout against the old build (no checkbox to
-tick); it now reports a missing control as the two FAILs it should be.
-
-Verified: see *Verification performed*.
-
 ## Earlier iterations
 
-Iterations **1–56** are in [`docs/iterations/ARCHIVE.md`](./docs/iterations/ARCHIVE.md) —
+Iterations **1–57** are in [`docs/iterations/ARCHIVE.md`](./docs/iterations/ARCHIVE.md) —
 moved there so that orienting costs a few hundred lines rather than four thousand. Read them
 when `git log` points you at an iteration number, or when you are about to build something
 and want to know whether it was already tried and rejected. The lessons from them that are

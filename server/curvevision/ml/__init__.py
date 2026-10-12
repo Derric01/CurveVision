@@ -1,12 +1,14 @@
 """Model providers.
 
-Registering a provider is one call. The core never imports a vendor SDK; a provider that
-needs one lives in its own optional package.
+Registering a provider is one call. Three are built in: `http`, CurveVision's own inference
+contract for a model server somebody runs (ADR 0005), and `anthropic` and
+`openai_compatible`, the hosted vision-language services a key is enough for (ADR 0010).
 """
 
 from __future__ import annotations
 
 from curvevision.core.errors import ProviderError
+from curvevision.ml.anthropic_provider import AnthropicProvider
 from curvevision.ml.base import (
     InferenceFrame,
     InferenceRequest,
@@ -17,6 +19,7 @@ from curvevision.ml.base import (
     PredictedTag,
 )
 from curvevision.ml.http_provider import HttpModelProvider
+from curvevision.ml.openai_compatible import OpenAICompatibleProvider
 
 _PROVIDERS: dict[str, ModelProvider] = {}
 
@@ -41,14 +44,18 @@ def all_providers() -> list[str]:
 
 
 register_provider(HttpModelProvider())
+register_provider(AnthropicProvider())
+register_provider(OpenAICompatibleProvider())
 
 __all__ = [
+    "AnthropicProvider",
     "HttpModelProvider",
     "InferenceFrame",
     "InferenceRequest",
     "InferenceResult",
     "ModelDescriptor",
     "ModelProvider",
+    "OpenAICompatibleProvider",
     "PredictedShape",
     "PredictedTag",
     "all_providers",

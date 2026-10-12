@@ -56,6 +56,10 @@ Full license texts for permissive licenses used here are reproduced under
 | [email-validator](https://github.com/JoshData/python-email-validator) | Unlicense / CC0 | Joshua Tauberer | Email address validation |
 | [python-multipart](https://github.com/Kludex/python-multipart) | Apache-2.0 | Andrew Dunham and contributors | Multipart upload parsing |
 | [httpx](https://github.com/encode/httpx) | BSD-3-Clause | Encode OSS Ltd. | HTTP client (inference, webhooks) |
+| [anthropic](https://github.com/anthropics/anthropic-sdk-python) | MIT | Anthropic, PBC | Calling Claude for AI-assisted annotation (ADR 0010) |
+| [httpx2](https://github.com/pydantic/httpx2) (via anthropic) | BSD-3-Clause | Encode OSS Ltd. and contributors | HTTP client underneath the Anthropic SDK |
+| [jiter](https://github.com/pydantic/jiter) (via anthropic) | MIT | Samuel Colvin and contributors | JSON parsing for the Anthropic SDK |
+| [docstring-parser](https://github.com/rr-/docstring_parser) (via anthropic) | MIT | Marcin Kurczewski | Used by the Anthropic SDK |
 | [prometheus-client](https://github.com/prometheus/client_python) | Apache-2.0 | Prometheus authors | Metrics |
 | [asyncpg](https://github.com/MagicStack/asyncpg) | Apache-2.0 | MagicStack Inc. | PostgreSQL driver (`postgres` extra) |
 | [psycopg](https://github.com/psycopg/psycopg) | LGPL-3.0-or-later | Daniele Varrazzo and contributors | PostgreSQL driver, used unmodified as a library (`postgres` extra) |

@@ -1,6 +1,6 @@
 # Iteration archive
 
-> The narrative record of iterations **1–56**, moved out of
+> The narrative record of iterations **1–57**, moved out of
 > [`handoff.md`](../../handoff.md) so that orienting on this project costs a few hundred
 > lines rather than four thousand.
 >
@@ -15,6 +15,21 @@
 > window, append it to the top of this file rather than deleting it.
 
 ---
+
+## Iteration 57
+
+### 57 — the label form offers `required`
+
+The next best action, and small: iterations 54 and 55 removed the two reasons it was held
+back (no way to set a value; one refused object failing every later save), and the server
+rule was already there — `_refuse_stranding_values` refuses a newly required attribute
+while an annotation of the label has no value and there is no default. One checkbox per
+attribute row, never shown fixed, because whether it is allowed depends on data the form
+cannot see; the refusal arrives through the panel's existing error line. The harness's first
+draft of the new step died on a Playwright timeout against the old build (no checkbox to
+tick); it now reports a missing control as the two FAILs it should be.
+
+Verified: see *Verification performed*.
 
 ## Iteration 56
 

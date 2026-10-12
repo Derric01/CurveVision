@@ -23,6 +23,8 @@ dependencies = [
     "pyjwt>=2.8",
     "python-multipart>=0.0.9",
     "httpx>=0.27",
+    # Claude, through its official SDK (ADR 0010). Brings httpx2, jiter, docstring-parser.
+    "anthropic>=1.13,<2",
     "prometheus-client>=0.20",
 ]
 

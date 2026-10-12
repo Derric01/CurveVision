@@ -183,6 +183,8 @@ def main() -> int:
                       "the Models page says none is registered",
                       "the Models page does not say none is registered")
 
+                # Since iteration 63 the form opens on hosted services; a server is a tab.
+                page.locator("[data-add-server]").click()
                 endpoint_box = page.locator("[data-model-endpoint]")
                 key_box = page.locator("[data-model-key]")
                 connect = page.locator("[data-model-connect]")

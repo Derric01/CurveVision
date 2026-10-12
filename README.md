@@ -201,8 +201,21 @@ over somebody else's.
 
 ### AI-assisted annotation — bring your own model
 
-CurveVision ships **no model weights and imports no vendor SDK**. You point it at an
-inference endpoint; predictions arrive as ordinary annotations.
+**The quick way: an API key.** On the **Models** page, pick a service — Claude (Anthropic),
+OpenAI, Google Gemini, xAI Grok, OpenRouter, Mistral, Groq, Together AI, or Ollama running on
+your own machine — paste your key and press *Connect*. CurveVision lists the models that take
+images; pick one and every annotator in the workspace can run it from the editor's
+Auto-annotate panel. It looks for your project's own labels by name, and what it finds lands
+as suggestions to accept, fix or reject.
+
+Two honest caveats ([ADR 0010](docs/adr/0010-hosted-vision-language-models.md)): a general
+vision-language model is good at *what* is in a frame and approximate about *exactly where*,
+so its boxes are a first draft; and each frame you run it on is sent to that service and
+billed to your key (Ollama excepted). Boxes only — not masks, polygons or keypoints.
+
+**The precise way: your own model.** CurveVision ships **no model weights**. Point it at an
+inference endpoint serving a detector trained for your data; predictions arrive as ordinary
+annotations.
 
 ```json
 POST /your-endpoint
@@ -216,9 +229,9 @@ That contract is a 30-line FastAPI script. Nothing speaks it out of the box — 
 TorchServe, BentoML, Ray Serve or a hosted vendor's API — but a thin wrapper puts any of
 them behind it, which is the point: bundling a serving platform would force our choice on
 every operator and drag non-commercial model licenses into the core. CurveVision ships no
-model and, as yet, no reference wrapper, so the first model is one you stand up.
+model and, as yet, no reference wrapper.
 
-Once you have one, adding it is a URL and a key: on the **Models** page, paste the endpoint
+Once you have one, adding it is a URL and a key too: on the **Models** page, paste the endpoint
 and its API key and press *Connect*. CurveVision asks the server what it serves, fills in
 the model's kind and labels, and from then on every annotator in the workspace can run it
 from the editor's Auto-annotate panel. A wrong key is reported there, not on the first run.
@@ -232,6 +245,7 @@ what makes an active-learning loop measurable.
 | `ModelProvider` abstraction and the HTTP contract | **Done** |
 | Predictions as accept/reject suggestions | **Done** |
 | Adding a model from the app (endpoint + API key, discovered labels) | **Done** |
+| Hosted AI by API key: Claude, OpenAI, Gemini, xAI, OpenRouter, Mistral, Groq, Together, Ollama | **Done** — boxes only |
 | A reference model server to point it at | *Planned* — a separate repository (ADR 0005) |
 | Provenance chain (`model` → `model_corrected`) | **Done** |
 | Interactive segmentation (click-to-segment) | *Planned* |

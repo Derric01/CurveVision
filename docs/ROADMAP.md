@@ -56,6 +56,7 @@ application — and produce a real dataset with it.
 | Annotation history | **Done** |
 | `ModelProvider` abstraction and the HTTP inference contract | **Done** |
 | Model predictions as accept/reject suggestions | **Done** |
+| AI by API key (Claude, OpenAI, Gemini, xAI, OpenRouter, Mistral, Groq, Together, Ollama) | **In progress** — built and tested against fakes of each request shape (ADR 0010); not yet run against a real service. Boxes only |
 | Adding a model from the application | **Done** — a Models page: paste an endpoint and its API key, *Connect* asks the endpoint what it serves (`GET <endpoint>/models`, which nothing called until iteration 61), and the model's kind and labels are filled in from the answer. A wrong key or a dead endpoint is reported before anything is saved. Driven end to end in a browser against a real model server, through to the key and the model's id arriving with an inference request |
 | Dataset versions with immutable releases | **Done** |
 | REST API and API tokens | **Done** |

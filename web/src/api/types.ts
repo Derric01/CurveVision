@@ -415,10 +415,17 @@ export interface ModelRegistrationInput {
   slug: string;
   name: string;
   description?: string;
-  provider: 'http';
+  /**
+   * `http` for a model server speaking CurveVision's contract; `anthropic` and
+   * `openai_compatible` for the hosted services a key is enough for (ADR 0010).
+   */
+  provider: 'http' | 'anthropic' | 'openai_compatible';
   kind: ModelKind;
   config: {
-    endpoint: string;
+    /** A model server's inference URL (`http`). */
+    endpoint?: string;
+    /** A Chat Completions service's base URL (`openai_compatible`). */
+    base_url?: string;
     api_key?: string;
     /** The name the endpoint knows the model by, sent as `model` with every request. */
     model?: string;
