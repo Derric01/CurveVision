@@ -1,6 +1,6 @@
 # Iteration archive
 
-> The narrative record of iterations **1–55**, moved out of
+> The narrative record of iterations **1–57**, moved out of
 > [`handoff.md`](../../handoff.md) so that orienting on this project costs a few hundred
 > lines rather than four thousand.
 >
@@ -15,6 +15,53 @@
 > window, append it to the top of this file rather than deleting it.
 
 ---
+
+## Iteration 57
+
+### 57 — the label form offers `required`
+
+The next best action, and small: iterations 54 and 55 removed the two reasons it was held
+back (no way to set a value; one refused object failing every later save), and the server
+rule was already there — `_refuse_stranding_values` refuses a newly required attribute
+while an annotation of the label has no value and there is no default. One checkbox per
+attribute row, never shown fixed, because whether it is allowed depends on data the form
+cannot see; the refusal arrives through the panel's existing error line. The harness's first
+draft of the new step died on a Playwright timeout against the old build (no checkbox to
+tick); it now reports a missing control as the two FAILs it should be.
+
+Verified: see *Verification performed*.
+
+## Iteration 56
+
+### 56 — unsaved work survives a crash, in both shapes
+
+The next best action from iteration 55, which had found that crash recovery was a false
+Done: the copy was written on every edit and never read. Orienting turned up the reason it
+could not have worked on the desktop even if it had been read. The window loads the page
+from `http://127.0.0.1:<port>`, the local server took a new port every launch, and a
+browser keeps IndexedDB per origin — port included — so every launch started with an empty
+one. Nothing in an ADR fixes the port; `_free_port`'s objection is to a *fixed* one
+colliding, which a remembered port with a fallback avoids. A stable origin was checked for
+side effects first: `index.html` is served `no-cache`, assets are content-hashed, and
+nothing in `localStorage` depends on starting empty.
+
+**CVAT was looked at for the recovery itself and has none to port** — its client keeps
+unsaved changes in memory and warns on leaving — so the design is this project's own: offer
+rather than restore, check the offer against the server by client id, and never overwrite
+what the session has changed since.
+
+**Reproduced first, as a harness against the build from before the change**: a box drawn
+while saves fail and the page closed is not offered back, and a killed-and-relaunched
+server comes back on another port. The first run against the new code then failed twice —
+the restored box was not drawn while saves still failed, and the relaunch took a new port.
+The first was a real gap (`unsavedOn` ignored the batch in flight); the second was the
+harness killing only the packaged binary's bootloader. Both are written up above, the
+second in `docs/CONTRIBUTING.md`.
+
+**Found, not fixed:** a resent create whose `client_id` the job already has was a 500 (fixed in iteration 58) —
+the editor cannot reach it, a script can. See *Next best action*.
+
+Verified: see *Verification performed*.
 
 ## Iteration 55
 

@@ -5,10 +5,10 @@
 > [`AGENTS.md`](./AGENTS.md) first; it is the working contract. Update this file after every
 > iteration, including the ones that mostly failed.
 >
-> **Last updated:** 2026-10-12 (iteration 61) · branch `claude/start-work-yx080h` · PRs
-> [#1](https://github.com/Derric01/CurveVision/pull/1)–[#29](https://github.com/Derric01/CurveVision/pull/29)
-> **all merged**, #29 carrying iteration 59. The branch was moved to `origin/main` after that
-> merge; iterations 60 and 61 are pushed to it with no PR opened yet.
+> **Last updated:** 2026-10-12 (iteration 63) · branch `claude/start-work-yx080h` · PRs
+> [#1](https://github.com/Derric01/CurveVision/pull/1)–[#30](https://github.com/Derric01/CurveVision/pull/30)
+> **all merged**, #30 carrying iterations 60 and 61. Iterations 62 and 63 are pushed to the
+> branch with no PR yet.
 >
 > *Two things worth knowing about this repository's PR rhythm, which replace the
 > PR-by-PR changelog that used to sit here and had stopped helping anybody.* **PRs are
@@ -22,7 +22,7 @@
 > **Keep the session short.** One iteration, then commit, push, update this file and report —
 > `AGENTS.md` § *Continue* and the `start-work` skill both say so now, because they did not
 > before and a single session ran six iterations and roughly a third of a week's budget. The
-> concrete costs, in rough order: re-reading this file (iterations 1–55 now live in
+> concrete costs, in rough order: re-reading this file (iterations 1–57 now live in
 > [`docs/iterations/ARCHIVE.md`](./docs/iterations/ARCHIVE.md), which cut it from 3,800
 > lines to 1,000 — keep it that way); `python desktop/sidecar/build.py`, which is a
 > PyInstaller run of a minute or two and is needed *again* for every sabotage-and-restore
@@ -45,10 +45,31 @@ shapes (detection/segmentation, OBB, pose, classification), each declaring in it
 The desktop shape works: a packaged single-executable server, a Tauri shell that supervises
 it, and folders annotated in place without copying a byte.
 
-**The tree is green.** `./scripts/check.sh` passes all thirteen steps: 616 server tests, 15
-SDK, 699 web, and `scripts/` is lint-clean under its own `ruff.toml`. Twenty-eight browser
+**The tree is green.** `./scripts/check.sh` passes all thirteen steps: 647 server tests, 15
+SDK, 711 web, and `scripts/` is lint-clean under its own `ruff.toml`. Twenty-nine browser
 harnesses drive the packaged desktop application in a real Chromium, nightly and on every
 push to `main`. (Iteration 52 arrived to a red tree — mypy 2 — and fixed it first.)
+
+**AI-assisted annotation works with an API key** (iteration 63, asked for by the user).
+The Models page opens on hosted services: Claude (through Anthropic's official SDK) and,
+through one OpenAI-compatible provider, OpenAI, Google Gemini, xAI Grok, OpenRouter, Mistral,
+Groq, Together and a local Ollama — or any other service at a typed base URL. Pick one,
+paste the key, *Connect*, pick a model from the service's own list of models that take
+images, *Add*; the editor's Auto-annotate panel then runs it on the project's own labels
+and the boxes land as suggestions. [ADR 0010](./docs/adr/0010-hosted-vision-language-models.md)
+amends ADR 0005 and says what this costs: **boxes from a general vision-language model are
+approximate** (a first draft to review, not a trained detector), boxes only, and **frames go
+to the service and its bill** — said on the form. **Not verified against any real service**:
+every test and harness uses a fake of each request shape, because a real call needs a key.
+
+**An import keeps attributes and tracks** (iteration 62). Every format's reader produced
+both, and the import route threw both away: each imported shape was stored with no
+attributes, and a track came back as one unrelated box per frame — while the README's
+round-trip table said CVAT XML carries attributes and tracks, MOTChallenge object identity,
+and the native format "everything, losslessly". Now an attribute is kept where the label
+declares it and accepts the value (the rest dropped and named, as CVAT drops them), and a
+track comes back as one track, absent wherever the file stops listing it. **Import is still
+not reachable from the application** — that is the next best action.
 
 **A model is added from the application, with an endpoint and a key** (iteration 61). The
 editor's Auto-annotate panel told people to "register an inference endpoint" and nothing in
@@ -395,15 +416,42 @@ was the last unconnected piece of the desktop application.
 
 ## Next best action
 
-*Adding a model from the application was iteration 61; joints that arrive from outside,
-60; generated API types, 59; a duplicate `client_id`, 58.*
+*Hosted AI by API key was iteration 63; import keeping attributes and tracks, 62; adding a
+model from the application, 61; joints that arrive from outside, 60.*
+
+**First, if a key is available: try iteration 63 against the real services.** Add Claude,
+OpenAI and one OpenRouter vision model on the Models page with real keys, run each on a few
+frames of a real project, and record here what each gets right and where its boxes land.
+Nothing in this repository has called a real service; the request shapes are pinned against
+fakes written from each API's documentation. The likely adjustments are in
+`ml/vision_llm.py` (prompt wording, the 0–1000 convention) and the `NOT_CHAT` filter in
+`ml/openai_compatible.py`. This needs the user's keys — ask rather than skip it.
+
+
+**Import annotations from the task page.** `POST /tasks/{id}/import` has no caller in the
+web client: a dataset in COCO, CVAT XML, YOLO or any other importable format can be brought
+in only with the API, the SDK or the CLI, in either shape. Found in iteration 62 by the
+sweep below (route-and-method pairs with no client method); iteration 62 made what it
+stores faithful first, so the panel exposes an import worth having. A panel on the task page:
+the importable formats from `GET /formats` (`supports_import`), a file, append or replace —
+replace deletes the task's annotations, so it says so — and the `ImportResultOut` summary,
+warnings included. The route's response is typed now, so the client type can be held to it
+in `contract.ts`. Drive it in a browser: export from one project, import into another, open
+the editor and see the track and its attributes.
+
+*The sweep also found, with no client method at all: adding people to a workspace
+(`POST /organizations/{id}/members`, which takes a user id nothing can look up — needs a
+server change first), dataset versions, renaming or deleting a project, API tokens and
+webhooks; and `deleteTask` with no caller. Adding members is the largest of these for the
+server shape.*
+
 
 *Iteration 61 was chosen over the action below because the user asked whether AI annotation
 is "add the API key and it works". It was not even that: there was no screen to add a key
 to. That is fixed; what still stands between a new user and a first prediction is a model
 server to point at — the first item under* Then, still needing the user.
 
-**Repair the joints stored before iteration 60, then type them.** A COCO import or a
+**Then: repair the joints stored before iteration 60, and type them.** A COCO import or a
 model's prediction before iteration 60 stored each joint as `{"name", "points", ...}` with
 no `label_id`, and those rows are still in any database that took one. Write an Alembic
 data migration that runs each stored skeleton (`shapes`, and `track_shapes` via their
@@ -513,6 +561,21 @@ a mutation that flushes the shape buffer, re-reads `annotation_version`, then wr
 </details>
 
 ## Completed
+
+**Hosted AI models by API key** (iteration 63) — `ml/anthropic_provider.py` (Claude via the
+`anthropic` SDK: Models API filtered to `image_input`, structured outputs where supported,
+`fallbacks: "default"` on the models that take it, refusals read per frame),
+`ml/openai_compatible.py` (`GET /models` + `POST /chat/completions` over `httpx`), and
+`ml/vision_llm.py` (prompt, 0–1000 boxes to pixels, lenient reading, image downscaling,
+four frames at a time). The Models page's *Hosted AI service* tab with ten presets. Tested
+against fakes of each request shape — never a real service.
+
+**Imports keep attributes and tracks** (iteration 62) — `services/datasets.write_import`
+stores what a format read: attributes the label declares and accepts (the rest dropped and
+named in `warnings`), records sharing a `track_id` as one track with `outside` keyframes
+wherever the file stops listing it, split at job boundaries, and a one-frame track as a
+shape. The route returns a typed `ImportResultOut` with `tracks_imported`. Round trips
+through the native format, CVAT XML and MOTChallenge, and a CVAT-written file, are tested.
 
 **Adding a model from the application** (iteration 61) — a **Models** page lists the
 workspace's models and adds one from an endpoint and an API key: `POST /models/discover`
@@ -867,15 +930,53 @@ being updated and this one was not. Check it against* Completed *before trusting
 
 ## Remaining high-priority work
 
-1. **No model ships, so auto-annotate cannot be tried.** ADR 0005 accepted this
-   deliberately ("No out-of-the-box models… a genuine onboarding cost") and planned
-   reference servers in separate repositories. The contract is now ready for one.
+1. **Hosted AI is unverified against the real services** (iteration 63): an API key now
+   gets a model, but no request has gone to Anthropic, OpenAI or any other real endpoint.
+   A trained detector for production volume still needs a model server — no reference one
+   exists yet (ADR 0005's separate repositories).
 2. **Signed installers in CI** — *blocked outside the repository*: one runner per platform
    (PyInstaller does not cross-compile) and signing certificates the project does not have.
 
 ---
 
 ## Verification performed
+
+Iteration 63:
+
+* `tests/unit/test_hosted_vision.py` (22): answer reading (fences, case, swapped corners,
+  percentages, no JSON), image downscaling, Claude through the real SDK on an `httpx2` mock
+  transport (image block, schema, `fallbacks` + beta header on Opus 5.5 and not on Haiku
+  5.5, refusal, wrong key, unknown model), and the OpenAI-compatible provider (data URL, no
+  `response_format`/`temperature`, answer in parts, model-list filtering, wrong key and
+  base URL). The first run caught a real bug: rounding the downscaled size landed 102
+  pixels over the 1.15-megapixel cap; it floors now.
+* `test_model_registration.py::TestHostedModels`: discover, register and run a hosted model
+  through the API; the box lands in the frame's pixels and the prompt names the project's
+  labels.
+* `verify_hosted_model.py` (15 checks) against the packaged server and a real localhost
+  OpenAI-shaped service, through *Other OpenAI-compatible service*. Made to fail first: one
+  sabotage build (unscaled boxes, no non-chat filter, no privacy note, no class names in the
+  prompt) failed exactly those four checks. `verify_model_registration.py` updated for the
+  new tab and passing.
+* The packaged desktop server builds with the SDK in it and passes its smoke test.
+* `./scripts/check.sh`: **all thirteen pass** — 647 server, 15 SDK, 711 web; notices cover
+  `anthropic`, `httpx2`, `jiter`, `docstring-parser`.
+* **Not done: any call to a real service.** No key was available.
+
+Iteration 62:
+
+* `tests/api/test_import_fidelity.py` (8) written first; all seven that existed then failed
+  on the old route — no track came back from any format, and the CVAT file's track frames
+  came back as loose boxes. The eighth (a track crossing a job boundary) was added with the
+  fix. Two rules were then sabotaged one at a time: no `outside` keyframes fails five tests,
+  no attributes kept fails four.
+* The first fix failed both CVAT XML round trips: its exporter writes a standalone shape as
+  a one-frame track when the dataset has tracks (CVAT's own convention), so it came back as
+  a track. One-frame tracks are now shapes.
+* `pytest tests/api tests/unit/test_formats*.py` and the SDK suite pass;
+  `./scripts/check.sh`: **all thirteen pass** — 624 server, 15 SDK, 699 web; `api types`
+  regenerated for `ImportResultOut`.
+* No browser harness: nothing in the application reaches import yet (the next best action).
 
 Iteration 61:
 
@@ -1037,6 +1138,11 @@ Iteration 54:
 
 ## Bugs fixed
 
+* **Every import dropped attributes and broke tracks apart** (iteration 62), contradicting
+  the README's round-trip table for CVAT XML, MOTChallenge and the native format. Root
+  cause: the route stored `attributes={}` and ignored `track_id`; the readers had always
+  produced both.
+
 * **Nothing in the application could add a model** (iteration 61), while the editor's empty
   panel said to "register an inference endpoint". Only `POST /models` with a hand-written
   body could. Now the Models page.
@@ -1122,6 +1228,23 @@ Iteration 54:
 * **`mypy (server)` failed under mypy 2** (iteration 52). A cast in `decide_suggestions`.
 
 ## Known issues
+
+* **Hosted models have never met a real service** (iteration 63). The request shapes come
+  from each API's documentation and the Anthropic SDK; how good the boxes are, and whether
+  a given service's model list or JSON habits need adjusting, is unknown until somebody runs
+  it with a key.
+* **A hosted run is one request per frame**, four at a time, inside the HTTP request that
+  started it: a run over hundreds of frames is slow and can hit the service's rate limit,
+  reported as a 502 that says so. Run it on a frame range.
+* **Boxes only** from hosted models: no masks, polygons, keypoints or whole-frame tags yet.
+
+* **An imported track has a keyframe on every frame the file lists**, not only on the
+  frames somebody keyed: no format here carries which frames were keyframes (CVAT XML's
+  `keyframe` attribute is not read), so the timeline shows a dense lane. The positions are
+  right; editing one frame edits that keyframe only.
+* **An import does not carry provenance in**: everything it writes is `source: "imported"`,
+  so a native backup restores model suggestions as imported annotations, without their
+  confidence. Tags come in without attributes (`ImportResult.tags` has no field for them).
 
 * **A model's API key is stored as given**, in `model_registrations.config`, as a webhook's
   signing secret is in `webhooks.secret`. Neither is returned by the API; anyone who can
@@ -1269,6 +1392,48 @@ Iteration 54:
 
 ## Last iteration
 
+### 63 — AI-assisted annotation with an API key: Claude, OpenAI, Gemini, xAI, OpenRouter…
+
+Asked for directly: "add the API key and it will work", for every standard service. That
+reversed part of a recorded decision — ADR 0005's "a new user cannot click auto-annotate
+without standing something up first" — so it got its own ADR (0010) rather than a quiet
+rewrite. The design follows the request shapes, not the vendors: Anthropic's Messages API
+through Anthropic's official SDK (the supported way to call it), and one OpenAI Chat
+Completions provider that eight services and a local Ollama all accept, with base URLs as
+presets in the web client and model names always from the service's own list.
+
+The honest part is in the ADR and on the form: a general vision-language model draws
+approximate boxes, which is acceptable only because they arrive as suggestions; and frames
+go to the service. Boxes are asked for in 0–1000 coordinates because every service resizes
+images by rules the caller cannot see.
+
+Verified: see *Verification performed* — against fakes only.
+
+## Iteration 62
+
+### 62 — an import keeps attributes and tracks
+
+Started on "make import reachable from the application", found by sweeping the server's
+routes for any with no client method. Reading the route first, to see what a panel would
+expose, found the larger problem: what the import stored was not what the file held. Every
+reader filled `ShapeRecord.attributes` and `track_id`, and the route discarded both — a
+false claim in the README three times over, and silent loss for anyone importing through
+the SDK or CLI. `AGENTS.md` ranks a false claim above a missing panel, and a panel over a
+lossy import would have shipped the loss to more people, so the panel waits.
+
+CVAT was read for the rules (`dataset_manager/bindings.py`, `_import_shape`,
+`_import_track`): by default it keeps only the attributes a label declares
+(`soft_attribute_import` is the opt-in that keeps the rest), and a track is imported as a
+track with its shapes as keyframes. Convention only; no code
+adapted. CVAT's XML marks the end of a run with an `outside` shape, which the reader here
+skips; the import puts the `outside` keyframe back from the gap instead, so a file without
+them (MOTChallenge) gets the same result. The writing moved from the route into
+`services/datasets.write_import`, which is where `ARCHITECTURE.md` §2 puts it.
+
+Verified: see *Verification performed*.
+
+## Iteration 61
+
 ### 61 — a model is added from the application, with an endpoint and a key
 
 Asked for directly: the user wanted to know whether AI annotation is "just add the API key
@@ -1342,56 +1507,9 @@ like any accepted batch.
 
 Verified: see *Verification performed*.
 
-## Iteration 57
-
-### 57 — the label form offers `required`
-
-The next best action, and small: iterations 54 and 55 removed the two reasons it was held
-back (no way to set a value; one refused object failing every later save), and the server
-rule was already there — `_refuse_stranding_values` refuses a newly required attribute
-while an annotation of the label has no value and there is no default. One checkbox per
-attribute row, never shown fixed, because whether it is allowed depends on data the form
-cannot see; the refusal arrives through the panel's existing error line. The harness's first
-draft of the new step died on a Playwright timeout against the old build (no checkbox to
-tick); it now reports a missing control as the two FAILs it should be.
-
-Verified: see *Verification performed*.
-
-## Iteration 56
-
-### 56 — unsaved work survives a crash, in both shapes
-
-The next best action from iteration 55, which had found that crash recovery was a false
-Done: the copy was written on every edit and never read. Orienting turned up the reason it
-could not have worked on the desktop even if it had been read. The window loads the page
-from `http://127.0.0.1:<port>`, the local server took a new port every launch, and a
-browser keeps IndexedDB per origin — port included — so every launch started with an empty
-one. Nothing in an ADR fixes the port; `_free_port`'s objection is to a *fixed* one
-colliding, which a remembered port with a fallback avoids. A stable origin was checked for
-side effects first: `index.html` is served `no-cache`, assets are content-hashed, and
-nothing in `localStorage` depends on starting empty.
-
-**CVAT was looked at for the recovery itself and has none to port** — its client keeps
-unsaved changes in memory and warns on leaving — so the design is this project's own: offer
-rather than restore, check the offer against the server by client id, and never overwrite
-what the session has changed since.
-
-**Reproduced first, as a harness against the build from before the change**: a box drawn
-while saves fail and the page closed is not offered back, and a killed-and-relaunched
-server comes back on another port. The first run against the new code then failed twice —
-the restored box was not drawn while saves still failed, and the relaunch took a new port.
-The first was a real gap (`unsavedOn` ignored the batch in flight); the second was the
-harness killing only the packaged binary's bootloader. Both are written up above, the
-second in `docs/CONTRIBUTING.md`.
-
-**Found, not fixed:** a resent create whose `client_id` the job already has was a 500 (fixed in iteration 58) —
-the editor cannot reach it, a script can. See *Next best action*.
-
-Verified: see *Verification performed*.
-
 ## Earlier iterations
 
-Iterations **1–55** are in [`docs/iterations/ARCHIVE.md`](./docs/iterations/ARCHIVE.md) —
+Iterations **1–57** are in [`docs/iterations/ARCHIVE.md`](./docs/iterations/ARCHIVE.md) —
 moved there so that orienting costs a few hundred lines rather than four thousand. Read them
 when `git log` points you at an iteration number, or when you are about to build something
 and want to know whether it was already tried and rejected. The lessons from them that are

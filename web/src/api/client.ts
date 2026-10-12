@@ -537,11 +537,15 @@ export const api = {
    * saying what failed — nothing listening, the key refused — and an empty list means the
    * endpoint is up and does not implement discovery.
    */
-  discoverModels: (organizationId: string, config: { endpoint: string; api_key?: string }) =>
+  discoverModels: (
+    organizationId: string,
+    config: { endpoint?: string; base_url?: string; api_key?: string },
+    provider: 'http' | 'anthropic' | 'openai_compatible' = 'http',
+  ) =>
     request<ModelDiscovery>('/models/discover', {
       method: 'POST',
       params: { organization_id: organizationId },
-      body: { config },
+      body: { provider, config },
     }),
 
   registerModel: (organizationId: string, body: ModelRegistrationInput) =>

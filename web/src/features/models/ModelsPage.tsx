@@ -14,7 +14,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Plug, Sparkles, Trash2 } from 'lucide-react';
+import { KeyRound, Plug, Server, Sparkles, Trash2 } from 'lucide-react';
 import { api } from '@/api/client';
 import type { DiscoveredModel, ModelRegistration, Organization } from '@/api/types';
 import { Badge, Button, EmptyState, ErrorNotice, Input, Spinner } from '@/ui/primitives';
@@ -29,6 +29,21 @@ import {
   registrationOf,
   type RegistrationDraft,
 } from './registration';
+import {
+  HOSTED_SERVICES,
+  connectionProblems,
+  defaultName,
+  emptyHostedDraft,
+  filterModels,
+  firstChoice,
+  hostedConnection,
+  hostedRegistration,
+  hostedService,
+  privacyNote,
+  providerLabel,
+  switchService,
+  type HostedDraft,
+} from './services';
 
 export function ModelsPage() {
   const organizations = useQuery({
@@ -69,9 +84,9 @@ export function ModelsPage() {
         <div>
           <h1 className="text-lg font-semibold tracking-tight">Models</h1>
           <p className="mt-0.5 max-w-2xl text-sm text-ink-400">
-            What annotators can run from the editor&apos;s Auto-annotate panel. CurveVision
-            does not ship a model: add any server that speaks its inference contract — your
-            own, Triton, TorchServe, a hosted service behind a small adapter.
+            What annotators can run from the editor&apos;s Auto-annotate panel. Paste an API
+            key for Claude, OpenAI, Gemini, xAI, OpenRouter and others — or point CurveVision
+            at a model server of your own.
           </p>
         </div>
         {orgs.length > 1 && (
@@ -92,7 +107,7 @@ export function ModelsPage() {
 
       <RegisteredModels organization={organization} />
       {canRegisterModels(organization.role) ? (
-        <AddModelForm organizationId={organization.id} />
+        <AddModel organizationId={organization.id} />
       ) : (
         <p className="mt-6 text-sm text-ink-500" data-models-ask="">
           Adding a model needs a maintainer of {organization.name}. Ask one to add it here.
@@ -146,7 +161,7 @@ function ModelCard({ model, removable }: { model: ModelRegistration; removable: 
         <div>
           <h2 className="text-sm font-medium text-ink-100">{model.name}</h2>
           <p className="mt-0.5 text-xs text-ink-500">
-            {model.kind}
+            {model.kind} · {providerLabel(model.provider)}
             {model.organization_id === null ? ' · shared by this server' : ''}
           </p>
         </div>
@@ -194,6 +209,244 @@ function ModelCard({ model, removable }: { model: ModelRegistration; removable: 
         </div>
       )}
     </li>
+  );
+}
+
+function AddModel({ organizationId }: { organizationId: string }) {
+  const [source, setSource] = useState<'hosted' | 'server'>('hosted');
+  return (
+    <section className="panel mt-6 p-4" data-add-model="">
+      <div className="mb-4 flex gap-1" role="tablist" aria-label="Where the model runs">
+        <Button
+          size="sm"
+          variant="secondary"
+          role="tab"
+          aria-selected={source === 'hosted'}
+          active={source === 'hosted'}
+          onClick={() => setSource('hosted')}
+          data-add-hosted=""
+        >
+          <KeyRound size={14} className="mr-1.5" />
+          Hosted AI service
+        </Button>
+        <Button
+          size="sm"
+          variant="secondary"
+          role="tab"
+          aria-selected={source === 'server'}
+          active={source === 'server'}
+          onClick={() => setSource('server')}
+          data-add-server=""
+        >
+          <Server size={14} className="mr-1.5" />
+          Your own model server
+        </Button>
+      </div>
+      {source === 'hosted' ? (
+        <HostedModelForm organizationId={organizationId} />
+      ) : (
+        <AddModelForm organizationId={organizationId} />
+      )}
+    </section>
+  );
+}
+
+/**
+ * A model from a hosted service: pick the service, paste the key, Connect, pick a model.
+ * The rules are in `services.ts`.
+ */
+function HostedModelForm({ organizationId }: { organizationId: string }) {
+  const queryClient = useQueryClient();
+  const [draft, setDraft] = useState<HostedDraft>(() => emptyHostedDraft());
+  const [connected, setConnected] = useState<{ draft: HostedDraft; found: DiscoveredModel[] } | null>(
+    null,
+  );
+  const [filter, setFilter] = useState('');
+  const [registered, setRegistered] = useState<string | null>(null);
+  const chosen = hostedService(draft.serviceId);
+
+  useEffect(() => {
+    setDraft(emptyHostedDraft());
+    setConnected(null);
+    setRegistered(null);
+  }, [organizationId]);
+
+  const update = (changes: Partial<HostedDraft>) =>
+    setDraft((current) => ({ ...current, ...changes }));
+
+  const discover = useMutation({
+    mutationFn: (current: HostedDraft) => {
+      const { provider, config } = hostedConnection(current);
+      return api.discoverModels(organizationId, config, provider);
+    },
+    onSuccess: ({ models }, current) => {
+      setConnected({ draft: current, found: models });
+      setFilter('');
+      const model = firstChoice(current.serviceId, models);
+      setDraft({
+        ...current,
+        model,
+        name: defaultName(current.serviceId, models.find((found) => found.id === model)),
+      });
+    },
+  });
+
+  const register = useMutation({
+    mutationFn: () => api.registerModel(organizationId, hostedRegistration(draft)),
+    onSuccess: (model) => {
+      setRegistered(model.name);
+      setDraft(emptyHostedDraft(draft.serviceId));
+      setConnected(null);
+      void queryClient.invalidateQueries({ queryKey: ['models'] });
+    },
+  });
+
+  // The key and URL it connected with: an edit to either needs connecting again, or a key
+  // nobody has seen work could be saved.
+  const isConnected =
+    connected !== null &&
+    connected.draft.serviceId === draft.serviceId &&
+    connected.draft.apiKey === draft.apiKey &&
+    connected.draft.baseUrl === draft.baseUrl;
+  const problems = connectionProblems(draft);
+  const shown = isConnected ? filterModels(connected.found, filter) : [];
+
+  return (
+    <div className="space-y-4" data-hosted-form="">
+      <form
+        className="grid gap-4 sm:grid-cols-[14rem_1fr_auto] sm:items-end"
+        onSubmit={(event) => {
+          event.preventDefault();
+          setRegistered(null);
+          discover.mutate(draft);
+        }}
+      >
+        <label className="block">
+          <span className="mb-1.5 block text-xs font-medium text-ink-300">Service</span>
+          <select
+            className="h-9 w-full rounded-md border border-ink-700 bg-ink-950 px-3 text-sm"
+            value={draft.serviceId}
+            onChange={(event) => setDraft((current) => switchService(current, event.target.value))}
+            data-hosted-service=""
+          >
+            {HOSTED_SERVICES.map((service) => (
+              <option key={service.id} value={service.id}>
+                {service.name}
+              </option>
+            ))}
+          </select>
+        </label>
+        <Input
+          label={chosen.keyRequired ? `${chosen.company} API key` : 'API key (if it wants one)'}
+          type="password"
+          autoComplete="off"
+          value={draft.apiKey}
+          onChange={(event) => update({ apiKey: event.target.value })}
+          placeholder={chosen.keyRequired ? 'Paste the key' : 'Optional'}
+          data-hosted-key=""
+        />
+        <Button
+          type="submit"
+          variant="primary"
+          disabled={discover.isPending || problems.length > 0}
+          data-hosted-connect=""
+        >
+          <Plug size={14} className="mr-1.5" />
+          {discover.isPending ? 'Connecting…' : 'Connect'}
+        </Button>
+        {chosen.editableUrl && (
+          <div className="sm:col-span-3">
+            <Input
+              label="Base URL"
+              value={draft.baseUrl}
+              onChange={(event) => update({ baseUrl: event.target.value })}
+              placeholder="https://api.example.com/v1"
+              hint="Where its /chat/completions and /models live."
+              data-hosted-base-url=""
+            />
+          </div>
+        )}
+      </form>
+
+      {discover.error && !discover.isPending && <ErrorNotice error={discover.error} />}
+      {registered && (
+        <p className="text-sm text-emerald-300" data-model-registered="">
+          Added {registered}. Annotators can run it from the editor&apos;s Auto-annotate panel,
+          where it looks for the project&apos;s own labels.
+        </p>
+      )}
+
+      {isConnected && (
+        <div className="space-y-4 border-t border-ink-800 pt-4" data-hosted-details="">
+          {connected.found.length === 0 ? (
+            <p className="text-sm text-amber-300" data-hosted-none="">
+              Connected, but this key lists no model that takes images.
+            </p>
+          ) : (
+            <>
+              <div className="grid gap-4 sm:grid-cols-2">
+                <label className="block">
+                  <span className="mb-1.5 block text-xs font-medium text-ink-300">
+                    Model ({connected.found.length} that take images)
+                  </span>
+                  {connected.found.length > 12 && (
+                    <input
+                      className="mb-2 h-8 w-full rounded-md border border-ink-700 bg-ink-950 px-3 text-xs"
+                      placeholder="Filter models"
+                      value={filter}
+                      onChange={(event) => setFilter(event.target.value)}
+                      data-hosted-filter=""
+                    />
+                  )}
+                  <select
+                    className="h-9 w-full rounded-md border border-ink-700 bg-ink-950 px-3 text-sm"
+                    value={draft.model}
+                    onChange={(event) =>
+                      update({
+                        model: event.target.value,
+                        name: defaultName(
+                          draft.serviceId,
+                          connected.found.find((found) => found.id === event.target.value),
+                        ),
+                      })
+                    }
+                    data-hosted-model=""
+                  >
+                    <option value="">Pick a model</option>
+                    {shown.map((model) => (
+                      <option key={model.id} value={model.id}>
+                        {model.name === model.id ? model.id : `${model.name} (${model.id})`}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <Input
+                  label="Name"
+                  value={draft.name}
+                  onChange={(event) => update({ name: event.target.value })}
+                  hint="What annotators pick it by."
+                  data-hosted-name=""
+                />
+              </div>
+              <p className="text-xs text-ink-400" data-hosted-privacy="">
+                {privacyNote(draft.serviceId)}
+              </p>
+              {register.error && <ErrorNotice error={register.error} />}
+              <div className="flex justify-end">
+                <Button
+                  variant="primary"
+                  disabled={!draft.model || register.isPending}
+                  onClick={() => register.mutate()}
+                  data-hosted-add=""
+                >
+                  {register.isPending ? 'Adding…' : 'Add model'}
+                </Button>
+              </div>
+            </>
+          )}
+        </div>
+      )}
+    </div>
   );
 }
 
@@ -246,9 +499,9 @@ function AddModelForm({ organizationId }: { organizationId: string }) {
   const problems = problemsWith(draft);
 
   return (
-    <section className="panel mt-6 space-y-4 p-4" data-add-model="">
+    <div className="space-y-4" data-server-form="">
       <div>
-        <h2 className="text-sm font-medium text-ink-200">Add a model</h2>
+        <h2 className="text-sm font-medium text-ink-200">A model server of your own</h2>
         <p className="mt-0.5 text-xs text-ink-500">
           The URL CurveVision sends frames to, and the API key it should send, if the server
           wants one. Connecting asks the server what it serves.
@@ -394,6 +647,6 @@ function AddModelForm({ organizationId }: { organizationId: string }) {
           </div>
         </div>
       )}
-    </section>
+    </div>
   );
 }

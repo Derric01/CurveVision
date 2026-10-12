@@ -1865,6 +1865,27 @@ export interface components {
             /** Version */
             version: string;
         };
+        /**
+         * ImportResultOut
+         * @description What `POST /tasks/{id}/import` stored, and what it said about what it did not.
+         */
+        ImportResultOut: {
+            /** Frames Matched */
+            frames_matched: number;
+            /** Labels Created */
+            labels_created?: string[];
+            /** Shapes Imported */
+            shapes_imported: number;
+            /** Tags Imported */
+            tags_imported: number;
+            /**
+             * Tracks Imported
+             * @default 0
+             */
+            tracks_imported: number;
+            /** Warnings */
+            warnings?: string[];
+        };
         /** InferenceRunRequest */
         InferenceRunRequest: {
             /** Classes */
@@ -6100,9 +6121,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": {
-                        [key: string]: unknown;
-                    };
+                    "application/json": components["schemas"]["ImportResultOut"];
                 };
             };
             /** @description Validation Error */

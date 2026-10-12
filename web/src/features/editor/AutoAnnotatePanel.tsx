@@ -112,12 +112,12 @@ export function AutoAnnotatePanel({
         <Spinner className="my-2 h-4 w-4" />
       ) : available.length === 0 ? (
         <p className="py-1 text-xs text-ink-500" data-auto-annotate-empty="">
-          No model is registered. CurveVision never bundles model weights — add your model
-          server on the{' '}
+          No model is added yet. On the{' '}
           <Link to="/models" className="text-curve-300 hover:underline" data-auto-annotate-add="">
             Models page
-          </Link>{' '}
-          and it appears here.
+          </Link>
+          , paste an API key for Claude, OpenAI, Gemini, xAI or OpenRouter — or add a model
+          server of your own — and it appears here.
           {blocked.length > 0 && (
             <>
               {' '}

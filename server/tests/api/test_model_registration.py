@@ -213,3 +213,74 @@ class TestTheKeyReachesTheModel:
         assert run.json()["created_shapes"] == 1
         [inference] = [request for request in server.seen if request.method == "POST"]
         assert json.loads(inference.content)["model"] == "yolo-v8n"
+
+
+class TestHostedModels:
+    """A hosted vision-language service, added with a key and run like any model (ADR 0010)."""
+
+    async def test_a_key_is_enough_to_find_models_add_one_and_run_it(
+        self, owner: ApiActor, organization: dict[str, Any], project: dict[str, Any]
+    ) -> None:
+        from curvevision.ml import OpenAICompatibleProvider
+
+        seen: list[httpx.Request] = []
+
+        def service(request: httpx.Request) -> httpx.Response:
+            seen.append(request)
+            if request.headers.get("authorization") != f"Bearer {KEY}":
+                return httpx.Response(401, json={"error": {"message": "bad key"}})
+            if request.url.path == "/v1/models":
+                return httpx.Response(200, json={"data": [{"id": "vision-large"}]})
+            answer = {"objects": [{"label": "car", "box": [100, 100, 500, 500], "confidence": 0.8}]}
+            message = {"role": "assistant", "content": json.dumps(answer)}
+            return httpx.Response(200, json={"choices": [{"message": message}]})
+
+        register_provider(
+            OpenAICompatibleProvider(
+                client=httpx.AsyncClient(transport=httpx.MockTransport(service))
+            )
+        )
+        connection = {"base_url": "https://vision.example.com/v1", "api_key": KEY}
+
+        found = await owner.post(
+            f"/api/v1/models/discover?organization_id={organization['id']}",
+            json={"provider": "openai_compatible", "config": connection},
+        )
+        assert found.status_code == 200, found.text
+        [listed] = found.json()["models"]
+        assert (listed["id"], listed["open_vocabulary"]) == ("vision-large", True)
+
+        registered = await owner.post(
+            f"/api/v1/models?organization_id={organization['id']}",
+            json={
+                "slug": "vision-large",
+                "name": "Vision Large",
+                "kind": "detector",
+                "provider": "openai_compatible",
+                "config": {**connection, "model": "vision-large"},
+                "open_vocabulary": True,
+            },
+        )
+        assert registered.status_code == 201, registered.text
+        assert KEY not in registered.text
+
+        _task, jobs = await make_task(owner, project, frames=1)
+        run = await owner.post(
+            f"/api/v1/jobs/{jobs[0]['id']}/inference",
+            json={
+                "model_id": registered.json()["id"],
+                "job_id": jobs[0]["id"],
+                "label_mapping": {"car": label_id(project, "car")},
+                "persist": True,
+            },
+        )
+
+        assert run.status_code == 200, run.text
+        [shape] = (await owner.get(f"/api/v1/jobs/{jobs[0]['id']}/annotations")).json()["shapes"]
+        assert (shape["source"], shape["confidence"]) == ("model", 0.8)
+        # The fixture's frames are 800 x 600; 100/1000 and 500/1000 of each.
+        assert shape["points"] == [80.0, 60.0, 400.0, 300.0]
+        # Asked for the project's own labels, by name: the model was told nothing else.
+        [asked] = [r for r in seen if r.url.path == "/v1/chat/completions"]
+        prompt = json.loads(asked.content)["messages"][1]["content"][0]["text"]
+        assert '"car"' in prompt and '"pedestrian"' in prompt

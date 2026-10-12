@@ -9,8 +9,7 @@ from sqlalchemy import select
 
 from curvevision.api.deps import ProjectScopeDep, SessionDep, SettingsDep, TaskScopeDep
 from curvevision.core.errors import ValidationError
-from curvevision.domain.annotation import Shape, Tag
-from curvevision.domain.enums import AnnotationSource, DatasetVersionState, ShapeType
+from curvevision.domain.enums import DatasetVersionState
 from curvevision.domain.system import DatasetVersion
 from curvevision.domain.task import Job
 from curvevision.formats import ZipImportSource, get_format
@@ -19,10 +18,10 @@ from curvevision.schemas.system import (
     DatasetVersionCreate,
     DatasetVersionOut,
     ExportRequest,
+    ImportResultOut,
 )
 from curvevision.services import annotations as annotation_service
 from curvevision.services import datasets as dataset_service
-from curvevision.services import skeletons as skeleton_service
 from curvevision.storage import get_storage
 
 router = APIRouter(tags=["datasets"])
@@ -61,7 +60,7 @@ async def export_project(
     return Response(content=archive, media_type="application/zip", headers=headers)
 
 
-@router.post("/tasks/{task_id}/import", status_code=status.HTTP_200_OK)
+@router.post("/tasks/{task_id}/import", response_model=ImportResultOut)
 async def import_annotations(
     scope: TaskScopeDep,
     session: SessionDep,
@@ -69,7 +68,7 @@ async def import_annotations(
     file: UploadFile = File(...),
     conflict_policy: str = "append",
     create_missing_labels: bool = True,
-) -> dict[str, object]:
+) -> ImportResultOut:
     """Import annotations from an archive into a task's jobs."""
     scope.authorize(Action.IMPORT)
     if conflict_policy not in ("append", "replace"):
@@ -126,102 +125,24 @@ async def import_annotations(
         for job in jobs:
             await annotation_service.clear_annotations(session, job)
 
-    joints = await skeleton_service.skeleton_joints(session, scope.project.id)
-    jointless: set[str] = set()
-    unknown_joints: set[str] = set()
-
-    written = 0
-    unmatched_labels: set[str] = set()
-    for frame, record in result.shapes:
-        target = _job_for_frame(jobs, frame)
-        if target is None:
-            continue
-        label_id = label_ids.get(record.label)
-        if label_id is None:
-            unmatched_labels.add(record.label)
-            continue
-        elements = record.elements
-        if record.shape_type is ShapeType.SKELETON:
-            if label_id not in joints:
-                jointless.add(record.label)
-                continue
-            elements, unknown = skeleton_service.resolve_joints(record.elements, joints[label_id])
-            unknown_joints.update(unknown)
-        session.add(
-            Shape(
-                job_id=target.id,
-                label_id=uuid.UUID(label_id),
-                frame=frame,
-                shape_type=record.shape_type,
-                points=record.points,
-                rotation=record.rotation,
-                occluded=record.occluded,
-                z_order=record.z_order,
-                group=record.group,
-                source=AnnotationSource.IMPORTED,
-                attributes={},
-                mask=record.mask,
-                elements=elements,
-                created_by_id=scope.identity.user.id,
-            )
-        )
-        written += 1
-
-    tags_written = 0
-    for frame, label_name in result.tags:
-        target = _job_for_frame(jobs, frame)
-        label_id = label_ids.get(label_name)
-        if target is None or label_id is None:
-            continue
-        session.add(
-            Tag(
-                job_id=target.id,
-                label_id=uuid.UUID(label_id),
-                frame=frame,
-                source=AnnotationSource.IMPORTED,
-                attributes={},
-                created_by_id=scope.identity.user.id,
-            )
-        )
-        tags_written += 1
-
-    await session.flush()
-    for job in jobs:
-        job.annotation_version += 1
-        await annotation_service.refresh_counts(session, job)
+    written = await dataset_service.write_import(
+        session,
+        project_id=scope.project.id,
+        jobs=jobs,
+        result=result,
+        label_ids=label_ids,
+        actor_id=scope.identity.user.id,
+    )
     await session.commit()
 
-    warnings = list(result.warnings)
-    if unmatched_labels:
-        warnings.append(
-            "Skipped annotations for labels not present in the project: "
-            + ", ".join(sorted(unmatched_labels))
-        )
-    if jointless:
-        warnings.append(
-            "Skipped skeletons of labels that declare no joints in this project: "
-            + ", ".join(sorted(jointless))
-        )
-    if unknown_joints:
-        warnings.append(
-            "Dropped joints the project's skeleton labels do not declare: "
-            + ", ".join(sorted(unknown_joints))
-        )
-
-    return {
-        "shapes_imported": written,
-        "tags_imported": tags_written,
-        "frames_matched": result.frames_matched,
-        "labels_created": [spec.name for spec in result.new_labels],
-        "warnings": warnings,
-    }
-
-
-def _job_for_frame(jobs: list[Job], frame: int) -> Job | None:
-    for job in jobs:
-        if job.contains_frame(frame):
-            return job
-    return None
+    return ImportResultOut(
+        shapes_imported=written.shapes,
+        tracks_imported=written.tracks,
+        tags_imported=written.tags,
+        frames_matched=result.frames_matched,
+        labels_created=[spec.name for spec in result.new_labels],
+        warnings=[*result.warnings, *written.warnings],
+    )
 
 
 # -------------------------------------------------------------------- dataset versions

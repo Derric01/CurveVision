@@ -81,6 +81,9 @@ class LabelSchema:
     def clean_attributes(self, label_id: uuid.UUID, values: dict[str, Any]) -> dict[str, Any]:
         return validate_attributes(values, self._attributes.get(label_id, []))
 
+    def definitions(self, label_id: uuid.UUID) -> list[AttributeDefinition]:
+        return list(self._attributes.get(label_id, []))
+
     def mutable_attribute_names(self, label_id: uuid.UUID) -> set[str]:
         return {
             attribute.name for attribute in self._attributes.get(label_id, []) if attribute.mutable

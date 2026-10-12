@@ -344,6 +344,31 @@ X-CurveVision-Warnings: COCO 1.0 cannot represent polyline; those annotations we
 Silently dropping annotations is how people discover a broken dataset during training,
 which is far too late.
 
+### What an import keeps
+
+```http
+POST /api/v1/tasks/{id}/import?format=cvat_xml&conflict_policy=append
+→ { "shapes_imported": 41, "tracks_imported": 3, "tags_imported": 0, "frames_matched": 120,
+    "labels_created": [], "warnings": ["Dropped attributes the project's labels do not declare: car.speed"] }
+```
+
+Frames are matched to the task's media by image name. `conflict_policy=replace` clears the
+task's jobs first; `append`, the default, adds to what is there.
+
+* **Attributes** are kept where the label declares them and accepts the value. The rest
+  are dropped and named in `warnings` — CVAT's importer, by default, also keeps only declared
+  ones. Storing a value the label would refuse makes the annotation's next save fail.
+* **Tracks** come back as tracks. Every format sees a track as one record per frame it is on;
+  the import gives each listed frame a keyframe, and marks the object as gone (`outside`)
+  wherever the file stops listing it — between two runs and after the last. A track that
+  crosses into another job becomes one track in each, and one listed on a single frame is
+  stored as a shape, which is how a tracked CVAT dump writes a shape that was never tracked.
+  *Until iteration 62 every imported shape lost its attributes, and a track came back as one
+  unrelated box per frame.*
+* **Skeleton joints** are matched to the label's joints by name.
+* **Provenance is not carried in**: everything an import writes is `source: "imported"`,
+  whatever the file says it was.
+
 ### Shipped formats
 
 | Format | Import | Export | Carries | Use it for |
@@ -376,8 +401,44 @@ loss, so `GET /formats` says so before you rely on it.
 
 ## AI-assisted annotation
 
-CurveVision never bundles model weights and never imports a vendor SDK. You register an
-endpoint; the platform calls it.
+CurveVision never bundles model weights. A model is either a **hosted service** called with
+an API key, or **an endpoint you run** that speaks the contract below; either way the
+platform calls it, and predictions land as suggestions.
+
+### Hosted services, by API key
+
+Two built-in providers ([ADR 0010](./adr/0010-hosted-vision-language-models.md)):
+
+| `provider` | `config` | Reaches |
+| --- | --- | --- |
+| `anthropic` | `{"api_key": "sk-ant-…", "model": "claude-opus-5-5"}` | Claude, through Anthropic's official SDK |
+| `openai_compatible` | `{"base_url": "…", "api_key": "…", "model": "…"}` | Anything that accepts the OpenAI Chat Completions shape |
+
+Base URLs the Models page uses for `openai_compatible`: OpenAI `https://api.openai.com/v1`,
+Google Gemini `https://generativelanguage.googleapis.com/v1beta/openai`, xAI
+`https://api.x.ai/v1`, OpenRouter `https://openrouter.ai/api/v1`, Mistral
+`https://api.mistral.ai/v1`, Groq `https://api.groq.com/openai/v1`, Together
+`https://api.together.xyz/v1`, a local Ollama `http://localhost:11434/v1` (no key).
+
+```http
+POST /api/v1/models/discover?organization_id={id}
+{ "provider": "anthropic", "config": { "api_key": "sk-ant-…" } }
+→ { "models": [ { "id": "claude-opus-5-5", "name": "Claude Opus 5.5", "kind": "detector",
+                  "open_vocabulary": true, … } ] }
+```
+
+Discovery lists only models that take images — from Anthropic's Models API capabilities,
+from OpenRouter's `input_modalities`, and elsewhere by leaving out ids that are plainly not
+chat models. Register one with `kind: "detector"` and `open_vocabulary: true`.
+
+**What a run does:** one request per frame (four at a time), the frame downscaled to at
+most 1568 px and 1.15 megapixels as JPEG, asking for the project's labels by name and for
+boxes in coordinates normalised to 0–1000, which the server converts to pixels. A frame
+whose answer cannot be read is named in `warnings` and the rest are kept. For Claude, the
+answer is held to a JSON schema where the model supports structured outputs, and
+`fallbacks: "default"` re-runs a frame a safety classifier declines on Anthropic's
+recommended substitute, on the models that support it. A refused key, an unknown model or a
+rate limit is a 502 that says which.
 
 ### Registering a model
 

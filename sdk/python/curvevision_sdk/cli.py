@@ -388,8 +388,10 @@ def import_annotations(
                 conflict_policy="replace" if replace else "append",
             )
         )
+        # `tracks_imported` is absent from a server older than iteration 62.
         typer.secho(
-            f"Imported {result['shapes_imported']} shape(s) across "
+            f"Imported {result['shapes_imported']} shape(s) and "
+            f"{result.get('tracks_imported', 0)} track(s) across "
             f"{result['frames_matched']} frame(s)",
             fg=typer.colors.GREEN,
         )

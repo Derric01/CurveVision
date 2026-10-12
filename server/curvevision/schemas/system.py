@@ -198,6 +198,21 @@ class ModelRegistrationUpdate(StrictModel):
     is_active: bool | None = None
 
 
+class ImportResultOut(StrictModel):
+    """What `POST /tasks/{id}/import` stored, and what it said about what it did not."""
+
+    shapes_imported: int
+    #: Records the file gave one identity across frames, stored as one track each (split
+    #: where a track crosses into another job).
+    tracks_imported: int = 0
+    tags_imported: int
+    #: Frames of this task the file had anything for, matched by image name.
+    frames_matched: int
+    labels_created: list[str] = Field(default_factory=list)
+    #: Everything skipped or dropped, in words: a label, a joint, an attribute, a frame.
+    warnings: list[str] = Field(default_factory=list)
+
+
 class ModelDiscoveryRequest(StrictModel):
     """An endpoint to ask what it serves, before anything is registered."""
 

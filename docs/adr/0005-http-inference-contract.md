@@ -1,6 +1,6 @@
 # ADR 0005 — An HTTP inference contract, not a bundled serving platform
 
-**Status:** Accepted · **Date:** 2026-02
+**Status:** Accepted, amended by [ADR 0010](./0010-hosted-vision-language-models.md) · **Date:** 2026-02
 
 ## Context
 
