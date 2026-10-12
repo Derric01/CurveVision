@@ -5,9 +5,9 @@
 > [`AGENTS.md`](./AGENTS.md) first; it is the working contract. Update this file after every
 > iteration, including the ones that mostly failed.
 >
-> **Last updated:** 2026-10-12 (iteration 66) · branch `claude/start-work-yx080h` · PRs
-> [#1](https://github.com/Derric01/CurveVision/pull/1)–[#32](https://github.com/Derric01/CurveVision/pull/32)
-> **all merged**, #32 carrying iteration 64. Iterations 65 and 66 are pushed on top of that
+> **Last updated:** 2026-10-12 (iteration 67) · branch `claude/start-work-yx080h` · PRs
+> [#1](https://github.com/Derric01/CurveVision/pull/1)–[#33](https://github.com/Derric01/CurveVision/pull/33)
+> **all merged**, #33 carrying iterations 65–66. Iteration 67 is pushed on top of that
 > merge with no PR yet.
 >
 > *Two things worth knowing about this repository's PR rhythm, which replace the
@@ -22,7 +22,7 @@
 > **Keep the session short.** One iteration, then commit, push, update this file and report —
 > `AGENTS.md` § *Continue* and the `start-work` skill both say so now, because they did not
 > before and a single session ran six iterations and roughly a third of a week's budget. The
-> concrete costs, in rough order: re-reading this file (iterations 1–60 now live in
+> concrete costs, in rough order: re-reading this file (iterations 1–61 now live in
 > [`docs/iterations/ARCHIVE.md`](./docs/iterations/ARCHIVE.md), which cut it from 3,800
 > lines to 1,000 — keep it that way); `python desktop/sidecar/build.py`, which is a
 > PyInstaller run of a minute or two and is needed *again* for every sabotage-and-restore
@@ -50,6 +50,15 @@ SDK, 745 web, and `scripts/` is lint-clean under its own `ruff.toml`. Thirty-one
 harnesses drive the application in a real Chromium, nightly and on every push to `main` —
 thirty against the packaged desktop server, and `verify_workspace.py` against the real server
 too. (Iteration 52 arrived to a red tree — mypy 2 — and fixed it first.)
+
+**Ultralytics itself reads and trains on every YOLO export** (iteration 67). Installed
+from PyPI here (its PyTorch index is blocked), it loaded each of the five tasks through its
+own dataset classes and found what a restatement of its rules could not: **every YOLO
+export's `data.yaml` failed unless training was started from inside the export** —
+Ultralytics resolves `path: .` against the working directory. Fixed, and pose now writes
+`flip_idx` from the joints' left/right names (without it Ultralytics turns flip
+augmentation off). Every label now matches what was annotated and one epoch of each task
+trains through validation; `.github/workflows/ultralytics.yml` keeps it so.
 
 **Every exporter is held to the reader that consumes it, and a workspace can be run from
 the application** (iteration 66, asked for as "finish everything", with export quality
@@ -454,18 +463,17 @@ was the last unconnected piece of the desktop application.
 
 ## Next best action
 
-*Exports held to Datumaro, CVAT and Ultralytics' rules, and a workspace run from the app,
-were iteration 66; COCO held to pycocotools, 65; importing from the task page, 64; hosted
-AI by API key, 63.*
+*Ultralytics reading and training on every YOLO export was iteration 67; exports held to
+Datumaro and CVAT, and a workspace run from the app, 66; COCO held to pycocotools, 65.*
 
-**Run a real Ultralytics training on an export, in a CI job that can install PyTorch.**
-Iteration 66 restated Ultralytics' loader rules as tests because `pip install ultralytics`
-could not reach the PyTorch index from this container. A job that exports the sample
-project as `yolo` (boxes, then with a polygon), `yolo_obb` and `yolo_pose` with images, and
-runs `YOLO("yolo11n.pt").train(data=…, epochs=1, imgsz=64)` on each, would replace a
-restatement with the reader itself. Expect it to find little — the rules were read from
-`ultralytics/data/utils.py` — but it is the only check of the YOLO family that is the real
-thing. Optional job, not the core suite: it downloads weights.
+**Watch the first runs of `.github/workflows/ultralytics.yml`.** It has run locally (PyPI's
+CUDA build of PyTorch, on CPU) but not yet on a GitHub runner, where it installs the CPU
+build from `download.pytorch.org` — which this container cannot reach. If the install
+step fails there, the fix is in the workflow, not the script. It triggers on any change
+under `server/curvevision/formats/`, weekly, and by hand.
+
+**Then: repair the joints stored before iteration 60** — see below; it is the oldest
+item here with no dependency on the user.
 
 
 **First, if a key is available: try iteration 63 against the real services.** Add Claude,
@@ -1007,6 +1015,29 @@ being updated and this one was not. Check it against* Completed *before trusting
 
 ## Verification performed
 
+Iteration 67:
+
+* **Ultralytics 8.4.175 with PyTorch 2.14.1**, from PyPI into a scratch environment with the
+  server package: `scripts/verify_ultralytics.py`, 15 checks, all passing. For detection
+  (boxes only, and with a polygon), segmentation, OBB, pose and classification, Ultralytics'
+  `check_det_dataset`/`check_cls_dataset` accept the archive, `YOLODataset` and
+  `ClassificationDataset` load every image (`0 corrupt`) with labels equal to values
+  computed from the source geometry, and one epoch of each trains through validation (from
+  `yolo11n*.yaml`, no weights downloaded). Run from a working directory outside the export.
+* **The script's first run failed**, before any fix: `images not found, missing path
+  '/home/user/CurveVision/images/val'` — the `path: .` defect.
+* **Sabotage, so the checks are known to fail**: with the iteration-66 mixed-rows bug
+  restored and `path: .` put back, four checks fail by name — Ultralytics 8.4 refuses a
+  file mixing box and segment rows outright ("labels mix segment and detection rows", every
+  such image dropped as corrupt), and the OBB and pose yaml cannot be found. Restored.
+* `tests/unit/test_export_conformance.py` gains 9: `flip_idx` derived and refused, the val
+  split for `yolo`/`yolo_obb`/`yolo_pose`, no `path:` key in any `data.yaml`, and the
+  classification README asking for `val/` only without one. The `flip_idx`, split and
+  `path` tests failed before their fixes; the README test was checked by stashing the fix.
+* `verify_workspace.py` was claimed (iteration 66) to run nightly and was not in
+  `browser.yml`; it also assumed a `server/.venv` a runner does not have. Both fixed; it
+  has not yet run on a runner.
+
 Iteration 66:
 
 * **Readers.** A rich dataset (tracks, a rotated box, a polygon, a mask, a skeleton with
@@ -1262,6 +1293,12 @@ Iteration 54:
 
 ## Bugs fixed
 
+* **Every YOLO export failed to train unless started from inside its directory**
+  (iteration 67): `data.yaml` said `path: .`, which Ultralytics resolves against the working
+  directory. Found only by running Ultralytics itself.
+* **YOLO OBB and Pose pointed `val` at the training images** even when frames were in a
+  `val` subset, and **Pose wrote no `flip_idx`** (iteration 67).
+* **`verify_workspace.py` was documented as running nightly and was not** (iteration 67).
 * **Every YOLO export was refused by Ultralytics** (iteration 66): images and labels went
   to `images/default` while `data.yaml` named `images/train`. And **a YOLO file mixing box
   and polygon lines corrupted the boxes**: Ultralytics reads any file with a line longer
@@ -1373,9 +1410,11 @@ Iteration 54:
 
 ## Known issues
 
-* **Ultralytics itself has not read an export** (iteration 66). Its loader's rules are
-  restated as tests; the real thing needs PyTorch, which this container could not install.
-  That is the next best action.
+* **The Ultralytics workflow has not yet run on GitHub** (iteration 67). Verified locally;
+  see *Next best action*.
+* **YOLO Pose writes `flip_idx` only when joint names say left and right** (iteration 67).
+  A skeleton named `hand1`/`hand2` gets none, and Ultralytics then trains without flip
+  augmentation — slower to generalise, never wrong. Naming joints `left_…`/`right_…` fixes it.
 * **Datumaro's CVAT reader cannot read skeletons or masks inside tracks** (iteration 66).
   Both are what CVAT itself writes, and CVAT's own reader reads ours; Datumaro users
   importing a CVAT XML with either will hit Datumaro's limit, not ours.
@@ -1384,8 +1423,9 @@ Iteration 54:
   lists which). The annotations are frozen; the pictures are not copied.
 * **Versions released before iteration 66 have no frozen copy** and answer `409` on export,
   saying so. Their hash and statistics still describe them.
-* **YOLO classification writes `train/` only**; Ultralytics also needs `val/`, which the
-  export's README says how to make. Splitting someone's data is their decision.
+* **YOLO classification writes `val/` only for frames in a `val` subset**; with none, the
+  export's README says how to make one (iteration 67: it now says so only then).
+  Splitting someone's data is their decision.
 * **Hosted models have never met a real service** (iteration 63). The request shapes come
   from each API's documentation and the Anthropic SDK; how good the boxes are, and whether
   a given service's model list or JSON habits need adjusting, is unknown until somebody runs
@@ -1567,6 +1607,21 @@ Iteration 54:
 
 ## Last iteration
 
+### 67 — Ultralytics itself reads and trains on every YOLO export
+
+The next best action from 66, which had expected to find little. PyTorch's own index is
+blocked from this container, so PyTorch came from PyPI (its CUDA build, 4 GB, run on CPU)
+into a scratch environment — the workflow uses the CPU index, which a runner can reach.
+The script was written to compare Ultralytics' loaded labels against values computed from
+the source geometry, not with the exporter's helpers, and its first run failed on
+`path: .`: the restated rules in the unit suite had made the same assumption as the
+exporter. Reading the variants before Ultralytics could run found the missing `flip_idx`
+and the OBB/pose split; orienting found iteration 66's harness missing from CI.
+
+Verified: see *Verification performed*.
+
+## Iteration 66
+
 ### 66 — every export held to its reader; a workspace run from the application
 
 Asked for directly: "finish everything in this iteration", with the export bar from 65. One
@@ -1660,28 +1715,9 @@ them (MOTChallenge) gets the same result. The writing moved from the route into
 
 Verified: see *Verification performed*.
 
-## Iteration 61
-
-### 61 — a model is added from the application, with an endpoint and a key
-
-Asked for directly: the user wanted to know whether AI annotation is "just add the API key
-and it works". Orienting answered it — there was no screen to put a key into. Two things
-had been documented and never wired: the panel's "register an inference endpoint", and the
-contract's discovery route. CVAT was read for the page (`cvat-ui/src/components/models-page`):
-a card per model with its kind and labels, which this follows. CVAT's open-source build has
-no add form — its models are Nuclio functions it deploys — so the form is this project's.
-Convention only; no code adapted.
-
-Discovery's failures had all been swallowed as "not implemented". That was fine while
-nothing called it, and wrong for a form whose job is to tell somebody the key they pasted is
-wrong. The route sits in `services/` per the layering rules, and the key is now sent on each
-request as well as on the client, because the tests' injected client had never carried it.
-
-Verified: see *Verification performed*.
-
 ## Earlier iterations
 
-Iterations **1–60** are in [`docs/iterations/ARCHIVE.md`](./docs/iterations/ARCHIVE.md) —
+Iterations **1–61** are in [`docs/iterations/ARCHIVE.md`](./docs/iterations/ARCHIVE.md) —
 moved there so that orienting costs a few hundred lines rather than four thousand. Read them
 when `git log` points you at an iteration number, or when you are about to build something
 and want to know whether it was already tried and rejected. The lessons from them that are

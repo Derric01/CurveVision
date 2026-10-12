@@ -62,4 +62,7 @@ jobs:
         env:
           # Ultralytics writes settings and fonts under the user's config directory.
           YOLO_CONFIG_DIR: ${{ runner.temp }}/ultralytics
-        run: python scripts/verify_ultralytics.py
+        # It must exist: Ultralytics falls back to /tmp, with a warning, when it does not.
+        run: |
+          mkdir -p "$YOLO_CONFIG_DIR"
+          python scripts/verify_ultralytics.py

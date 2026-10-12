@@ -59,7 +59,9 @@ def _data_yaml(
     return "\n".join(
         [
             f"# {dataset_name} — exported by CurveVision",
-            "path: .",
+            # No `path:`. Ultralytics resolves it against the working directory, so `path: .`
+            # (until iteration 67) failed anywhere but inside the export; without it the root
+            # is this file's directory, wherever the dataset is unpacked.
             *split_lines(splits or {"train"}),
             *([extra] if extra else []),
             f"nc: {len(class_names)}",
@@ -507,6 +509,7 @@ class YoloClassificationFormat:
         untagged: list[str] = []
         without_media: list[str] = []
         classes: set[str] = set()
+        splits: set[str] = set()
 
         for frame in dataset:
             if not frame.tags:
@@ -523,6 +526,7 @@ class YoloClassificationFormat:
                 continue
             # `train/<class>/`, at the root, as Ultralytics' classification datasets are laid
             # out; `images/train/<class>/` (until iteration 66) is the detection layout.
+            splits.add(split_of(frame.subset))
             sink.write(
                 f"{split_of(frame.subset)}/{tag}/{frame.name.rsplit('/', 1)[-1]}",
                 frame.media,
@@ -530,10 +534,13 @@ class YoloClassificationFormat:
 
         report = ["Ultralytics YOLO classification export by CurveVision.", ""]
         report.append(f"Classes: {', '.join(sorted(classes)) or '(none)'}")
-        report.append(
-            "Ultralytics also wants a `val/` folder of the same shape: move some images of "
-            "each class from `train/` into `val/<class>/` before training."
-        )
+        if "val" not in splits:
+            # Frames in a `val` subset are written there; with none, splitting somebody's
+            # data is their decision, so it is asked for rather than made.
+            report.append(
+                "Ultralytics also wants a `val/` folder of the same shape: move some images of "
+                "each class from `train/` into `val/<class>/` before training."
+            )
         if without_media:
             report += [
                 "",

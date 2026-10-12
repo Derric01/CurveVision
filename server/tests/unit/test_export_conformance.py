@@ -281,6 +281,15 @@ class TestUltralyticsYolo:
         assert keys["val"] == "images/train"  # no validation split: it trains, not fails
         assert ultralytics_rows(files)
 
+    @pytest.mark.parametrize("format_id", ["yolo", "yolo_obb", "yolo_pose"])
+    def test_data_yaml_resolves_from_its_own_directory(self, format_id: str) -> None:
+        """Ultralytics resolves `path:` against the working directory, not the yaml's
+        (`check_det_dataset`: `data.get("path") or Path(yaml_file).parent`). With
+        `path: .`, as written until iteration 67, training from anywhere but inside the
+        export failed with "images not found". Without the key, the yaml's directory is
+        the root — found by running Ultralytics itself (`scripts/verify_ultralytics.py`)."""
+        assert "path" not in data_yaml(export(format_id))
+
     def test_boxes_only_is_written_as_boxes(self) -> None:
         rows = ultralytics_rows(export("yolo", dataset(polygon=False)), columns=5)
         car, rotated = rows["labels/train/frame_000.txt"]
@@ -410,6 +419,24 @@ class TestUltralyticsYolo:
         assert data_yaml(files)["val"] == "images/val"
         assert "images/val/f1.jpg" in files and "labels/val/f1.txt" in files
         assert ultralytics_rows(files, pose=format_id == "yolo_pose")
+
+    @pytest.mark.parametrize("subsets", [("default", "default"), ("default", "val")])
+    def test_classification_asks_for_a_val_split_only_without_one(
+        self, subsets: tuple[str, str]
+    ) -> None:
+        records = [
+            FrameRecord(
+                index=i, name=f"{i}.jpg", width=8, height=8, tags=["cat"], media=b"x", subset=subset
+            )
+            for i, subset in enumerate(subsets)
+        ]
+        files = export(
+            "yolo_classification",
+            DatasetView(name="cls", labels=[LabelSpec(id="1", name="cat")], frames=iter(records)),
+        )
+        asks = "val/" in files["README.txt"].decode()
+        assert asks == ("val" not in subsets)
+        assert ("val/cat/1.jpg" in files) == ("val" in subsets)
 
     def test_classification_is_split_then_class(self) -> None:
         view = DatasetView(

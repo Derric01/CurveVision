@@ -207,7 +207,9 @@ class YoloFormat:
             "\n".join(
                 [
                     f"# {dataset.name} — exported by CurveVision",
-                    "path: .",
+                    # No `path:`. Ultralytics resolves it against the working directory,
+                    # so `path: .` (until iteration 67) failed anywhere but inside the
+                    # export; without it the root is this file's directory.
                     *split_lines({split_of(frame.subset) for frame in written_frames}),
                     f"nc: {len(class_names)}",
                     "names:",

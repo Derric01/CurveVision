@@ -319,12 +319,22 @@ def main() -> int:
         pose = export("yolo_pose", dataset(with_polygon=False), work / "pose")
         classes = export("yolo_classification", dataset(with_polygon=False), work / "classify")
 
-        check_detect(check, boxes, with_polygon=False)
-        check_detect(check, mixed, with_polygon=True)
-        check_segment(check, mixed)
-        check_obb(check, obb)
-        check_pose(check, pose)
-        check_classify(check, classes)
+        readers: list[tuple[str, Any]] = [
+            ("detect, boxes only", lambda: check_detect(check, boxes, with_polygon=False)),
+            ("detect, with a polygon", lambda: check_detect(check, mixed, with_polygon=True)),
+            ("segment", lambda: check_segment(check, mixed)),
+            ("obb", lambda: check_obb(check, obb)),
+            ("pose", lambda: check_pose(check, pose)),
+            ("classify", lambda: check_classify(check, classes)),
+        ]
+        for name, read in readers:
+            # Ultralytics refuses a dataset by raising — "No valid images found" when every
+            # label file is corrupt to it. That is a failed check, not the end of the run.
+            try:
+                read()
+            except Exception as exc:
+                check(False, "", f"{name}: Ultralytics refused the export: "
+                                 f"{type(exc).__name__}: {str(exc).splitlines()[0]}")
 
         if not args.no_train:
             runs = work / "runs"

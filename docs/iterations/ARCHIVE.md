@@ -1,6 +1,6 @@
 # Iteration archive
 
-> The narrative record of iterations **1–60**, moved out of
+> The narrative record of iterations **1–61**, moved out of
 > [`handoff.md`](../../handoff.md) so that orienting on this project costs a few hundred
 > lines rather than four thousand.
 >
@@ -15,6 +15,25 @@
 > window, append it to the top of this file rather than deleting it.
 
 ---
+
+## Iteration 61
+
+### 61 — a model is added from the application, with an endpoint and a key
+
+Asked for directly: the user wanted to know whether AI annotation is "just add the API key
+and it works". Orienting answered it — there was no screen to put a key into. Two things
+had been documented and never wired: the panel's "register an inference endpoint", and the
+contract's discovery route. CVAT was read for the page (`cvat-ui/src/components/models-page`):
+a card per model with its kind and labels, which this follows. CVAT's open-source build has
+no add form — its models are Nuclio functions it deploys — so the form is this project's.
+Convention only; no code adapted.
+
+Discovery's failures had all been swallowed as "not implemented". That was fine while
+nothing called it, and wrong for a form whose job is to tell somebody the key they pasted is
+wrong. The route sits in `services/` per the layering rules, and the key is now sent on each
+request as well as on the client, because the tests' injected client had never carried it.
+
+Verified: see *Verification performed*.
 
 ## Iteration 60
 

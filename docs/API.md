@@ -388,7 +388,14 @@ checked in iteration 66 against Datumaro and CVAT's own XML reader:
   image is mirrored — when the joints' names say it (`left_eye`/`right_eye`, `l_wrist`,
   `Tail_L`): without it Ultralytics turns flip augmentation off, and a guessed one would
   teach a model that a left eye is a right eye, so none is written when the names do not
-  decide it.
+  decide it. `data.yaml` has no `path:` key: Ultralytics resolves one against the working
+  directory, so the `path: .` written until iteration 67 failed with "images not found"
+  anywhere but inside the export.
+* **Ultralytics itself reads every YOLO export and trains on it**
+  (`scripts/verify_ultralytics.py`, run by `.github/workflows/ultralytics.yml` whenever an
+  exporter changes and weekly): its own dataset classes load every image with no corrupt
+  or missing labels, each class, box, polygon, oriented corner and keypoint matches what was
+  annotated, and one epoch of each task trains through validation.
 * **CVAT XML** writes `original_size`, rotated boxes as `<box rotation>`, skeletons as
   `<skeleton>` with each joint declared as a label under its parent, and no closing frame
   past the last frame.
