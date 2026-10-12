@@ -56,6 +56,7 @@ application — and produce a real dataset with it.
 | Annotation history | **Done** |
 | `ModelProvider` abstraction and the HTTP inference contract | **Done** |
 | Model predictions as accept/reject suggestions | **Done** |
+| Adding a model from the application | **Done** — a Models page: paste an endpoint and its API key, *Connect* asks the endpoint what it serves (`GET <endpoint>/models`, which nothing called until iteration 61), and the model's kind and labels are filled in from the answer. A wrong key or a dead endpoint is reported before anything is saved. Driven end to end in a browser against a real model server, through to the key and the model's id arriving with an inference request |
 | Dataset versions with immutable releases | **Done** |
 | REST API and API tokens | **Done** |
 | Webhooks with HMAC signing | **Done** — delivery is signed, and a failure that is worth retrying is retried with capped exponential backoff and jitter, up to 5 attempts. A 4xx is not retried: the receiver understood and said no, so repeating it cannot change the answer. A retry resends the same `delivery_id` and bytes, so a receiver can deduplicate |

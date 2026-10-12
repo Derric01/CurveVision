@@ -205,6 +205,21 @@ def _label_spec(label: Label) -> LabelSpec:
     )
 
 
+def _named(
+    elements: list[dict[str, Any]], label_names: dict[uuid.UUID, str]
+) -> list[dict[str, Any]]:
+    """Each joint with its name, which is what a format carries: a label id names a label in
+    one project only, and the project an archive is imported into is usually another."""
+    named = []
+    for element in elements:
+        try:
+            name = label_names.get(uuid.UUID(str(element.get("label_id"))))
+        except ValueError:
+            name = None
+        named.append({**element, "name": name} if name else dict(element))
+    return named
+
+
 class _TrackIds:
     """Export-scoped track identity, unique across a whole task.
 
@@ -272,7 +287,7 @@ async def _collect_job_annotations(
                 source=str(shape.source),
                 confidence=shape.confidence,
                 mask=shape.mask,
-                elements=list(shape.elements),
+                elements=_named(list(shape.elements), label_names),
             )
         )
 
@@ -298,7 +313,7 @@ async def _collect_job_annotations(
                 z_order=ts.z_order,
                 attributes=dict(ts.attributes),
                 mask=ts.mask,
-                elements=list(ts.elements),
+                elements=_named(list(ts.elements), label_names),
             )
             for ts in track.shapes
         ]

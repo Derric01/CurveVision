@@ -580,6 +580,75 @@ class FakeInferenceApp:
 
 
 class TestAiAssistedWorkflow:
+    async def test_a_model_s_named_joints_are_stored_under_the_project_s_joint_labels(
+        self,
+        owner: ApiActor,
+        project: dict[str, Any],
+        organization: dict[str, Any],
+    ) -> None:
+        """A model cannot know this project's label ids, so it names its joints."""
+        created = await owner.post(
+            f"/api/v1/projects/{project['id']}/labels",
+            json={"name": "person", "children": [{"name": "nose"}, {"name": "tail"}]},
+        )
+        assert created.status_code == 201, created.text
+        person = created.json()
+        nose, tail = (child["id"] for child in person["children"])
+        _task, jobs = await make_task(owner, project, frames=1)
+        job_id = jobs[0]["id"]
+
+        fake = FakeInferenceApp(
+            shapes=[
+                {
+                    "frame": 0,
+                    "label": "person",
+                    "type": "skeleton",
+                    "points": [],
+                    "confidence": 0.9,
+                    "elements": [
+                        {"name": "tail", "points": [5, 6]},
+                        {"name": "nose", "points": [1, 2]},
+                    ],
+                }
+            ]
+        )
+        model_client = httpx.AsyncClient(
+            transport=httpx.ASGITransport(app=fake), base_url="http://model"
+        )
+        from curvevision.ml import HttpModelProvider, register_provider
+
+        register_provider(HttpModelProvider(client=model_client))
+        model = (
+            await owner.post(
+                f"/api/v1/models?organization_id={organization['id']}",
+                json={
+                    "slug": "pose",
+                    "name": "Pose",
+                    "kind": "detector",
+                    "provider": "http",
+                    "config": {"endpoint": "http://model/infer"},
+                    "output_labels": ["person"],
+                },
+            )
+        ).json()
+        run = await owner.post(
+            f"/api/v1/jobs/{job_id}/inference",
+            json={
+                "model_id": model["id"],
+                "job_id": job_id,
+                "frames": [0],
+                "label_mapping": {"person": person["id"]},
+                "persist": True,
+            },
+        )
+        assert run.status_code == 200, run.text
+
+        [skeleton] = (await owner.get(f"/api/v1/jobs/{job_id}/annotations")).json()["shapes"]
+        assert [(e["label_id"], e["points"]) for e in skeleton["elements"]] == [
+            (nose, [1.0, 2.0]),
+            (tail, [5.0, 6.0]),
+        ]
+
     async def test_predictions_land_as_editable_suggestions(
         self,
         owner: ApiActor,

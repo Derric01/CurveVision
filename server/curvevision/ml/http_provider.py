@@ -36,11 +36,17 @@ Coordinates are **absolute pixels** in the frame's own coordinate space. A provi
 returns normalised coordinates should say so via ``"normalised": true`` on the response,
 and this adapter rescales.
 
-``GET <endpoint>/models`` optionally returns ``{"models": [...]}`` for discovery; when it
-is absent, the labels configured on the registration are used instead. A model entry may
+A ``"skeleton"`` carries its joints by name, since a model cannot know the project's label
+ids: ``"elements": [{"name": "nose", "points": [x, y], "occluded": false, "outside":
+false}]``. They are matched to the mapped label's joints when stored (`services.skeletons`).
+
+``GET <endpoint>/models`` optionally returns ``{"models": [...]}`` for discovery. The
+Models page calls it when somebody registers the endpoint, and fills the registration in
+from the answer; without it (a 404), they name the model's labels by hand. A model entry may
 carry ``"open_vocabulary": true``, which is how a server says it reads ``classes``; without
 it CurveVision treats the model's ``labels`` as the whole of what it can find, and refuses
 to ask it for anything else rather than sending a prompt that would be silently dropped.
+What discovery finds is copied onto the registration when it is saved; it is not re-read.
 """
 
 from __future__ import annotations
@@ -51,7 +57,6 @@ from typing import Any
 import httpx
 
 from curvevision.core.errors import ProviderError
-from curvevision.core.logging import get_logger
 from curvevision.domain.enums import ModelKind, ShapeType
 from curvevision.ml.base import (
     InferenceRequest,
@@ -61,9 +66,11 @@ from curvevision.ml.base import (
     PredictedTag,
 )
 
-logger = get_logger(__name__)
-
 DEFAULT_TIMEOUT = 120.0
+#: A person is waiting on discovery in a form, and it is a listing, not inference.
+DISCOVERY_TIMEOUT = 15.0
+#: What an endpoint that does not implement discovery answers `GET /models` with.
+NO_DISCOVERY = frozenset({404, 405, 501})
 
 
 class HttpModelProvider:
@@ -73,35 +80,44 @@ class HttpModelProvider:
         self._client = client
 
     async def list_models(self, config: dict[str, Any]) -> list[ModelDescriptor]:
+        """What the endpoint says it serves, from ``GET <endpoint>/models``.
+
+        Discovery is optional in the contract, so an endpoint that answers that it has no
+        such route serves an empty list: it is up, and its registration names its labels by
+        hand. Anything else that goes wrong -- nothing listening, a refused credential, an
+        error -- is a `ProviderError` saying which, because the person registering the
+        model needs to know before they save it, not from the first annotator who runs it.
+        """
         endpoint = _endpoint(config)
         try:
             async with self._session(config) as client:
-                response = await client.get(f"{endpoint.rstrip('/')}/models")
-                response.raise_for_status()
-                payload = response.json()
-        except (httpx.HTTPError, ValueError) as exc:
-            # Discovery is optional: a provider that does not implement it is not broken.
-            logger.info(
-                "model discovery unavailable; using configured labels",
-                extra={"endpoint": endpoint, "error": str(exc)},
-            )
-            return []
+                response = await client.get(
+                    f"{endpoint.rstrip('/')}/models",
+                    headers=_headers(config),
+                    timeout=DISCOVERY_TIMEOUT,
+                )
+        except httpx.HTTPError as exc:
+            raise ProviderError(f"Could not reach the inference endpoint: {exc}") from exc
 
-        return [
-            ModelDescriptor(
-                id=str(entry.get("id", "")),
-                name=str(entry.get("name", entry.get("id", ""))),
-                kind=_parse_kind(entry.get("kind")),
-                labels=tuple(entry.get("labels", ())),
-                shape_types=tuple(
-                    _parse_shape_type(value) for value in entry.get("shape_types", ["rectangle"])
-                ),
-                description=entry.get("description"),
-                open_vocabulary=bool(entry.get("open_vocabulary", False)),
-                metadata=dict(entry.get("metadata", {})),
+        if response.status_code in NO_DISCOVERY:
+            return []
+        if response.status_code in (401, 403):
+            raise ProviderError(
+                f"The inference endpoint refused the request ({response.status_code}). "
+                "Check the API key."
             )
-            for entry in payload.get("models", [])
-        ]
+        if response.is_error:
+            raise ProviderError(
+                f"Inference endpoint returned {response.status_code}: {response.text[:400]}"
+            )
+        try:
+            entries = response.json()["models"]
+            return [_descriptor(entry) for entry in entries]
+        except (ValueError, KeyError, TypeError, AttributeError) as exc:
+            raise ProviderError(
+                "The inference endpoint's /models did not answer with a model list "
+                '(`{"models": [...]}`)'
+            ) from exc
 
     async def infer(self, request: InferenceRequest, config: dict[str, Any]) -> InferenceResult:
         endpoint = _endpoint(config)
@@ -125,7 +141,9 @@ class HttpModelProvider:
 
         try:
             async with self._session(config) as client:
-                response = await client.post(endpoint, json=body)
+                # Sent per request as well as on the client, so that an injected client
+                # (the tests') carries the credential too.
+                response = await client.post(endpoint, json=body, headers=_headers(config))
                 response.raise_for_status()
                 payload = response.json()
         except httpx.HTTPStatusError as exc:
@@ -153,6 +171,7 @@ class HttpModelProvider:
                 label = str(entry["label"])
                 shape_type = _parse_shape_type(entry.get("type", "rectangle"))
                 points = [float(value) for value in entry.get("points", [])]
+                joints = [_parse_joint(joint) for joint in entry.get("elements") or []]
             except (KeyError, TypeError, ValueError) as exc:
                 raise ProviderError(f"Malformed shape in inference response: {entry!r}") from exc
 
@@ -163,9 +182,12 @@ class HttpModelProvider:
                         "Provider returned normalised coordinates but the frame size is "
                         "unknown, so they cannot be converted to pixels"
                     )
-                points = [
-                    value * (width if index % 2 == 0 else height)
-                    for index, value in enumerate(points)
+                points = _to_pixels(points, width, height)
+                # A skeleton's joints are coordinates too, and were left in [0, 1]: every
+                # joint a normalising model found landed in the frame's top-left pixel.
+                joints = [
+                    {**joint, "points": _to_pixels(joint["points"], width, height)}
+                    for joint in joints
                 ]
 
             confidence = float(entry.get("confidence", 1.0))
@@ -181,7 +203,7 @@ class HttpModelProvider:
                     confidence=confidence,
                     attributes=dict(entry.get("attributes", {})),
                     mask=entry.get("mask"),
-                    elements=list(entry.get("elements", [])),
+                    elements=joints,
                     track_id=entry.get("track_id"),
                 )
             )
@@ -255,3 +277,37 @@ def _parse_shape_type(value: object) -> ShapeType:
         return ShapeType(str(value))
     except ValueError as exc:
         raise ProviderError(f"Unknown shape type in inference response: {value!r}") from exc
+
+
+def _parse_joint(joint: object) -> dict[str, Any]:
+    """One skeleton joint: an object naming the joint, with one `[x, y]` when it was seen.
+
+    The names are matched to the label's joints when the prediction is stored
+    (`services.skeletons`); here the joint only has to be one, so that a joint which is not
+    is reported as the malformed response it is rather than failing somewhere further in.
+    """
+    if not isinstance(joint, dict):
+        raise TypeError(f"a joint must be an object, not {joint!r}")
+    points = [float(value) for value in joint.get("points") or []]
+    if points and len(points) != 2:
+        raise ValueError(f"a joint's points are one [x, y], not {points!r}")
+    return {**joint, "points": points}
+
+
+def _to_pixels(points: list[float], width: int, height: int) -> list[float]:
+    return [value * (width if index % 2 == 0 else height) for index, value in enumerate(points)]
+
+
+def _descriptor(entry: dict[str, Any]) -> ModelDescriptor:
+    return ModelDescriptor(
+        id=str(entry.get("id", "")),
+        name=str(entry.get("name", entry.get("id", ""))),
+        kind=_parse_kind(entry.get("kind")),
+        labels=tuple(str(label) for label in entry.get("labels", ())),
+        shape_types=tuple(
+            _parse_shape_type(value) for value in entry.get("shape_types", ["rectangle"])
+        ),
+        description=entry.get("description"),
+        open_vocabulary=bool(entry.get("open_vocabulary", False)),
+        metadata=dict(entry.get("metadata", {})),
+    )

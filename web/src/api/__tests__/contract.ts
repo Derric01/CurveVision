@@ -46,12 +46,13 @@ type Holds<T extends true> = T;
 
 /**
  * The one known gap, held open by name rather than by loosening the check. The server
- * declares a shape's skeleton joints as untyped objects (`list[dict]` on `ShapeOut`), and it
- * is right to: a COCO import stores each joint as the reader produced it — by `name`, with no
- * `label_id` — so what the client's `ApiSkeletonElement` promises is true only of joints drawn
- * here. Typing it on the server would turn every such job into a 500 on read. Fixing the
- * import to resolve joint names to label ids is `handoff.md`'s next best action; when it is
- * done, type `elements` on the server and delete this.
+ * declares a shape's skeleton joints as untyped objects (`list[dict]` on `ShapeOut`). Until
+ * iteration 60 a COCO import stored each joint by `name`, with no `label_id`, and a model's
+ * predicted joints were stored the same way; both now resolve names to the label's joint ids
+ * (`services/skeletons.py`), so every new joint is what `ApiSkeletonElement` says. Rows
+ * written before that still hold names, and typing `elements` on the server would turn each
+ * such job into a 500 on read. Repair those rows first (a data migration), then type
+ * `elements` on the server and delete this.
  */
 type WithoutJoints<T> = Omit<T, 'elements'>;
 type DocumentWithoutJoints = Omit<Api.AnnotationDocument, 'shapes'> & {
@@ -86,6 +87,8 @@ export type Contract = [
   Holds<Reads<Schemas['IssueOut'], Api.Issue>>,
   Holds<Reads<Schemas['FormatCapabilitiesOut'], Api.DatasetFormat>>,
   Holds<Reads<Schemas['ModelRegistrationOut'], Api.ModelRegistration>>,
+  Holds<Reads<Schemas['DiscoveredModel'], Api.DiscoveredModel>>,
+  Holds<Reads<Schemas['ModelDiscoveryOut'], Api.ModelDiscovery>>,
   Holds<Reads<Schemas['InferenceRunResult'], Api.InferenceResult>>,
   Holds<Reads<Schemas['QualityReportOut'], Api.QualityReport>>,
 ];

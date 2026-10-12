@@ -5,10 +5,10 @@
 > [`AGENTS.md`](./AGENTS.md) first; it is the working contract. Update this file after every
 > iteration, including the ones that mostly failed.
 >
-> **Last updated:** 2026-10-10 (iteration 59) · branch `claude/start-work-yx080h` · PRs
-> [#1](https://github.com/Derric01/CurveVision/pull/1)–[#28](https://github.com/Derric01/CurveVision/pull/28)
-> **all merged**, #28 carrying iteration 58. The branch was moved to `origin/main` after that
-> merge; iteration 59 is pushed to it with no PR opened yet.
+> **Last updated:** 2026-10-12 (iteration 61) · branch `claude/start-work-yx080h` · PRs
+> [#1](https://github.com/Derric01/CurveVision/pull/1)–[#29](https://github.com/Derric01/CurveVision/pull/29)
+> **all merged**, #29 carrying iteration 59. The branch was moved to `origin/main` after that
+> merge; iterations 60 and 61 are pushed to it with no PR opened yet.
 >
 > *Two things worth knowing about this repository's PR rhythm, which replace the
 > PR-by-PR changelog that used to sit here and had stopped helping anybody.* **PRs are
@@ -22,7 +22,7 @@
 > **Keep the session short.** One iteration, then commit, push, update this file and report —
 > `AGENTS.md` § *Continue* and the `start-work` skill both say so now, because they did not
 > before and a single session ran six iterations and roughly a third of a week's budget. The
-> concrete costs, in rough order: re-reading this file (iterations 1–53 now live in
+> concrete costs, in rough order: re-reading this file (iterations 1–55 now live in
 > [`docs/iterations/ARCHIVE.md`](./docs/iterations/ARCHIVE.md), which cut it from 3,800
 > lines to 1,000 — keep it that way); `python desktop/sidecar/build.py`, which is a
 > PyInstaller run of a minute or two and is needed *again* for every sabotage-and-restore
@@ -45,10 +45,35 @@ shapes (detection/segmentation, OBB, pose, classification), each declaring in it
 The desktop shape works: a packaged single-executable server, a Tauri shell that supervises
 it, and folders annotated in place without copying a byte.
 
-**The tree is green.** `./scripts/check.sh` passes all thirteen steps: 591 server tests, 15
-SDK, 686 web, and `scripts/` is lint-clean under its own `ruff.toml`. Twenty-seven browser
+**The tree is green.** `./scripts/check.sh` passes all thirteen steps: 616 server tests, 15
+SDK, 699 web, and `scripts/` is lint-clean under its own `ruff.toml`. Twenty-eight browser
 harnesses drive the packaged desktop application in a real Chromium, nightly and on every
 push to `main`. (Iteration 52 arrived to a red tree — mypy 2 — and fixed it first.)
+
+**A model is added from the application, with an endpoint and a key** (iteration 61). The
+editor's Auto-annotate panel told people to "register an inference endpoint" and nothing in
+the application could: it took a JSON body to `POST /models`. A **Models** page now does it:
+paste the endpoint and its API key, *Connect*, and CurveVision asks the endpoint what it
+serves (`GET <endpoint>/models` — in the contract from the start, documented for model
+authors to implement, and **called by nothing**), fills in the model's kind and labels, and
+adds it; a wrong key or a dead endpoint is reported before anything is saved. The editor now
+offers only the job's workspace's models (it listed every workspace's, and the server refused
+the others). **What this does not change:** CurveVision ships no model and no reference
+server yet, so the first model is still one somebody stands up behind the contract — the
+README had claimed Triton, TorchServe and "every hosted vendor already speak" it, which was
+false and is corrected.
+
+**A skeleton that arrives from outside is stored with joints the editor can read**
+(iteration 60). A joint is stored under the id of one of its label's child labels, which is
+how the editor draws it and every exporter writes it. A COCO import stored each joint by
+*name* instead, with no id; the native format carried the *source* project's joint ids into
+whatever project it was imported into; a skeleton label the import created had no joints at
+all; and a model's predicted joints were stored as the model sent them. Each joint is now
+matched by name to the label's joints (`services/skeletons.py`), exports carry the names to
+match by, an import creates a skeleton label with its joints and bones, and a model's
+normalised joints are rescaled like its other coordinates. Two routes it went through were
+500s on the way: adding a label with joints, or editing one, through `/projects/{id}/labels`.
+Rows written before this still hold names (see *Next best action*).
 
 **One object the server refuses no longer fails every save after it** (iteration 55). A
 save is one batch and one transaction, refused whole, and autosave put a refused batch back
@@ -370,23 +395,42 @@ was the last unconnected piece of the desktop application.
 
 ## Next best action
 
-*Generated API types were iteration 59; a duplicate `client_id`, 58; `required` on the
-label form, 57; crash recovery, 56.*
+*Adding a model from the application was iteration 61; joints that arrive from outside,
+60; generated API types, 59; a duplicate `client_id`, 58.*
 
-**Make a COCO keypoint import store joints the editor can read.** Found by iteration 59's
-contract check: `formats/coco.py` reads each keypoint as `{"name", "points", "occluded",
-"outside"}`, and `api/v1/datasets.py` stores `record.elements` as it comes — so an imported
-skeleton's joints carry a *name* and no `label_id`, while everything that draws or exports
-a joint drawn here (`ApiSkeletonElement`, the skeleton tool, `yolo_pose`) keys it by
-`label_id`. Found by reading, not reproduced end to end: reproduce first (import a COCO
-keypoints file, open the job, export it again). The fix is to resolve names to the
-skeleton's child label ids at import, against `LabelSpec`'s children; then type `elements`
-on `ShapeOut`/`TrackShapeOut` as `list[SkeletonElement]` and delete `WithoutJoints` in
-`web/src/api/__tests__/contract.ts`. Check `yolo_pose` import, and model predictions
-(`ml/http_provider.py` passes `elements` through unchecked), for the same thing.
+*Iteration 61 was chosen over the action below because the user asked whether AI annotation
+is "add the API key and it works". It was not even that: there was no screen to add a key
+to. That is fixed; what still stands between a new user and a first prediction is a model
+server to point at — the first item under* Then, still needing the user.
+
+**Repair the joints stored before iteration 60, then type them.** A COCO import or a
+model's prediction before iteration 60 stored each joint as `{"name", "points", ...}` with
+no `label_id`, and those rows are still in any database that took one. Write an Alembic
+data migration that runs each stored skeleton (`shapes`, and `track_shapes` via their
+track's label) through `services.skeletons.resolve_joints` against its label's joints —
+inlined in the migration rather than imported, since a migration must not change when the
+service does. A skeleton whose label declares no joints cannot be resolved; decide whether
+it is deleted or kept with its joints emptied, and say which in the migration. Then type
+`elements` on `ShapeOut`/`TrackShapeOut` as `list[SkeletonElement]` (it is already typed on
+the way in) and delete `WithoutJoints` in `web/src/api/__tests__/contract.ts`. Test the
+migration against a row written the old way, on SQLite and, through CI, PostgreSQL.
+
+**A candidate found by reading, not reproduced: a tracked skeleton's joints.** The server's
+`interpolate_track` interpolates `points` and copies the earlier keyframe's `elements`, and
+a skeleton's geometry *is* its elements (`points` is empty), so between two keyframes a
+tracked skeleton holds still and then jumps. The editor's `tracksOn` (`adapters.ts`) does
+not pass `elements` to the canvas for a tracked object at all. Find first whether anything
+can produce a tracked skeleton today (a CVAT XML or native import, a `tracker` model) —
+CVAT tracks each joint as its own sub-track, which is the design to read before writing one.
 
 **Then, still needing the user:**
 
+* **A reference model server, in its own repository — now the largest gap in "AI just
+  works".** Since iteration 61, adding a model is a URL and a key; what a new user lacks is
+  anything to put at that URL. A small FastAPI server that implements the contract,
+  including `GET /models`, around one permissively licensed detector would make the first
+  run a `docker run` and a paste. Choosing that model and creating the repository are the
+  user's decisions. The open-vocabulary case is the one below.
 * **A reference open-vocabulary model server, in its own repository.** The contract can
   express *find these classes*, and nothing exists to point it at — which is the onboarding
   cost ADR 0005 accepted and explicitly planned to mitigate with "documented reference
@@ -470,14 +514,29 @@ a mutation that flushes the shape buffer, re-reads `annotation_version`, then wr
 
 ## Completed
 
+**Adding a model from the application** (iteration 61) — a **Models** page lists the
+workspace's models and adds one from an endpoint and an API key: `POST /models/discover`
+asks the endpoint's `GET /models` and the form is filled in from the answer, or typed in
+when the endpoint does not implement discovery. A refused key, a dead endpoint and a
+malformed answer are each a 502 saying which. The key is sent as a bearer token on every
+request to the endpoint and never returned. Driven in a browser
+(`verify_model_registration.py`).
+
 **The web client's API types are checked against the server** — `scripts/api_types.py`
 builds the OpenAPI document from the app itself (no server, no database) and generates
 `web/src/api/schema.ts` with `openapi-typescript`; `--check` runs in `./scripts/check.sh`
 and in CI's server job. `web/src/api/__tests__/contract.ts` makes `tsc` fail when a field
 the hand-written `types.ts` declares for a response is missing from what the server sends
-or typed differently, for 29 response types; fields the schema marks optional only because
+or typed differently, for 31 response types; fields the schema marks optional only because
 they have a default are treated as sent, since response models serialise them. One gap is
-held open by name — skeleton `elements` — with the reason beside it.
+held open by name — skeleton `elements` — with the reason beside it: rows written before
+iteration 60 still hold joints by name.
+
+**Skeletons from outside the editor are stored by joint id** (iteration 60):
+`services/skeletons.py` matches each joint by name to the label's declared joints, for a
+dataset import and for a model's predictions; exports carry each joint's name; an import
+creates a skeleton label with its joints and bones; a normalised model's joints are
+rescaled; and a joint that is not an object is a malformed response, not a 500.
 
 Functionality that works and is covered by tests.
 
@@ -790,7 +849,7 @@ full docs set including seven ADRs.
 | Keypoint (skeleton) tool | Complete and driven in a browser, through to the exported `yolo_pose` rows: joints placed in declared order, `X` skips one, `Enter` finishes early, `Alt`-click marks a joint occluded, and the bones are drawn. |
 | Masks | Stored, **exported** (`cvat_xml` writes CVAT's real mask element and reads it back; `segmentation_mask` paints the pixels), **drawn** — the editor renders the pixels and picks by them — and now **paintable**: the brush creates, grows, shrinks and (by erasing every pixel) deletes one, driven end to end in a browser. Nothing outstanding. |
 | Reviewing suggestions | Complete and measured in a browser: a job-wide count, accept and reject in bulk over shapes, tracks and tags, and an accepted suggestion drawn solid rather than dashed. Per-object accept/reject buttons do not exist — an individual suggestion is accepted by editing it and rejected by deleting it, which is what the editor already does. |
-| Auto-annotate | Complete for the "run over these frames" kinds and driven in a browser against a real model server: model picker, class box for an open-vocabulary model, the plan stated before the run, unmatched classes named before the run, predictions stored as reviewable suggestions. Interactive kinds (`interactor`, `tracker`) are listed with the reason this panel cannot drive them rather than hidden. |
+| Auto-annotate | Complete for the "run over these frames" kinds and driven in a browser against a real model server: a model is **added from the Models page** with an endpoint and a key (iteration 61), and the editor offers the job's workspace's models; model picker, class box for an open-vocabulary model, the plan stated before the run, unmatched classes named before the run, predictions stored as reviewable suggestions. Interactive kinds (`interactor`, `tracker`) are listed with the reason this panel cannot drive them rather than hidden. |
 | Quality reports | Complete end to end and driven in a browser: the task page creates the answer key and shows each job's latest F1, the editor shows the report and seeks to a conflict on click, and a stale report is marked stale. The comparison runs **inline, deliberately and measurably** — 200,000 shapes a side over 10,000 frames score in 4.4s. Nothing outstanding. |
 | View settings (label chips, suggestions, fill opacity) | Complete and measured in a browser: three `Scene` fields that had always been read by the renderer but never written to from anywhere now have a getter/setter pair and a control each in the Labels panel. |
 | Choosing individual files (desktop) | Complete and measured in a browser: `choose_files` now has a caller, one `local-import` call per chosen file, a failed file reported in `skipped` without aborting the others, and the results of a whole batch merged into one summary. |
@@ -817,6 +876,44 @@ being updated and this one was not. Check it against* Completed *before trusting
 ---
 
 ## Verification performed
+
+Iteration 61:
+
+* `tests/api/test_model_registration.py` (10) written against the route before it existed:
+  all ten fail on the old server and pass on the new. `registration.test.ts` (13) for the
+  form's rules.
+* `verify_model_registration.py`, against the packaged server and a real localhost model
+  server that wants a key: **24 checks pass**. Each was made to fail first, in three
+  sabotage builds (each confirmed to compile, by bundle hash): no link in the empty panel;
+  discovery's model id dropped; the key not part of "connected"; the key left out of the
+  registration; `config` (with the key) added to `ModelRegistrationOut` together with the
+  card rendering the model; and the editor listing every workspace's models. The first
+  build's config sabotage passed — the key sabotage had already removed the key it would
+  have leaked — so it was rebuilt alone, and then failed both key checks. Restored builds
+  match the clean bundle hash.
+* The workspace check found a harness bug, not a product one: with two workspaces the
+  Models page opens on the first, and the removal step removed the other one's model. The
+  step now picks the workspace.
+* `verify_auto_annotate.py` still passes (33), after the panel's change.
+* `./scripts/check.sh`: **all thirteen pass** — 616 server, 15 SDK, 699 web; `api types`
+  regenerated for the two new schemas, and the contract covers both.
+* Not done: the page was not driven as an annotator (the desktop shape has one person); the
+  rank is pinned by the API test and `canRegisterModels`.
+
+Iteration 60:
+
+* Reproduced first, as tests that failed before the change:
+  `TestImportingSkeletons` (COCO stored `{"name": "nose", ...}` with no `label_id`; the
+  native format stored the source project's joint ids; a label the import created had no
+  children), the inference test (`KeyError: 'label_id'` — the model's joints stored as sent),
+  `test_a_skeleton_label_comes_back_with_its_joints` (500 on `POST` without the
+  `_label_out` fix), and five of the six in `tests/unit/test_http_provider.py` (the sixth,
+  joints in pixels kept as sent, is a guard that passes either way).
+* `./scripts/check.sh`: **all thirteen pass** — 606 server, 15 SDK, 686 web. `api
+  types` unchanged: no response schema changed.
+* No browser harness: the editor was not changed, and what it reads was pinned at the API.
+  Not done: importing a real third-party COCO keypoints file (the tests round-trip this
+  project's own COCO export, which is what the reader is written against).
 
 Iteration 59:
 
@@ -940,6 +1037,32 @@ Iteration 54:
 
 ## Bugs fixed
 
+* **Nothing in the application could add a model** (iteration 61), while the editor's empty
+  panel said to "register an inference endpoint". Only `POST /models` with a hand-written
+  body could. Now the Models page.
+* **Model discovery was documented and dead** (iteration 61): `HttpModelProvider.list_models`
+  had no caller, so a model server implementing `GET /models`, as `docs/API.md` asked, got
+  nothing for it. It also swallowed every failure as "no discovery", which would have hidden
+  a refused key; it now says which failure it was.
+* **The editor offered models from other workspaces** (iteration 61), which the server
+  refused for the job with a 404: `api.models()` was called with no workspace.
+* **The README claimed Triton, TorchServe and "every hosted vendor" already speak the
+  inference contract** (iteration 61). None does; each needs a thin wrapper. Corrected.
+
+* **Joints that came from outside were stored where nothing could read them** (iteration
+  60): by name from a COCO import or a model, by another project's ids from a native import.
+  Root cause: the import and inference paths stored `elements` as they arrived, and only
+  the editor's own writes used joint ids. Fixed in `services/skeletons.py`, used by both.
+* **A skeleton label an import created had no joints** (iteration 60): `LabelSpec` carried
+  the keypoints and edges, and the route created the label from its name and colour only.
+* **Adding or editing a label with joints through `/projects/{id}/labels` was a 500**
+  (iteration 60), though the label was written: serialising a joint read the joint's own
+  children, which `_label_out` did not load, and async SQLAlchemy cannot load lazily
+  mid-serialisation. `load_project_labels` already loaded the extra level, with that comment.
+* **A normalising model's joints stayed in `[0, 1]`** (iteration 60): `HttpModelProvider`
+  rescaled `points` and passed `elements` through, so every joint landed in the top-left
+  pixel.
+
 * **A create resent with a `client_id` the job already had was a 500** (iteration 58), for
   shapes and tracks alike: `uq_*_client_id` and no check before the insert. Reachable by a
   script that omits `annotation_version` and retries after a lost answer. Now the same object
@@ -999,6 +1122,12 @@ Iteration 54:
 * **`mypy (server)` failed under mypy 2** (iteration 52). A cast in `decide_suggestions`.
 
 ## Known issues
+
+* **A model's API key is stored as given**, in `model_registrations.config`, as a webhook's
+  signing secret is in `webhooks.secret`. Neither is returned by the API; anyone who can
+  read the database can read both. Encrypting secrets at rest is not done for either.
+* **The Models page opens on the first workspace** when there are several, not on the one
+  last used; a picker switches it.
 
 * **The Tauri webviews' storage across launches is not verified.** Recovery in the
   desktop shape rests on the webview keeping IndexedDB for an origin from one launch to the
@@ -1140,6 +1269,48 @@ Iteration 54:
 
 ## Last iteration
 
+### 61 — a model is added from the application, with an endpoint and a key
+
+Asked for directly: the user wanted to know whether AI annotation is "just add the API key
+and it works". Orienting answered it — there was no screen to put a key into. Two things
+had been documented and never wired: the panel's "register an inference endpoint", and the
+contract's discovery route. CVAT was read for the page (`cvat-ui/src/components/models-page`):
+a card per model with its kind and labels, which this follows. CVAT's open-source build has
+no add form — its models are Nuclio functions it deploys — so the form is this project's.
+Convention only; no code adapted.
+
+Discovery's failures had all been swallowed as "not implemented". That was fine while
+nothing called it, and wrong for a form whose job is to tell somebody the key they pasted is
+wrong. The route sits in `services/` per the layering rules, and the key is now sent on each
+request as well as on the client, because the tests' injected client had never carried it.
+
+Verified: see *Verification performed*.
+
+## Iteration 60
+
+### 60 — a skeleton from outside is stored with joints the editor can read
+
+The next best action, found by iteration 59's contract check and not yet reproduced; it
+reproduced as tests at once, in three ways rather than one (COCO by name, native by another
+project's ids, an import-created label with no joints). The fix is one service both paths
+use, matching by name. CVAT was read for it (`dataset_manager/bindings.py`,
+`_import_shape`): it resolves each element with `_get_label_id(name, parent_label_id)`, by
+name under the skeleton's label, so the design is CVAT's; no code adapted. One difference,
+chosen: CVAT fails the import on a joint the label does not declare, and this drops the
+joint and says so in the import's warnings, as it already did for an unknown label. Exporting names was needed for the native format: its
+archives carried only ids, which mean nothing in another project. Joints with no names at
+all — native archives from before this — are matched by position, the order every format
+writes them in.
+
+Writing the inference test found an unrelated 500 on the label routes, which nothing had
+exercised with joints; and reading the provider for it found the unscaled joints. The
+historical rows are left, deliberately: repairing them is a data migration with its own
+decisions and its own tests, and it is the next best action.
+
+Verified: see *Verification performed*.
+
+## Iteration 59
+
 ### 59 — the hand-written API types are checked against the server
 
 The candidate this file had carried longest. The hand-written `types.ts` stays — it holds
@@ -1218,70 +1389,9 @@ the editor cannot reach it, a script can. See *Next best action*.
 
 Verified: see *Verification performed*.
 
-## Iteration 55
-
-### 55 — one refused object no longer fails every save after it
-
-The next best action since iteration 54, and it was a defect before it was a feature: the
-handoff inferred from the retry path that a `required` attribute would poison autosave and
-said to reproduce it first. It did, in a browser, on the first try — the `car` refused, the
-`sign` after it refused with it, nothing on the server. `AGENTS.md` ranks broken first.
-
-**The fix is the server's to start.** The client could not set the bad object aside because
-nothing said which one it was: `"Attribute 'plate' is required"` names an attribute, and the
-same batch can hold ten boxes of that label. `write_annotations` now names the entry, in the
-`errors[].location` shape request validation already used, so one client reader handles
-both. CVAT was read first (`cvat-core`'s `annotations-saver.ts` and
-`annotation-common.ts`): its saver fails a whole save too, and it avoids *this* trigger by
-giving every attribute a default (`appendDefaultAttributes`) and having no `required` —
-which is where starting a new object from its defaults came from. Convention only; no code
-adapted.
-
-**The hard part was the display, not the queue.** Setting an object aside and saving the
-rest is a few lines. But a save reloads the frame from the server, and a refused new box is
-on no server, so the reload that followed a partial save **wiped it off the canvas** — held,
-named in a banner, and impossible to select. `withUnsaved` lays what autosave holds back
-over the frame, read only when the frame is (re)loaded: on every edit, it would reload the
-scene and clear the undo stack under the pointer.
-
-**The harness found one more road to the same place.** `verify_track_canvas_edit.py` failed
-once in about fourteen runs, with a 422 on every save after a certain point. It would not
-repeat; holding the editor's reads back with `page.route` made it repeat every time: a box
-deleted between its save and the reload is still known by its local id, and the deletion
-went out under it — unparseable, so the whole request was a 422 naming nothing. Fixed with
-the `id_map` every save already returns. Two harness lessons from it are in
-`docs/CONTRIBUTING.md`, including a check that could not fail because it counted boxes.
-
-**Found and not fixed: crash recovery does not exist**, though the roadmap said Done. The
-draft is written on every edit and nothing reads it. Corrected in `docs/ROADMAP.md` and the
-plan; it is the next best action.
-
-Verified: see *Verification performed*.
-
-## Iteration 54
-
-### 54 — an annotator can set an object's attribute values
-
-The next best action since iteration 52, unblocked by 53. Mostly assembly: the engine
-already had the undoable-edit pattern (`toggleOccluded`), autosave already routed tracked
-objects, and CVAT's split of per-frame versus per-track values is the server's own rule
-(`interpolate_track`: values "hold until the next keyframe changes them"), so the web side
-copies that rule rather than inventing one.
-
-**Two defects found on the way**, both in the track half: the editor displayed a tracked
-object with the track's attributes only, so a per-frame value was invisible; and every
-keyframe added in the browser started with no attributes, silently resetting mutable values
-from that frame on. See *Bugs fixed*.
-
-**Deliberately not done:** offering `required` on the label form. A required attribute
-with no default still makes a newly drawn shape's first save fail and — worse — poison
-autosave; that is the new next best action.
-
-Verified: see *Verification performed*.
-
 ## Earlier iterations
 
-Iterations **1–53** are in [`docs/iterations/ARCHIVE.md`](./docs/iterations/ARCHIVE.md) —
+Iterations **1–55** are in [`docs/iterations/ARCHIVE.md`](./docs/iterations/ARCHIVE.md) —
 moved there so that orienting costs a few hundred lines rather than four thousand. Read them
 when `git log` points you at an iteration number, or when you are about to build something
 and want to know whether it was already tried and rejected. The lessons from them that are

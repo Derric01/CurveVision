@@ -94,7 +94,7 @@ the right credential for anything unattended.
 | Review | `/jobs/{id}/issues`, `/jobs/{id}/issues/{id}/comments` |
 | Quality | `/tasks/{id}/ground-truth`, `/jobs/{id}/quality`, `/tasks/{id}/quality` |
 | Datasets | `/projects/{id}/export`, `/tasks/{id}/import`, `/projects/{id}/versions` |
-| AI | `/models`, `/jobs/{id}/inference`, `/jobs/{id}/suggestions` |
+| AI | `/models`, `/models/discover`, `/jobs/{id}/inference`, `/jobs/{id}/suggestions` |
 | Integrations | `/webhooks` |
 | System | `/health`, `/formats`, `/background-tasks` |
 
@@ -381,6 +381,32 @@ endpoint; the platform calls it.
 
 ### Registering a model
 
+**From the application**, the **Models** page does this: paste the endpoint's URL and, if it
+wants one, its API key, and press *Connect*. CurveVision asks the endpoint what it serves
+(below), fills in the model's name, kind and labels from the answer, and adds it once you
+have checked them. It is then in the editor's Auto-annotate panel for everyone in the
+workspace. A wrong key or an endpoint that is not answering is reported at *Connect*, before
+anything is saved. Adding a model needs the maintainer rank; running one, the annotator rank.
+
+Before registering, ask an endpoint what it serves — the same request a registration makes
+the server send, so it needs the same rank:
+
+```http
+POST /api/v1/models/discover?organization_id={id}
+{ "config": { "endpoint": "http://my-inference:9000/infer", "api_key": "…" } }
+
+→ { "models": [ { "id": "yolo-v8n", "name": "YOLOv8 nano", "kind": "detector",
+                  "labels": ["person", "car"], "shape_types": ["rectangle"],
+                  "open_vocabulary": false, "description": null } ] }
+```
+
+`models` is empty when the endpoint answers `GET /models` with 404, 405 or 501 — it is up
+and does not implement discovery, so the labels are named by hand. Anything else that goes
+wrong is a **502** whose `detail` says what: nothing listening, the key refused (401/403),
+an error, or an answer that is not a model list.
+
+**From the API**:
+
 ```http
 POST /api/v1/models?organization_id={id}
 {
@@ -388,10 +414,14 @@ POST /api/v1/models?organization_id={id}
   "name": "YOLOv8 nano",
   "kind": "detector",
   "provider": "http",
-  "config": { "endpoint": "http://my-inference:9000/infer" },
+  "config": { "endpoint": "http://my-inference:9000/infer", "api_key": "…", "model": "yolo-v8n" },
   "output_labels": ["person", "car"]
 }
 ```
+
+`config.api_key`, when set, is sent as `Authorization: Bearer …` on every request to the
+endpoint; it is never returned by the API. `config.model` is the name the endpoint knows the
+model by and is sent as `model` on each inference request; it defaults to the slug.
 
 ### Fixed-head and open-vocabulary models
 
@@ -468,10 +498,28 @@ prompts can ignore the key entirely. `GET <endpoint>/models` may advertise
 ```
 
 Coordinates are absolute pixels. Return `"normalised": true` at the top level to send
-`[0,1]` coordinates instead, and CurveVision rescales.
+`[0,1]` coordinates instead, and CurveVision rescales — a skeleton's joints included.
 
-Optionally implement `GET <endpoint>/models` returning `{"models": [...]}` for discovery;
-without it, the labels configured on the registration are used.
+A **skeleton** names its joints, since a model cannot know the project's label ids:
+
+```json
+{ "frame": 0, "label": "person", "type": "skeleton", "points": [], "confidence": 0.9,
+  "elements": [ { "name": "nose", "points": [412, 160] },
+                { "name": "left_wrist", "outside": true } ] }
+```
+
+Each joint is matched by name to a joint the mapped label declares, and stored in the
+label's order. A declared joint the model did not return is stored as not visible (as the
+editor records a skipped one); a joint the label does not declare is dropped. A skeleton
+mapped to a label that declares no joints is not stored, and the run's `warnings` say so
+(`person (no joints) x3`). Dataset imports match joints the same way.
+
+Optionally implement `GET <endpoint>/models` returning `{"models": [...]}` — each entry an
+`id` (what CurveVision will send as `model`), a `name`, a `kind`, its `labels`, and
+`"open_vocabulary": true` if it reads `classes`. The Models page calls it when somebody adds
+your endpoint, so implementing it is what makes adding your model a URL and a key; without
+it (answer 404), they type the labels in. What it returns is copied onto the registration
+when it is saved, not re-read on each run. *Until iteration 61 nothing called it.*
 
 ### Running it
 

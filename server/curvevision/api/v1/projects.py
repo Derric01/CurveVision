@@ -202,6 +202,9 @@ async def _label_out(session: SessionDep, label_id: uuid.UUID) -> LabelOut:
         .options(
             selectinload(Label.attributes),
             selectinload(Label.children).selectinload(Label.attributes),
+            # As in `load_project_labels`: a joint's own (empty) children are read when it
+            # is serialised, and an unloaded read is a lazy load async cannot service.
+            selectinload(Label.children).selectinload(Label.children),
         )
         # Without this the eager loads below are skipped for an instance already in the
         # session, which after a commit under `expire_on_commit=False` still holds the

@@ -563,6 +563,31 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/models/discover": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Discover Models
+         * @description Ask an endpoint what it serves, so registering it is a URL and a key, not a form.
+         *
+         *     Needs the rank to register a model, since it is the same request a registration makes
+         *     the server send: to an address the caller chose, with a key the caller gave. A failure
+         *     is a 502 that says what failed -- nothing listening, the key refused, an error -- for
+         *     the form to show before anything is saved.
+         */
+        post: operations["discover_models_api_v1_models_discover_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/models/{model_id}": {
         parameters: {
             query?: never;
@@ -1692,6 +1717,28 @@ export interface components {
          * @enum {string}
          */
         DatasetVersionState: "draft" | "released";
+        /**
+         * DiscoveredModel
+         * @description One model an endpoint says it serves: what a registration of it would hold.
+         */
+        DiscoveredModel: {
+            /** Description */
+            description?: string | null;
+            /** Id */
+            id: string;
+            kind: components["schemas"]["ModelKind"];
+            /** Labels */
+            labels: string[];
+            /** Name */
+            name: string;
+            /**
+             * Open Vocabulary
+             * @default false
+             */
+            open_vocabulary: boolean;
+            /** Shape Types */
+            shape_types: string[];
+        };
         /** ExportRequest */
         ExportRequest: {
             /**
@@ -2219,6 +2266,26 @@ export interface components {
         /** MembershipUpdate */
         MembershipUpdate: {
             role: components["schemas"]["Role"];
+        };
+        /** ModelDiscoveryOut */
+        ModelDiscoveryOut: {
+            /** Models */
+            models: components["schemas"]["DiscoveredModel"][];
+        };
+        /**
+         * ModelDiscoveryRequest
+         * @description An endpoint to ask what it serves, before anything is registered.
+         */
+        ModelDiscoveryRequest: {
+            /** Config */
+            config?: {
+                [key: string]: unknown;
+            };
+            /**
+             * Provider
+             * @default http
+             */
+            provider: string;
         };
         /**
          * ModelKind
@@ -4542,6 +4609,43 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ModelRegistrationOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    discover_models_api_v1_models_discover_post: {
+        parameters: {
+            query: {
+                organization_id: string;
+            };
+            header?: {
+                authorization?: string | null;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ModelDiscoveryRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ModelDiscoveryOut"];
                 };
             };
             /** @description Validation Error */
