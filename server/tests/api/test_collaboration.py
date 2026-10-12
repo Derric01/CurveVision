@@ -721,3 +721,114 @@ class TestStatistics:
         assert stats["label_distribution"] == {"car": 2, "pedestrian": 1}
         assert stats["frames_without_annotations"] == 1
         assert stats["jobs_by_state"]["new"] == 1
+
+
+class TestImportingSkeletons:
+    """Imported joints must be stored as the editor and every exporter read them: by label id.
+
+    A COCO import stored each joint as the reader produced it — by keypoint *name* — and
+    the native format carried the source project's label ids into whatever project it was
+    imported into. Either way the joints named nothing in the target project.
+    """
+
+    @staticmethod
+    async def skeleton_project(actor: ApiActor, organization: dict[str, Any], slug: str):
+        created = await actor.post(
+            "/api/v1/projects",
+            json={
+                "organization_id": organization["id"],
+                "slug": slug,
+                "name": slug,
+                "labels": [
+                    {
+                        "name": "person",
+                        "color": "#22c55e",
+                        "skeleton_edges": [[0, 1]],
+                        "children": [{"name": "nose"}, {"name": "tail"}],
+                    }
+                ],
+            },
+        )
+        assert created.status_code == 201, created.text
+        return created.json()
+
+    @staticmethod
+    def joints(project: dict[str, Any]) -> list[str]:
+        person = next(label for label in project["labels"] if label["name"] == "person")
+        return [child["id"] for child in person["children"]]
+
+    async def draw_and_export(
+        self, actor: ApiActor, project: dict[str, Any], format_id: str
+    ) -> bytes:
+        _task, jobs = await make_task(actor, project, frames=1)
+        nose, tail = self.joints(project)
+        drawn = await actor.patch(
+            f"/api/v1/jobs/{jobs[0]['id']}/annotations",
+            json={
+                "created_shapes": [
+                    {
+                        "label_id": label_id(project, "person"),
+                        "frame": 0,
+                        "shape_type": "skeleton",
+                        "elements": [
+                            {"label_id": nose, "points": [10, 20]},
+                            {"label_id": tail, "points": [0, 0], "outside": True},
+                        ],
+                    }
+                ]
+            },
+        )
+        assert drawn.status_code == 200, drawn.text
+        export = await actor.post(
+            f"/api/v1/projects/{project['id']}/export", json={"format": format_id}
+        )
+        assert export.status_code == 200, export.text
+        return export.content
+
+    async def import_into(
+        self, actor: ApiActor, project: dict[str, Any], format_id: str, archive: bytes
+    ) -> list[dict[str, Any]]:
+        task, jobs = await make_task(actor, project, frames=1)
+        imported = await actor.post(
+            f"/api/v1/tasks/{task['id']}/import?format={format_id}",
+            files={"file": ("export.zip", archive, "application/zip")},
+        )
+        assert imported.status_code == 200, imported.text
+        document = (await actor.get(f"/api/v1/jobs/{jobs[0]['id']}/annotations")).json()
+        return [shape for shape in document["shapes"] if shape["shape_type"] == "skeleton"]
+
+    @pytest.mark.parametrize("format_id", ["coco", "curvevision"])
+    async def test_joints_are_stored_under_the_target_project_s_joint_labels(
+        self, owner: ApiActor, organization: dict[str, Any], format_id: str
+    ) -> None:
+        source = await self.skeleton_project(owner, organization, "pose-source")
+        archive = await self.draw_and_export(owner, source, format_id)
+        target = await self.skeleton_project(owner, organization, "pose-target")
+
+        [skeleton] = await self.import_into(owner, target, format_id, archive)
+
+        nose, tail = self.joints(target)
+        assert skeleton["elements"] == [
+            {"label_id": nose, "points": [10.0, 20.0], "occluded": False, "outside": False},
+            {"label_id": tail, "points": [0.0, 0.0], "occluded": False, "outside": True},
+        ]
+
+    async def test_a_skeleton_label_created_by_the_import_gets_its_joints(
+        self, owner: ApiActor, organization: dict[str, Any]
+    ) -> None:
+        source = await self.skeleton_project(owner, organization, "pose-origin")
+        archive = await self.draw_and_export(owner, source, "coco")
+        empty = await owner.post(
+            "/api/v1/projects",
+            json={"organization_id": organization["id"], "slug": "pose-new", "name": "new"},
+        )
+        target = empty.json()
+
+        [skeleton] = await self.import_into(owner, target, "coco", archive)
+
+        labels = (await owner.get(f"/api/v1/projects/{target['id']}/labels")).json()
+        person = next(label for label in labels if label["name"] == "person")
+        assert [child["name"] for child in person["children"]] == ["nose", "tail"]
+        assert [element["label_id"] for element in skeleton["elements"]] == [
+            child["id"] for child in person["children"]
+        ]

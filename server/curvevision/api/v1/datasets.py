@@ -10,7 +10,7 @@ from sqlalchemy import select
 from curvevision.api.deps import ProjectScopeDep, SessionDep, SettingsDep, TaskScopeDep
 from curvevision.core.errors import ValidationError
 from curvevision.domain.annotation import Shape, Tag
-from curvevision.domain.enums import AnnotationSource, DatasetVersionState
+from curvevision.domain.enums import AnnotationSource, DatasetVersionState, ShapeType
 from curvevision.domain.system import DatasetVersion
 from curvevision.domain.task import Job
 from curvevision.formats import ZipImportSource, get_format
@@ -22,6 +22,7 @@ from curvevision.schemas.system import (
 )
 from curvevision.services import annotations as annotation_service
 from curvevision.services import datasets as dataset_service
+from curvevision.services import skeletons as skeleton_service
 from curvevision.storage import get_storage
 
 router = APIRouter(tags=["datasets"])
@@ -98,8 +99,17 @@ async def import_annotations(
         for spec in result.new_labels:
             if spec.name in label_ids:
                 continue
+            # With its joints, for a skeleton: without them, the label exists and none of
+            # its imported skeletons has a joint to be stored under.
             label = await project_service.create_label(
-                session, scope.project, LabelIn(name=spec.name, color=spec.color)
+                session,
+                scope.project,
+                LabelIn(
+                    name=spec.name,
+                    color=spec.color,
+                    children=[LabelIn(name=keypoint) for keypoint in spec.keypoints],
+                    skeleton_edges=[list(edge) for edge in spec.skeleton_edges],
+                ),
             )
             label_ids[spec.name] = str(label.id)
         await session.flush()
@@ -116,6 +126,10 @@ async def import_annotations(
         for job in jobs:
             await annotation_service.clear_annotations(session, job)
 
+    joints = await skeleton_service.skeleton_joints(session, scope.project.id)
+    jointless: set[str] = set()
+    unknown_joints: set[str] = set()
+
     written = 0
     unmatched_labels: set[str] = set()
     for frame, record in result.shapes:
@@ -126,6 +140,13 @@ async def import_annotations(
         if label_id is None:
             unmatched_labels.add(record.label)
             continue
+        elements = record.elements
+        if record.shape_type is ShapeType.SKELETON:
+            if label_id not in joints:
+                jointless.add(record.label)
+                continue
+            elements, unknown = skeleton_service.resolve_joints(record.elements, joints[label_id])
+            unknown_joints.update(unknown)
         session.add(
             Shape(
                 job_id=target.id,
@@ -140,7 +161,7 @@ async def import_annotations(
                 source=AnnotationSource.IMPORTED,
                 attributes={},
                 mask=record.mask,
-                elements=record.elements,
+                elements=elements,
                 created_by_id=scope.identity.user.id,
             )
         )
@@ -175,6 +196,16 @@ async def import_annotations(
         warnings.append(
             "Skipped annotations for labels not present in the project: "
             + ", ".join(sorted(unmatched_labels))
+        )
+    if jointless:
+        warnings.append(
+            "Skipped skeletons of labels that declare no joints in this project: "
+            + ", ".join(sorted(jointless))
+        )
+    if unknown_joints:
+        warnings.append(
+            "Dropped joints the project's skeleton labels do not declare: "
+            + ", ".join(sorted(unknown_joints))
         )
 
     return {

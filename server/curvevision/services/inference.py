@@ -31,6 +31,7 @@ from curvevision.ml import (
 )
 from curvevision.services import annotations as annotation_service
 from curvevision.services import media as media_service
+from curvevision.services import skeletons as skeleton_service
 from curvevision.storage import Storage
 
 
@@ -201,6 +202,11 @@ async def persist_predictions(
     created_shapes = 0
     created_tags = 0
     skipped: dict[str, int] = {}
+    project_id = (
+        await session.execute(select(Task.project_id).where(Task.id == job.task_id))
+    ).scalar_one()
+    # A model cannot know this project's joint label ids; it names its joints.
+    joints = await skeleton_service.skeleton_joints(session, project_id)
 
     for prediction in result.shapes:
         label_id = label_mapping.get(prediction.label)
@@ -212,6 +218,16 @@ async def persist_predictions(
                 skipped.get(f"{prediction.label} (bad geometry)", 0) + 1
             )
             continue
+        elements = prediction.elements
+        if prediction.shape_type is ShapeType.SKELETON:
+            if str(label_id) not in joints:
+                skipped[f"{prediction.label} (no joints)"] = (
+                    skipped.get(f"{prediction.label} (no joints)", 0) + 1
+                )
+                continue
+            elements, _unknown = skeleton_service.resolve_joints(
+                prediction.elements, joints[str(label_id)]
+            )
         session.add(
             Shape(
                 job_id=job.id,
@@ -223,7 +239,7 @@ async def persist_predictions(
                 confidence=prediction.confidence,
                 attributes={},
                 mask=prediction.mask,
-                elements=prediction.elements,
+                elements=elements,
                 created_by_id=actor.id,
             )
         )

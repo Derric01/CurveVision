@@ -93,6 +93,38 @@ class TestAddingALabel:
         assert created.status_code == 201, created.text
         assert names(await schema_of(owner, project["id"])) == ["car", "bus", "pedestrian"]
 
+    async def test_a_skeleton_label_comes_back_with_its_joints(
+        self, owner: ApiActor, project: dict[str, Any]
+    ) -> None:
+        """Adding a label that declares joints, then editing it, each answered with the label.
+
+        Both answered 500 until iteration 60: the label was created, but serialising a
+        joint read the joint's own (empty) children, which nothing had loaded, and an async
+        session cannot load mid-serialisation. Nothing had added a skeleton label after the
+        project was created, so nothing noticed.
+        """
+        added = await owner.post(
+            f"/api/v1/projects/{project['id']}/labels",
+            json={
+                "name": "person",
+                "children": [{"name": "nose"}, {"name": "tail"}],
+                "skeleton_edges": [[0, 1]],
+            },
+        )
+        assert added.status_code == 201, added.text
+        assert names(added.json()["children"]) == ["nose", "tail"]
+        assert all(joint["children"] == [] for joint in added.json()["children"])
+
+        renamed = await owner.put(
+            f"/api/v1/projects/{project['id']}/labels/{added.json()['id']}",
+            json=as_payload(added.json(), name="walker"),
+        )
+        assert renamed.status_code == 200, renamed.text
+        assert (renamed.json()["name"], names(renamed.json()["children"])) == (
+            "walker",
+            ["nose", "tail"],
+        )
+
     async def test_a_duplicate_name_is_refused_rather_than_creating_a_second(
         self, owner: ApiActor, project: dict[str, Any]
     ) -> None:

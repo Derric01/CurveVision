@@ -468,7 +468,21 @@ prompts can ignore the key entirely. `GET <endpoint>/models` may advertise
 ```
 
 Coordinates are absolute pixels. Return `"normalised": true` at the top level to send
-`[0,1]` coordinates instead, and CurveVision rescales.
+`[0,1]` coordinates instead, and CurveVision rescales — a skeleton's joints included.
+
+A **skeleton** names its joints, since a model cannot know the project's label ids:
+
+```json
+{ "frame": 0, "label": "person", "type": "skeleton", "points": [], "confidence": 0.9,
+  "elements": [ { "name": "nose", "points": [412, 160] },
+                { "name": "left_wrist", "outside": true } ] }
+```
+
+Each joint is matched by name to a joint the mapped label declares, and stored in the
+label's order. A declared joint the model did not return is stored as not visible (as the
+editor records a skipped one); a joint the label does not declare is dropped. A skeleton
+mapped to a label that declares no joints is not stored, and the run's `warnings` say so
+(`person (no joints) x3`). Dataset imports match joints the same way.
 
 Optionally implement `GET <endpoint>/models` returning `{"models": [...]}` for discovery;
 without it, the labels configured on the registration are used.

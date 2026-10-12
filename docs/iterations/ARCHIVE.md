@@ -1,6 +1,6 @@
 # Iteration archive
 
-> The narrative record of iterations **1–53**, moved out of
+> The narrative record of iterations **1–54**, moved out of
 > [`handoff.md`](../../handoff.md) so that orienting on this project costs a few hundred
 > lines rather than four thousand.
 >
@@ -15,6 +15,27 @@
 > window, append it to the top of this file rather than deleting it.
 
 ---
+
+## Iteration 54
+
+### 54 — an annotator can set an object's attribute values
+
+The next best action since iteration 52, unblocked by 53. Mostly assembly: the engine
+already had the undoable-edit pattern (`toggleOccluded`), autosave already routed tracked
+objects, and CVAT's split of per-frame versus per-track values is the server's own rule
+(`interpolate_track`: values "hold until the next keyframe changes them"), so the web side
+copies that rule rather than inventing one.
+
+**Two defects found on the way**, both in the track half: the editor displayed a tracked
+object with the track's attributes only, so a per-frame value was invisible; and every
+keyframe added in the browser started with no attributes, silently resetting mutable values
+from that frame on. See *Bugs fixed*.
+
+**Deliberately not done:** offering `required` on the label form. A required attribute
+with no default still makes a newly drawn shape's first save fail and — worse — poison
+autosave; that is the new next best action.
+
+Verified: see *Verification performed*.
 
 ## Iteration 53
 

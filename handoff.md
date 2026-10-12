@@ -5,10 +5,10 @@
 > [`AGENTS.md`](./AGENTS.md) first; it is the working contract. Update this file after every
 > iteration, including the ones that mostly failed.
 >
-> **Last updated:** 2026-10-10 (iteration 59) · branch `claude/start-work-yx080h` · PRs
-> [#1](https://github.com/Derric01/CurveVision/pull/1)–[#28](https://github.com/Derric01/CurveVision/pull/28)
-> **all merged**, #28 carrying iteration 58. The branch was moved to `origin/main` after that
-> merge; iteration 59 is pushed to it with no PR opened yet.
+> **Last updated:** 2026-10-12 (iteration 60) · branch `claude/start-work-yx080h` · PRs
+> [#1](https://github.com/Derric01/CurveVision/pull/1)–[#29](https://github.com/Derric01/CurveVision/pull/29)
+> **all merged**, #29 carrying iteration 59. The branch was moved to `origin/main` after that
+> merge; iteration 60 is pushed to it with no PR opened yet.
 >
 > *Two things worth knowing about this repository's PR rhythm, which replace the
 > PR-by-PR changelog that used to sit here and had stopped helping anybody.* **PRs are
@@ -22,7 +22,7 @@
 > **Keep the session short.** One iteration, then commit, push, update this file and report —
 > `AGENTS.md` § *Continue* and the `start-work` skill both say so now, because they did not
 > before and a single session ran six iterations and roughly a third of a week's budget. The
-> concrete costs, in rough order: re-reading this file (iterations 1–53 now live in
+> concrete costs, in rough order: re-reading this file (iterations 1–54 now live in
 > [`docs/iterations/ARCHIVE.md`](./docs/iterations/ARCHIVE.md), which cut it from 3,800
 > lines to 1,000 — keep it that way); `python desktop/sidecar/build.py`, which is a
 > PyInstaller run of a minute or two and is needed *again* for every sabotage-and-restore
@@ -45,10 +45,22 @@ shapes (detection/segmentation, OBB, pose, classification), each declaring in it
 The desktop shape works: a packaged single-executable server, a Tauri shell that supervises
 it, and folders annotated in place without copying a byte.
 
-**The tree is green.** `./scripts/check.sh` passes all thirteen steps: 591 server tests, 15
+**The tree is green.** `./scripts/check.sh` passes all thirteen steps: 606 server tests, 15
 SDK, 686 web, and `scripts/` is lint-clean under its own `ruff.toml`. Twenty-seven browser
 harnesses drive the packaged desktop application in a real Chromium, nightly and on every
 push to `main`. (Iteration 52 arrived to a red tree — mypy 2 — and fixed it first.)
+
+**A skeleton that arrives from outside is stored with joints the editor can read**
+(iteration 60). A joint is stored under the id of one of its label's child labels, which is
+how the editor draws it and every exporter writes it. A COCO import stored each joint by
+*name* instead, with no id; the native format carried the *source* project's joint ids into
+whatever project it was imported into; a skeleton label the import created had no joints at
+all; and a model's predicted joints were stored as the model sent them. Each joint is now
+matched by name to the label's joints (`services/skeletons.py`), exports carry the names to
+match by, an import creates a skeleton label with its joints and bones, and a model's
+normalised joints are rescaled like its other coordinates. Two routes it went through were
+500s on the way: adding a label with joints, or editing one, through `/projects/{id}/labels`.
+Rows written before this still hold names (see *Next best action*).
 
 **One object the server refuses no longer fails every save after it** (iteration 55). A
 save is one batch and one transaction, refused whole, and autosave put a refused batch back
@@ -370,20 +382,28 @@ was the last unconnected piece of the desktop application.
 
 ## Next best action
 
-*Generated API types were iteration 59; a duplicate `client_id`, 58; `required` on the
-label form, 57; crash recovery, 56.*
+*Joints that arrive from outside were iteration 60; generated API types, 59; a duplicate
+`client_id`, 58; `required` on the label form, 57.*
 
-**Make a COCO keypoint import store joints the editor can read.** Found by iteration 59's
-contract check: `formats/coco.py` reads each keypoint as `{"name", "points", "occluded",
-"outside"}`, and `api/v1/datasets.py` stores `record.elements` as it comes — so an imported
-skeleton's joints carry a *name* and no `label_id`, while everything that draws or exports
-a joint drawn here (`ApiSkeletonElement`, the skeleton tool, `yolo_pose`) keys it by
-`label_id`. Found by reading, not reproduced end to end: reproduce first (import a COCO
-keypoints file, open the job, export it again). The fix is to resolve names to the
-skeleton's child label ids at import, against `LabelSpec`'s children; then type `elements`
-on `ShapeOut`/`TrackShapeOut` as `list[SkeletonElement]` and delete `WithoutJoints` in
-`web/src/api/__tests__/contract.ts`. Check `yolo_pose` import, and model predictions
-(`ml/http_provider.py` passes `elements` through unchecked), for the same thing.
+**Repair the joints stored before iteration 60, then type them.** A COCO import or a
+model's prediction before iteration 60 stored each joint as `{"name", "points", ...}` with
+no `label_id`, and those rows are still in any database that took one. Write an Alembic
+data migration that runs each stored skeleton (`shapes`, and `track_shapes` via their
+track's label) through `services.skeletons.resolve_joints` against its label's joints —
+inlined in the migration rather than imported, since a migration must not change when the
+service does. A skeleton whose label declares no joints cannot be resolved; decide whether
+it is deleted or kept with its joints emptied, and say which in the migration. Then type
+`elements` on `ShapeOut`/`TrackShapeOut` as `list[SkeletonElement]` (it is already typed on
+the way in) and delete `WithoutJoints` in `web/src/api/__tests__/contract.ts`. Test the
+migration against a row written the old way, on SQLite and, through CI, PostgreSQL.
+
+**A candidate found by reading, not reproduced: a tracked skeleton's joints.** The server's
+`interpolate_track` interpolates `points` and copies the earlier keyframe's `elements`, and
+a skeleton's geometry *is* its elements (`points` is empty), so between two keyframes a
+tracked skeleton holds still and then jumps. The editor's `tracksOn` (`adapters.ts`) does
+not pass `elements` to the canvas for a tracked object at all. Find first whether anything
+can produce a tracked skeleton today (a CVAT XML or native import, a `tracker` model) —
+CVAT tracks each joint as its own sub-track, which is the design to read before writing one.
 
 **Then, still needing the user:**
 
@@ -477,7 +497,14 @@ and in CI's server job. `web/src/api/__tests__/contract.ts` makes `tsc` fail whe
 the hand-written `types.ts` declares for a response is missing from what the server sends
 or typed differently, for 29 response types; fields the schema marks optional only because
 they have a default are treated as sent, since response models serialise them. One gap is
-held open by name — skeleton `elements` — with the reason beside it.
+held open by name — skeleton `elements` — with the reason beside it: rows written before
+iteration 60 still hold joints by name.
+
+**Skeletons from outside the editor are stored by joint id** (iteration 60):
+`services/skeletons.py` matches each joint by name to the label's declared joints, for a
+dataset import and for a model's predictions; exports carry each joint's name; an import
+creates a skeleton label with its joints and bones; a normalised model's joints are
+rescaled; and a joint that is not an object is a malformed response, not a 500.
 
 Functionality that works and is covered by tests.
 
@@ -818,6 +845,21 @@ being updated and this one was not. Check it against* Completed *before trusting
 
 ## Verification performed
 
+Iteration 60:
+
+* Reproduced first, as tests that failed before the change:
+  `TestImportingSkeletons` (COCO stored `{"name": "nose", ...}` with no `label_id`; the
+  native format stored the source project's joint ids; a label the import created had no
+  children), the inference test (`KeyError: 'label_id'` — the model's joints stored as sent),
+  `test_a_skeleton_label_comes_back_with_its_joints` (500 on `POST` without the
+  `_label_out` fix), and five of the six in `tests/unit/test_http_provider.py` (the sixth,
+  joints in pixels kept as sent, is a guard that passes either way).
+* `./scripts/check.sh`: **all thirteen pass** — 606 server, 15 SDK, 686 web. `api
+  types` unchanged: no response schema changed.
+* No browser harness: the editor was not changed, and what it reads was pinned at the API.
+  Not done: importing a real third-party COCO keypoints file (the tests round-trip this
+  project's own COCO export, which is what the reader is written against).
+
 Iteration 59:
 
 * `./scripts/check.sh`: **all thirteen pass** (the new step is `api types`) — 591 server,
@@ -939,6 +981,20 @@ Iteration 54:
   `verify_shape_frame` and `verify_attribute_editor` also pass.
 
 ## Bugs fixed
+
+* **Joints that came from outside were stored where nothing could read them** (iteration
+  60): by name from a COCO import or a model, by another project's ids from a native import.
+  Root cause: the import and inference paths stored `elements` as they arrived, and only
+  the editor's own writes used joint ids. Fixed in `services/skeletons.py`, used by both.
+* **A skeleton label an import created had no joints** (iteration 60): `LabelSpec` carried
+  the keypoints and edges, and the route created the label from its name and colour only.
+* **Adding or editing a label with joints through `/projects/{id}/labels` was a 500**
+  (iteration 60), though the label was written: serialising a joint read the joint's own
+  children, which `_label_out` did not load, and async SQLAlchemy cannot load lazily
+  mid-serialisation. `load_project_labels` already loaded the extra level, with that comment.
+* **A normalising model's joints stayed in `[0, 1]`** (iteration 60): `HttpModelProvider`
+  rescaled `points` and passed `elements` through, so every joint landed in the top-left
+  pixel.
 
 * **A create resent with a `client_id` the job already had was a 500** (iteration 58), for
   shapes and tracks alike: `uq_*_client_id` and no check before the insert. Reachable by a
@@ -1140,6 +1196,29 @@ Iteration 54:
 
 ## Last iteration
 
+### 60 — a skeleton from outside is stored with joints the editor can read
+
+The next best action, found by iteration 59's contract check and not yet reproduced; it
+reproduced as tests at once, in three ways rather than one (COCO by name, native by another
+project's ids, an import-created label with no joints). The fix is one service both paths
+use, matching by name. CVAT was read for it (`dataset_manager/bindings.py`,
+`_import_shape`): it resolves each element with `_get_label_id(name, parent_label_id)`, by
+name under the skeleton's label, so the design is CVAT's; no code adapted. One difference,
+chosen: CVAT fails the import on a joint the label does not declare, and this drops the
+joint and says so in the import's warnings, as it already did for an unknown label. Exporting names was needed for the native format: its
+archives carried only ids, which mean nothing in another project. Joints with no names at
+all — native archives from before this — are matched by position, the order every format
+writes them in.
+
+Writing the inference test found an unrelated 500 on the label routes, which nothing had
+exercised with joints; and reading the provider for it found the unscaled joints. The
+historical rows are left, deliberately: repairing them is a data migration with its own
+decisions and its own tests, and it is the next best action.
+
+Verified: see *Verification performed*.
+
+## Iteration 59
+
 ### 59 — the hand-written API types are checked against the server
 
 The candidate this file had carried longest. The hand-written `types.ts` stays — it holds
@@ -1258,30 +1337,9 @@ plan; it is the next best action.
 
 Verified: see *Verification performed*.
 
-## Iteration 54
-
-### 54 — an annotator can set an object's attribute values
-
-The next best action since iteration 52, unblocked by 53. Mostly assembly: the engine
-already had the undoable-edit pattern (`toggleOccluded`), autosave already routed tracked
-objects, and CVAT's split of per-frame versus per-track values is the server's own rule
-(`interpolate_track`: values "hold until the next keyframe changes them"), so the web side
-copies that rule rather than inventing one.
-
-**Two defects found on the way**, both in the track half: the editor displayed a tracked
-object with the track's attributes only, so a per-frame value was invisible; and every
-keyframe added in the browser started with no attributes, silently resetting mutable values
-from that frame on. See *Bugs fixed*.
-
-**Deliberately not done:** offering `required` on the label form. A required attribute
-with no default still makes a newly drawn shape's first save fail and — worse — poison
-autosave; that is the new next best action.
-
-Verified: see *Verification performed*.
-
 ## Earlier iterations
 
-Iterations **1–53** are in [`docs/iterations/ARCHIVE.md`](./docs/iterations/ARCHIVE.md) —
+Iterations **1–54** are in [`docs/iterations/ARCHIVE.md`](./docs/iterations/ARCHIVE.md) —
 moved there so that orienting costs a few hundred lines rather than four thousand. Read them
 when `git log` points you at an iteration number, or when you are about to build something
 and want to know whether it was already tried and rejected. The lessons from them that are
