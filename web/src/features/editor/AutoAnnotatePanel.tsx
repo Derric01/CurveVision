@@ -11,6 +11,7 @@
 
 import { useCallback, useMemo, useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { Link } from 'react-router-dom';
 import { Sparkles } from 'lucide-react';
 import { api } from '@/api/client';
 import type { InferenceResult, Label } from '@/api/types';
@@ -29,10 +30,16 @@ import {
 
 export function AutoAnnotatePanel({
   jobId,
+  organizationId,
   labels,
   onRan,
 }: {
   jobId: string;
+  /**
+   * The job's workspace. Models were listed from every workspace the person belongs to,
+   * and one from another workspace is refused for this job (404) — offered, then broken.
+   */
+  organizationId: string | undefined;
   /** The project's top-level labels, in schema order. */
   labels: Pick<Label, 'id' | 'name'>[];
   onRan: () => void;
@@ -40,7 +47,12 @@ export function AutoAnnotatePanel({
   const queryClient = useQueryClient();
   // Nice-to-have, like the quality panel: a viewer without the permission gets a 403 and
   // the rest of the editor must still work.
-  const models = useQuery({ queryKey: ['models'], queryFn: () => api.models(), retry: false });
+  const models = useQuery({
+    queryKey: ['models', organizationId],
+    queryFn: () => api.models({ organization_id: organizationId }),
+    enabled: !!organizationId,
+    retry: false,
+  });
 
   const [modelId, setModelId] = useState<string>('');
   const [classText, setClassText] = useState('');
@@ -96,12 +108,16 @@ export function AutoAnnotatePanel({
         Auto-annotate
       </h3>
 
-      {models.isLoading ? (
+      {models.isPending ? (
         <Spinner className="my-2 h-4 w-4" />
       ) : available.length === 0 ? (
         <p className="py-1 text-xs text-ink-500" data-auto-annotate-empty="">
-          No model is registered. CurveVision never bundles model weights — register an
-          inference endpoint and it appears here.
+          No model is registered. CurveVision never bundles model weights — add your model
+          server on the{' '}
+          <Link to="/models" className="text-curve-300 hover:underline" data-auto-annotate-add="">
+            Models page
+          </Link>{' '}
+          and it appears here.
           {blocked.length > 0 && (
             <>
               {' '}

@@ -27,12 +27,22 @@ from curvevision.ml import (
     InferenceFrame,
     InferenceRequest,
     InferenceResult,
+    ModelDescriptor,
     get_provider,
 )
 from curvevision.services import annotations as annotation_service
 from curvevision.services import media as media_service
 from curvevision.services import skeletons as skeleton_service
 from curvevision.storage import Storage
+
+
+async def discover_models(provider_id: str, config: dict[str, Any]) -> list[ModelDescriptor]:
+    """What an endpoint says it serves, asked before anything is registered.
+
+    Raises `ProviderError` saying why it could not be asked; an endpoint that does not
+    implement discovery serves an empty list.
+    """
+    return await get_provider(provider_id).list_models(config)
 
 
 async def get_model(

@@ -1,6 +1,6 @@
 # Iteration archive
 
-> The narrative record of iterations **1–54**, moved out of
+> The narrative record of iterations **1–55**, moved out of
 > [`handoff.md`](../../handoff.md) so that orienting on this project costs a few hundred
 > lines rather than four thousand.
 >
@@ -15,6 +15,46 @@
 > window, append it to the top of this file rather than deleting it.
 
 ---
+
+## Iteration 55
+
+### 55 — one refused object no longer fails every save after it
+
+The next best action since iteration 54, and it was a defect before it was a feature: the
+handoff inferred from the retry path that a `required` attribute would poison autosave and
+said to reproduce it first. It did, in a browser, on the first try — the `car` refused, the
+`sign` after it refused with it, nothing on the server. `AGENTS.md` ranks broken first.
+
+**The fix is the server's to start.** The client could not set the bad object aside because
+nothing said which one it was: `"Attribute 'plate' is required"` names an attribute, and the
+same batch can hold ten boxes of that label. `write_annotations` now names the entry, in the
+`errors[].location` shape request validation already used, so one client reader handles
+both. CVAT was read first (`cvat-core`'s `annotations-saver.ts` and
+`annotation-common.ts`): its saver fails a whole save too, and it avoids *this* trigger by
+giving every attribute a default (`appendDefaultAttributes`) and having no `required` —
+which is where starting a new object from its defaults came from. Convention only; no code
+adapted.
+
+**The hard part was the display, not the queue.** Setting an object aside and saving the
+rest is a few lines. But a save reloads the frame from the server, and a refused new box is
+on no server, so the reload that followed a partial save **wiped it off the canvas** — held,
+named in a banner, and impossible to select. `withUnsaved` lays what autosave holds back
+over the frame, read only when the frame is (re)loaded: on every edit, it would reload the
+scene and clear the undo stack under the pointer.
+
+**The harness found one more road to the same place.** `verify_track_canvas_edit.py` failed
+once in about fourteen runs, with a 422 on every save after a certain point. It would not
+repeat; holding the editor's reads back with `page.route` made it repeat every time: a box
+deleted between its save and the reload is still known by its local id, and the deletion
+went out under it — unparseable, so the whole request was a 422 naming nothing. Fixed with
+the `id_map` every save already returns. Two harness lessons from it are in
+`docs/CONTRIBUTING.md`, including a check that could not fail because it counted boxes.
+
+**Found and not fixed: crash recovery does not exist**, though the roadmap said Done. The
+draft is written on every edit and nothing reads it. Corrected in `docs/ROADMAP.md` and the
+plan; it is the next best action.
+
+Verified: see *Verification performed*.
 
 ## Iteration 54
 

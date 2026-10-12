@@ -122,6 +122,12 @@ export function EditorPage() {
     queryFn: () => api.task(job.data!.task_id),
     enabled: !!job.data?.task_id,
   });
+  // For its workspace: the models offered for this job are that workspace's.
+  const project = useQuery({
+    queryKey: ['project', task.data?.project_id],
+    queryFn: () => api.project(task.data!.project_id),
+    enabled: !!task.data?.project_id,
+  });
   const labels = useQuery({
     queryKey: ['labels', task.data?.project_id],
     queryFn: () => api.labels(task.data!.project_id),
@@ -594,6 +600,7 @@ export function EditorPage() {
 
           <AutoAnnotatePanel
             jobId={jobId}
+            organizationId={project.data?.organization_id}
             labels={drawableLabels(labelStyles)}
             // Predictions are annotations on the frame, so the canvas has to be told the
             // frame changed underneath it.

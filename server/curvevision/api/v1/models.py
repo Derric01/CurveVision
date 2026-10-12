@@ -18,8 +18,11 @@ from curvevision.core.errors import ConflictError, NotFoundError
 from curvevision.domain.system import ModelRegistration
 from curvevision.policy import Action, ResourceType, require
 from curvevision.schemas.system import (
+    DiscoveredModel,
     InferenceRunRequest,
     InferenceRunResult,
+    ModelDiscoveryOut,
+    ModelDiscoveryRequest,
     ModelRegistrationCreate,
     ModelRegistrationOut,
     ModelRegistrationUpdate,
@@ -101,6 +104,40 @@ async def register_model(
     session.add(model)
     await session.commit()
     return ModelRegistrationOut.model_validate(model)
+
+
+@router.post("/discover", response_model=ModelDiscoveryOut)
+async def discover_models(
+    payload: ModelDiscoveryRequest,
+    identity: IdentityDep,
+    session: SessionDep,
+    organization_id: uuid.UUID = Query(...),
+) -> ModelDiscoveryOut:
+    """Ask an endpoint what it serves, so registering it is a URL and a key, not a form.
+
+    Needs the rank to register a model, since it is the same request a registration makes
+    the server send: to an address the caller chose, with a key the caller gave. A failure
+    is a 502 that says what failed -- nothing listening, the key refused, an error -- for
+    the form to show before anything is saved.
+    """
+    context = await organization_context(session, identity, organization_id, ResourceType.MODEL)
+    require(identity.principal, Action.CREATE, context)
+
+    descriptors = await inference_service.discover_models(payload.provider, payload.config)
+    return ModelDiscoveryOut(
+        models=[
+            DiscoveredModel(
+                id=descriptor.id,
+                name=descriptor.name,
+                kind=descriptor.kind,
+                labels=list(descriptor.labels),
+                shape_types=[str(shape_type) for shape_type in descriptor.shape_types],
+                open_vocabulary=descriptor.open_vocabulary,
+                description=descriptor.description,
+            )
+            for descriptor in descriptors
+        ]
+    )
 
 
 @router.patch("/{model_id}", response_model=ModelRegistrationOut)

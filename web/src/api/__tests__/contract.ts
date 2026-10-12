@@ -87,6 +87,8 @@ export type Contract = [
   Holds<Reads<Schemas['IssueOut'], Api.Issue>>,
   Holds<Reads<Schemas['FormatCapabilitiesOut'], Api.DatasetFormat>>,
   Holds<Reads<Schemas['ModelRegistrationOut'], Api.ModelRegistration>>,
+  Holds<Reads<Schemas['DiscoveredModel'], Api.DiscoveredModel>>,
+  Holds<Reads<Schemas['ModelDiscoveryOut'], Api.ModelDiscovery>>,
   Holds<Reads<Schemas['InferenceRunResult'], Api.InferenceResult>>,
   Holds<Reads<Schemas['QualityReportOut'], Api.QualityReport>>,
 ];

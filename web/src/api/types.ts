@@ -408,6 +408,42 @@ export interface ModelRegistration {
   created_at: string;
 }
 
+export type ModelKind = ModelRegistration['kind'];
+
+/** What `POST /models` takes. The key goes in `config` and is never read back. */
+export interface ModelRegistrationInput {
+  slug: string;
+  name: string;
+  description?: string;
+  provider: 'http';
+  kind: ModelKind;
+  config: {
+    endpoint: string;
+    api_key?: string;
+    /** The name the endpoint knows the model by, sent as `model` with every request. */
+    model?: string;
+  };
+  output_labels: string[];
+  open_vocabulary: boolean;
+}
+
+/** One model an endpoint says it serves, from `POST /models/discover`. */
+export interface DiscoveredModel {
+  /** The name the endpoint knows it by: what a registration sends as `model`. */
+  id: string;
+  name: string;
+  kind: ModelKind;
+  labels: string[];
+  shape_types: string[];
+  open_vocabulary: boolean;
+  description: string | null;
+}
+
+export interface ModelDiscovery {
+  /** Empty when the endpoint is up and does not implement discovery. */
+  models: DiscoveredModel[];
+}
+
 export interface InferenceResult {
   background_task_id: string | null;
   shapes: Record<string, unknown>[];

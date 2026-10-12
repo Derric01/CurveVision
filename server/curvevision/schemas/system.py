@@ -198,6 +198,34 @@ class ModelRegistrationUpdate(StrictModel):
     is_active: bool | None = None
 
 
+class ModelDiscoveryRequest(StrictModel):
+    """An endpoint to ask what it serves, before anything is registered."""
+
+    provider: str = "http"
+    #: As a registration's: `endpoint`, and `api_key` when the endpoint wants one.
+    config: dict[str, Any] = Field(default_factory=dict)
+
+
+class DiscoveredModel(StrictModel):
+    """One model an endpoint says it serves: what a registration of it would hold."""
+
+    #: The name the endpoint knows it by -- sent as `model` on every inference request,
+    #: so it goes in the registration's `config.model`.
+    id: str
+    name: str
+    kind: ModelKind
+    labels: list[str]
+    shape_types: list[str]
+    open_vocabulary: bool = False
+    description: str | None = None
+
+
+class ModelDiscoveryOut(StrictModel):
+    #: Empty when the endpoint answered but does not implement discovery: it is up, and
+    #: the model's labels are named by hand.
+    models: list[DiscoveredModel]
+
+
 class ModelRegistrationOut(ORMModel):
     id: uuid.UUID
     organization_id: uuid.UUID | None = None

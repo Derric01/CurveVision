@@ -26,7 +26,9 @@ import type {
   LabelPayload,
   LocalImportResult,
   Membership,
+  ModelDiscovery,
   ModelRegistration,
+  ModelRegistrationInput,
   Organization,
   Page,
   ProblemDocument,
@@ -529,6 +531,27 @@ export const api = {
   // ----------------------------------------------------------------------- models
   models: (params?: { organization_id?: string }) =>
     request<ModelRegistration[]>('/models', { params }),
+
+  /**
+   * Ask an endpoint what it serves, before registering it. A failure is an `ApiError` (502)
+   * saying what failed — nothing listening, the key refused — and an empty list means the
+   * endpoint is up and does not implement discovery.
+   */
+  discoverModels: (organizationId: string, config: { endpoint: string; api_key?: string }) =>
+    request<ModelDiscovery>('/models/discover', {
+      method: 'POST',
+      params: { organization_id: organizationId },
+      body: { config },
+    }),
+
+  registerModel: (organizationId: string, body: ModelRegistrationInput) =>
+    request<ModelRegistration>('/models', {
+      method: 'POST',
+      params: { organization_id: organizationId },
+      body,
+    }),
+
+  deleteModel: (modelId: string) => request<void>(`/models/${modelId}`, { method: 'DELETE' }),
 
   runInference: (
     jobId: string,

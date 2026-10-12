@@ -212,10 +212,16 @@ POST /your-endpoint
                  "points": [10, 20, 110, 220], "confidence": 0.93 }] }
 ```
 
-That contract is a 30-line FastAPI script, and it is what Triton, TorchServe, BentoML, Ray
-Serve and every hosted vendor already speak — which is the point. Bundling a serving
-platform would force our choice on every operator and drag non-commercial model licenses
-into the core.
+That contract is a 30-line FastAPI script. Nothing speaks it out of the box — not Triton,
+TorchServe, BentoML, Ray Serve or a hosted vendor's API — but a thin wrapper puts any of
+them behind it, which is the point: bundling a serving platform would force our choice on
+every operator and drag non-commercial model licenses into the core. CurveVision ships no
+model and, as yet, no reference wrapper, so the first model is one you stand up.
+
+Once you have one, adding it is a URL and a key: on the **Models** page, paste the endpoint
+and its API key and press *Connect*. CurveVision asks the server what it serves, fills in
+the model's kind and labels, and from then on every annotator in the workspace can run it
+from the editor's Auto-annotate panel. A wrong key is reported there, not on the first run.
 
 Editing a prediction records `model_corrected` provenance, so your dataset knows which
 objects a machine proposed and a human fixed. That distinction survives to export, and is
@@ -225,6 +231,8 @@ what makes an active-learning loop measurable.
 | --- | --- |
 | `ModelProvider` abstraction and the HTTP contract | **Done** |
 | Predictions as accept/reject suggestions | **Done** |
+| Adding a model from the app (endpoint + API key, discovered labels) | **Done** |
+| A reference model server to point it at | *Planned* — a separate repository (ADR 0005) |
 | Provenance chain (`model` → `model_corrected`) | **Done** |
 | Interactive segmentation (click-to-segment) | *Planned* |
 | Trackers, OCR, classification model kinds | *Planned* |
@@ -346,7 +354,7 @@ the entire desktop application changed 1,460 lines and removed 42; nothing was r
 | Argon2id via `argon2-cffi` | The PHC winner and OWASP recommendation. `passlib` has been unmaintained since 2020, and auth is a poor place for stale code |
 | In-process policy engine | The decision is a pure function of already-loaded rows. A second process and a policy language is a poor trade for self-hosters |
 | Canvas2D + R-tree, not SVG | Rendering cost tracks the viewport, not the dataset |
-| An HTTP inference contract, not a serving platform | Every serving stack already speaks it; model licenses stay on the operator's side |
+| An HTTP inference contract, not a serving platform | Any serving stack fits behind a thin wrapper; model licenses stay on the operator's side |
 | Streaming format registry | A server exporting 500k images cannot hold the dataset in memory |
 | Tauri, not Electron | A 6.2 MB shell against ~150 MB, using the system webview |
 

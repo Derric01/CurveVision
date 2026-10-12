@@ -1,6 +1,6 @@
 import { useEffect } from 'react';
 import { Link, Navigate, Route, Routes, useLocation } from 'react-router-dom';
-import { LogOut, Layers, ListChecks } from 'lucide-react';
+import { LogOut, Layers, ListChecks, Sparkles } from 'lucide-react';
 import { useSession } from '@/store/session';
 import { desktop } from '@/desktop';
 import { Button, Spinner } from '@/ui/primitives';
@@ -10,6 +10,7 @@ import { ProjectPage } from '@/features/projects/ProjectPage';
 import { TaskPage } from '@/features/tasks/TaskPage';
 import { EditorPage } from '@/features/editor/EditorPage';
 import { MyWorkPage } from '@/features/tasks/MyWorkPage';
+import { ModelsPage } from '@/features/models/ModelsPage';
 
 function Logo() {
   return (
@@ -47,6 +48,9 @@ function TopBar() {
           </NavLink>
           <NavLink to="/my-work" icon={<ListChecks size={14} />}>
             My work
+          </NavLink>
+          <NavLink to="/models" icon={<Sparkles size={14} />}>
+            Models
           </NavLink>
         </nav>
       </div>
@@ -172,6 +176,7 @@ export default function App() {
           <Route path="/tasks/:taskId" element={<TaskPage />} />
           <Route path="/jobs/:jobId" element={<EditorPage />} />
           <Route path="/my-work" element={<MyWorkPage />} />
+          <Route path="/models" element={<ModelsPage />} />
           <Route path="/login" element={<Navigate to="/projects" replace />} />
           <Route path="*" element={<Navigate to="/projects" replace />} />
         </Routes>
