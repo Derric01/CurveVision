@@ -46,10 +46,11 @@ The desktop shape works: a packaged single-executable server, a Tauri shell that
 it, and folders annotated in place without copying a byte.
 
 **The tree is green.** `./scripts/check.sh` passes all thirteen steps: 690 server tests, 16
-SDK, 745 web, and `scripts/` is lint-clean under its own `ruff.toml`. Thirty-one browser
+SDK, 756 web, and `scripts/` is lint-clean under its own `ruff.toml`. Thirty-two browser
 harnesses drive the application in a real Chromium, nightly and on every push to `main` —
-thirty against the packaged desktop server, and `verify_workspace.py` against the real server
-too. (Iteration 52 arrived to a red tree — mypy 2 — and fixed it first.)
+thirty-one against the packaged desktop server, and `verify_workspace.py` against the real
+server too — and **all thirty-two pass on GitHub's runners** (iteration 70, run
+38282080179: the first green `browser.yml` since 10-08). (Iteration 52 arrived to a red tree — mypy 2 — and fixed it first.)
 
 **The nightly browser run had been red since 10-08, and hid a real defect** (iteration 70).
 Every run of `browser.yml` on `main` from 10-08 failed, three or four harnesses at a time —
@@ -1047,7 +1048,17 @@ Iteration 70:
   still there; against the old editor (fix stashed, rebuilt) it fails, and passes with it.
 * `save_now` in `scripts/screenshot.py` replaces five unconditional Save clicks.
 * **All 32 harnesses in `browser.yml`, run locally against the packaged app: 32 passing.**
-  The green run that matters is the next one on GitHub's runners.
+* **On GitHub's runners, first dispatch (run 38279585168, `cd3fc42`): 31 of 32.** The one
+  left, `verify_attribute_editor`, said its last editor move was "refused" — but before
+  `save_now` the same step had timed out on a Save that stayed *disabled*, so no save was
+  sent at all: the drag had landed on the canvas before the job's box was on it (a fixed
+  1.2 s wait after loading). Not reproducible locally, even with Chromium's CPU throttled
+  6×. The step now waits for the box to be listed in the objects panel, and its failure
+  names which way it failed — refused with the server's answer, never selected, or selected
+  but not moved (checked by a copy that clicks off the box: "never selected").
+* **On GitHub's runners, second dispatch (run 38282080179, `0b6b38e`): all 32 harnesses
+  passing** — the first green `browser.yml` since 10-08. (Before it, the one harness alone:
+  run 38281668412, green.)
 * Full `./scripts/check.sh`: green (756 web).
 
 Iteration 69:
@@ -1366,6 +1377,9 @@ Iteration 54:
 * **The nightly browser run had failed on every `main` push and schedule since 10-08**
   (iteration 70): five harnesses clicked Save unconditionally, which times out whenever
   autosave has already saved.
+* **`verify_attribute_editor` blamed a refused save for a drag that never happened**
+  (iteration 70): it dragged after a fixed 1.2 s, before the box was on the canvas on CI's
+  runners. It now waits for the box, and says which way a move failed.
 * **Moving a skeleton, or dragging one of its joints, changed nothing drawn or saved**
   (iteration 68): the select tool moved `points`, the joints' flattened copy.
 * **A tracked skeleton was invisible in the editor, froze between keyframes, and lost all its
@@ -1693,6 +1707,11 @@ runner's logs (through the GitHub connector; the built-in `gh` cannot follow a l
 redirect) named the failing harnesses; locally all of them passed, so the difference was
 timing, and a harness that waits past one autosave flush reproduced the one failure that
 was not a timeout, deterministically. That one was the app's.
+
+The first dispatch on GitHub's runners left one harness red, with a message that blamed a
+refused save; the history said no save had been sent, and the step had dragged before the
+box was drawn. With it waiting for the box, **all 32 harnesses pass on GitHub** — the claim
+this file makes about them is true again, checked where it is made.
 
 Verified: see *Verification performed*.
 
