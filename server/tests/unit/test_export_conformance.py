@@ -344,6 +344,73 @@ class TestUltralyticsYolo:
         assert person[7::3] == [2.0, 1.0, 0.0]
         assert person[11:14] == [0.0, 0.0, 0.0]
 
+    def pose_view(self, *keypoints: tuple[str, ...]) -> DatasetView:
+        labels_ = [
+            LabelSpec(id=str(i), name=f"body{i}", keypoints=names)
+            for i, names in enumerate(keypoints)
+        ]
+        frame = FrameRecord(
+            index=0,
+            name="a.jpg",
+            width=WIDTH,
+            height=HEIGHT,
+            shapes=[
+                ShapeRecord(
+                    label="body0",
+                    shape_type=ShapeType.SKELETON,
+                    points=[],
+                    elements=[{"points": [10.0 + i, 20.0 + i]} for i in range(len(keypoints[0]))],
+                )
+            ],
+            media=b"x",
+        )
+        return DatasetView(name="pose", labels=labels_, frames=iter([frame]))
+
+    def test_pose_names_its_mirror_joints(self) -> None:
+        """Without `flip_idx` Ultralytics turns horizontal-flip augmentation off; with a
+        wrong one it teaches a model that a left eye is a right eye. Derived from names."""
+        files = export(
+            "yolo_pose",
+            self.pose_view(
+                ("nose", "left_eye", "right_eye", "l_wrist", "r_wrist", "Tail_L", "tail_r")
+            ),
+        )
+        assert data_yaml(files)["flip_idx"] == "[0, 2, 1, 4, 3, 6, 5]"
+
+    def test_pose_writes_no_flip_idx_it_cannot_derive(self) -> None:
+        # Nothing names a side: whether "hand" has a mirror is unknowable, so no claim.
+        assert "flip_idx" not in data_yaml(export("yolo_pose", self.pose_view(("head", "hand"))))
+        # A side with no counterpart.
+        assert "flip_idx" not in data_yaml(
+            export("yolo_pose", self.pose_view(("nose", "left_eye")))
+        )
+        # Two skeleton labels whose joints mirror differently by position.
+        assert "flip_idx" not in data_yaml(
+            export(
+                "yolo_pose",
+                self.pose_view(("left_eye", "right_eye"), ("nose", "chin")),
+            )
+        )
+
+    @pytest.mark.parametrize("format_id", ["yolo", "yolo_obb", "yolo_pose"])
+    def test_a_val_subset_is_the_val_split(self, format_id: str) -> None:
+        records = [
+            FrameRecord(
+                index=index,
+                name=f"f{index}.jpg",
+                width=WIDTH,
+                height=HEIGHT,
+                shapes=shapes(polygon=False),
+                media=b"x",
+                subset=subset,
+            )
+            for index, subset in enumerate(["default", "val"])
+        ]
+        files = export(format_id, DatasetView(name="split", labels=labels(), frames=iter(records)))
+        assert data_yaml(files)["val"] == "images/val"
+        assert "images/val/f1.jpg" in files and "labels/val/f1.txt" in files
+        assert ultralytics_rows(files, pose=format_id == "yolo_pose")
+
     def test_classification_is_split_then_class(self) -> None:
         view = DatasetView(
             name="cls",

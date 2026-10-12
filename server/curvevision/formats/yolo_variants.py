@@ -111,11 +111,13 @@ class YoloObbFormat:
         class_names = [label.name for label in dataset.labels]
         class_index = {name: index for index, name in enumerate(class_names)}
         skipped: list[str] = []
+        splits: set[str] = set()
 
         for frame in dataset:
             if not frame.width or not frame.height:
                 skipped.append(frame.name)
                 continue
+            splits.add(split_of(frame.subset))
             lines: list[str] = []
             for shape in frame.shapes:
                 index = class_index.get(shape.label)
@@ -135,7 +137,7 @@ class YoloObbFormat:
             )
             _write_media(sink, frame)
 
-        sink.write("data.yaml", _data_yaml(dataset.name, class_names))
+        sink.write("data.yaml", _data_yaml(dataset.name, class_names, splits=splits))
         if skipped:
             logger.info("yolo_obb: frames skipped for unknown size", extra={"frames": skipped})
 
@@ -263,6 +265,64 @@ def _quad_to_shape(pixels: list[float], label: str) -> ShapeRecord:
 
 # --------------------------------------------------------------------------- pose
 
+#: How a joint's name says which side it is on, as (left, right) spellings of one token.
+_SIDES = (("left", "right"), ("l", "r"))
+
+
+def _mirror(name: str) -> str | None:
+    """The joint's name with its side swapped, or None when the name states no side.
+
+    Sides are whole words of the name (`left_eye`, `Tail_L`, `r-wrist`): matching
+    substrings would make "rib" a right joint.
+    """
+    import re
+
+    words = re.split(r"([^A-Za-z0-9]+|(?<=[a-z])(?=[A-Z]))", name)
+    for index, word in enumerate(words):
+        lowered = word.lower()
+        for left, right in _SIDES:
+            swapped = {left: right, right: left}.get(lowered)
+            if swapped is None:
+                continue
+            if word.isupper():
+                swapped = swapped.upper()
+            elif word[:1].isupper():
+                swapped = swapped.capitalize()
+            return "".join([*words[:index], swapped, *words[index + 1 :]])
+    return None
+
+
+def flip_idx(labels: list[LabelSpec], keypoint_count: int) -> list[int] | None:
+    """Ultralytics' `flip_idx`: where each joint goes when the image is mirrored.
+
+    Without it Ultralytics turns horizontal-flip augmentation off, which costs accuracy; a
+    wrong one is worse, teaching the model that a left eye is a right eye. So it is derived
+    from the joints' names, and written only when the names decide it: at least one
+    left/right pair, every sided joint with its counterpart, a joint with no side mapping to
+    itself, and every skeleton label agreeing (the index is global, one per dataset).
+    """
+    agreed: list[int] | None = None
+    for label in labels:
+        names = list(label.keypoints)
+        positions = {name.lower(): index for index, name in enumerate(names)}
+        mapping = list(range(keypoint_count))
+        paired = False
+        for index, name in enumerate(names):
+            mirror = _mirror(name)
+            if mirror is None:
+                continue
+            partner = positions.get(mirror.lower())
+            if partner is None:
+                return None
+            mapping[index] = partner
+            paired = True
+        if not paired:
+            return None
+        if agreed is not None and agreed != mapping:
+            return None
+        agreed = mapping
+    return agreed
+
 
 class YoloPoseFormat:
     """`class cx cy w h  px py v  px py v  ...`, normalised.
@@ -307,11 +367,13 @@ class YoloPoseFormat:
         # One keypoint count for the whole file: Ultralytics' `kpt_shape` is global.
         keypoint_count = max((len(label.keypoints) for label in skeleton_labels), default=0)
         skipped: list[str] = []
+        splits: set[str] = set()
 
         for frame in dataset:
             if not frame.width or not frame.height:
                 skipped.append(frame.name)
                 continue
+            splits.add(split_of(frame.subset))
             lines: list[str] = []
             for shape in frame.shapes:
                 if shape.shape_type is not ShapeType.SKELETON:
@@ -327,10 +389,11 @@ class YoloPoseFormat:
             )
             _write_media(sink, frame)
 
-        sink.write(
-            "data.yaml",
-            _data_yaml(dataset.name, class_names, extra=f"kpt_shape: [{keypoint_count}, 3]"),
-        )
+        extra = f"kpt_shape: [{keypoint_count}, 3]"
+        flip = flip_idx(skeleton_labels, keypoint_count)
+        if flip is not None:
+            extra += f"\nflip_idx: [{', '.join(str(i) for i in flip)}]"
+        sink.write("data.yaml", _data_yaml(dataset.name, class_names, extra=extra, splits=splits))
         if skipped:
             logger.info("yolo_pose: frames skipped for unknown size", extra={"frames": skipped})
 

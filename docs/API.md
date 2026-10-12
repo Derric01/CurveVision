@@ -383,7 +383,12 @@ checked in iteration 66 against Datumaro and CVAT's own XML reader:
   A dataset with any polygon is written as segments throughout — a box as its four
   corners — because Ultralytics reads a file mixing box and polygon lines as all segments,
   turning each box into a wrong one. Boxes are clipped to the image before they become
-  centre and size. YOLO classification is `train/<class>/<image>`.
+  centre and size. YOLO classification is `train/<class>/<image>`. OBB and Pose name the
+  `val` split the same way, and Pose writes `flip_idx` — which joint each becomes when the
+  image is mirrored — when the joints' names say it (`left_eye`/`right_eye`, `l_wrist`,
+  `Tail_L`): without it Ultralytics turns flip augmentation off, and a guessed one would
+  teach a model that a left eye is a right eye, so none is written when the names do not
+  decide it.
 * **CVAT XML** writes `original_size`, rotated boxes as `<box rotation>`, skeletons as
   `<skeleton>` with each joint declared as a label under its parent, and no closing frame
   past the last frame.
