@@ -18,7 +18,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { ApiError, api } from '@/api/client';
 import type { Annotation } from '@/canvas/types';
-import { toApiShape, toApiTrackUpdate, type UnsavedFrame } from './adapters';
+import { toApiShape, toApiSkeletonElement, toApiTrackUpdate, type UnsavedFrame } from './adapters';
 import {
   draftOf,
   isEmptyDraft,
@@ -121,6 +121,9 @@ function asCanvasEdit(annotation: Annotation & { trackId: string }): CanvasEdit 
     rotation: annotation.rotation,
     occluded: annotation.occluded,
     attributes: annotation.attributes,
+    // A tracked skeleton's geometry: the keyframe this edit becomes must carry the joints
+    // where they were put, not where the track had them.
+    ...(annotation.elements ? { elements: annotation.elements.map(toApiSkeletonElement) } : {}),
   };
 }
 

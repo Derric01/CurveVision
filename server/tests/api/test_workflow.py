@@ -232,6 +232,64 @@ class TestAnnotationEngine:
         assert body["expected_version"] == 1
         assert body["submitted_version"] == 0
 
+    async def test_a_tracked_skeleton_s_joints_move_between_keyframes(
+        self, owner: ApiActor, organization: dict[str, Any]
+    ) -> None:
+        """A skeleton's geometry is its joints, and interpolation copied the earlier
+        keyframe's (until iteration 68): the skeleton held still, then jumped."""
+        from tests.api.test_collaboration import TestImportingSkeletons
+
+        project = await TestImportingSkeletons.skeleton_project(owner, organization, "track-pose")
+        person = next(label for label in project["labels"] if label["name"] == "person")
+        nose, tail = (child["id"] for child in person["children"])
+        _task, jobs = await make_task(owner, project, frames=5)
+        job_id = jobs[0]["id"]
+
+        def keyframe(frame: int, nose_at: list[float], tail_at: list[float]) -> dict[str, Any]:
+            return {
+                "frame": frame,
+                "shape_type": "skeleton",
+                "points": [],
+                "elements": [
+                    {"label_id": nose, "points": nose_at},
+                    {"label_id": tail, "points": tail_at},
+                ],
+            }
+
+        write = await owner.patch(
+            f"/api/v1/jobs/{job_id}/annotations",
+            json={
+                "annotation_version": 0,
+                "created_tracks": [
+                    {
+                        "label_id": person["id"],
+                        "shape_type": "skeleton",
+                        "shapes": [
+                            keyframe(0, [10, 10], [20, 20]),
+                            keyframe(4, [50, 10], [20, 60]),
+                        ],
+                    }
+                ],
+            },
+        )
+        assert write.status_code == 200, write.text
+
+        frame2 = (await owner.get(f"/api/v1/jobs/{job_id}/frames/2/annotations")).json()
+        [skeleton] = frame2["shapes"]
+        assert {e["label_id"]: e["points"] for e in skeleton["elements"]} == {
+            nose: [30.0, 10.0],
+            tail: [20.0, 40.0],
+        }
+
+        exported = await owner.post(
+            f"/api/v1/projects/{project['id']}/export", json={"format": "coco"}
+        )
+        with zipfile.ZipFile(io.BytesIO(exported.content)) as archive:
+            coco = json.loads(archive.read("annotations/instances_default.json"))
+        image = {entry["file_name"]: entry["id"] for entry in coco["images"]}
+        on = {entry["image_id"]: entry["keypoints"] for entry in coco["annotations"]}
+        assert on[image["frame_001.png"]] == [20.0, 10.0, 2, 20.0, 30.0, 2]
+
     async def test_tracks_interpolate_between_keyframes(
         self, owner: ApiActor, project: dict[str, Any]
     ) -> None:

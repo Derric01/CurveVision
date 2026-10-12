@@ -5,10 +5,10 @@
 > [`AGENTS.md`](./AGENTS.md) first; it is the working contract. Update this file after every
 > iteration, including the ones that mostly failed.
 >
-> **Last updated:** 2026-10-12 (iteration 67) · branch `claude/start-work-yx080h` · PRs
+> **Last updated:** 2026-10-12 (iteration 68) · branch `claude/start-work-yx080h` · PRs
 > [#1](https://github.com/Derric01/CurveVision/pull/1)–[#33](https://github.com/Derric01/CurveVision/pull/33)
-> **all merged**, #33 carrying iterations 65–66. Iteration 67 is pushed on top of that
-> merge with no PR yet.
+> **all merged**, #33 carrying iterations 65–66. Iterations 67 and 68 are pushed on top of
+> that merge with no PR yet.
 >
 > *Two things worth knowing about this repository's PR rhythm, which replace the
 > PR-by-PR changelog that used to sit here and had stopped helping anybody.* **PRs are
@@ -22,7 +22,7 @@
 > **Keep the session short.** One iteration, then commit, push, update this file and report —
 > `AGENTS.md` § *Continue* and the `start-work` skill both say so now, because they did not
 > before and a single session ran six iterations and roughly a third of a week's budget. The
-> concrete costs, in rough order: re-reading this file (iterations 1–61 now live in
+> concrete costs, in rough order: re-reading this file (iterations 1–62 now live in
 > [`docs/iterations/ARCHIVE.md`](./docs/iterations/ARCHIVE.md), which cut it from 3,800
 > lines to 1,000 — keep it that way); `python desktop/sidecar/build.py`, which is a
 > PyInstaller run of a minute or two and is needed *again* for every sabotage-and-restore
@@ -50,6 +50,15 @@ SDK, 745 web, and `scripts/` is lint-clean under its own `ruff.toml`. Thirty-one
 harnesses drive the application in a real Chromium, nightly and on every push to `main` —
 thirty against the packaged desktop server, and `verify_workspace.py` against the real server
 too. (Iteration 52 arrived to a red tree — mypy 2 — and fixed it first.)
+
+**Skeletons can be moved and edited, and tracked ones work** (iteration 68). A skeleton's
+geometry is its joints; its `points` are their flattened copy, kept for picking. Three
+paths knew only `points`: **moving a skeleton or dragging one of its joints changed
+nothing that was drawn or saved**; **a tracked skeleton was drawn on no frame of the
+editor**, and on the server its joints froze between keyframes and jumped on the next; and
+**saving any edit to a tracked skeleton deleted all its joints**, because a track update
+replaces its keyframes and they were sent without them. Each joint is now interpolated on
+its own, matched by label (CVAT's rule), on the server and in the editor alike.
 
 **Ultralytics itself reads and trains on every YOLO export** (iteration 67). Installed
 from PyPI here (its PyTorch index is blocked), it loaded each of the five tasks through its
@@ -508,13 +517,14 @@ it is deleted or kept with its joints emptied, and say which in the migration. T
 the way in) and delete `WithoutJoints` in `web/src/api/__tests__/contract.ts`. Test the
 migration against a row written the old way, on SQLite and, through CI, PostgreSQL.
 
-**A candidate found by reading, not reproduced: a tracked skeleton's joints.** The server's
-`interpolate_track` interpolates `points` and copies the earlier keyframe's `elements`, and
-a skeleton's geometry *is* its elements (`points` is empty), so between two keyframes a
-tracked skeleton holds still and then jumps. The editor's `tracksOn` (`adapters.ts`) does
-not pass `elements` to the canvas for a tracked object at all. Find first whether anything
-can produce a tracked skeleton today (a CVAT XML or native import, a `tracker` model) —
-CVAT tracks each joint as its own sub-track, which is the design to read before writing one.
+**A candidate found while doing 68, not yet decided: gaps in a CVAT XML track.** The
+import treats a frame a track does not list as the object being gone (iteration 62's rule,
+right for MOTChallenge, where a gap *is* the object leaving). CVAT's own reader treats an
+unlisted frame between two keyframes as interpolated, and marks absence only with
+`outside="1"`. CVAT's exports list every frame of a track, so a file CVAT wrote imports
+correctly; a hand-written or third-party CVAT XML with sparse keyframes does not. Making
+the gap rule per-format (`ImportResult` carrying "gaps mean absent" from the reader) is the
+fix; read CVAT's `formats/cvat.py` `load_anno` first.
 
 **Then, still needing the user:**
 
@@ -1015,6 +1025,22 @@ being updated and this one was not. Check it against* Completed *before trusting
 
 ## Verification performed
 
+Iteration 68:
+
+* **Server**: `TestTrackedSkeleton` (4, two failing first: joints frozen, joints paired by
+  position) and `test_a_tracked_skeleton_s_joints_move_between_keyframes` (API, through the
+  per-frame endpoint and a COCO export; fails without the fix with the frame-0 joints).
+* **Editor**: `trackedSkeleton.test.ts` (7 — interpolation with the server's vectors,
+  drawing, saving with joints, adding a keyframe, a placed keyframe, a departure; all 7 fail
+  with the four source files stashed) and two in `tools.test.ts` (moving a skeleton,
+  dragging one joint past a skipped one; both failed first).
+* **Browser**: `scripts/verify_tracked_skeleton.py`, 7 checks, all passing on the packaged
+  app. Against the old editor (fix stashed, rebuilt) four fail: nothing drawn at the
+  interpolated joints, no keyframe saved, the untracked move saving nothing. Its first run
+  had one check wrong — the frame-0 nose is where this frame's label chip is drawn — and the
+  check was moved to the frame-0 tail, not loosened.
+* Full `./scripts/check.sh`: green.
+
 Iteration 67:
 
 * **Ultralytics 8.4.175 with PyTorch 2.14.1**, from PyPI into a scratch environment with the
@@ -1293,6 +1319,10 @@ Iteration 54:
 
 ## Bugs fixed
 
+* **Moving a skeleton, or dragging one of its joints, changed nothing drawn or saved**
+  (iteration 68): the select tool moved `points`, the joints' flattened copy.
+* **A tracked skeleton was invisible in the editor, froze between keyframes, and lost all its
+  joints on any save** (iteration 68).
 * **Every YOLO export failed to train unless started from inside its directory**
   (iteration 67): `data.yaml` said `path: .`, which Ultralytics resolves against the working
   directory. Found only by running Ultralytics itself.
@@ -1607,6 +1637,20 @@ Iteration 54:
 
 ## Last iteration
 
+### 68 — skeletons that move, and tracked skeletons that work
+
+Chosen over the joints migration because it was live: CVAT tracks skeletons and the CVAT
+XML import keeps tracks, so a tracked skeleton could reach the editor and be broken there.
+Reading the select tool to see how a tracked skeleton would be edited found the larger
+defect — no skeleton, tracked or not, could be moved after it was placed — and reading the
+track serialiser found the data loss. CVAT was read for the rule (`dataset_manager/
+annotation.py`: each joint a sub-track, interpolated linearly); no code adapted. Two things
+left as found: the CVAT gap divergence above, and the old joints migration below it.
+
+Verified: see *Verification performed*.
+
+## Iteration 67
+
 ### 67 — Ultralytics itself reads and trains on every YOLO export
 
 The next best action from 66, which had expected to find little. PyTorch's own index is
@@ -1692,32 +1736,9 @@ images by rules the caller cannot see.
 
 Verified: see *Verification performed* — against fakes only.
 
-## Iteration 62
-
-### 62 — an import keeps attributes and tracks
-
-Started on "make import reachable from the application", found by sweeping the server's
-routes for any with no client method. Reading the route first, to see what a panel would
-expose, found the larger problem: what the import stored was not what the file held. Every
-reader filled `ShapeRecord.attributes` and `track_id`, and the route discarded both — a
-false claim in the README three times over, and silent loss for anyone importing through
-the SDK or CLI. `AGENTS.md` ranks a false claim above a missing panel, and a panel over a
-lossy import would have shipped the loss to more people, so the panel waits.
-
-CVAT was read for the rules (`dataset_manager/bindings.py`, `_import_shape`,
-`_import_track`): by default it keeps only the attributes a label declares
-(`soft_attribute_import` is the opt-in that keeps the rest), and a track is imported as a
-track with its shapes as keyframes. Convention only; no code
-adapted. CVAT's XML marks the end of a run with an `outside` shape, which the reader here
-skips; the import puts the `outside` keyframe back from the gap instead, so a file without
-them (MOTChallenge) gets the same result. The writing moved from the route into
-`services/datasets.write_import`, which is where `ARCHITECTURE.md` §2 puts it.
-
-Verified: see *Verification performed*.
-
 ## Earlier iterations
 
-Iterations **1–61** are in [`docs/iterations/ARCHIVE.md`](./docs/iterations/ARCHIVE.md) —
+Iterations **1–62** are in [`docs/iterations/ARCHIVE.md`](./docs/iterations/ARCHIVE.md) —
 moved there so that orienting costs a few hundred lines rather than four thousand. Read them
 when `git log` points you at an iteration number, or when you are about to build something
 and want to know whether it was already tried and rejected. The lessons from them that are

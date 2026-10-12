@@ -1,6 +1,6 @@
 # Iteration archive
 
-> The narrative record of iterations **1–61**, moved out of
+> The narrative record of iterations **1–62**, moved out of
 > [`handoff.md`](../../handoff.md) so that orienting on this project costs a few hundred
 > lines rather than four thousand.
 >
@@ -15,6 +15,29 @@
 > window, append it to the top of this file rather than deleting it.
 
 ---
+
+## Iteration 62
+
+### 62 — an import keeps attributes and tracks
+
+Started on "make import reachable from the application", found by sweeping the server's
+routes for any with no client method. Reading the route first, to see what a panel would
+expose, found the larger problem: what the import stored was not what the file held. Every
+reader filled `ShapeRecord.attributes` and `track_id`, and the route discarded both — a
+false claim in the README three times over, and silent loss for anyone importing through
+the SDK or CLI. `AGENTS.md` ranks a false claim above a missing panel, and a panel over a
+lossy import would have shipped the loss to more people, so the panel waits.
+
+CVAT was read for the rules (`dataset_manager/bindings.py`, `_import_shape`,
+`_import_track`): by default it keeps only the attributes a label declares
+(`soft_attribute_import` is the opt-in that keeps the rest), and a track is imported as a
+track with its shapes as keyframes. Convention only; no code
+adapted. CVAT's XML marks the end of a run with an `outside` shape, which the reader here
+skips; the import puts the `outside` keyframe back from the gap instead, so a file without
+them (MOTChallenge) gets the same result. The writing moved from the route into
+`services/datasets.write_import`, which is where `ARCHITECTURE.md` §2 puts it.
+
+Verified: see *Verification performed*.
 
 ## Iteration 61
 

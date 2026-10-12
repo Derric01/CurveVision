@@ -13,7 +13,7 @@ import type {
   ApiTrack,
   Label,
 } from '@/api/types';
-import { skeletonSchema } from '@/canvas/skeleton';
+import { skeletonPoints, skeletonSchema } from '@/canvas/skeleton';
 import type {
   Annotation,
   LabelStyle,
@@ -48,6 +48,16 @@ export function toAnnotation(shape: ApiShape): Annotation {
   };
 }
 
+/** A joint as the API carries it. */
+export function toApiSkeletonElement(element: SkeletonElement): ApiSkeletonElement {
+  return {
+    label_id: element.labelId,
+    points: element.points,
+    occluded: element.occluded,
+    outside: element.outside,
+  };
+}
+
 function toSkeletonElement(element: ApiSkeletonElement): SkeletonElement {
   return {
     labelId: element.label_id,
@@ -76,12 +86,7 @@ export function toApiShape(annotation: Annotation): Record<string, unknown> {
     // sending an empty array on every rectangle would be noise on the hottest write path.
     ...(annotation.elements && annotation.elements.length > 0
       ? {
-          elements: annotation.elements.map((element) => ({
-            label_id: element.labelId,
-            points: element.points,
-            occluded: element.occluded,
-            outside: element.outside,
-          })),
+          elements: annotation.elements.map(toApiSkeletonElement),
         }
       : {}),
     // Same shape on both sides, so it travels as-is rather than through a per-field mapping
@@ -116,6 +121,9 @@ export function toApiTrackUpdate(track: ApiTrack): Record<string, unknown> {
       keyframe: shape.keyframe,
       z_order: shape.z_order ?? 0,
       attributes: shape.attributes ?? {},
+      // Every keyframe's joints, because this replaces the track's shapes outright: left
+      // out (until iteration 68), any edit to a tracked skeleton deleted all its joints.
+      ...(shape.elements && shape.elements.length > 0 ? { elements: shape.elements } : {}),
     })),
   };
 }
@@ -198,10 +206,15 @@ export function frameAnnotations(
       occluded: shape.occluded,
       outside: shape.outside,
       keyframe: shape.keyframe,
+      ...(shape.elements ? { elements: shape.elements } : {}),
     }));
 
     const position = interpolateTrack(keyframes, track.shape_type as ShapeType, frame);
     if (!position) continue;
+    // A skeleton is drawn from its joints, and picked and labelled from `points`, which
+    // for a skeleton is the joints flattened. Without either (until iteration 68) a tracked
+    // skeleton was on no frame of the editor at all.
+    const joints = position.elements?.map(toSkeletonElement);
 
     result.push({
       id: track.id,
@@ -209,7 +222,8 @@ export function frameAnnotations(
       labelId: track.label_id,
       frame,
       shapeType: track.shape_type as ShapeType,
-      points: position.points,
+      points: joints && position.points.length === 0 ? skeletonPoints(joints) : position.points,
+      ...(joints ? { elements: joints } : {}),
       rotation: position.rotation,
       occluded: position.occluded,
       outside: false,
@@ -265,6 +279,7 @@ export function withUnsaved(
         rotation: edit.rotation,
         occluded: edit.occluded,
         attributes: edit.attributes,
+        ...(edit.elements ? { elements: edit.elements.map(toSkeletonElement) } : {}),
       });
     } else result.push(annotation);
   }

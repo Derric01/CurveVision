@@ -177,3 +177,61 @@ class TestTrackFrameRange:
 
     def test_empty_track_has_no_range(self) -> None:
         assert track_frame_range([]) is None
+
+
+def joint(label: str, x: float, y: float, **flags: bool) -> dict:
+    return {"label_id": label, "points": [x, y], "occluded": False, "outside": False, **flags}
+
+
+class TestTrackedSkeleton:
+    """A skeleton's geometry is its joints (`points` is empty), so interpolating `points`
+    alone left a tracked skeleton frozen between keyframes and then jumping. Each joint is
+    interpolated on its own, matched by label, as CVAT tracks each joint as a sub-track."""
+
+    def keyframes(self, *, later: list[dict]) -> list[Keyframe]:
+        return [
+            Keyframe(frame=0, points=[], elements=[joint("a", 0, 0), joint("b", 10, 10)]),
+            Keyframe(frame=10, points=[], elements=later),
+        ]
+
+    def test_joints_move_between_keyframes(self) -> None:
+        tracked = self.keyframes(later=[joint("a", 100, 0), joint("b", 10, 110)])
+
+        middle = interpolate_track(tracked, ShapeType.SKELETON, 5)
+
+        assert middle is not None
+        assert [e["points"] for e in middle.elements] == [[50.0, 0.0], [10.0, 60.0]]
+
+    def test_joints_are_matched_by_label_not_position(self) -> None:
+        tracked = self.keyframes(later=[joint("b", 10, 110), joint("a", 100, 0)])
+
+        middle = interpolate_track(tracked, ShapeType.SKELETON, 5)
+
+        assert middle is not None
+        by_label = {e["label_id"]: e["points"] for e in middle.elements}
+        assert by_label == {"a": [50.0, 0.0], "b": [10.0, 60.0]}
+
+    def test_a_joint_leaving_holds_and_an_absent_one_stays_absent(self) -> None:
+        tracked = [
+            Keyframe(
+                frame=0, points=[], elements=[joint("a", 0, 0), joint("b", 10, 10, outside=True)]
+            ),
+            Keyframe(
+                frame=10, points=[], elements=[joint("a", 100, 0, outside=True), joint("b", 50, 50)]
+            ),
+        ]
+
+        middle = interpolate_track(tracked, ShapeType.SKELETON, 5)
+
+        assert middle is not None
+        a, b = middle.elements
+        # Like a whole object approaching a departure: no sliding towards a stale position.
+        assert a["points"] == [0, 0] and not a["outside"]
+        assert b["outside"]
+
+    def test_the_keyframes_own_joints_are_not_altered(self) -> None:
+        tracked = self.keyframes(later=[joint("a", 100, 0), joint("b", 10, 110)])
+
+        interpolate_track(tracked, ShapeType.SKELETON, 5)
+
+        assert tracked[0].elements[0]["points"] == [0, 0]

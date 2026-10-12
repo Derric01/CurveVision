@@ -55,8 +55,13 @@ type Holds<T extends true> = T;
  * `elements` on the server and delete this.
  */
 type WithoutJoints<T> = Omit<T, 'elements'>;
-type DocumentWithoutJoints = Omit<Api.AnnotationDocument, 'shapes'> & {
+/** A track, its keyframes' joints held open the same way (`TrackShapeOut.elements`). */
+type TrackWithoutJoints = Omit<Api.ApiTrack, 'shapes'> & {
+  shapes: WithoutJoints<Api.ApiTrack['shapes'][number]>[];
+};
+type DocumentWithoutJoints = Omit<Api.AnnotationDocument, 'shapes' | 'tracks'> & {
   shapes: WithoutJoints<Api.ApiShape>[];
+  tracks: TrackWithoutJoints[];
 };
 
 export type Contract = [
@@ -84,7 +89,7 @@ export type Contract = [
   Holds<Reads<Schemas['FrameInfo'], Api.FrameInfo>>,
   Holds<Reads<Schemas['ShapeOut'], WithoutJoints<Api.ApiShape>>>,
   Holds<Reads<Schemas['SkeletonElement'], Api.ApiSkeletonElement>>,
-  Holds<Reads<Schemas['TrackOut'], Api.ApiTrack>>,
+  Holds<Reads<Schemas['TrackOut'], TrackWithoutJoints>>,
   Holds<Reads<Schemas['TagOut'], Api.ApiTag>>,
   Holds<Reads<Schemas['AnnotationDocument'], DocumentWithoutJoints>>,
   Holds<Reads<Schemas['AnnotationWriteResult'], Api.AnnotationWriteResult>>,

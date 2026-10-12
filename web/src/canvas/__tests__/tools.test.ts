@@ -7,6 +7,7 @@ import {
   SelectTool,
   TOOL_SHORTCUTS,
   createTool,
+  dragAnnotation,
   dragHandle,
   findHandle,
   resizeRectangle,
@@ -50,6 +51,18 @@ function annotation(id: string, points: number[]): Annotation {
     zOrder: 0,
     source: 'manual',
     attributes: {},
+  };
+}
+
+function skeleton(id: string): Annotation {
+  return {
+    ...annotation(id, [100, 100, 120, 130]),
+    shapeType: 'skeleton',
+    elements: [
+      { labelId: 'nose', points: [100, 100], occluded: false, outside: false },
+      { labelId: 'ear', points: [0, 0], occluded: false, outside: true },
+      { labelId: 'tail', points: [120, 130], occluded: true, outside: false },
+    ],
   };
 }
 
@@ -249,6 +262,27 @@ describe('SelectTool', () => {
     expect(result.updated?.before[0]!.points).toEqual([0, 0, 50, 50]);
   });
 
+  it('moves a skeleton by its joints, which are what is drawn and saved', () => {
+    // A skeleton's `points` are only its joints flattened, for bounds and hit-testing.
+    // Moving them alone (until iteration 68) left every joint where it was.
+    const scene = new Scene();
+    scene.load([skeleton('s')]);
+    const ctx = context(scene);
+    const tool = new SelectTool();
+
+    tool.onPointerDown(pointer(100, 100), ctx);
+    tool.onPointerMove(pointer(110, 120), ctx);
+    tool.onPointerUp(pointer(110, 120), ctx);
+
+    const moved = scene.get('s')!;
+    expect(moved.elements!.map((e) => e.points)).toEqual([
+      [110, 120],
+      [0, 0], // absent: no position to move
+      [130, 150],
+    ]);
+    expect(moved.points).toEqual([110, 120, 130, 150]);
+  });
+
   it('rubber-band selects everything inside the marquee', () => {
     const scene = new Scene();
     scene.load([
@@ -327,6 +361,17 @@ describe('handle dragging', () => {
     const ellipse: Annotation = { ...annotation('e', [100, 100, 40, 20]), shapeType: 'ellipse' };
     expect(dragHandle(ellipse, 0, { x: 160, y: 100 })).toEqual([100, 100, 60, 20]);
     expect(dragHandle(ellipse, 1, { x: 100, y: 135 })).toEqual([100, 100, 40, 35]);
+  });
+
+  it('drags one joint of a skeleton, counting only the joints that are there', () => {
+    // Handle 1 is the second *visible* joint: the third element, past the absent one.
+    const moved = dragAnnotation(skeleton('s'), 1, { x: 300, y: 310 }, { width: 1000, height: 800 });
+    expect(moved.elements!.map((e) => e.points)).toEqual([
+      [100, 100],
+      [0, 0],
+      [300, 310],
+    ]);
+    expect(moved.points).toEqual([100, 100, 300, 310]);
   });
 
   it('moves a single polygon vertex', () => {

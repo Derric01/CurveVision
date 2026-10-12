@@ -23,7 +23,7 @@
  * are allowed to move.
  */
 
-import type { ApiTrack } from '@/api/types';
+import type { ApiSkeletonElement, ApiTrack } from '@/api/types';
 import type { ShapeType } from '@/canvas/types';
 import { interpolateTrack, type InterpolatedShape, type Keyframe } from './interpolate';
 
@@ -53,6 +53,7 @@ function asKeyframes(track: ApiTrack): Keyframe[] {
     occluded: shape.occluded,
     outside: shape.outside,
     keyframe: shape.keyframe,
+    ...(shape.elements ? { elements: shape.elements } : {}),
   }));
 }
 
@@ -134,6 +135,7 @@ export function toggleKeyframe(track: ApiTrack, frame: number): EditResult {
         outside: false,
         keyframe: true,
         attributes: frameAttributesAt(track, frame),
+        ...jointsOf(position),
       } as TrackShape,
     ]),
   };
@@ -187,6 +189,7 @@ export function markDeparture(track: ApiTrack, frame: number): EditResult {
           outside: false,
           keyframe: true,
           attributes: {},
+          ...jointsOf(held),
         } as TrackShape,
       ];
     }
@@ -201,6 +204,9 @@ export function markDeparture(track: ApiTrack, frame: number): EditResult {
     outside: true,
     keyframe: true,
     attributes: existing?.attributes ?? {},
+    // The joints it last had, as the departure carries the last position: a skeleton
+    // with none is refused by the server, and exporters read them.
+    ...jointsOf(existing ?? position ?? sorted(track.shapes)[0]),
   } as TrackShape;
 
   // A departure on the very first frame would define a track that is never on screen.
@@ -257,6 +263,8 @@ export interface Placement {
   points: number[];
   rotation: number;
   occluded: boolean;
+  /** A skeleton's joints where they were put: its geometry. */
+  elements?: ApiSkeletonElement[];
   /** Mutable attribute values on this frame; when absent, the ones already in force. */
   attributes?: Record<string, unknown>;
 }
@@ -287,6 +295,7 @@ export function placeKeyframe(track: ApiTrack, frame: number, placement: Placeme
     shown.rotation === placement.rotation &&
     shown.occluded === placement.occluded &&
     samePoints(shown.points, placement.points) &&
+    sameJoints(shown.elements, placement.elements) &&
     sameRecord(inForce, attributes)
   ) {
     return null;
@@ -305,6 +314,7 @@ export function placeKeyframe(track: ApiTrack, frame: number, placement: Placeme
       occluded: placement.occluded,
       outside: false,
       keyframe: true,
+      ...jointsOf(placement.elements ? placement : (shown ?? existing)),
     },
   ]);
 }
@@ -360,6 +370,30 @@ function sameRecord(a: Record<string, unknown>, b: Record<string, unknown>): boo
   return (
     keys.length === Object.keys(b).length &&
     keys.every((key) => JSON.stringify(a[key]) === JSON.stringify(b[key]))
+  );
+}
+
+/** The joints to carry onto a new keyframe, copied; nothing for a shape without any. */
+function jointsOf(
+  source: { elements?: readonly ApiSkeletonElement[] } | null | undefined,
+): { elements?: ApiSkeletonElement[] } {
+  return source?.elements
+    ? { elements: source.elements.map((element) => ({ ...element, points: [...element.points] })) }
+    : {};
+}
+
+function sameJoints(
+  a: readonly ApiSkeletonElement[] | undefined,
+  b: readonly ApiSkeletonElement[] | undefined,
+): boolean {
+  if (!b) return true; // the placement says nothing about joints
+  if (!a || a.length !== b.length) return false;
+  return a.every(
+    (joint, index) =>
+      joint.label_id === b[index]!.label_id &&
+      joint.outside === b[index]!.outside &&
+      joint.occluded === b[index]!.occluded &&
+      samePoints(joint.points, b[index]!.points),
   );
 }
 

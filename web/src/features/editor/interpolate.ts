@@ -8,6 +8,7 @@
  * same cases.
  */
 
+import type { ApiSkeletonElement } from '@/api/types';
 import type { ShapeType } from '@/canvas/types';
 
 export interface Keyframe {
@@ -17,6 +18,8 @@ export interface Keyframe {
   occluded: boolean;
   outside: boolean;
   keyframe: boolean;
+  /** A skeleton's joints: its geometry, since its `points` are empty. */
+  elements?: ApiSkeletonElement[];
 }
 
 const PATH_LIKE: ReadonlySet<ShapeType> = new Set<ShapeType>(['polygon', 'polyline']);
@@ -99,6 +102,40 @@ export interface InterpolatedShape {
   rotation: number;
   occluded: boolean;
   keyframe: boolean;
+  elements?: ApiSkeletonElement[];
+}
+
+/**
+ * A skeleton's joints at `t` between two keyframes, each joint on its own, matched by label.
+ *
+ * Mirrors `interpolate_elements` on the server: a joint absent at either end holds where it
+ * was, as a whole object does approaching a departure. Copying the earlier keyframe's joints
+ * (until iteration 68) froze a tracked skeleton between keyframes and then jumped it.
+ */
+export function interpolateElements(
+  previous: readonly ApiSkeletonElement[],
+  following: readonly ApiSkeletonElement[],
+  t: number,
+): ApiSkeletonElement[] {
+  const later = new Map(following.map((element) => [element.label_id, element]));
+  return previous.map((element) => {
+    const target = later.get(element.label_id);
+    const moving =
+      target !== undefined &&
+      !element.outside &&
+      !target.outside &&
+      element.points.length === target.points.length;
+    return {
+      ...element,
+      points: moving
+        ? element.points.map((value, index) => lerp(value, target.points[index]!, t))
+        : [...element.points],
+    };
+  });
+}
+
+function copyElements(elements: readonly ApiSkeletonElement[] | undefined) {
+  return elements ? { elements: elements.map((e) => ({ ...e, points: [...e.points] })) } : {};
 }
 
 /** The track's shape on `frame`, or null when it is not present there. */
@@ -121,6 +158,7 @@ export function interpolateTrack(
             rotation: candidate.rotation,
             occluded: candidate.occluded,
             keyframe: true,
+            ...copyElements(candidate.elements),
           };
     }
     if (candidate.frame > frame) break;
@@ -147,6 +185,7 @@ export function interpolateTrack(
       rotation: previous.rotation,
       occluded: previous.occluded,
       keyframe: false,
+      ...copyElements(previous.elements),
     };
   }
 
@@ -157,5 +196,8 @@ export function interpolateTrack(
     rotation: lerpAngle(previous.rotation, following.rotation, t),
     occluded: previous.occluded,
     keyframe: false,
+    ...(previous.elements
+      ? { elements: interpolateElements(previous.elements, following.elements ?? [], t) }
+      : {}),
   };
 }
