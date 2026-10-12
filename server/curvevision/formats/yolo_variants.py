@@ -337,7 +337,10 @@ class YoloPoseFormat:
         for element in shape.elements[:keypoint_count]:
             point = element.get("points", [0.0, 0.0])
             if element.get("outside"):
+                # 0 0 0, as Ultralytics' own COCO converter writes an absent joint: a stale
+                # stored position, flagged invisible, is noise in every other reader.
                 visibility = 0
+                point = [0.0, 0.0]
             elif element.get("occluded"):
                 visibility = 1
             else:

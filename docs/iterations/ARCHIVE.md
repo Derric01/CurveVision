@@ -1,6 +1,6 @@
 # Iteration archive
 
-> The narrative record of iterations **1–58**, moved out of
+> The narrative record of iterations **1–59**, moved out of
 > [`handoff.md`](../../handoff.md) so that orienting on this project costs a few hundred
 > lines rather than four thousand.
 >
@@ -15,6 +15,26 @@
 > window, append it to the top of this file rather than deleting it.
 
 ---
+
+## Iteration 59
+
+### 59 — the hand-written API types are checked against the server
+
+The candidate this file had carried longest. The hand-written `types.ts` stays — it holds
+the comments and the narrower unions the editor relies on — and is held to a generated
+`schema.ts` by a compile-time contract, rather than replaced by it. `openapi-typescript`
+generates; writing a generator was not considered (`AGENTS.md`: reuse first). It is dev-only
+and joins the notices gate's exempt list beside `vite` and `typescript`.
+
+**The contract's first run named 22 mismatches; 20 were optionality** (a field with a default
+is optional in the schema and always serialised), handled once in the contract rather than
+by loosening `types.ts`. **The other two were real**: `ShapeOut.elements` is `list[dict]` on
+the server while the client relies on `label_id` in each joint. Typing it on the server made
+everything pass — and would have turned every job holding an imported COCO skeleton into a
+500 on read, because the import stores joints by name. Reverted; the gap is held open by name
+in the contract, and fixing the import is the next best action.
+
+Verified: see *Verification performed*.
 
 ## Iteration 58
 

@@ -344,6 +344,22 @@ X-CurveVision-Warnings: COCO 1.0 cannot represent polyline; those annotations we
 Silently dropping annotations is how people discover a broken dataset during training,
 which is far too late.
 
+**COCO is held to pycocotools**, the reader Detectron2, MMDetection and torchvision go
+through (`tests/unit/test_coco_reference.py`): the document loads, every segmentation
+rasterises, each `bbox` is the tight box of what it covers, and `COCOeval` scores the ground
+truth against itself at AP 1.0 for boxes, masks and keypoints. Conventions it follows:
+
+* **Masks** are uncompressed RLE, column-major over the whole image, with `iscrowd: 0` —
+  instances to train on. (CVAT writes masks with `iscrowd: 1`, which Detectron2 ignores as
+  crowd regions.) Compressed RLE strings are read on import.
+* **Rotated boxes** are written as their exact four-corner polygon, with the enclosing
+  axis-aligned box as `bbox`; they read back as polygons.
+* **Keypoints**: an absent joint is `0,0,0`, `num_keypoints` counts labelled joints
+  (visible or occluded), and `bbox` covers only those. YOLO Pose writes absent joints as
+  `0 0 0` too, as Ultralytics' own COCO converter does.
+* **Pascal VOC** coordinates are 0-based floats, as Datumaro (CVAT's exporter) writes and
+  reads them — not the devkit's 1-based integers.
+
 ### What an import keeps
 
 ```http
@@ -373,7 +389,7 @@ task's jobs first; `append`, the default, adds to what is there.
 
 | Format | Import | Export | Carries | Use it for |
 | --- | :-: | :-: | --- | --- |
-| **COCO** | ✓ | ✓ | boxes, polygons, keypoints | the default for detection and segmentation |
+| **COCO** | ✓ | ✓ | boxes, rotated boxes (as polygons), polygons, masks (RLE), keypoints | the default for detection and segmentation |
 | **YOLO** | ✓ | ✓ | boxes, segmentation polygons | training a YOLO model directly |
 | **YOLO OBB** | ✓ | ✓ | **oriented** boxes — the angle survives | aerial and satellite imagery, industrial inspection, document layout |
 | **YOLO Pose** | — | ✓ | skeletons as keypoints with visibility | human and animal pose models |

@@ -5,10 +5,10 @@
 > [`AGENTS.md`](./AGENTS.md) first; it is the working contract. Update this file after every
 > iteration, including the ones that mostly failed.
 >
-> **Last updated:** 2026-10-12 (iteration 64) · branch `claude/start-work-yx080h` · PRs
-> [#1](https://github.com/Derric01/CurveVision/pull/1)–[#31](https://github.com/Derric01/CurveVision/pull/31)
-> **all merged**, #31 carrying iterations 62 and 63 (merged mid-session). Iteration 64 is
-> rebased onto that merge and pushed with no PR yet.
+> **Last updated:** 2026-10-12 (iteration 65) · branch `claude/start-work-yx080h` · PRs
+> [#1](https://github.com/Derric01/CurveVision/pull/1)–[#32](https://github.com/Derric01/CurveVision/pull/32)
+> **all merged**, #32 carrying iteration 64. Iteration 65 is pushed on top of that merge
+> with no PR yet.
 >
 > *Two things worth knowing about this repository's PR rhythm, which replace the
 > PR-by-PR changelog that used to sit here and had stopped helping anybody.* **PRs are
@@ -22,7 +22,7 @@
 > **Keep the session short.** One iteration, then commit, push, update this file and report —
 > `AGENTS.md` § *Continue* and the `start-work` skill both say so now, because they did not
 > before and a single session ran six iterations and roughly a third of a week's budget. The
-> concrete costs, in rough order: re-reading this file (iterations 1–58 now live in
+> concrete costs, in rough order: re-reading this file (iterations 1–59 now live in
 > [`docs/iterations/ARCHIVE.md`](./docs/iterations/ARCHIVE.md), which cut it from 3,800
 > lines to 1,000 — keep it that way); `python desktop/sidecar/build.py`, which is a
 > PyInstaller run of a minute or two and is needed *again* for every sabotage-and-restore
@@ -45,10 +45,21 @@ shapes (detection/segmentation, OBB, pose, classification), each declaring in it
 The desktop shape works: a packaged single-executable server, a Tauri shell that supervises
 it, and folders annotated in place without copying a byte.
 
-**The tree is green.** `./scripts/check.sh` passes all thirteen steps: 647 server tests, 15
+**The tree is green.** `./scripts/check.sh` passes all thirteen steps: 658 server tests, 15
 SDK, 718 web, and `scripts/` is lint-clean under its own `ruff.toml`. Thirty browser
 harnesses drive the packaged desktop application in a real Chromium, nightly and on every
 push to `main`. (Iteration 52 arrived to a red tree — mypy 2 — and fixed it first.)
+
+**COCO exports are held to pycocotools, the reader the industry trains through**
+(iteration 65, asked for as "industry grade" export quality). Round trips through this
+project's own importer could not catch a convention got wrong both ways, and the reference
+reader found five: **masks were left out of COCO entirely** (and COCO masks were not read on
+import — they fell back to a box); a **rotated box's `bbox` was the unrotated box**, which
+a detector would learn as written; a skeleton's **`bbox` stretched to (0, 0)** whenever a
+joint was absent; **absent joints kept stale coordinates** instead of `0,0,0` (YOLO Pose
+too); and **`num_keypoints` counted only visible joints**, so COCOeval skipped people whose
+joints were all occluded. All fixed; `COCOeval` now scores an export against itself at AP
+1.0 for boxes, masks and keypoints.
 
 **Annotations made elsewhere can be imported from the task page** (iteration 64). An
 *Import annotations* panel, for workspace maintainers: the formats that import, an archive,
@@ -423,8 +434,19 @@ was the last unconnected piece of the desktop application.
 
 ## Next best action
 
-*Hosted AI by API key was iteration 63; import keeping attributes and tracks, 62; adding a
-model from the application, 61; joints that arrive from outside, 60.*
+*COCO held to pycocotools was iteration 65; importing from the task page, 64; hosted AI by
+API key, 63; import keeping attributes and tracks, 62.*
+
+**Hold the other exporters to their reference readers, as iteration 65 did for COCO.** The
+user's bar is industry-grade export quality, and COCO showed what a reference reader finds
+that round trips cannot. In order of use: **YOLO** (detect, seg, OBB, pose) against
+Ultralytics' own dataset loader and `check_det_dataset` — heavy (PyTorch), so a separate,
+optional CI job rather than the core suite; **CVAT XML** against Datumaro's CVAT importer
+(and, if one is available, a real CVAT instance's import); **MOTChallenge** against
+TrackEval or `motmetrics` (identity-preserving metrics of the ground truth against itself
+should be perfect); **Pascal VOC** and **KITTI** against Datumaro. Each is likely to find
+something; fix what it finds the way 65 did — failing test first.
+
 
 **First, if a key is available: try iteration 63 against the real services.** Add Claude,
 OpenAI and one OpenRouter vision model on the Models page with real keys, run each on a few
@@ -563,6 +585,12 @@ a mutation that flushes the shape buffer, re-reads `annotation_version`, then wr
 </details>
 
 ## Completed
+
+**COCO conformance with pycocotools** (iteration 65) — masks exported as uncompressed
+column-major RLE with `iscrowd: 0`, and read back (compressed strings too); rotated boxes as
+their exact polygon with the enclosing `bbox`; keypoints per spec (absent `0,0,0`,
+`num_keypoints` over v > 0, box over labelled joints); YOLO Pose absent joints `0 0 0`.
+`tests/unit/test_coco_reference.py` and `tests/api/test_coco_export.py`.
 
 **Importing annotations from the task page** (iteration 64) — `AnnotationImportPanel` and
 `annotationImport.ts`: importable formats from `GET /formats`, append or a confirmed replace,
@@ -948,6 +976,21 @@ being updated and this one was not. Check it against* Completed *before trusting
 
 ## Verification performed
 
+Iteration 65:
+
+* `tests/unit/test_coco_reference.py` (9) and `tests/api/test_coco_export.py` (1), written
+  first: on the old exporter six fail — the missing mask, the unrotated `bbox`, the stale
+  absent joint and `num_keypoints`, and the end-to-end export. With the fix, pycocotools
+  loads every export, rasterises every segmentation, the mask is pixel-identical after
+  COCO's RLE (an L-shape, so a transposed decode cannot pass), a compressed RLE made by
+  pycocotools' own encoder reads back identically, and `COCOeval` gives AP 1.0 on boxes,
+  masks and keypoints.
+* The YOLO Pose absent-joint test failed first (`0.950000` where `0.000000` belonged).
+* What the tests themselves had wrong, for the next person: pycocotools cannot segm-evaluate
+  a category holding a box written with `segmentation: []` (as CVAT and Datumaro write
+  boxes), and keypoint evaluation needs per-joint sigmas for a non-COCO skeleton.
+* `./scripts/check.sh`: **all thirteen pass** — 658 server, 15 SDK, 718 web.
+
 Iteration 64:
 
 * `annotationImport.test.ts` (7). `contract.ts` now holds `AnnotationImportResult` to
@@ -1157,6 +1200,10 @@ Iteration 54:
   `verify_shape_frame` and `verify_attribute_editor` also pass.
 
 ## Bugs fixed
+
+* **COCO exports dropped masks; rotated boxes, partly visible skeletons and keypoint counts
+  were wrong** (iteration 65) — see *Status*. Root cause: COCO was only ever checked against
+  this project's own importer.
 
 * **Every import dropped attributes and broke tracks apart** (iteration 62), contradicting
   the README's round-trip table for CVAT XML, MOTChallenge and the native format. Root
@@ -1371,6 +1418,13 @@ Iteration 54:
 
 ## Decisions
 
+* **COCO masks use `iscrowd: 0`, not CVAT's `iscrowd: 1`** (iteration 65). Datumaro writes
+  every mask as a crowd region; Detectron2 and MMDetection then ignore it in training. A
+  mask drawn here is one object, so it is written as one.
+* **Pascal VOC stays 0-based floats** (iteration 65), as Datumaro writes and reads it,
+  rather than the devkit's 1-based integers: interoperating with CVAT outweighs the devkit
+  letter, and every common loader parses floats.
+
 * **Offer, do not put back, and put back nothing the server has** (iteration 56). The plan
   is checked against the server's document when offered and again when restored.
 * **A remembered port that is busy is not forgotten** (iteration 56): the instance holding
@@ -1411,6 +1465,19 @@ Iteration 54:
 ---
 
 ## Last iteration
+
+### 65 — COCO exports held to pycocotools
+
+Asked for directly: export quality "top notch, industry grade". The useful question was not
+"does it round-trip" — it did — but "does the reader everyone else uses agree", so the
+iteration started by installing pycocotools and writing tests against it, and reading how
+Datumaro (CVAT's exporter) writes COCO and VOC before changing any convention. Two of its
+conventions were followed (VOC coordinates; uncompressed RLE) and one deliberately not
+(`iscrowd: 1` for masks) — see *Decisions*. The other formats are the next best action.
+
+Verified: see *Verification performed*.
+
+## Iteration 64
 
 ### 64 — annotations made elsewhere can be imported from the task page
 
@@ -1506,29 +1573,9 @@ decisions and its own tests, and it is the next best action.
 
 Verified: see *Verification performed*.
 
-## Iteration 59
-
-### 59 — the hand-written API types are checked against the server
-
-The candidate this file had carried longest. The hand-written `types.ts` stays — it holds
-the comments and the narrower unions the editor relies on — and is held to a generated
-`schema.ts` by a compile-time contract, rather than replaced by it. `openapi-typescript`
-generates; writing a generator was not considered (`AGENTS.md`: reuse first). It is dev-only
-and joins the notices gate's exempt list beside `vite` and `typescript`.
-
-**The contract's first run named 22 mismatches; 20 were optionality** (a field with a default
-is optional in the schema and always serialised), handled once in the contract rather than
-by loosening `types.ts`. **The other two were real**: `ShapeOut.elements` is `list[dict]` on
-the server while the client relies on `label_id` in each joint. Typing it on the server made
-everything pass — and would have turned every job holding an imported COCO skeleton into a
-500 on read, because the import stores joints by name. Reverted; the gap is held open by name
-in the contract, and fixing the import is the next best action.
-
-Verified: see *Verification performed*.
-
 ## Earlier iterations
 
-Iterations **1–58** are in [`docs/iterations/ARCHIVE.md`](./docs/iterations/ARCHIVE.md) —
+Iterations **1–59** are in [`docs/iterations/ARCHIVE.md`](./docs/iterations/ARCHIVE.md) —
 moved there so that orienting costs a few hundred lines rather than four thousand. Read them
 when `git log` points you at an iteration number, or when you are about to build something
 and want to know whether it was already tried and rejected. The lessons from them that are

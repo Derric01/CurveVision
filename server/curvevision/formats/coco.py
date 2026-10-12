@@ -28,8 +28,10 @@ from curvevision.formats.base import (
     normalise_rectangle,
     polygon_area,
     rectangle_to_polygon,
+    rotated_corners,
 )
 from curvevision.formats.registry import register
+from curvevision.formats.rle import from_coco_rle, mask_bounds, pixels, to_coco_rle
 
 logger = get_logger(__name__)
 
@@ -40,16 +42,25 @@ class CocoFormat:
     version = "1.0"
     extension = "zip"
     capabilities = FormatCapabilities(
-        shape_types=(ShapeType.RECTANGLE, ShapeType.POLYGON, ShapeType.SKELETON),
+        shape_types=(
+            ShapeType.RECTANGLE,
+            ShapeType.ROTATED_RECTANGLE,
+            ShapeType.POLYGON,
+            ShapeType.MASK,
+            ShapeType.SKELETON,
+        ),
         supports_import=True,
         supports_export=True,
         supports_tracks=False,
         supports_tags=False,
         supports_attributes=True,
         notes=(
-            "Polylines, points and ellipses have no COCO representation and are omitted. "
-            "Attributes are exported into a non-standard `attributes` key that COCO "
-            "readers ignore."
+            "Polylines, points, ellipses and cuboids have no COCO representation and are "
+            "omitted. Masks are written as uncompressed RLE with iscrowd 0, so training "
+            "frameworks treat them as instances rather than crowd regions to ignore. A "
+            "rotated box is written as its exact four-corner polygon with the enclosing "
+            "box as `bbox`, and reads back as a polygon. Attributes go in a non-standard "
+            "`attributes` key that COCO readers ignore."
         ),
     )
 
@@ -89,7 +100,9 @@ class CocoFormat:
                 sink.write(f"images/{frame.name}", frame.media)
 
             for shape in frame.shapes:
-                entry = self._annotation_entry(shape, image_id, annotation_id, category_ids)
+                entry = self._annotation_entry(
+                    shape, image_id, annotation_id, category_ids, frame.width, frame.height
+                )
                 if entry is None:
                     continue
                 annotations.append(entry)
@@ -114,6 +127,8 @@ class CocoFormat:
         image_id: int,
         annotation_id: int,
         category_ids: dict[str, int],
+        frame_width: int | None,
+        frame_height: int | None,
     ) -> dict[str, Any] | None:
         category_id = category_ids.get(shape.label)
         if category_id is None:
@@ -128,13 +143,38 @@ class CocoFormat:
         }
 
         match shape.shape_type:
-            case ShapeType.RECTANGLE | ShapeType.ROTATED_RECTANGLE:
+            case ShapeType.RECTANGLE:
                 x1, y1, x2, y2 = normalise_rectangle(shape.points)
                 entry["bbox"] = [x1, y1, x2 - x1, y2 - y1]
                 entry["area"] = (x2 - x1) * (y2 - y1)
                 entry["segmentation"] = []
-                if shape.shape_type is ShapeType.ROTATED_RECTANGLE:
-                    entry["attributes"]["rotation"] = shape.rotation
+            case ShapeType.ROTATED_RECTANGLE:
+                # COCO's `bbox` is axis-aligned, and a detector trains on it as written: the
+                # unrotated box plus an angle in a key nothing reads (what this wrote until
+                # iteration 65, as CVAT does) teaches it a box the object is not in. The
+                # enclosing box goes in `bbox`, and the exact corners in `segmentation`.
+                corners = rotated_corners(shape.points, shape.rotation)
+                x, y, width, height = bounding_box(corners)
+                entry["bbox"] = [x, y, width, height]
+                entry["segmentation"] = [corners]
+                entry["area"] = polygon_area(corners)
+            case ShapeType.MASK:
+                if not shape.mask or not frame_width or not frame_height:
+                    return None  # COCO RLE spans the image; without its size it cannot be written
+                rle = to_coco_rle(shape.mask, frame_width, frame_height)
+                drawn = list(pixels(shape.mask))
+                if not drawn:
+                    return None
+                xs = [x for x, _y in drawn]
+                ys = [y for _x, y in drawn]
+                entry["segmentation"] = rle
+                entry["bbox"] = [
+                    float(min(xs)),
+                    float(min(ys)),
+                    float(max(xs) - min(xs) + 1),
+                    float(max(ys) - min(ys) + 1),
+                ]
+                entry["area"] = float(len(drawn))
             case ShapeType.POLYGON:
                 x, y, width, height = bounding_box(shape.points)
                 entry["segmentation"] = [list(shape.points)]
@@ -142,23 +182,25 @@ class CocoFormat:
                 entry["area"] = polygon_area(shape.points)
             case ShapeType.SKELETON:
                 keypoints: list[float] = []
-                visible = 0
+                labelled: list[float] = []
                 for element in shape.elements:
                     points = element.get("points", [0.0, 0.0])
                     # COCO visibility: 0 absent, 1 labelled but hidden, 2 labelled+visible.
+                    # An absent joint is written as 0,0,0 whatever its stored position: the
+                    # spec says so, and a stale position would be read as a location.
                     if element.get("outside"):
-                        visibility = 0
-                    elif element.get("occluded"):
-                        visibility = 1
-                    else:
-                        visibility = 2
-                        visible += 1
+                        keypoints.extend([0, 0, 0])
+                        continue
+                    visibility = 1 if element.get("occluded") else 2
                     keypoints.extend([points[0], points[1], visibility])
-                x, y, width, height = bounding_box(
-                    [coord for i, coord in enumerate(keypoints) if i % 3 != 2]
-                )
+                    labelled.extend([points[0], points[1]])
+                # The box covers the joints that are there; including an absent one's 0,0
+                # stretched every partly visible skeleton's box to the image corner.
+                x, y, width, height = bounding_box(labelled)
                 entry["keypoints"] = keypoints
-                entry["num_keypoints"] = visible
+                # Labelled joints, visible or not (v > 0), as the spec and COCOeval count
+                # them; counting only visible ones made COCOeval skip occluded-only people.
+                entry["num_keypoints"] = len(labelled) // 2
                 entry["bbox"] = [x, y, width, height]
                 entry["area"] = width * height
                 entry["segmentation"] = []
@@ -263,6 +305,33 @@ class CocoFormat:
                             shape_type=ShapeType.SKELETON,
                             points=[],
                             elements=elements,
+                            attributes=attributes,
+                            occluded=occluded,
+                            source="imported",
+                        ),
+                    )
+                )
+            elif isinstance(segmentation, dict) and "counts" in segmentation:
+                # RLE: a mask, compressed or not (this exporter writes it uncompressed;
+                # pycocotools-made files usually compress it).
+                try:
+                    mask = from_coco_rle(segmentation)
+                except (KeyError, TypeError, ValueError):
+                    result.warnings.append(
+                        f"annotation {annotation.get('id')} has an unreadable RLE mask; skipped"
+                    )
+                    continue
+                if mask is None:
+                    continue
+                left, top, right, bottom = mask_bounds(mask)
+                result.shapes.append(
+                    (
+                        frame,
+                        ShapeRecord(
+                            label=label,
+                            shape_type=ShapeType.MASK,
+                            points=[float(left), float(top), float(right), float(bottom)],
+                            mask=mask,
                             attributes=attributes,
                             occluded=occluded,
                             source="imported",
