@@ -113,8 +113,12 @@ async def test_relaunching_reuses_the_database_and_rotates_the_token(tmp_path: P
         configure_settings(None)
 
 
-async def test_the_newest_migration_runs_in_both_directions(installation: Any) -> None:
+async def test_a_schema_migration_runs_in_both_directions(installation: Any) -> None:
     """A `downgrade` nobody has ever run is a guess, and this is where it would be found.
+
+    It drives the reviewer-index migration by name. Until iteration 69 it drove whatever
+    was newest (`-1`), which was that one; the newest is now a data migration, driven both
+    ways by `test_joint_repair_migration.py`.
 
     `docs/CONTRIBUTING.md` has always asked for every model change to ship a migration
     "tested in both directions", and until this test nothing in the suite ever moved one
@@ -140,7 +144,7 @@ async def test_the_newest_migration_runs_in_both_directions(installation: Any) -
             engine.dispose()
 
     assert "ix_job_reviewer_state" in indexes()
-    await asyncio.to_thread(command.downgrade, config, "-1")
+    await asyncio.to_thread(command.downgrade, config, "9c2f4d81ae63")
     assert "ix_job_reviewer_state" not in indexes()
     # And forwards again, because a downgrade that leaves the database un-upgradable is
     # worse than no downgrade at all.

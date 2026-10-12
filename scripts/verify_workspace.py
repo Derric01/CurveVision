@@ -45,7 +45,10 @@ from screenshot import api, find_chromium, start_server
 
 PASSWORD = "correct-horse-battery"
 ROOT = Path(__file__).resolve().parent.parent
-PYTHON = ROOT / "server" / ".venv" / "bin" / "python"
+# The project virtualenv where there is one (a contributor's machine), otherwise whatever
+# runs this script — CI installs the server into its own interpreter and has no `.venv`.
+_VENV = ROOT / "server" / ".venv" / "bin" / "python"
+PYTHON = _VENV if _VENV.is_file() else Path(sys.executable)
 
 
 def start_web_server(workdir: Path) -> tuple[subprocess.Popen[str], str]:

@@ -10,7 +10,7 @@ from __future__ import annotations
 import uuid
 from typing import Any
 
-from pydantic import Field, model_validator
+from pydantic import BaseModel, Field, model_validator
 
 from curvevision.domain.enums import SHAPE_MIN_POINTS, AnnotationSource, ShapeType
 from curvevision.schemas.common import ORMModel, StrictModel
@@ -31,6 +31,21 @@ class MaskData(StrictModel):
 
 
 class SkeletonElement(StrictModel):
+    label_id: uuid.UUID
+    points: list[float] = Field(min_length=2, max_length=2)
+    occluded: bool = False
+    outside: bool = False
+
+
+class SkeletonElementOut(BaseModel):
+    """A stored joint, as the API reports it.
+
+    Typed since iteration 69, when a migration repaired the joints stored before iteration 60
+    by name or with another project's ids; until then `elements` went out as untyped objects
+    because those rows would not have validated. Not strict: a key this does not declare is
+    left out of the response rather than turning a job's read into a 500.
+    """
+
     label_id: uuid.UUID
     points: list[float] = Field(min_length=2, max_length=2)
     occluded: bool = False
@@ -130,7 +145,7 @@ class ShapeOut(ORMModel):
     confidence: float | None = None
     attributes: dict[str, Any]
     mask: dict[str, Any] | None = None
-    elements: list[dict[str, Any]] = Field(default_factory=list)
+    elements: list[SkeletonElementOut] = Field(default_factory=list)
 
 
 class TrackShapeOut(ORMModel):
@@ -143,7 +158,7 @@ class TrackShapeOut(ORMModel):
     z_order: int
     attributes: dict[str, Any]
     mask: dict[str, Any] | None = None
-    elements: list[dict[str, Any]] = Field(default_factory=list)
+    elements: list[SkeletonElementOut] = Field(default_factory=list)
 
 
 class TrackOut(ORMModel):

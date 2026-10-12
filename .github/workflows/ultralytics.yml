@@ -1,0 +1,68 @@
+# CurveVision's YOLO exports, read and trained on by Ultralytics itself.
+#
+# `scripts/verify_ultralytics.py` exports every Ultralytics task CurveVision writes
+# (detection, segmentation, OBB, pose, classification), loads each through Ultralytics' own
+# dataset classes and compares every label with what was annotated, then trains one epoch
+# on each from a model definition — no weights are downloaded.
+#
+# Not in `ci.yml`: it installs PyTorch, which is minutes and a gigabyte per run, for code
+# that changes rarely. The core suite restates Ultralytics' loader rules instead
+# (`tests/unit/test_export_conformance.py`); this job is the real reader, run whenever an
+# exporter changes, weekly against whatever Ultralytics has released since, and on demand.
+name: Ultralytics
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'server/curvevision/formats/**'
+      - 'scripts/verify_ultralytics.py'
+      - '.github/workflows/ultralytics.yml'
+  pull_request:
+    paths:
+      - 'server/curvevision/formats/**'
+      - 'scripts/verify_ultralytics.py'
+      - '.github/workflows/ultralytics.yml'
+  schedule:
+    # Mondays 04:40 UTC: catches an Ultralytics release that changes what it accepts.
+    - cron: '40 4 * * 1'
+  workflow_dispatch:
+
+concurrency:
+  group: ultralytics-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  read-and-train:
+    name: Read and train on every YOLO export
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.11'
+          cache: pip
+          cache-dependency-path: server/pyproject.toml
+
+      - name: Install the server, CPU PyTorch and Ultralytics
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e "server[media]"
+          # The CPU build: the default PyPI wheel brings several gigabytes of CUDA.
+          pip install torch torchvision --index-url https://download.pytorch.org/whl/cpu
+          pip install ultralytics
+
+      - name: Read and train
+        env:
+          # Ultralytics writes settings and fonts under the user's config directory.
+          YOLO_CONFIG_DIR: ${{ runner.temp }}/ultralytics
+        # It must exist: Ultralytics falls back to /tmp, with a warning, when it does not.
+        run: |
+          mkdir -p "$YOLO_CONFIG_DIR"
+          python scripts/verify_ultralytics.py

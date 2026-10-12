@@ -5,9 +5,9 @@
 > [`AGENTS.md`](./AGENTS.md) first; it is the working contract. Update this file after every
 > iteration, including the ones that mostly failed.
 >
-> **Last updated:** 2026-10-12 (iteration 66) · branch `claude/start-work-yx080h` · PRs
-> [#1](https://github.com/Derric01/CurveVision/pull/1)–[#32](https://github.com/Derric01/CurveVision/pull/32)
-> **all merged**, #32 carrying iteration 64. Iterations 65 and 66 are pushed on top of that
+> **Last updated:** 2026-10-12 (iteration 69) · branch `claude/start-work-yx080h` · PRs
+> [#1](https://github.com/Derric01/CurveVision/pull/1)–[#33](https://github.com/Derric01/CurveVision/pull/33)
+> **all merged**, #33 carrying iterations 65–66. Iterations 67–69 are pushed on top of that
 > merge with no PR yet.
 >
 > *Two things worth knowing about this repository's PR rhythm, which replace the
@@ -22,7 +22,7 @@
 > **Keep the session short.** One iteration, then commit, push, update this file and report —
 > `AGENTS.md` § *Continue* and the `start-work` skill both say so now, because they did not
 > before and a single session ran six iterations and roughly a third of a week's budget. The
-> concrete costs, in rough order: re-reading this file (iterations 1–60 now live in
+> concrete costs, in rough order: re-reading this file (iterations 1–63 now live in
 > [`docs/iterations/ARCHIVE.md`](./docs/iterations/ARCHIVE.md), which cut it from 3,800
 > lines to 1,000 — keep it that way); `python desktop/sidecar/build.py`, which is a
 > PyInstaller run of a minute or two and is needed *again* for every sabotage-and-restore
@@ -50,6 +50,32 @@ SDK, 745 web, and `scripts/` is lint-clean under its own `ruff.toml`. Thirty-one
 harnesses drive the application in a real Chromium, nightly and on every push to `main` —
 thirty against the packaged desktop server, and `verify_workspace.py` against the real server
 too. (Iteration 52 arrived to a red tree — mypy 2 — and fixed it first.)
+
+**Skeleton joints stored before iteration 60 are repaired, and every joint is typed**
+(iteration 69). A migration rewrites the joints that a COCO import or a model stored by
+name, that a native import stored with another project's ids, or whose label had no joints
+at all (it gains the joints its skeletons named), in `shapes` and `track_shapes` alike. The
+API now types `elements` on the way out, so the web client's type contract holds with no
+exception left. Verified on SQLite and on PostgreSQL 16, where it found what SQLite could
+not (a timezone-aware timestamp written to a column declared naive).
+
+**Skeletons can be moved and edited, and tracked ones work** (iteration 68). A skeleton's
+geometry is its joints; its `points` are their flattened copy, kept for picking. Three
+paths knew only `points`: **moving a skeleton or dragging one of its joints changed
+nothing that was drawn or saved**; **a tracked skeleton was drawn on no frame of the
+editor**, and on the server its joints froze between keyframes and jumped on the next; and
+**saving any edit to a tracked skeleton deleted all its joints**, because a track update
+replaces its keyframes and they were sent without them. Each joint is now interpolated on
+its own, matched by label (CVAT's rule), on the server and in the editor alike.
+
+**Ultralytics itself reads and trains on every YOLO export** (iteration 67). Installed
+from PyPI here (its PyTorch index is blocked), it loaded each of the five tasks through its
+own dataset classes and found what a restatement of its rules could not: **every YOLO
+export's `data.yaml` failed unless training was started from inside the export** —
+Ultralytics resolves `path: .` against the working directory. Fixed, and pose now writes
+`flip_idx` from the joints' left/right names (without it Ultralytics turns flip
+augmentation off). Every label now matches what was annotated and one epoch of each task
+trains through validation; `.github/workflows/ultralytics.yml` keeps it so.
 
 **Every exporter is held to the reader that consumes it, and a workspace can be run from
 the application** (iteration 66, asked for as "finish everything", with export quality
@@ -132,7 +158,7 @@ matched by name to the label's joints (`services/skeletons.py`), exports carry t
 match by, an import creates a skeleton label with its joints and bones, and a model's
 normalised joints are rescaled like its other coordinates. Two routes it went through were
 500s on the way: adding a label with joints, or editing one, through `/projects/{id}/labels`.
-Rows written before this still hold names (see *Next best action*).
+Rows written before this held names until iteration 69's migration repaired them.
 
 **One object the server refuses no longer fails every save after it** (iteration 55). A
 save is one batch and one transaction, refused whole, and autosave put a refused batch back
@@ -454,18 +480,17 @@ was the last unconnected piece of the desktop application.
 
 ## Next best action
 
-*Exports held to Datumaro, CVAT and Ultralytics' rules, and a workspace run from the app,
-were iteration 66; COCO held to pycocotools, 65; importing from the task page, 64; hosted
-AI by API key, 63.*
+*Ultralytics reading and training on every YOLO export was iteration 67; exports held to
+Datumaro and CVAT, and a workspace run from the app, 66; COCO held to pycocotools, 65.*
 
-**Run a real Ultralytics training on an export, in a CI job that can install PyTorch.**
-Iteration 66 restated Ultralytics' loader rules as tests because `pip install ultralytics`
-could not reach the PyTorch index from this container. A job that exports the sample
-project as `yolo` (boxes, then with a polygon), `yolo_obb` and `yolo_pose` with images, and
-runs `YOLO("yolo11n.pt").train(data=…, epochs=1, imgsz=64)` on each, would replace a
-restatement with the reader itself. Expect it to find little — the rules were read from
-`ultralytics/data/utils.py` — but it is the only check of the YOLO family that is the real
-thing. Optional job, not the core suite: it downloads weights.
+**Watch the first runs of `.github/workflows/ultralytics.yml`.** It has run locally (PyPI's
+CUDA build of PyTorch, on CPU) but not yet on a GitHub runner, where it installs the CPU
+build from `download.pytorch.org` — which this container cannot reach. If the install
+step fails there, the fix is in the workflow, not the script. It triggers on any change
+under `server/curvevision/formats/`, weekly, and by hand.
+
+**Then: gaps in a CVAT XML track** — see below; the oldest item here with no dependency
+on the user.
 
 
 **First, if a key is available: try iteration 63 against the real services.** Add Claude,
@@ -488,25 +513,14 @@ is "add the API key and it works". It was not even that: there was no screen to 
 to. That is fixed; what still stands between a new user and a first prediction is a model
 server to point at — the first item under* Then, still needing the user.
 
-**Then: repair the joints stored before iteration 60, and type them.** A COCO import or a
-model's prediction before iteration 60 stored each joint as `{"name", "points", ...}` with
-no `label_id`, and those rows are still in any database that took one. Write an Alembic
-data migration that runs each stored skeleton (`shapes`, and `track_shapes` via their
-track's label) through `services.skeletons.resolve_joints` against its label's joints —
-inlined in the migration rather than imported, since a migration must not change when the
-service does. A skeleton whose label declares no joints cannot be resolved; decide whether
-it is deleted or kept with its joints emptied, and say which in the migration. Then type
-`elements` on `ShapeOut`/`TrackShapeOut` as `list[SkeletonElement]` (it is already typed on
-the way in) and delete `WithoutJoints` in `web/src/api/__tests__/contract.ts`. Test the
-migration against a row written the old way, on SQLite and, through CI, PostgreSQL.
-
-**A candidate found by reading, not reproduced: a tracked skeleton's joints.** The server's
-`interpolate_track` interpolates `points` and copies the earlier keyframe's `elements`, and
-a skeleton's geometry *is* its elements (`points` is empty), so between two keyframes a
-tracked skeleton holds still and then jumps. The editor's `tracksOn` (`adapters.ts`) does
-not pass `elements` to the canvas for a tracked object at all. Find first whether anything
-can produce a tracked skeleton today (a CVAT XML or native import, a `tracker` model) —
-CVAT tracks each joint as its own sub-track, which is the design to read before writing one.
+**A candidate found while doing 68, not yet decided: gaps in a CVAT XML track.** The
+import treats a frame a track does not list as the object being gone (iteration 62's rule,
+right for MOTChallenge, where a gap *is* the object leaving). CVAT's own reader treats an
+unlisted frame between two keyframes as interpolated, and marks absence only with
+`outside="1"`. CVAT's exports list every frame of a track, so a file CVAT wrote imports
+correctly; a hand-written or third-party CVAT XML with sparse keyframes does not. Making
+the gap rule per-format (`ImportResult` carrying "gaps mean absent" from the reader) is the
+fix; read CVAT's `formats/cvat.py` `load_anno` first.
 
 **Then, still needing the user:**
 
@@ -1007,6 +1021,61 @@ being updated and this one was not. Check it against* Completed *before trusting
 
 ## Verification performed
 
+Iteration 69:
+
+* `tests/api/test_joint_repair_migration.py`, on a real migrated installation: data made
+  through the API, three rows rewritten the old ways with SQL (joints by name and out of
+  order; a skeleton on a label with no joints; a keyframe carrying another project's ids),
+  then migrated down past the repair and up, and read back through the API. It failed
+  before the migration existed (the by-name row came back raw). **Runs on SQLite and on
+  PostgreSQL 16** (`CURVEVISION_TEST_POSTGRES_URL`; CI's PostgreSQL job now sets it). The
+  PostgreSQL run failed first — the migration declared `created_at` as a naive `DateTime`,
+  and asyncpg refuses an aware value for it — and passes with the app's `UTCDateTime`.
+* The type contract: with `WithoutJoints` gone, mistyping `ApiSkeletonElement.label_id`
+  gives five `contract.ts` errors; restored, none.
+* `test_the_newest_migration_runs_in_both_directions` drove whatever was newest (`-1`),
+  which stopped being the index migration it asserts about; it now names that revision.
+* Full `./scripts/check.sh`: green.
+
+Iteration 68:
+
+* **Server**: `TestTrackedSkeleton` (4, two failing first: joints frozen, joints paired by
+  position) and `test_a_tracked_skeleton_s_joints_move_between_keyframes` (API, through the
+  per-frame endpoint and a COCO export; fails without the fix with the frame-0 joints).
+* **Editor**: `trackedSkeleton.test.ts` (7 — interpolation with the server's vectors,
+  drawing, saving with joints, adding a keyframe, a placed keyframe, a departure; all 7 fail
+  with the four source files stashed) and two in `tools.test.ts` (moving a skeleton,
+  dragging one joint past a skipped one; both failed first).
+* **Browser**: `scripts/verify_tracked_skeleton.py`, 7 checks, all passing on the packaged
+  app. Against the old editor (fix stashed, rebuilt) four fail: nothing drawn at the
+  interpolated joints, no keyframe saved, the untracked move saving nothing. Its first run
+  had one check wrong — the frame-0 nose is where this frame's label chip is drawn — and the
+  check was moved to the frame-0 tail, not loosened.
+* Full `./scripts/check.sh`: green.
+
+Iteration 67:
+
+* **Ultralytics 8.4.175 with PyTorch 2.14.1**, from PyPI into a scratch environment with the
+  server package: `scripts/verify_ultralytics.py`, 15 checks, all passing. For detection
+  (boxes only, and with a polygon), segmentation, OBB, pose and classification, Ultralytics'
+  `check_det_dataset`/`check_cls_dataset` accept the archive, `YOLODataset` and
+  `ClassificationDataset` load every image (`0 corrupt`) with labels equal to values
+  computed from the source geometry, and one epoch of each trains through validation (from
+  `yolo11n*.yaml`, no weights downloaded). Run from a working directory outside the export.
+* **The script's first run failed**, before any fix: `images not found, missing path
+  '/home/user/CurveVision/images/val'` — the `path: .` defect.
+* **Sabotage, so the checks are known to fail**: with the iteration-66 mixed-rows bug
+  restored and `path: .` put back, four checks fail by name — Ultralytics 8.4 refuses a
+  file mixing box and segment rows outright ("labels mix segment and detection rows", every
+  such image dropped as corrupt), and the OBB and pose yaml cannot be found. Restored.
+* `tests/unit/test_export_conformance.py` gains 9: `flip_idx` derived and refused, the val
+  split for `yolo`/`yolo_obb`/`yolo_pose`, no `path:` key in any `data.yaml`, and the
+  classification README asking for `val/` only without one. The `flip_idx`, split and
+  `path` tests failed before their fixes; the README test was checked by stashing the fix.
+* `verify_workspace.py` was claimed (iteration 66) to run nightly and was not in
+  `browser.yml`; it also assumed a `server/.venv` a runner does not have. Both fixed; it
+  has not yet run on a runner.
+
 Iteration 66:
 
 * **Readers.** A rich dataset (tracks, a rotated box, a polygon, a mask, a skeleton with
@@ -1262,6 +1331,16 @@ Iteration 54:
 
 ## Bugs fixed
 
+* **Moving a skeleton, or dragging one of its joints, changed nothing drawn or saved**
+  (iteration 68): the select tool moved `points`, the joints' flattened copy.
+* **A tracked skeleton was invisible in the editor, froze between keyframes, and lost all its
+  joints on any save** (iteration 68).
+* **Every YOLO export failed to train unless started from inside its directory**
+  (iteration 67): `data.yaml` said `path: .`, which Ultralytics resolves against the working
+  directory. Found only by running Ultralytics itself.
+* **YOLO OBB and Pose pointed `val` at the training images** even when frames were in a
+  `val` subset, and **Pose wrote no `flip_idx`** (iteration 67).
+* **`verify_workspace.py` was documented as running nightly and was not** (iteration 67).
 * **Every YOLO export was refused by Ultralytics** (iteration 66): images and labels went
   to `images/default` while `data.yaml` named `images/train`. And **a YOLO file mixing box
   and polygon lines corrupted the boxes**: Ultralytics reads any file with a line longer
@@ -1373,9 +1452,11 @@ Iteration 54:
 
 ## Known issues
 
-* **Ultralytics itself has not read an export** (iteration 66). Its loader's rules are
-  restated as tests; the real thing needs PyTorch, which this container could not install.
-  That is the next best action.
+* **The Ultralytics workflow has not yet run on GitHub** (iteration 67). Verified locally;
+  see *Next best action*.
+* **YOLO Pose writes `flip_idx` only when joint names say left and right** (iteration 67).
+  A skeleton named `hand1`/`hand2` gets none, and Ultralytics then trains without flip
+  augmentation — slower to generalise, never wrong. Naming joints `left_…`/`right_…` fixes it.
 * **Datumaro's CVAT reader cannot read skeletons or masks inside tracks** (iteration 66).
   Both are what CVAT itself writes, and CVAT's own reader reads ours; Datumaro users
   importing a CVAT XML with either will hit Datumaro's limit, not ours.
@@ -1384,8 +1465,9 @@ Iteration 54:
   lists which). The annotations are frozen; the pictures are not copied.
 * **Versions released before iteration 66 have no frozen copy** and answer `409` on export,
   saying so. Their hash and statistics still describe them.
-* **YOLO classification writes `train/` only**; Ultralytics also needs `val/`, which the
-  export's README says how to make. Splitting someone's data is their decision.
+* **YOLO classification writes `val/` only for frames in a `val` subset**; with none, the
+  export's README says how to make one (iteration 67: it now says so only then).
+  Splitting someone's data is their decision.
 * **Hosted models have never met a real service** (iteration 63). The request shapes come
   from each API's documentation and the Anthropic SDK; how good the boxes are, and whether
   a given service's model list or JSON habits need adjusting, is unknown until somebody runs
@@ -1567,6 +1649,48 @@ Iteration 54:
 
 ## Last iteration
 
+### 69 — old skeleton joints repaired, and every joint typed
+
+The handoff's next action with no dependency on the user. One decision the handoff left
+open — what to do with a skeleton whose label has no joints — was settled by the import's
+own behaviour since iteration 60: the label gains the joints its skeletons named. Deleting
+or emptying them would lose annotation to fix a schema. PostgreSQL 16 turned out to be
+installed in this container, so the migration was run against it rather than left to CI,
+and it failed there first.
+
+Verified: see *Verification performed*.
+
+## Iteration 68
+
+### 68 — skeletons that move, and tracked skeletons that work
+
+Chosen over the joints migration because it was live: CVAT tracks skeletons and the CVAT
+XML import keeps tracks, so a tracked skeleton could reach the editor and be broken there.
+Reading the select tool to see how a tracked skeleton would be edited found the larger
+defect — no skeleton, tracked or not, could be moved after it was placed — and reading the
+track serialiser found the data loss. CVAT was read for the rule (`dataset_manager/
+annotation.py`: each joint a sub-track, interpolated linearly); no code adapted. Two things
+left as found: the CVAT gap divergence above, and the old joints migration below it.
+
+Verified: see *Verification performed*.
+
+## Iteration 67
+
+### 67 — Ultralytics itself reads and trains on every YOLO export
+
+The next best action from 66, which had expected to find little. PyTorch's own index is
+blocked from this container, so PyTorch came from PyPI (its CUDA build, 4 GB, run on CPU)
+into a scratch environment — the workflow uses the CPU index, which a runner can reach.
+The script was written to compare Ultralytics' loaded labels against values computed from
+the source geometry, not with the exporter's helpers, and its first run failed on
+`path: .`: the restated rules in the unit suite had made the same assumption as the
+exporter. Reading the variants before Ultralytics could run found the missing `flip_idx`
+and the OBB/pose split; orienting found iteration 66's harness missing from CI.
+
+Verified: see *Verification performed*.
+
+## Iteration 66
+
 ### 66 — every export held to its reader; a workspace run from the application
 
 Asked for directly: "finish everything in this iteration", with the export bar from 65. One
@@ -1618,70 +1742,9 @@ copy had to say so rather than promise file names.
 
 Verified: see *Verification performed*.
 
-## Iteration 63
-
-### 63 — AI-assisted annotation with an API key: Claude, OpenAI, Gemini, xAI, OpenRouter…
-
-Asked for directly: "add the API key and it will work", for every standard service. That
-reversed part of a recorded decision — ADR 0005's "a new user cannot click auto-annotate
-without standing something up first" — so it got its own ADR (0010) rather than a quiet
-rewrite. The design follows the request shapes, not the vendors: Anthropic's Messages API
-through Anthropic's official SDK (the supported way to call it), and one OpenAI Chat
-Completions provider that eight services and a local Ollama all accept, with base URLs as
-presets in the web client and model names always from the service's own list.
-
-The honest part is in the ADR and on the form: a general vision-language model draws
-approximate boxes, which is acceptable only because they arrive as suggestions; and frames
-go to the service. Boxes are asked for in 0–1000 coordinates because every service resizes
-images by rules the caller cannot see.
-
-Verified: see *Verification performed* — against fakes only.
-
-## Iteration 62
-
-### 62 — an import keeps attributes and tracks
-
-Started on "make import reachable from the application", found by sweeping the server's
-routes for any with no client method. Reading the route first, to see what a panel would
-expose, found the larger problem: what the import stored was not what the file held. Every
-reader filled `ShapeRecord.attributes` and `track_id`, and the route discarded both — a
-false claim in the README three times over, and silent loss for anyone importing through
-the SDK or CLI. `AGENTS.md` ranks a false claim above a missing panel, and a panel over a
-lossy import would have shipped the loss to more people, so the panel waits.
-
-CVAT was read for the rules (`dataset_manager/bindings.py`, `_import_shape`,
-`_import_track`): by default it keeps only the attributes a label declares
-(`soft_attribute_import` is the opt-in that keeps the rest), and a track is imported as a
-track with its shapes as keyframes. Convention only; no code
-adapted. CVAT's XML marks the end of a run with an `outside` shape, which the reader here
-skips; the import puts the `outside` keyframe back from the gap instead, so a file without
-them (MOTChallenge) gets the same result. The writing moved from the route into
-`services/datasets.write_import`, which is where `ARCHITECTURE.md` §2 puts it.
-
-Verified: see *Verification performed*.
-
-## Iteration 61
-
-### 61 — a model is added from the application, with an endpoint and a key
-
-Asked for directly: the user wanted to know whether AI annotation is "just add the API key
-and it works". Orienting answered it — there was no screen to put a key into. Two things
-had been documented and never wired: the panel's "register an inference endpoint", and the
-contract's discovery route. CVAT was read for the page (`cvat-ui/src/components/models-page`):
-a card per model with its kind and labels, which this follows. CVAT's open-source build has
-no add form — its models are Nuclio functions it deploys — so the form is this project's.
-Convention only; no code adapted.
-
-Discovery's failures had all been swallowed as "not implemented". That was fine while
-nothing called it, and wrong for a form whose job is to tell somebody the key they pasted is
-wrong. The route sits in `services/` per the layering rules, and the key is now sent on each
-request as well as on the client, because the tests' injected client had never carried it.
-
-Verified: see *Verification performed*.
-
 ## Earlier iterations
 
-Iterations **1–60** are in [`docs/iterations/ARCHIVE.md`](./docs/iterations/ARCHIVE.md) —
+Iterations **1–63** are in [`docs/iterations/ARCHIVE.md`](./docs/iterations/ARCHIVE.md) —
 moved there so that orienting costs a few hundred lines rather than four thousand. Read them
 when `git log` points you at an iteration number, or when you are about to build something
 and want to know whether it was already tried and rejected. The lessons from them that are

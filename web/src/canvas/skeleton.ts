@@ -206,3 +206,52 @@ export function bones(
   }
   return segments;
 }
+
+/**
+ * The joints moved by `(dx, dy)`, each kept inside the image. An absent joint has no
+ * position to move and is left as it is.
+ *
+ * Moving a skeleton has to move these: they are what is drawn and saved, and `points` is
+ * only their flattened copy. Moving `points` alone (until iteration 68) left every joint
+ * where it was.
+ */
+export function translateJoints(
+  elements: readonly SkeletonElement[],
+  dx: number,
+  dy: number,
+  width: number,
+  height: number,
+): SkeletonElement[] {
+  return elements.map((element) => {
+    const [x, y] = element.points;
+    if (element.outside || x == null || y == null) return element;
+    return { ...element, points: clampPoint(x + dx, y + dy, width, height) };
+  });
+}
+
+/**
+ * The joints with the `visible`-th joint that has a position moved to `to`.
+ *
+ * Handles are drawn on the joints that are there (`skeletonPoints`), so a handle's index
+ * counts those, not the declared joints: the second handle of a skeleton whose first joint
+ * was skipped is its third joint.
+ */
+export function moveJoint(
+  elements: readonly SkeletonElement[],
+  visible: number,
+  to: Point,
+  width: number,
+  height: number,
+): SkeletonElement[] {
+  const joint = drawableJoints(elements)[visible];
+  if (!joint) return [...elements];
+  return elements.map((element, index) =>
+    index === joint.index
+      ? { ...element, points: clampPoint(to.x, to.y, width, height) }
+      : element,
+  );
+}
+
+function clampPoint(x: number, y: number, width: number, height: number): number[] {
+  return [Math.max(0, Math.min(width, x)), Math.max(0, Math.min(height, y))];
+}

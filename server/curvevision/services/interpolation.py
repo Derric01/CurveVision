@@ -15,6 +15,8 @@ The rules:
   resampled to a common arc-length parameterisation before interpolating. Pairing vertices
   by index -- the obvious implementation -- produces visibly wrong geometry as soon as an
   annotator inserts a vertex, and is a common bug in this class of tool.
+* A skeleton's joints are interpolated one by one, matched by label (`interpolate_elements`):
+  they are its geometry, and its ``points`` are empty.
 """
 
 from __future__ import annotations
@@ -137,6 +139,45 @@ def interpolate_points(
     return [_lerp(start[i], end[i], t) for i in range(len(start))]
 
 
+def interpolate_elements(
+    previous: list[dict[str, Any]], following: list[dict[str, Any]], t: float
+) -> list[dict[str, Any]]:
+    """A skeleton's joints at ``t`` between two keyframes, each joint on its own.
+
+    A skeleton's geometry *is* its joints — its ``points`` are empty — so copying the
+    earlier keyframe's joints (until iteration 68) froze a tracked skeleton between
+    keyframes and then jumped it. CVAT tracks each joint as a sub-track and interpolates it
+    linearly; this does the same over the joints stored on each keyframe, matching them by
+    label rather than position. A joint absent at either end holds where it was, as a whole
+    object does approaching a departure.
+    """
+
+    def key(element: dict[str, Any], index: int) -> Any:
+        return element.get("label_id") or element.get("name") or index
+
+    later = {key(element, index): element for index, element in enumerate(following)}
+    joints: list[dict[str, Any]] = []
+    for index, element in enumerate(previous):
+        start = list(element.get("points") or [])
+        target = later.get(key(element, index))
+        end = list(target.get("points") or []) if target is not None else []
+        moving = (
+            target is not None
+            and not element.get("outside")
+            and not target.get("outside")
+            and len(start) == len(end)
+        )
+        joints.append(
+            {
+                **element,
+                "points": [_lerp(a, b, t) for a, b in zip(start, end, strict=True)]
+                if moving
+                else start,
+            }
+        )
+    return joints
+
+
 def interpolate_track(
     keyframes: list[Keyframe],
     shape_type: ShapeType,
@@ -197,7 +238,7 @@ def interpolate_track(
         # Mutable attribute values hold until the next keyframe changes them.
         attributes=dict(previous.attributes),
         mask=previous.mask,
-        elements=list(previous.elements),
+        elements=interpolate_elements(previous.elements, following.elements, t),
     )
 
 

@@ -365,6 +365,8 @@ export interface ApiTrack {
     keyframe: boolean;
     z_order: number;
     attributes: Record<string, unknown>;
+    /** A tracked skeleton's joints on this keyframe — its whole geometry. */
+    elements?: ApiSkeletonElement[];
   }[];
 }
 

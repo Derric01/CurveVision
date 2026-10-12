@@ -1,6 +1,6 @@
 # Browser harnesses.
 #
-# Twenty-five scripts in `scripts/` drive the packaged desktop application in a real Chromium and
+# Thirty-two scripts in `scripts/` drive the application in a real Chromium and
 # assert against the API rather than the DOM. Between them they have found every defect the
 # unit suites missed: a Content-Security-Policy that blocked the app's own scripts, frame
 # images that never rendered, a swallowed decode error that threw on fast scrubbing, a
@@ -132,6 +132,10 @@ jobs:
               scripts/verify_attribute_values.py
               scripts/verify_save_refusals.py
               scripts/verify_crash_recovery.py
+              scripts/verify_tracked_skeleton.py
+              # Also starts the real server (uvicorn on SQLite, serving `web/dist`): the
+              # desktop build has one person and no registration, and members need several.
+              scripts/verify_workspace.py
             )
           fi
 

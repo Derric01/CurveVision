@@ -1,6 +1,6 @@
 # Iteration archive
 
-> The narrative record of iterations **1–60**, moved out of
+> The narrative record of iterations **1–63**, moved out of
 > [`handoff.md`](../../handoff.md) so that orienting on this project costs a few hundred
 > lines rather than four thousand.
 >
@@ -15,6 +15,67 @@
 > window, append it to the top of this file rather than deleting it.
 
 ---
+
+## Iteration 63
+
+### 63 — AI-assisted annotation with an API key: Claude, OpenAI, Gemini, xAI, OpenRouter…
+
+Asked for directly: "add the API key and it will work", for every standard service. That
+reversed part of a recorded decision — ADR 0005's "a new user cannot click auto-annotate
+without standing something up first" — so it got its own ADR (0010) rather than a quiet
+rewrite. The design follows the request shapes, not the vendors: Anthropic's Messages API
+through Anthropic's official SDK (the supported way to call it), and one OpenAI Chat
+Completions provider that eight services and a local Ollama all accept, with base URLs as
+presets in the web client and model names always from the service's own list.
+
+The honest part is in the ADR and on the form: a general vision-language model draws
+approximate boxes, which is acceptable only because they arrive as suggestions; and frames
+go to the service. Boxes are asked for in 0–1000 coordinates because every service resizes
+images by rules the caller cannot see.
+
+Verified: see *Verification performed* — against fakes only.
+
+## Iteration 62
+
+### 62 — an import keeps attributes and tracks
+
+Started on "make import reachable from the application", found by sweeping the server's
+routes for any with no client method. Reading the route first, to see what a panel would
+expose, found the larger problem: what the import stored was not what the file held. Every
+reader filled `ShapeRecord.attributes` and `track_id`, and the route discarded both — a
+false claim in the README three times over, and silent loss for anyone importing through
+the SDK or CLI. `AGENTS.md` ranks a false claim above a missing panel, and a panel over a
+lossy import would have shipped the loss to more people, so the panel waits.
+
+CVAT was read for the rules (`dataset_manager/bindings.py`, `_import_shape`,
+`_import_track`): by default it keeps only the attributes a label declares
+(`soft_attribute_import` is the opt-in that keeps the rest), and a track is imported as a
+track with its shapes as keyframes. Convention only; no code
+adapted. CVAT's XML marks the end of a run with an `outside` shape, which the reader here
+skips; the import puts the `outside` keyframe back from the gap instead, so a file without
+them (MOTChallenge) gets the same result. The writing moved from the route into
+`services/datasets.write_import`, which is where `ARCHITECTURE.md` §2 puts it.
+
+Verified: see *Verification performed*.
+
+## Iteration 61
+
+### 61 — a model is added from the application, with an endpoint and a key
+
+Asked for directly: the user wanted to know whether AI annotation is "just add the API key
+and it works". Orienting answered it — there was no screen to put a key into. Two things
+had been documented and never wired: the panel's "register an inference endpoint", and the
+contract's discovery route. CVAT was read for the page (`cvat-ui/src/components/models-page`):
+a card per model with its kind and labels, which this follows. CVAT's open-source build has
+no add form — its models are Nuclio functions it deploys — so the form is this project's.
+Convention only; no code adapted.
+
+Discovery's failures had all been swallowed as "not implemented". That was fine while
+nothing called it, and wrong for a form whose job is to tell somebody the key they pasted is
+wrong. The route sits in `services/` per the layering rules, and the key is now sent on each
+request as well as on the client, because the tests' injected client had never carried it.
+
+Verified: see *Verification performed*.
 
 ## Iteration 60
 

@@ -549,8 +549,14 @@ MOTChallenge and segmentation, CVAT's own extractor for CVAT XML, and Ultralytic
 rules — restated as tests, since Ultralytics needs PyTorch — for the YOLO family. Every
 YOLO export had been refused by Ultralytics (`data.yaml` and the files disagreed on the
 split directory), a file mixing boxes and polygons corrupted the boxes, and CVAT XML dropped
-rotated boxes and skeletons. `tests/unit/test_export_conformance.py`. **Not yet done:** a
-real Ultralytics training on an export, in a CI job that can install PyTorch.
+rotated boxes and skeletons. `tests/unit/test_export_conformance.py`.
+
+**Ultralytics itself** (iteration 67) reads every YOLO task's export through its own dataset
+classes, with every label compared against the source geometry, and trains one epoch on
+each (`scripts/verify_ultralytics.py`, `.github/workflows/ultralytics.yml`). Its first run
+found that every `data.yaml` failed unless training started inside the export (`path: .`
+resolves against the working directory); pose now writes `flip_idx` from joint names.
+The workflow has run locally, not yet on a GitHub runner.
 
 Planned: LabelMe, Open Images, TFRecord, Datumaro bridge.
 

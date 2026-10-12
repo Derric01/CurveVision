@@ -2815,9 +2815,7 @@ export interface components {
             /** Confidence */
             confidence?: number | null;
             /** Elements */
-            elements?: {
-                [key: string]: unknown;
-            }[];
+            elements?: components["schemas"]["SkeletonElementOut"][];
             /** Frame */
             frame: number;
             /** Group */
@@ -2856,6 +2854,34 @@ export interface components {
         ShapeType: "rectangle" | "rotated_rectangle" | "polygon" | "polyline" | "points" | "ellipse" | "mask" | "skeleton" | "cuboid";
         /** SkeletonElement */
         SkeletonElement: {
+            /**
+             * Label Id
+             * Format: uuid
+             */
+            label_id: string;
+            /**
+             * Occluded
+             * @default false
+             */
+            occluded: boolean;
+            /**
+             * Outside
+             * @default false
+             */
+            outside: boolean;
+            /** Points */
+            points: number[];
+        };
+        /**
+         * SkeletonElementOut
+         * @description A stored joint, as the API reports it.
+         *
+         *     Typed since iteration 69, when a migration repaired the joints stored before iteration 60
+         *     by name or with another project's ids; until then `elements` went out as untyped objects
+         *     because those rows would not have validated. Not strict: a key this does not declare is
+         *     left out of the response rather than turning a job's read into a 500.
+         */
+        SkeletonElementOut: {
             /**
              * Label Id
              * Format: uuid
@@ -3214,9 +3240,7 @@ export interface components {
                 [key: string]: unknown;
             };
             /** Elements */
-            elements?: {
-                [key: string]: unknown;
-            }[];
+            elements?: components["schemas"]["SkeletonElementOut"][];
             /** Frame */
             frame: number;
             /** Keyframe */

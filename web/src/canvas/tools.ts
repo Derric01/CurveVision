@@ -33,6 +33,7 @@ import type {
   Point,
   PointerInput,
   ShapeType,
+  SkeletonElement,
   ToolName,
   ViewportState,
 } from './types';
@@ -43,7 +44,9 @@ import {
   canCommit,
   describeProgress,
   isComplete,
+  moveJoint,
   skeletonPoints,
+  translateJoints,
   type PlacedJoint,
   type SkeletonSchema,
 } from './skeleton';
@@ -227,10 +230,13 @@ export class SelectTool implements Tool {
     if (this.mode === 'move') {
       const after: Annotation[] = [];
       for (const annotation of context.scene.selected) {
-        const moved: Annotation = {
-          ...annotation,
-          points: clampToImage(translatePoints(annotation.points, dx, dy), width, height),
-        };
+        const moved: Annotation =
+          annotation.shapeType === 'skeleton' && annotation.elements
+            ? withJoints(annotation, translateJoints(annotation.elements, dx, dy, width, height))
+            : {
+                ...annotation,
+                points: clampToImage(translatePoints(annotation.points, dx, dy), width, height),
+              };
         context.scene.update(moved);
         after.push(moved);
       }
@@ -241,8 +247,10 @@ export class SelectTool implements Tool {
       const annotation = context.scene.get(this.vertexTarget.id);
       if (!annotation) return {};
 
-      const points = dragHandle(annotation, this.vertexTarget.index, input.image);
-      const updated = { ...annotation, points: clampToImage(points, width, height) };
+      const updated = dragAnnotation(annotation, this.vertexTarget.index, input.image, {
+        width,
+        height,
+      });
       context.scene.update(updated);
       return { updated: { before: this.before, after: [updated] }, invalidateShapes: true };
     }
@@ -300,6 +308,36 @@ export function findHandle(annotation: Annotation, point: Point, tolerance: numb
 }
 
 /** Apply a handle drag, respecting each shape's semantics. */
+/** A skeleton with these joints, and `points` — their flattened copy — recomputed. */
+function withJoints(annotation: Annotation, elements: SkeletonElement[]): Annotation {
+  return { ...annotation, elements, points: skeletonPoints(elements) };
+}
+
+/**
+ * The annotation with handle `handle` dragged to `to`, inside the image.
+ *
+ * A skeleton's handles are its joints, and a joint dragged has to move in `elements` —
+ * what is drawn and saved — not only in `points` (until iteration 68 the drag moved the
+ * flattened copy and nothing else).
+ */
+export function dragAnnotation(
+  annotation: Annotation,
+  handle: number,
+  to: Point,
+  image: { width: number; height: number },
+): Annotation {
+  if (annotation.shapeType === 'skeleton' && annotation.elements) {
+    return withJoints(
+      annotation,
+      moveJoint(annotation.elements, handle, to, image.width, image.height),
+    );
+  }
+  return {
+    ...annotation,
+    points: clampToImage(dragHandle(annotation, handle, to), image.width, image.height),
+  };
+}
+
 export function dragHandle(annotation: Annotation, handle: number, to: Point): number[] {
   const { shapeType, points } = annotation;
 
