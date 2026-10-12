@@ -1,6 +1,6 @@
 # Iteration archive
 
-> The narrative record of iterations **1–62**, moved out of
+> The narrative record of iterations **1–63**, moved out of
 > [`handoff.md`](../../handoff.md) so that orienting on this project costs a few hundred
 > lines rather than four thousand.
 >
@@ -15,6 +15,25 @@
 > window, append it to the top of this file rather than deleting it.
 
 ---
+
+## Iteration 63
+
+### 63 — AI-assisted annotation with an API key: Claude, OpenAI, Gemini, xAI, OpenRouter…
+
+Asked for directly: "add the API key and it will work", for every standard service. That
+reversed part of a recorded decision — ADR 0005's "a new user cannot click auto-annotate
+without standing something up first" — so it got its own ADR (0010) rather than a quiet
+rewrite. The design follows the request shapes, not the vendors: Anthropic's Messages API
+through Anthropic's official SDK (the supported way to call it), and one OpenAI Chat
+Completions provider that eight services and a local Ollama all accept, with base URLs as
+presets in the web client and model names always from the service's own list.
+
+The honest part is in the ADR and on the form: a general vision-language model draws
+approximate boxes, which is acceptable only because they arrive as suggestions; and frames
+go to the service. Boxes are asked for in 0–1000 coordinates because every service resizes
+images by rules the caller cannot see.
+
+Verified: see *Verification performed* — against fakes only.
 
 ## Iteration 62
 

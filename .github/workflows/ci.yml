@@ -118,6 +118,15 @@ jobs:
           alembic downgrade base
           alembic upgrade head
 
+      # A data migration does nothing to an empty database, so the steps above cannot
+      # exercise one. This writes rows the old way and runs the repair over them, on the
+      # native uuid and JSONB columns SQLite does not have.
+      - name: Data migrations against PostgreSQL
+        working-directory: server
+        env:
+          CURVEVISION_TEST_POSTGRES_URL: postgresql+asyncpg://curvevision:curvevision@localhost:5432/curvevision_test
+        run: pytest tests/api/test_joint_repair_migration.py -q
+
   sdk:
     name: SDK and CLI
     runs-on: ubuntu-latest

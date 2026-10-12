@@ -5,10 +5,10 @@
 > [`AGENTS.md`](./AGENTS.md) first; it is the working contract. Update this file after every
 > iteration, including the ones that mostly failed.
 >
-> **Last updated:** 2026-10-12 (iteration 68) · branch `claude/start-work-yx080h` · PRs
+> **Last updated:** 2026-10-12 (iteration 69) · branch `claude/start-work-yx080h` · PRs
 > [#1](https://github.com/Derric01/CurveVision/pull/1)–[#33](https://github.com/Derric01/CurveVision/pull/33)
-> **all merged**, #33 carrying iterations 65–66. Iterations 67 and 68 are pushed on top of
-> that merge with no PR yet.
+> **all merged**, #33 carrying iterations 65–66. Iterations 67–69 are pushed on top of that
+> merge with no PR yet.
 >
 > *Two things worth knowing about this repository's PR rhythm, which replace the
 > PR-by-PR changelog that used to sit here and had stopped helping anybody.* **PRs are
@@ -22,7 +22,7 @@
 > **Keep the session short.** One iteration, then commit, push, update this file and report —
 > `AGENTS.md` § *Continue* and the `start-work` skill both say so now, because they did not
 > before and a single session ran six iterations and roughly a third of a week's budget. The
-> concrete costs, in rough order: re-reading this file (iterations 1–62 now live in
+> concrete costs, in rough order: re-reading this file (iterations 1–63 now live in
 > [`docs/iterations/ARCHIVE.md`](./docs/iterations/ARCHIVE.md), which cut it from 3,800
 > lines to 1,000 — keep it that way); `python desktop/sidecar/build.py`, which is a
 > PyInstaller run of a minute or two and is needed *again* for every sabotage-and-restore
@@ -50,6 +50,14 @@ SDK, 745 web, and `scripts/` is lint-clean under its own `ruff.toml`. Thirty-one
 harnesses drive the application in a real Chromium, nightly and on every push to `main` —
 thirty against the packaged desktop server, and `verify_workspace.py` against the real server
 too. (Iteration 52 arrived to a red tree — mypy 2 — and fixed it first.)
+
+**Skeleton joints stored before iteration 60 are repaired, and every joint is typed**
+(iteration 69). A migration rewrites the joints that a COCO import or a model stored by
+name, that a native import stored with another project's ids, or whose label had no joints
+at all (it gains the joints its skeletons named), in `shapes` and `track_shapes` alike. The
+API now types `elements` on the way out, so the web client's type contract holds with no
+exception left. Verified on SQLite and on PostgreSQL 16, where it found what SQLite could
+not (a timezone-aware timestamp written to a column declared naive).
 
 **Skeletons can be moved and edited, and tracked ones work** (iteration 68). A skeleton's
 geometry is its joints; its `points` are their flattened copy, kept for picking. Three
@@ -150,7 +158,7 @@ matched by name to the label's joints (`services/skeletons.py`), exports carry t
 match by, an import creates a skeleton label with its joints and bones, and a model's
 normalised joints are rescaled like its other coordinates. Two routes it went through were
 500s on the way: adding a label with joints, or editing one, through `/projects/{id}/labels`.
-Rows written before this still hold names (see *Next best action*).
+Rows written before this held names until iteration 69's migration repaired them.
 
 **One object the server refuses no longer fails every save after it** (iteration 55). A
 save is one batch and one transaction, refused whole, and autosave put a refused batch back
@@ -481,8 +489,8 @@ build from `download.pytorch.org` — which this container cannot reach. If the 
 step fails there, the fix is in the workflow, not the script. It triggers on any change
 under `server/curvevision/formats/`, weekly, and by hand.
 
-**Then: repair the joints stored before iteration 60** — see below; it is the oldest
-item here with no dependency on the user.
+**Then: gaps in a CVAT XML track** — see below; the oldest item here with no dependency
+on the user.
 
 
 **First, if a key is available: try iteration 63 against the real services.** Add Claude,
@@ -504,18 +512,6 @@ them is worth doing when someone asks.*
 is "add the API key and it works". It was not even that: there was no screen to add a key
 to. That is fixed; what still stands between a new user and a first prediction is a model
 server to point at — the first item under* Then, still needing the user.
-
-**Then: repair the joints stored before iteration 60, and type them.** A COCO import or a
-model's prediction before iteration 60 stored each joint as `{"name", "points", ...}` with
-no `label_id`, and those rows are still in any database that took one. Write an Alembic
-data migration that runs each stored skeleton (`shapes`, and `track_shapes` via their
-track's label) through `services.skeletons.resolve_joints` against its label's joints —
-inlined in the migration rather than imported, since a migration must not change when the
-service does. A skeleton whose label declares no joints cannot be resolved; decide whether
-it is deleted or kept with its joints emptied, and say which in the migration. Then type
-`elements` on `ShapeOut`/`TrackShapeOut` as `list[SkeletonElement]` (it is already typed on
-the way in) and delete `WithoutJoints` in `web/src/api/__tests__/contract.ts`. Test the
-migration against a row written the old way, on SQLite and, through CI, PostgreSQL.
 
 **A candidate found while doing 68, not yet decided: gaps in a CVAT XML track.** The
 import treats a frame a track does not list as the object being gone (iteration 62's rule,
@@ -1024,6 +1020,22 @@ being updated and this one was not. Check it against* Completed *before trusting
 ---
 
 ## Verification performed
+
+Iteration 69:
+
+* `tests/api/test_joint_repair_migration.py`, on a real migrated installation: data made
+  through the API, three rows rewritten the old ways with SQL (joints by name and out of
+  order; a skeleton on a label with no joints; a keyframe carrying another project's ids),
+  then migrated down past the repair and up, and read back through the API. It failed
+  before the migration existed (the by-name row came back raw). **Runs on SQLite and on
+  PostgreSQL 16** (`CURVEVISION_TEST_POSTGRES_URL`; CI's PostgreSQL job now sets it). The
+  PostgreSQL run failed first — the migration declared `created_at` as a naive `DateTime`,
+  and asyncpg refuses an aware value for it — and passes with the app's `UTCDateTime`.
+* The type contract: with `WithoutJoints` gone, mistyping `ApiSkeletonElement.label_id`
+  gives five `contract.ts` errors; restored, none.
+* `test_the_newest_migration_runs_in_both_directions` drove whatever was newest (`-1`),
+  which stopped being the index migration it asserts about; it now names that revision.
+* Full `./scripts/check.sh`: green.
 
 Iteration 68:
 
@@ -1637,6 +1649,19 @@ Iteration 54:
 
 ## Last iteration
 
+### 69 — old skeleton joints repaired, and every joint typed
+
+The handoff's next action with no dependency on the user. One decision the handoff left
+open — what to do with a skeleton whose label has no joints — was settled by the import's
+own behaviour since iteration 60: the label gains the joints its skeletons named. Deleting
+or emptying them would lose annotation to fix a schema. PostgreSQL 16 turned out to be
+installed in this container, so the migration was run against it rather than left to CI,
+and it failed there first.
+
+Verified: see *Verification performed*.
+
+## Iteration 68
+
 ### 68 — skeletons that move, and tracked skeletons that work
 
 Chosen over the joints migration because it was live: CVAT tracks skeletons and the CVAT
@@ -1717,28 +1742,9 @@ copy had to say so rather than promise file names.
 
 Verified: see *Verification performed*.
 
-## Iteration 63
-
-### 63 — AI-assisted annotation with an API key: Claude, OpenAI, Gemini, xAI, OpenRouter…
-
-Asked for directly: "add the API key and it will work", for every standard service. That
-reversed part of a recorded decision — ADR 0005's "a new user cannot click auto-annotate
-without standing something up first" — so it got its own ADR (0010) rather than a quiet
-rewrite. The design follows the request shapes, not the vendors: Anthropic's Messages API
-through Anthropic's official SDK (the supported way to call it), and one OpenAI Chat
-Completions provider that eight services and a local Ollama all accept, with base URLs as
-presets in the web client and model names always from the service's own list.
-
-The honest part is in the ADR and on the form: a general vision-language model draws
-approximate boxes, which is acceptable only because they arrive as suggestions; and frames
-go to the service. Boxes are asked for in 0–1000 coordinates because every service resizes
-images by rules the caller cannot see.
-
-Verified: see *Verification performed* — against fakes only.
-
 ## Earlier iterations
 
-Iterations **1–62** are in [`docs/iterations/ARCHIVE.md`](./docs/iterations/ARCHIVE.md) —
+Iterations **1–63** are in [`docs/iterations/ARCHIVE.md`](./docs/iterations/ARCHIVE.md) —
 moved there so that orienting costs a few hundred lines rather than four thousand. Read them
 when `git log` points you at an iteration number, or when you are about to build something
 and want to know whether it was already tried and rejected. The lessons from them that are
