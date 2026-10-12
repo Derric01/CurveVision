@@ -47,7 +47,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent))
 
-from screenshot import api, canvas_point, find_chromium, start_server
+from screenshot import api, canvas_point, find_chromium, save_now, start_server
 from verify_label_schema import IMAGE_HEIGHT, IMAGE_WIDTH, png_bytes, text_of
 
 #: Where the one annotation sits, in image pixels.
@@ -172,8 +172,7 @@ def main() -> int:
                     page.mouse.move(start[0] + 30, start[1] + 20, steps=8)
                     page.mouse.up()
                     page.wait_for_timeout(300)
-                    page.get_by_text("Save", exact=True).click()
-                    page.wait_for_timeout(1500)
+                    save_now(page, 1500)
 
                     after = api(base, token, f"/jobs/{job['id']}/annotations")["shapes"][0]
                     moved = after["points"][0] > before["points"][0] + 5

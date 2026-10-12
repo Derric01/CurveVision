@@ -1,6 +1,6 @@
 # Iteration archive
 
-> The narrative record of iterations **1–63**, moved out of
+> The narrative record of iterations **1–64**, moved out of
 > [`handoff.md`](../../handoff.md) so that orienting on this project costs a few hundred
 > lines rather than four thousand.
 >
@@ -15,6 +15,18 @@
 > window, append it to the top of this file rather than deleting it.
 
 ---
+
+## Iteration 64
+
+### 64 — annotations made elsewhere can be imported from the task page
+
+The next best action since iteration 62, with the real-service trial of iteration 63 left
+waiting for the user's keys. Small by design: the server work was done in 62, and the panel
+follows the ground-truth panel's pattern — pure rules in their own module, the component
+only wiring. The one thing the harness taught: frame matching differs by format, and the
+copy had to say so rather than promise file names.
+
+Verified: see *Verification performed*.
 
 ## Iteration 63
 

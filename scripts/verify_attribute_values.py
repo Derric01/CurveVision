@@ -11,7 +11,10 @@ Claims, each asserted against the **API**:
 
 1. Selecting a box shows its label's attributes; a select, a checkbox and a text value set
    there are saved, as the types the server stores (a boolean, not the string "true").
-2. A box drawn a moment ago, not yet saved, can be given a value straight away.
+2. A box drawn a moment ago, not yet saved, can be given a value straight away — and its
+   attributes are still on screen after its first autosave lands. Until iteration 70 that
+   save deselected it (the reload brings it back under the server's id), so the panel
+   vanished under whoever was filling it in; CI's timing found it every night.
 3. On a **tracked** object, a mutable value set on an interpolated frame lands on a new
    keyframe at that frame — not on the track, and not on the keyframes around it — while
    an immutable one lands on the track.
@@ -156,6 +159,14 @@ def main() -> int:
                 page.mouse.up()
                 page.wait_for_timeout(300)
                 panel = page.locator("[data-attributes-panel]")
+                drawn = panel.count() == 1
+                # Past one autosave flush (every four seconds), on purpose rather than by luck.
+                page.wait_for_timeout(4_500)
+                autosaved = [s for s in document()["shapes"] if s["id"] != shape_id]
+                check(drawn and len(autosaved) == 1 and panel.count() == 1,
+                      "the new box is still selected after its first autosave",
+                      f"panel before {int(drawn)}, after the autosave {panel.count()}; "
+                      f"{len(autosaved)} new box(es) saved by then")
                 if panel.count() == 1:
                     attribute("note").locator("input").fill("new")
                 save()

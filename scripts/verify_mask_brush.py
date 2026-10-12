@@ -39,7 +39,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent))
 
-from screenshot import api, find_chromium, start_server
+from screenshot import api, find_chromium, save_now, start_server
 
 IMAGE_WIDTH = 480
 IMAGE_HEIGHT = 320
@@ -144,8 +144,7 @@ def main() -> int:
                     page.wait_for_timeout(200)
 
                 def save() -> None:
-                    page.get_by_text("Save", exact=True).click()
-                    page.wait_for_timeout(700)
+                    save_now(page, 700)
 
                 def stored() -> list[dict]:
                     return api(base, token, f"/jobs/{job_id}/annotations")["shapes"]

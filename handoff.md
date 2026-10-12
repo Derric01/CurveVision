@@ -5,10 +5,10 @@
 > [`AGENTS.md`](./AGENTS.md) first; it is the working contract. Update this file after every
 > iteration, including the ones that mostly failed.
 >
-> **Last updated:** 2026-10-12 (iteration 69) · branch `claude/start-work-yx080h` · PRs
-> [#1](https://github.com/Derric01/CurveVision/pull/1)–[#33](https://github.com/Derric01/CurveVision/pull/33)
-> **all merged**, #33 carrying iterations 65–66. Iterations 67–69 are pushed on top of that
-> merge with no PR yet.
+> **Last updated:** 2026-10-12 (iteration 70) · branch `claude/start-work-yx080h` · PRs
+> [#1](https://github.com/Derric01/CurveVision/pull/1)–[#34](https://github.com/Derric01/CurveVision/pull/34)
+> **all merged**, #34 carrying iterations 67–69. Iteration 70 is pushed on top of that merge
+> with no PR yet.
 >
 > *Two things worth knowing about this repository's PR rhythm, which replace the
 > PR-by-PR changelog that used to sit here and had stopped helping anybody.* **PRs are
@@ -22,7 +22,7 @@
 > **Keep the session short.** One iteration, then commit, push, update this file and report —
 > `AGENTS.md` § *Continue* and the `start-work` skill both say so now, because they did not
 > before and a single session ran six iterations and roughly a third of a week's budget. The
-> concrete costs, in rough order: re-reading this file (iterations 1–63 now live in
+> concrete costs, in rough order: re-reading this file (iterations 1–64 now live in
 > [`docs/iterations/ARCHIVE.md`](./docs/iterations/ARCHIVE.md), which cut it from 3,800
 > lines to 1,000 — keep it that way); `python desktop/sidecar/build.py`, which is a
 > PyInstaller run of a minute or two and is needed *again* for every sabotage-and-restore
@@ -50,6 +50,17 @@ SDK, 745 web, and `scripts/` is lint-clean under its own `ruff.toml`. Thirty-one
 harnesses drive the application in a real Chromium, nightly and on every push to `main` —
 thirty against the packaged desktop server, and `verify_workspace.py` against the real server
 too. (Iteration 52 arrived to a red tree — mypy 2 — and fixed it first.)
+
+**The nightly browser run had been red since 10-08, and hid a real defect** (iteration 70).
+Every run of `browser.yml` on `main` from 10-08 failed, three or four harnesses at a time —
+while this file called those harnesses the project's safety net. The cause was timing:
+autosave flushes every four seconds, and on CI's slower runners it often landed before a
+harness clicked Save, which was then disabled and timed out. Among those failures was a
+real one: **a box drawn in the editor lost its selection when its first autosave landed**
+— the reload brings it back under the server's id — so the attributes panel vanished under
+whoever was filling it in, within four seconds of drawing. The selection now follows the
+box to its saved id; the harnesses save through one helper that treats "autosave already
+did it" as done; and the deselection is checked on purpose rather than by luck.
 
 **Skeleton joints stored before iteration 60 are repaired, and every joint is typed**
 (iteration 69). A migration rewrites the joints that a COCO import or a model stored by
@@ -1021,6 +1032,24 @@ being updated and this one was not. Check it against* Completed *before trusting
 
 ## Verification performed
 
+Iteration 70:
+
+* **The CI failures, read from the runner logs**: every `main` run of `browser.yml` since
+  10-08 failed three or four of `verify_mask_brush`, `verify_attribute_values`,
+  `verify_attribute_editor`, `verify_save_refusals` — each a 30-second timeout clicking a
+  disabled Save, except `verify_attribute_values`, where a new box was saved with `{}`
+  instead of the value typed into it. All passed locally, so the difference was timing.
+* **Reproduced deterministically**: waiting 4.5 s (one autosave flush) after drawing a box
+  made its attributes panel disappear, every time, and the value typed afterwards was never
+  saved. `scene.test.ts` gains two tests (one failing first). The fix needed a second pass:
+  a drawn box's `id` and the `clientId` it is saved under are different values.
+* `verify_attribute_values` now waits past an autosave on purpose and checks the panel is
+  still there; against the old editor (fix stashed, rebuilt) it fails, and passes with it.
+* `save_now` in `scripts/screenshot.py` replaces five unconditional Save clicks.
+* **All 32 harnesses in `browser.yml`, run locally against the packaged app: 32 passing.**
+  The green run that matters is the next one on GitHub's runners.
+* Full `./scripts/check.sh`: green (756 web).
+
 Iteration 69:
 
 * `tests/api/test_joint_repair_migration.py`, on a real migrated installation: data made
@@ -1331,6 +1360,12 @@ Iteration 54:
 
 ## Bugs fixed
 
+* **A drawn box lost its selection, and its attributes panel, when its first autosave
+  landed** (iteration 70): the reload brings it back under the server's id, and the scene
+  dropped selected ids it no longer had.
+* **The nightly browser run had failed on every `main` push and schedule since 10-08**
+  (iteration 70): five harnesses clicked Save unconditionally, which times out whenever
+  autosave has already saved.
 * **Moving a skeleton, or dragging one of its joints, changed nothing drawn or saved**
   (iteration 68): the select tool moved `points`, the joints' flattened copy.
 * **A tracked skeleton was invisible in the editor, froze between keyframes, and lost all its
@@ -1649,6 +1684,20 @@ Iteration 54:
 
 ## Last iteration
 
+### 70 — the nightly browser run green again, and the defect it was hiding
+
+Orienting after #34 merged found its Ultralytics workflow green on GitHub — and
+`browser.yml` red on `main`, as it had been on every run since 10-08. A red build outranks
+everything, and this one had also made the harnesses' claim in this file untrue. The
+runner's logs (through the GitHub connector; the built-in `gh` cannot follow a log
+redirect) named the failing harnesses; locally all of them passed, so the difference was
+timing, and a harness that waits past one autosave flush reproduced the one failure that
+was not a timeout, deterministically. That one was the app's.
+
+Verified: see *Verification performed*.
+
+## Iteration 69
+
 ### 69 — old skeleton joints repaired, and every joint typed
 
 The handoff's next action with no dependency on the user. One decision the handoff left
@@ -1730,21 +1779,9 @@ conventions were followed (VOC coordinates; uncompressed RLE) and one deliberate
 
 Verified: see *Verification performed*.
 
-## Iteration 64
-
-### 64 — annotations made elsewhere can be imported from the task page
-
-The next best action since iteration 62, with the real-service trial of iteration 63 left
-waiting for the user's keys. Small by design: the server work was done in 62, and the panel
-follows the ground-truth panel's pattern — pure rules in their own module, the component
-only wiring. The one thing the harness taught: frame matching differs by format, and the
-copy had to say so rather than promise file names.
-
-Verified: see *Verification performed*.
-
 ## Earlier iterations
 
-Iterations **1–63** are in [`docs/iterations/ARCHIVE.md`](./docs/iterations/ARCHIVE.md) —
+Iterations **1–64** are in [`docs/iterations/ARCHIVE.md`](./docs/iterations/ARCHIVE.md) —
 moved there so that orienting costs a few hundred lines rather than four thousand. Read them
 when `git log` points you at an iteration number, or when you are about to build something
 and want to know whether it was already tried and rejected. The lessons from them that are

@@ -203,6 +203,29 @@ def seed(base: str, token: str) -> tuple[str, str]:
 # -------------------------------------------------------------------------- screenshots
 
 
+def save_now(page, settle_ms: int = 1500) -> None:
+    """Make sure the editor has saved everything, as an annotator pressing Save would.
+
+    Autosave also flushes every four seconds, so on a slower machine -- CI's runners -- it
+    has often done this already, and Save is disabled because there is nothing left to
+    send. Clicking a disabled button waits out Playwright's 30-second timeout and fails on
+    something that is not a failure: every nightly browser run from 10-08 to iteration 70
+    did, for three harnesses at a time, and hid a real defect among them (a drawn box lost
+    its selection when its autosave landed). A click raced by an autosave landing in the
+    same instant is the same non-event, so a short timeout on it is not a failure either.
+    """
+    from playwright.sync_api import TimeoutError as PlaywrightTimeout
+
+    button = page.get_by_text("Save", exact=True)
+    if button.is_enabled():
+        try:
+            button.click(timeout=2_000)
+        except PlaywrightTimeout:
+            if button.is_enabled():
+                raise
+    page.wait_for_timeout(settle_ms)
+
+
 def find_chromium() -> str | None:
     for candidate in CHROMIUM_CANDIDATES:
         if candidate and Path(candidate).is_file():

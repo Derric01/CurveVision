@@ -101,3 +101,49 @@ describe('setFillOpacity', () => {
     expect(onChange).toHaveBeenCalledTimes(1);
   });
 });
+
+describe('a selection across a save', () => {
+  function box(id: string, clientId?: string) {
+    return {
+      id,
+      ...(clientId ? { clientId } : {}),
+      labelId: 'car',
+      frame: 0,
+      shapeType: 'rectangle' as const,
+      points: [0, 0, 10, 10],
+      rotation: 0,
+      occluded: false,
+      outside: false,
+      zOrder: 0,
+      source: 'manual' as const,
+      attributes: {},
+    };
+  }
+
+  it('follows a drawn object to the id the server saved it under', () => {
+    // A box drawn here has its client id until it is saved; the reload after the save
+    // brings it back under the server's id, naming the client id it came from. Until
+    // iteration 70 the selection was dropped there — the attributes panel vanished under
+    // whoever was filling it in, at most four seconds after they drew the box.
+    const changes = vi.fn();
+    const scene = new Scene({ onSelectionChange: changes });
+    // As `draftAnnotation` makes them: a local id, and a separate client id it is saved by.
+    scene.load([box('local-1', 'client-1')]);
+    scene.select(['local-1']);
+
+    scene.load([box('server-9', 'client-1')]);
+
+    expect(scene.selectedIds).toEqual(['server-9']);
+    expect(changes).toHaveBeenLastCalledWith(['server-9']);
+  });
+
+  it('still drops an object that is gone', () => {
+    const scene = new Scene();
+    scene.load([box('a'), box('b')]);
+    scene.select(['a', 'b']);
+
+    scene.load([box('b')]);
+
+    expect(scene.selectedIds).toEqual(['b']);
+  });
+});

@@ -42,7 +42,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent))
 
-from screenshot import api, canvas_point, find_chromium, start_server
+from screenshot import api, canvas_point, find_chromium, save_now, start_server
 from verify_label_schema import IMAGE_HEIGHT, IMAGE_WIDTH, png_bytes, text_of
 
 FRAMES = 2
@@ -263,8 +263,7 @@ def main() -> int:
 
                 page.route(f"**/jobs/{job_id}/annotations", slow_reads)
                 draw("sign", 250, 150)
-                page.get_by_text("Save", exact=True).click()
-                page.wait_for_timeout(500)  # saved; the reload is still two seconds out
+                save_now(page, 500)  # saved; the reload is still two seconds out
                 page.keyboard.press("Delete")
                 page.wait_for_timeout(3500)
                 page.unroute(f"**/jobs/{job_id}/annotations")
