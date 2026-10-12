@@ -1,6 +1,6 @@
 # Iteration archive
 
-> The narrative record of iterations **1–59**, moved out of
+> The narrative record of iterations **1–60**, moved out of
 > [`handoff.md`](../../handoff.md) so that orienting on this project costs a few hundred
 > lines rather than four thousand.
 >
@@ -15,6 +15,29 @@
 > window, append it to the top of this file rather than deleting it.
 
 ---
+
+## Iteration 60
+
+### 60 — a skeleton from outside is stored with joints the editor can read
+
+The next best action, found by iteration 59's contract check and not yet reproduced; it
+reproduced as tests at once, in three ways rather than one (COCO by name, native by another
+project's ids, an import-created label with no joints). The fix is one service both paths
+use, matching by name. CVAT was read for it (`dataset_manager/bindings.py`,
+`_import_shape`): it resolves each element with `_get_label_id(name, parent_label_id)`, by
+name under the skeleton's label, so the design is CVAT's; no code adapted. One difference,
+chosen: CVAT fails the import on a joint the label does not declare, and this drops the
+joint and says so in the import's warnings, as it already did for an unknown label. Exporting names was needed for the native format: its
+archives carried only ids, which mean nothing in another project. Joints with no names at
+all — native archives from before this — are matched by position, the order every format
+writes them in.
+
+Writing the inference test found an unrelated 500 on the label routes, which nothing had
+exercised with joints; and reading the provider for it found the unscaled joints. The
+historical rows are left, deliberately: repairing them is a data migration with its own
+decisions and its own tests, and it is the next best action.
+
+Verified: see *Verification performed*.
 
 ## Iteration 59
 

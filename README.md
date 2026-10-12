@@ -164,7 +164,9 @@ reject. No bundled weights, no vendor SDK.
 Eleven formats — COCO, all five Ultralytics YOLO tasks (detection, segmentation, OBB, pose,
 classification), Pascal VOC, KITTI, MOTChallenge, CVAT XML, segmentation masks and a
 lossless native one — each declaring honestly what it can represent, *before* you rely on it.
-**CVAT XML imports and exports**, so work done there is not stranded here.
+**CVAT XML imports and exports**, so work done there is not stranded here. Each is checked
+against the reader that consumes it — pycocotools, Datumaro, CVAT's own reader, Ultralytics'
+loader rules — not only against this project's importer.
 
 </td></tr>
 </table>
@@ -265,13 +267,13 @@ actually need before training — **how many frames have no annotations at all**
 
 | | |
 | --- | --- |
-| Organizations, six roles, membership | **Done** |
+| Organizations, six roles, membership — people added, re-roled and removed from the *Workspace* page | **Done** |
 | Jobs as the unit of assignment (parallel annotation on one task) | **Done** |
 | Overlapping jobs merged on export — one object at a seam, not two | **Done** |
 | Review state machine: `new → in_progress → submitted → accepted/rejected` | **Done** |
 | Issues and comment threads in the editor — open one on the selected object or pinned to a point on the image, reply, resolve, reopen | **Done** |
 | Annotation history | **Done** |
-| Immutable dataset releases with content hashing | **Done** |
+| Immutable dataset releases with content hashing — a release freezes its annotations and downloads as released in any format | **Done** |
 | Content-addressed media (the same file across tasks is stored once) | **Done** |
 | Export jobs with downloadable artifacts | **In Progress** |
 | Ground-truth quality reports: declare a task's answer key, then score each job against it — precision/recall/F1 per label, classified conflicts, and a panel in the editor where clicking a conflict seeks to its frame | **Done** |
@@ -286,7 +288,7 @@ actually need before training — **how many frames have no annotations at all**
 | Client-side track interpolation (scrubbing costs no round trip) | **Done** |
 | Chunked frame delivery — 36 frames decoded in one pass and fetched in one request, so stepping costs 17× fewer decodes and 12× fewer requests | **Done** |
 | Track timeline — every track's keyframes and where it is present, `,`/`.` to step between them, `K`/`O` to add a keyframe or mark a departure, and drag a keyframe along its lane to move it | **Done** |
-| Resumable uploads — storage model only; no endpoints yet | *Planned* |
+| Resumable uploads — a file at or over 20 MB goes in chunks and resumes after a dropped connection | **Done** |
 
 Interpolation between keyframes resamples polygons to a common arc-length parameterisation
 when vertex counts differ. Pairing vertices by index — the obvious implementation —

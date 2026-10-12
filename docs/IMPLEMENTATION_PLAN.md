@@ -542,6 +542,16 @@ corners of the bounding box and dropped every pixel, into a file that parsed cle
 exported a frame of them as background. Both now write the real thing, `cvat_xml` reads it
 back, and `formats/rle.py` states the encoding once so nothing has to guess it.
 
+**Held to the readers that consume them** (iteration 66; COCO in 65). Round trips through
+this project's own importer cannot catch a convention got wrong both ways, so every export
+was read by the tool people use: pycocotools for COCO, Datumaro for VOC, KITTI,
+MOTChallenge and segmentation, CVAT's own extractor for CVAT XML, and Ultralytics' loader
+rules — restated as tests, since Ultralytics needs PyTorch — for the YOLO family. Every
+YOLO export had been refused by Ultralytics (`data.yaml` and the files disagreed on the
+split directory), a file mixing boxes and polygons corrupted the boxes, and CVAT XML dropped
+rotated boxes and skeletons. `tests/unit/test_export_conformance.py`. **Not yet done:** a
+real Ultralytics training on an export, in a CI job that can install PyTorch.
+
 Planned: LabelMe, Open Images, TFRecord, Datumaro bridge.
 
 ---
@@ -741,7 +751,13 @@ editing it and rejected by deleting it.
 `Dataset → Version → Annotation → Review → Release`
 
 * `DatasetVersion` is an immutable snapshot: a content hash over the annotation set plus a
-  frozen manifest. Once released it cannot be mutated, only superseded.
+  frozen manifest. Once released it cannot be mutated, only superseded. **Done, and since
+  iteration 66 true**: until then a release kept only the hash and statistics, and exporting
+  it read the project as it was at export time. A release now stores its annotations in the
+  lossless native format (each frame with its image's hash), checks that copy against the
+  hash recorded at release on every export, and `POST /projects/{id}/versions/{id}/export`
+  returns it in any format, with images found by hash. The project page creates, releases
+  and downloads versions.
 * Statistics: annotation counts, class distribution, per-annotator throughput, frames with
   zero annotations (a common dataset bug).
 * Export jobs are asynchronous with a downloadable artifact and a TTL.
@@ -752,7 +768,8 @@ editing it and rejected by deleting it.
 ## Phase 8 — APIs and developer ecosystem · **In Progress**
 
 * **REST API** — **Done**, OpenAPI 3.1 at `/api/v1/openapi.json`.
-* **API tokens** — **Done**.
+* **API tokens** — **Done**, and minted, listed and revoked from the *Workspace* page
+  since iteration 66.
 * **Webhooks** — **In Progress**: HMAC-SHA256 signed deliveries with retry/backoff for
   project and task lifecycle events.
 * **Python SDK** — **Done** for core resources; typed, `httpx`-based, sync client.
