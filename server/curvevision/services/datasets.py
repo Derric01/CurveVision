@@ -11,7 +11,7 @@ import hashlib
 import json
 import uuid
 from collections.abc import AsyncIterator, Callable, Iterator
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from typing import Any
 
 from sqlalchemy import select
@@ -484,12 +484,19 @@ async def write_import(
     next save fail, since every save validates its attributes. CVAT's importer keeps only
     the attributes a label declares too, unless `soft_attribute_import` is switched on.
 
-    **Records sharing a `track_id` are one track again.** Formats see a track as one record
-    per frame it is on (`_collect_job_annotations`), so each listed frame becomes a
-    keyframe, and an `outside` keyframe goes wherever the track stops being listed — between
-    two runs, and after the last, since the server holds a track's last position to the end
-    of the job otherwise. A track is split where it crosses into another job, and one listed
-    on a single frame is stored as a shape.
+    **Records sharing a `track_id` are one track again**, each listed frame a keyframe. What
+    a frame the track does not list means is the format's to say (`ImportResult.track_gaps`):
+
+    * ``"absent"`` — a per-frame format (MOTChallenge, any per-frame export, which is how
+      `_collect_job_annotations` hands a track to a format): an `outside` keyframe goes
+      wherever the track stops being listed, between two runs and after the last, since the
+      server holds a track's last position to the end of the job otherwise.
+    * ``"interpolated"`` — CVAT XML: the object moves between the frames listed and leaves
+      only where a record says ``outside``, as CVAT's own reader has it.
+
+    A track is split where it crosses into another job, as CVAT's `_slice_track` splits
+    one: each part gets the interpolated shape on its first frame when the object is
+    already there, and on its last when it carries on. One on a single frame is a shape.
 
     Both were thrown away until iteration 62: every imported shape had no attributes, and a
     track came back as one unrelated box per frame.
@@ -528,19 +535,32 @@ async def write_import(
         unknown_joints.update(unknown)
         return elements
 
+    gaps_absent = result.track_gaps == "absent"
+    last_frame = max((job.stop_frame for job in jobs), default=-1)
     tracked: dict[tuple[int, str, ShapeType], list[tuple[int, ShapeRecord]]] = {}
+    #: Where each track leaves, by id and label: an `outside` record's geometry is a stale
+    #: copy, and need not even read as the track's shape type.
+    leaving: dict[tuple[int, str], set[int]] = {}
     loose: list[tuple[int, ShapeRecord]] = []
     for frame, record in result.shapes:
         if record.track_id is None:
-            loose.append((frame, record))
+            if not record.outside:
+                loose.append((frame, record))
+        elif record.outside:
+            leaving.setdefault((record.track_id, record.label), set()).add(frame)
         else:
             key = (record.track_id, record.label, record.shape_type)
             tracked.setdefault(key, []).append((frame, record))
-    # A track listed on one frame is a shape: it is how a tracked CVAT dump writes a shape
-    # that was never tracked (a one-frame track, closed by `outside`), and over one frame
-    # the two are the same object.
+    # A track on one frame is a shape: it is how a tracked CVAT dump writes a shape that was
+    # never tracked (a one-frame track, closed by `outside`), and over one frame the two are
+    # the same object. Where gaps are interpolated, a lone keyframe with nothing closing it
+    # is an object that stays to the end — a track — unless it is on the last frame anyway.
     for key, records in list(tracked.items()):
-        if len({frame for frame, _record in records}) == 1:
+        frames = {frame for frame, _record in records}
+        if len(frames) != 1:
+            continue
+        [only] = frames
+        if gaps_absent or only == last_frame or only + 1 in leaving.get(key[:2], set()):
             loose.append(records[0])
             del tracked[key]
 
@@ -575,25 +595,44 @@ async def write_import(
         )
         written.shapes += 1
 
-    for (_track, label, shape_type), records in tracked.items():
+    for (track_id, label, shape_type), records in tracked.items():
         label_id = label_ids.get(label)
         if label_id is None:
             unmatched_labels.add(label)
             continue
-        for job, run in _by_job(jobs, sorted(records, key=lambda item: item[0])):
-            if _write_track(
+        label_uuid = uuid.UUID(label_id)
+
+        def attributes_of(
+            record: ShapeRecord, label_uuid: uuid.UUID = label_uuid, label: str = label
+        ) -> dict[str, Any]:
+            return kept(label_uuid, label, record.attributes)
+
+        def joints_of(record: ShapeRecord, label_id: str = label_id) -> list[dict[str, Any]] | None:
+            return resolved(record, label_id)
+
+        keyframes = _keyframes_of(
+            records,
+            leaving.get((track_id, label), set()),
+            gaps_absent=gaps_absent,
+            last_frame=last_frame,
+            attributes_of=attributes_of,
+            joints_of=joints_of,
+        )
+        if keyframes is None:
+            continue
+        group = min(records, key=lambda item: item[0])[1].group
+        for job, part in _by_job(jobs, keyframes, shape_type):
+            _write_track(
                 session,
                 job=job,
-                label=label,
-                label_id=label_id,
+                label_id=label_uuid,
                 shape_type=shape_type,
-                run=run,
-                mutable=schema.mutable_attribute_names(uuid.UUID(label_id)),
-                kept=kept,
-                resolved=resolved,
+                group=group,
+                keyframes=part,
+                mutable=schema.mutable_attribute_names(label_uuid),
                 actor_id=actor_id,
-            ):
-                written.tracks += 1
+            )
+            written.tracks += 1
 
     for frame, label_name in result.tags:
         target = _job_for_frame(jobs, frame)
@@ -636,100 +675,135 @@ def _job_for_frame(jobs: list[Job], frame: int) -> Job | None:
     return None
 
 
-def _by_job(
-    jobs: list[Job], records: list[tuple[int, ShapeRecord]]
-) -> list[tuple[Job, list[tuple[int, ShapeRecord]]]]:
-    """A track's records, split into a run per job they fall in, in frame order."""
-    runs: list[tuple[Job, list[tuple[int, ShapeRecord]]]] = []
-    seen: set[int] = set()
-    for frame, record in records:
-        if frame in seen:
+def _keyframes_of(
+    records: list[tuple[int, ShapeRecord]],
+    leaving: set[int],
+    *,
+    gaps_absent: bool,
+    last_frame: int,
+    attributes_of: Callable[[ShapeRecord], dict[str, Any]],
+    joints_of: Callable[[ShapeRecord], list[dict[str, Any]] | None],
+) -> list[Keyframe] | None:
+    """One track's keyframes, in frame order, departures included; None if unstorable.
+
+    A departure (`outside`) carries the geometry of the keyframe before it, as the editor
+    writes one: its own is a stale copy, and need not even read as the track's shape type.
+    One before the track's first appearance says nothing and is dropped, as CVAT drops it.
+    """
+    present: dict[int, Keyframe] = {}
+    for frame, record in sorted(records, key=lambda item: item[0]):
+        if frame in present:
             continue  # One position per frame; a file listing two keeps the first.
-        seen.add(frame)
-        job = _job_for_frame(jobs, frame)
-        if job is None:
-            continue
-        if runs and runs[-1][0] is job:
-            runs[-1][1].append((frame, record))
-        else:
-            runs.append((job, [(frame, record)]))
-    return runs
+        joints = joints_of(record)
+        if joints is None:
+            return None
+        present[frame] = Keyframe(
+            frame=frame,
+            points=record.points,
+            rotation=record.rotation,
+            occluded=record.occluded,
+            z_order=record.z_order,
+            attributes=attributes_of(record),
+            mask=record.mask,
+            elements=joints or [],
+        )
+    frames = sorted(present)
+    if gaps_absent:
+        # Not listed on the next frame: it left.
+        departures = {
+            frame + 1
+            for frame, following in zip(frames, [*frames[1:], None], strict=True)
+            if (following is None or following > frame + 1) and frame + 1 <= last_frame
+        }
+    else:
+        departures = {frame for frame in leaving if frame not in present}
+
+    keyframes: list[Keyframe] = []
+    previous: Keyframe | None = None
+    for frame in sorted({*frames, *departures}):
+        if frame in present:
+            previous = present[frame]
+            keyframes.append(previous)
+        elif previous is not None and not keyframes[-1].outside:
+            keyframes.append(
+                replace(previous, frame=frame, occluded=False, outside=True, attributes={})
+            )
+    return keyframes
+
+
+def _by_job(
+    jobs: list[Job], keyframes: list[Keyframe], shape_type: ShapeType
+) -> list[tuple[Job, list[Keyframe]]]:
+    """A track's keyframes, split into the part each job holds, as CVAT's `_slice_track`.
+
+    A job holds the keyframes on its frames, less any leading departure, which says nothing
+    there. Where the object is already present on a job's first frame, that frame gets its
+    interpolated shape as a keyframe; where the object carries on past the job's last
+    frame, so does that one — without them, the part in the later job would start late and
+    the one in the earlier job would stop moving at its last keyframe instead of at its
+    boundary. A part with nothing present on it is no track.
+    """
+    parts: list[tuple[Job, list[Keyframe]]] = []
+    for job in jobs:
+        start, stop = job.start_frame, job.stop_frame
+        part = [kf for kf in keyframes if start <= kf.frame <= stop]
+        while part and part[0].outside:
+            part.pop(0)
+        if not part or part[0].frame != start:
+            entering = interpolate_track(keyframes, shape_type, start)
+            if entering is not None:
+                part.insert(0, replace(entering, frame=start, keyframe=True))
+        following = next((kf for kf in keyframes if kf.frame > stop), None)
+        if part and part[-1].frame != stop and following is not None and not following.outside:
+            through = interpolate_track(keyframes, shape_type, stop)
+            if through is not None:
+                part.append(replace(through, frame=stop, keyframe=True))
+        if any(not kf.outside for kf in part):
+            parts.append((job, part))
+    return parts
 
 
 def _write_track(
     session: AsyncSession,
     *,
     job: Job,
-    label: str,
-    label_id: str,
+    label_id: uuid.UUID,
     shape_type: ShapeType,
-    run: list[tuple[int, ShapeRecord]],
+    group: int | None,
+    keyframes: list[Keyframe],
     mutable: set[str],
-    kept: Callable[[uuid.UUID, str, dict[str, Any]], dict[str, Any]],
-    resolved: Callable[[ShapeRecord, str], list[dict[str, Any]] | None],
     actor_id: uuid.UUID,
-) -> bool:
-    """One track from one job's run of records; False when its records cannot be stored."""
-    elements = [resolved(record, label_id) for _frame, record in run]
-    if any(joints is None for joints in elements):
-        return False
-    label_uuid = uuid.UUID(label_id)
-    first = run[0][1]
+) -> None:
+    """One job's part of a track, as rows."""
+    first = next(kf for kf in keyframes if not kf.outside)
     track = Track(
         id=uuid.uuid4(),
         job_id=job.id,
-        label_id=label_uuid,
+        label_id=label_id,
         shape_type=shape_type,
-        group=first.group,
+        group=group,
         source=AnnotationSource.IMPORTED,
         # What does not vary per frame lives on the track, as the editor writes it.
-        attributes={
-            k: v for k, v in kept(label_uuid, label, first.attributes).items() if k not in mutable
-        },
+        attributes={k: v for k, v in first.attributes.items() if k not in mutable},
         created_by_id=actor_id,
     )
     session.add(track)
-    for index, ((frame, record), joints) in enumerate(zip(run, elements, strict=True)):
-        following = run[index + 1][0] if index + 1 < len(run) else None
+    for keyframe in keyframes:
         session.add(
             TrackShape(
                 track_id=track.id,
-                frame=frame,
-                points=record.points,
-                rotation=record.rotation,
-                occluded=record.occluded,
-                outside=False,
+                frame=keyframe.frame,
+                points=keyframe.points,
+                rotation=keyframe.rotation,
+                occluded=keyframe.occluded,
+                outside=keyframe.outside,
                 keyframe=True,
-                z_order=record.z_order,
-                attributes={
-                    k: v
-                    for k, v in kept(label_uuid, label, record.attributes).items()
-                    if k in mutable
-                },
-                mask=record.mask,
-                elements=joints or [],
+                z_order=keyframe.z_order,
+                attributes={k: v for k, v in keyframe.attributes.items() if k in mutable},
+                mask=keyframe.mask,
+                elements=keyframe.elements,
             )
         )
-        # Not listed on the next frame: it left. Without this the server would interpolate
-        # across the gap, or hold the last position to the end of the job.
-        leaves = frame + 1
-        if (following is None or following > leaves) and leaves <= job.stop_frame:
-            session.add(
-                TrackShape(
-                    track_id=track.id,
-                    frame=leaves,
-                    points=record.points,
-                    rotation=record.rotation,
-                    occluded=False,
-                    outside=True,
-                    keyframe=True,
-                    z_order=record.z_order,
-                    attributes={},
-                    mask=record.mask,
-                    elements=joints or [],
-                )
-            )
-    return True
 
 
 def summarise_import(result: ImportResult) -> dict[str, Any]:

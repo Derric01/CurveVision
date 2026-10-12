@@ -6,9 +6,11 @@ with `attributes={}`, and a track became one unrelated box per frame. The README
 round-trip table said CVAT XML carries attributes and tracks, MOTChallenge carries object
 identity, and the native format carries "everything, losslessly"; on the way in, none did.
 
-A track is rebuilt with a keyframe on every frame the file lists it on, and an `outside`
-keyframe wherever it stops being listed — between two runs, and after the last — because the
-server holds a track's last position to the end of the job otherwise.
+A track is rebuilt with a keyframe on every frame the file lists it on. What a frame it does
+not list means is the format's to say: in a per-frame format (MOTChallenge, the native
+format) the object is gone, and an `outside` keyframe goes wherever it stops being listed;
+in CVAT XML the object is interpolated across it, as CVAT's own reader has it, and leaves
+only where the file says `outside="1"` (iteration 71).
 """
 
 from __future__ import annotations
@@ -243,17 +245,23 @@ class TestACvatFile:
     async def test_a_track_that_leaves_and_comes_back_is_absent_in_between(
         self, owner: ApiActor, project: dict[str, Any]
     ) -> None:
-        """Present on 0 and 1, gone on 2 and 3, back on 4, and gone after its last listed frame."""
+        """Present on 0 and 1, gone on 2 and 3, back on 4 — and still there on 5.
+
+        As CVAT reads it: the `keyframe="0"` box on frame 1 is dropped and interpolated from
+        the keyframes either side (here: held, since the next one is a departure), and after
+        its last keyframe a track nothing closes stays where it was to the end of the job.
+        Until iteration 71 frame 1 became a keyframe and the track was ended after frame 4.
+        """
         result, document = await import_into(
             owner, project, "cvat_xml", cvat_archive(self.XML), frames=6
         )
 
         [track] = document["tracks"]
-        assert present_on(track) == [0, 1, 4]
+        assert present_on(track) == [0, 1, 4, 5]
         assert track["attributes"] == {"colour": "black"}
-        assert {s["frame"]: s["occluded"] for s in track["shapes"] if not s["outside"]} == {
+        assert {s["frame"]: s["outside"] for s in track["shapes"]} == {
             0: False,
-            1: True,
+            2: True,
             4: False,
         }
         assert result["tracks_imported"] == 1
@@ -276,3 +284,185 @@ class TestACvatFile:
         warnings = " ".join(result["warnings"])
         assert "speed" in warnings
         assert "colour" in warnings and "purple" in warnings
+
+
+def cvat_track(*boxes: str, track_id: int = 3, label: str = "car") -> bytes:
+    """A CVAT XML file holding one track of `boxes`, each a `<box …/>` element's attributes."""
+    body = "\n".join(f'    <box occluded="0" {box}/>' for box in boxes)
+    return cvat_archive(
+        f"""<?xml version="1.0" encoding="utf-8"?>
+<annotations>
+  <version>1.1</version>
+  <track id="{track_id}" label="{label}">
+{body}
+  </track>
+</annotations>
+"""
+    )
+
+
+def box(frame: int, x: float, *, keyframe: int = 1, outside: int = 0) -> str:
+    return (
+        f'frame="{frame}" keyframe="{keyframe}" outside="{outside}" '
+        f'xtl="{x}" ytl="10" xbr="{x + 40}" ybr="50"'
+    )
+
+
+async def exported_boxes(actor: ApiActor, project: dict[str, Any]) -> dict[int, list[float]]:
+    """Where the project's one track is on each frame, from a CVAT XML export of it.
+
+    The export materialises the track frame by frame, so it is the server's own reading of
+    the keyframes the import stored: the positions in between, and the frames it is on.
+    """
+    import xml.etree.ElementTree as ET
+
+    export = await actor.post(
+        f"/api/v1/projects/{project['id']}/export", json={"format": "cvat_xml"}
+    )
+    assert export.status_code == 200, export.text
+    with zipfile.ZipFile(io.BytesIO(export.content)) as archive:
+        root = ET.fromstring(archive.read("annotations.xml"))
+    return {
+        int(element.get("frame", "-1")): [
+            float(element.get(key, "0")) for key in ("xtl", "ytl", "xbr", "ybr")
+        ]
+        for track in root.findall("track")
+        for element in track
+        if element.get("outside") != "1"
+    }
+
+
+class TestCvatKeyframes:
+    """A CVAT track lists keyframes; the frames between them are interpolated.
+
+    CVAT's reader (`load_anno` in `cvat/apps/dataset_manager/formats/cvat.py`) keeps only
+    the shapes marked `keyframe="1"`, and its tracks interpolate between them and leave
+    only at an `outside` keyframe. CVAT's own exports list every frame, which hid the
+    difference; a file written by hand, by a script or by another tool lists only its
+    keyframes, and every frame between two of them used to come back empty.
+    """
+
+    async def test_frames_between_two_keyframes_are_interpolated(
+        self, owner: ApiActor, project: dict[str, Any]
+    ) -> None:
+        _result, document = await import_into(
+            owner, project, "cvat_xml", cvat_track(box(0, 10), box(4, 50)), frames=6
+        )
+
+        [track] = document["tracks"]
+        assert [(s["frame"], s["outside"]) for s in track["shapes"]] == [(0, False), (4, False)]
+        assert present_on(track) == [0, 1, 2, 3, 4, 5]
+        positions = await exported_boxes(owner, project)
+        assert positions[2] == [30.0, 10.0, 70.0, 50.0]  # halfway
+        assert positions[5] == [50.0, 10.0, 90.0, 50.0]  # held after the last keyframe
+
+    async def test_an_interpolated_frame_in_the_file_is_not_made_a_keyframe(
+        self, owner: ApiActor, project: dict[str, Any]
+    ) -> None:
+        """CVAT writes the frames between keyframes too, marked `keyframe="0"`."""
+        archive = cvat_track(box(0, 10), box(1, 20, keyframe=0), box(2, 30))
+
+        _result, document = await import_into(owner, project, "cvat_xml", archive, frames=6)
+
+        [track] = document["tracks"]
+        assert [s["frame"] for s in track["shapes"]] == [0, 2]
+
+    async def test_an_outside_keyframe_ends_it_and_a_later_one_brings_it_back(
+        self, owner: ApiActor, project: dict[str, Any]
+    ) -> None:
+        archive = cvat_track(box(0, 10), box(2, 30, outside=1), box(4, 50), box(5, 60, outside=1))
+
+        _result, document = await import_into(owner, project, "cvat_xml", archive, frames=8)
+
+        [track] = document["tracks"]
+        assert present_on(track, stop=8) == [0, 1, 4]
+        positions = await exported_boxes(owner, project)
+        # Held up to the departure, not drawn towards the departure's stale coordinates.
+        assert positions[1] == [10.0, 10.0, 50.0, 50.0]
+
+    async def test_a_track_crossing_into_another_job_carries_on_moving_there(
+        self, owner: ApiActor, project: dict[str, Any]
+    ) -> None:
+        """Split as CVAT's `_slice_track` splits it: each job's part gets the interpolated
+        position on the boundary, so neither part stops early nor starts late."""
+        task, jobs = await make_task(owner, project, frames=6, segment_size=3)
+        imported = await owner.post(
+            f"/api/v1/tasks/{task['id']}/import?format=cvat_xml",
+            files={"file": ("import.zip", cvat_track(box(0, 10), box(4, 50)), "application/zip")},
+        )
+        assert imported.status_code == 200, imported.text
+        assert imported.json()["tracks_imported"] == 2
+
+        first, second = [
+            (await owner.get(f"/api/v1/jobs/{job['id']}/annotations")).json()["tracks"]
+            for job in jobs
+        ]
+        [early] = first
+        [late] = second
+        assert [(s["frame"], s["points"][0]) for s in early["shapes"]] == [(0, 10.0), (2, 30.0)]
+        assert [(s["frame"], s["points"][0]) for s in late["shapes"]] == [(3, 40.0), (4, 50.0)]
+        assert present_on(early, stop=3) == [0, 1, 2]
+        assert present_on(late, stop=6) == [3, 4, 5]
+
+    async def test_one_keyframe_closed_at_once_is_a_shape_and_one_left_open_a_track(
+        self, owner: ApiActor, project: dict[str, Any]
+    ) -> None:
+        """A one-frame track closed on the next frame is how CVAT writes a plain shape in a
+        tracked dump; one nothing closes is an object that stays to the end of the job."""
+        closed = cvat_track(box(1, 10), box(2, 10, outside=1))
+        _result, document = await import_into(owner, project, "cvat_xml", closed, frames=6)
+        assert [s["frame"] for s in document["shapes"]] == [1]
+        assert document["tracks"] == []
+
+        open_ended = cvat_track(box(3, 10))
+        _result, document = await import_into(owner, project, "cvat_xml", open_ended, frames=6)
+        [track] = document["tracks"]
+        assert present_on(track) == [3, 4, 5]
+        assert document["shapes"] == []
+
+
+class TestATrackWithAGap:
+    """A track that leaves and comes back, through each format that carries tracks."""
+
+    @pytest.mark.parametrize("format_id", ["curvevision", "cvat_xml", "mot"])
+    async def test_it_comes_back_absent_where_it_was_absent(
+        self, owner: ApiActor, organization: dict[str, Any], format_id: str
+    ) -> None:
+        """For CVAT XML this needs the export's own `outside` at the gap: CVAT reads a
+        frame a track does not list as interpolated, so until iteration 71 — when only the
+        end of a track was marked — the car came back gliding through frames 2 and 3."""
+        source = await street_project(owner, organization, f"gap-source-{format_id}")
+        _task, jobs = await make_task(owner, source, frames=6)
+        car = label_of(source, "car")
+        drawn = await owner.patch(
+            f"/api/v1/jobs/{jobs[0]['id']}/annotations",
+            json={
+                "created_tracks": [
+                    {
+                        "label_id": car,
+                        "shape_type": "rectangle",
+                        "shapes": [
+                            {"frame": 0, "shape_type": "rectangle", "points": BOX_AT_0},
+                            {
+                                "frame": 2,
+                                "shape_type": "rectangle",
+                                "points": BOX_AT_0,
+                                "outside": True,
+                            },
+                            {"frame": 4, "shape_type": "rectangle", "points": BOX_AT_2},
+                        ],
+                    }
+                ]
+            },
+        )
+        assert drawn.status_code == 200, drawn.text
+        export = await owner.post(
+            f"/api/v1/projects/{source['id']}/export", json={"format": format_id}
+        )
+        assert export.status_code == 200, export.text
+        target = await street_project(owner, organization, f"gap-target-{format_id}")
+
+        _result, document = await import_into(owner, target, format_id, export.content, frames=6)
+
+        [track] = document["tracks"]
+        assert present_on(track) == [0, 1, 4, 5]

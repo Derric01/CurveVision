@@ -1,6 +1,6 @@
 # Iteration archive
 
-> The narrative record of iterations **1–64**, moved out of
+> The narrative record of iterations **1–65**, moved out of
 > [`handoff.md`](../../handoff.md) so that orienting on this project costs a few hundred
 > lines rather than four thousand.
 >
@@ -15,6 +15,19 @@
 > window, append it to the top of this file rather than deleting it.
 
 ---
+
+## Iteration 65
+
+### 65 — COCO exports held to pycocotools
+
+Asked for directly: export quality "top notch, industry grade". The useful question was not
+"does it round-trip" — it did — but "does the reader everyone else uses agree", so the
+iteration started by installing pycocotools and writing tests against it, and reading how
+Datumaro (CVAT's exporter) writes COCO and VOC before changing any convention. Two of its
+conventions were followed (VOC coordinates; uncompressed RLE) and one deliberately not
+(`iscrowd: 1` for masks) — see *Decisions*. The other formats are the next best action.
+
+Verified: see *Verification performed*.
 
 ## Iteration 64
 

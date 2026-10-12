@@ -5,10 +5,10 @@
 > [`AGENTS.md`](./AGENTS.md) first; it is the working contract. Update this file after every
 > iteration, including the ones that mostly failed.
 >
-> **Last updated:** 2026-10-12 (iteration 70) · branch `claude/start-work-yx080h` · PRs
+> **Last updated:** 2026-10-12 (iteration 71) · branch `claude/start-work-yx080h` · PRs
 > [#1](https://github.com/Derric01/CurveVision/pull/1)–[#34](https://github.com/Derric01/CurveVision/pull/34)
-> **all merged**, #34 carrying iterations 67–69. Iteration 70 is pushed on top of that merge
-> with no PR yet.
+> **all merged**, #34 carrying iterations 67–69. Iterations 70 and 71 are pushed on top of
+> that merge with no PR yet.
 >
 > *Two things worth knowing about this repository's PR rhythm, which replace the
 > PR-by-PR changelog that used to sit here and had stopped helping anybody.* **PRs are
@@ -22,7 +22,7 @@
 > **Keep the session short.** One iteration, then commit, push, update this file and report —
 > `AGENTS.md` § *Continue* and the `start-work` skill both say so now, because they did not
 > before and a single session ran six iterations and roughly a third of a week's budget. The
-> concrete costs, in rough order: re-reading this file (iterations 1–64 now live in
+> concrete costs, in rough order: re-reading this file (iterations 1–65 now live in
 > [`docs/iterations/ARCHIVE.md`](./docs/iterations/ARCHIVE.md), which cut it from 3,800
 > lines to 1,000 — keep it that way); `python desktop/sidecar/build.py`, which is a
 > PyInstaller run of a minute or two and is needed *again* for every sabotage-and-restore
@@ -45,7 +45,7 @@ shapes (detection/segmentation, OBB, pose, classification), each declaring in it
 The desktop shape works: a packaged single-executable server, a Tauri shell that supervises
 it, and folders annotated in place without copying a byte.
 
-**The tree is green.** `./scripts/check.sh` passes all thirteen steps: 690 server tests, 16
+**The tree is green.** `./scripts/check.sh` passes all thirteen steps: 716 server tests, 16
 SDK, 756 web, and `scripts/` is lint-clean under its own `ruff.toml`. Thirty-two browser
 harnesses drive the application in a real Chromium, nightly and on every push to `main` —
 thirty-one against the packaged desktop server, and `verify_workspace.py` against the real
@@ -62,6 +62,13 @@ real one: **a box drawn in the editor lost its selection when its first autosave
 whoever was filling it in, within four seconds of drawing. The selection now follows the
 box to its saved id; the harnesses save through one helper that treats "autosave already
 did it" as done; and the deselection is checked on purpose rather than by luck.
+
+**A CVAT XML track is read the way CVAT reads it** (iteration 71): keyframes, with the
+frames between them interpolated and `outside` as the only departure, split across jobs
+the way CVAT splits one. A file listing only its keyframes used to come back empty between
+them. The export now marks every gap in a track `outside`, which CVAT needs to show it
+absent there. MOTChallenge and the native format keep "a gap is the object leaving", which
+is what a per-frame format means by one.
 
 **Skeleton joints stored before iteration 60 are repaired, and every joint is typed**
 (iteration 69). A migration rewrites the joints that a COCO import or a model stored by
@@ -492,17 +499,23 @@ was the last unconnected piece of the desktop application.
 
 ## Next best action
 
-*Ultralytics reading and training on every YOLO export was iteration 67; exports held to
-Datumaro and CVAT, and a workspace run from the app, 66; COCO held to pycocotools, 65.*
+*CVAT XML tracks read as CVAT reads them was iteration 71; the nightly browser run green
+on GitHub again, 70; Ultralytics reading and training on every YOLO export, 67.*
 
-**Watch the first runs of `.github/workflows/ultralytics.yml`.** It has run locally (PyPI's
-CUDA build of PyTorch, on CPU) but not yet on a GitHub runner, where it installs the CPU
-build from `download.pytorch.org` — which this container cannot reach. If the install
-step fails there, the fix is in the workflow, not the script. It triggers on any change
-under `server/curvevision/formats/`, weekly, and by hand.
+**`.github/workflows/ultralytics.yml` has run green on GitHub** (on #34 and on `main`), so
+the item that stood here is done. This iteration changes `server/curvevision/formats/`,
+which triggers it again: check that run, and `browser.yml`'s next, on GitHub.
 
-**Then: gaps in a CVAT XML track** — see below; the oldest item here with no dependency
-on the user.
+**Then, with no dependency on the user: write CVAT's `keyframe` flag truthfully.** Found
+doing 71. A CVAT XML export lists every frame of a track with `keyframe="1"`, because a
+format is handed a track already materialised frame by frame and does not know which
+frames were authored. CVAT reads every one of them as a keyframe, so a track exported from
+here and opened in CVAT has a keyframe on every frame: right positions, but moving it means
+moving every frame. CVAT's own dumper writes interpolated frames with `keyframe="0"`. The
+fix is to carry `keyframe` on the per-frame `ShapeRecord` from `_collect_job_annotations`
+(it knows), write it, and pin it in `test_export_conformance.py`. Re-import already drops
+`keyframe="0"` frames as CVAT does (iteration 71), so the round trip would then keep the
+authored keyframes exactly.
 
 
 **First, if a key is available: try iteration 63 against the real services.** Add Claude,
@@ -524,15 +537,6 @@ them is worth doing when someone asks.*
 is "add the API key and it works". It was not even that: there was no screen to add a key
 to. That is fixed; what still stands between a new user and a first prediction is a model
 server to point at — the first item under* Then, still needing the user.
-
-**A candidate found while doing 68, not yet decided: gaps in a CVAT XML track.** The
-import treats a frame a track does not list as the object being gone (iteration 62's rule,
-right for MOTChallenge, where a gap *is* the object leaving). CVAT's own reader treats an
-unlisted frame between two keyframes as interpolated, and marks absence only with
-`outside="1"`. CVAT's exports list every frame of a track, so a file CVAT wrote imports
-correctly; a hand-written or third-party CVAT XML with sparse keyframes does not. Making
-the gap rule per-format (`ImportResult` carrying "gaps mean absent" from the reader) is the
-fix; read CVAT's `formats/cvat.py` `load_anno` first.
 
 **Then, still needing the user:**
 
@@ -1033,6 +1037,30 @@ being updated and this one was not. Check it against* Completed *before trusting
 
 ## Verification performed
 
+Iteration 71:
+
+* **CVAT read first**: `load_anno` in `cvat/apps/dataset_manager/formats/cvat.py` (only
+  `keyframe="1"` shapes are kept; an `outside` keyframe is kept as the departure) and
+  `_slice_track` in `annotation.py` (a track split across jobs gets the interpolated shape
+  on each part's boundary; leading departures are dropped). The import now does both.
+* `tests/api/test_import_fidelity.py`: five new tests through the import route —
+  interpolated between two keyframes, checked through an export of the result (frame 2
+  halfway, frame 5 held); a `keyframe="0"` frame not made a keyframe; an `outside`
+  keyframe ending a run and a later keyframe starting one; a track split at a job boundary
+  carrying on moving into the next job; a one-frame track closed at once a shape, one left
+  open a track. **All five fail against the old code**, as does the rewritten CVAT-file
+  test, whose expectation was the old rule's and is now CVAT's (held on frame 5, frame 1
+  interpolated rather than a keyframe).
+* A gapped track round-trips through the native format, CVAT XML and MOTChallenge, and
+  comes back absent where it was absent. With the new reader and the old exporter, the
+  CVAT XML case fails; `test_export_conformance.py` pins the export itself (an `outside`
+  keyframe on the first frame of each gap and after the last run).
+* MOTChallenge and the native format keep "a gap is the object leaving": both list a
+  track on every frame it is on and on no other.
+* `verify_annotation_import.py` (imports a CVAT XML track) and `verify_cuboid.py` (exports
+  CVAT XML) against a rebuilt sidecar: both pass.
+* Full `./scripts/check.sh`: green (716 server collected, 756 web).
+
 Iteration 70:
 
 * **The CI failures, read from the runner logs**: every `main` run of `browser.yml` since
@@ -1371,6 +1399,14 @@ Iteration 54:
 
 ## Bugs fixed
 
+* **A CVAT XML track with sparse keyframes came back empty between them** (iteration 71):
+  the import read a frame a track did not list as the object being gone, where CVAT reads
+  it as interpolated. A file written by hand, by a script or by another tool — anything
+  but CVAT, which lists every frame — lost every frame between its keyframes, and a track
+  nothing closed was ended after its last keyframe instead of held to the end of the job.
+* **A CVAT XML export of a track that leaves and comes back showed it in CVAT throughout
+  its absence** (iteration 71): only a track's end was marked `outside`, and CVAT
+  interpolates across a frame a track does not list.
 * **A drawn box lost its selection, and its attributes panel, when its first autosave
   landed** (iteration 70): the reload brings it back under the server's id, and the scene
   dropped selected ids it no longer had.
@@ -1698,6 +1734,22 @@ Iteration 54:
 
 ## Last iteration
 
+### 71 — a CVAT XML track read the way CVAT reads it
+
+The oldest item in *Next best action* with no dependency on the user, found during 68. The
+import read a frame a CVAT track did not list as the object being gone — iteration 62's
+rule, right for MOTChallenge and wrong for CVAT, which interpolates between keyframes. Read
+CVAT's `load_anno` and `_slice_track` first, and followed both: only keyframes are kept,
+gaps interpolate, `outside` keyframes are departures, and a track crossing into another
+job carries its interpolated position across the boundary. The rule is now the format's to
+state (`ImportResult.track_gaps`). Writing the tests turned up the mirror-image defect in
+the export — a gap in a track was never marked `outside`, so CVAT would draw the object
+through it — fixed alongside. A third, smaller one is the next best action.
+
+Verified: see *Verification performed*.
+
+## Iteration 70
+
 ### 70 — the nightly browser run green again, and the defect it was hiding
 
 Orienting after #34 merged found its Ultralytics workflow green on GitHub — and
@@ -1785,22 +1837,9 @@ adapted code, and both are in the notices.
 
 Verified: see *Verification performed*.
 
-## Iteration 65
-
-### 65 — COCO exports held to pycocotools
-
-Asked for directly: export quality "top notch, industry grade". The useful question was not
-"does it round-trip" — it did — but "does the reader everyone else uses agree", so the
-iteration started by installing pycocotools and writing tests against it, and reading how
-Datumaro (CVAT's exporter) writes COCO and VOC before changing any convention. Two of its
-conventions were followed (VOC coordinates; uncompressed RLE) and one deliberately not
-(`iscrowd: 1` for masks) — see *Decisions*. The other formats are the next best action.
-
-Verified: see *Verification performed*.
-
 ## Earlier iterations
 
-Iterations **1–64** are in [`docs/iterations/ARCHIVE.md`](./docs/iterations/ARCHIVE.md) —
+Iterations **1–65** are in [`docs/iterations/ARCHIVE.md`](./docs/iterations/ARCHIVE.md) —
 moved there so that orienting costs a few hundred lines rather than four thousand. Read them
 when `git log` points you at an iteration number, or when you are about to build something
 and want to know whether it was already tried and rejected. The lessons from them that are

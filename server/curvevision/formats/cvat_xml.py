@@ -313,24 +313,31 @@ class CvatXmlFormat:
             entries = sorted(by_track[track_id], key=lambda item: item[0])
             label = entries[0][1].label
             body: list[str] = []
-            for frame_index, shape in entries:
-                body.extend(
-                    self._shape_element(shape, indent="    ", frame=frame_index, keyframe=True)
+            for position, (frame_index, shape) in enumerate(entries):
+                written = self._shape_element(
+                    shape, indent="    ", frame=frame_index, keyframe=True
                 )
+                if not written:
+                    continue
+                body.extend(written)
+                # Where the object stops being listed, it left: an `outside` keyframe on the
+                # next frame says so. CVAT reads a frame a track does not list as
+                # interpolated, so without one a track that leaves and comes back is drawn
+                # gliding through its absence, and one that ends is held there to the last
+                # frame. Until iteration 71 only the end was written. Not past the last
+                # frame, as CVAT's own dumper does not: there is no frame there to leave.
+                following = entries[position + 1][0] if position + 1 < len(entries) else None
+                leaves = frame_index + 1
+                if (following is None or following > leaves) and leaves <= last_index:
+                    body.extend(
+                        self._shape_element(
+                            shape, indent="    ", frame=leaves, keyframe=True, outside=True
+                        )
+                    )
             if not body:
                 continue  # Nothing this format can write; an empty <track> is malformed.
             lines.append(f'  <track id="{track_id}" label="{escape(label)}" source="manual">')
             lines.extend(body)
-            # Close the track: CVAT reads the trailing `outside` shape as the object leaving,
-            # and without it a consumer interpolates the object forever. Not past the last
-            # frame, though, as CVAT's own dumper does not: there is no frame there to leave.
-            last_frame, last_shape = entries[-1]
-            if last_frame < last_index:
-                lines.extend(
-                    self._shape_element(
-                        last_shape, indent="    ", frame=last_frame + 1, keyframe=True, outside=True
-                    )
-                )
             lines.append("  </track>")
         return lines
 
@@ -482,7 +489,14 @@ class CvatXmlFormat:
                 result.shapes.append((frame, shape))
                 matched.add(frame)
 
-        # --- "for video": per-frame boxes nested under <track>
+        # --- "for video": keyframes nested under <track>
+        # As CVAT's own reader (`load_anno`) takes them: only the shapes marked `keyframe`
+        # are kept, a frame between two of them is interpolated rather than empty, and an
+        # `outside` keyframe is where the object leaves until the next one. CVAT writes every
+        # frame of a track, interpolated ones with `keyframe="0"`; a file written by hand or
+        # by another tool lists only its keyframes, and reading a gap in one as the object
+        # being gone (until iteration 71) emptied every frame between them.
+        result.track_gaps = "interpolated"
         for track in root.findall("track"):
             label = track.get("label", "")
             try:
@@ -490,10 +504,8 @@ class CvatXmlFormat:
             except ValueError:
                 track_id = 0
             for child in track:
-                if child.get("outside") == "1":
-                    # The object leaving. It marks the end of a run rather than a position,
-                    # so importing it would place a box where the object is not.
-                    continue
+                if child.get("keyframe", "1") != "1":
+                    continue  # interpolated from the keyframes either side, as CVAT does
                 try:
                     frame = int(child.get("frame", "-1"))
                 except ValueError:
@@ -502,6 +514,16 @@ class CvatXmlFormat:
                     result.warnings.append(
                         f"{name}: track {track_id} frame {frame} is outside this task; skipped"
                     )
+                    continue
+                if child.get("outside") == "1":
+                    # The object leaving: where a run ends, not a position. Its geometry is
+                    # a stale copy, kept only because a track keyframe carries some.
+                    # The service attaches it to its track by id and label, whatever its
+                    # geometry reads as.
+                    shape = self._shape_from(child, name, result, label=label) or ShapeRecord(
+                        label=label, shape_type=ShapeType.RECTANGLE, points=[]
+                    )
+                    result.shapes.append((frame, replace(shape, track_id=track_id, outside=True)))
                     continue
                 shape = self._shape_from(child, name, result, label=label)
                 if shape is None:

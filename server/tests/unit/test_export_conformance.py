@@ -216,6 +216,47 @@ class TestCvatXml:
         frames = {int(child.get("frame") or -1) for track in root.iter("track") for child in track}
         assert frames == {0}
 
+    def test_a_track_that_leaves_is_closed_where_it_leaves_not_only_at_its_end(self) -> None:
+        """CVAT reads a frame a track does not list as interpolated (`load_anno` keeps the
+        keyframes; its tracks move between them), so the frame an object leaves on needs an
+        `outside` keyframe — in a gap as much as after the last frame. Until iteration 71
+        only the end was closed, and CVAT drew the car gliding through frames 2 and 3."""
+        on = {0, 1, 4}
+        view = DatasetView(
+            name="gap",
+            labels=labels(),
+            frames=iter(
+                FrameRecord(
+                    index=index,
+                    name=f"frame_{index:03d}.jpg",
+                    width=WIDTH,
+                    height=HEIGHT,
+                    shapes=[
+                        ShapeRecord(
+                            label="car",
+                            shape_type=ShapeType.RECTANGLE,
+                            points=[10.0, 20.0, 60.0, 50.0],
+                            track_id=7,
+                        )
+                    ]
+                    if index in on
+                    else [],
+                )
+                for index in range(7)
+            ),
+        )
+        [track] = self.root(view).iter("track")
+        listed = [
+            (int(box.get("frame") or -1), box.get("keyframe"), box.get("outside")) for box in track
+        ]
+        assert listed == [
+            (0, "1", "0"),
+            (1, "1", "0"),
+            (2, "1", "1"),
+            (4, "1", "0"),
+            (5, "1", "1"),
+        ]
+
 
 # ----------------------------------------------------------------------- Ultralytics YOLO
 

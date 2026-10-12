@@ -19,7 +19,7 @@ from __future__ import annotations
 
 from collections.abc import Iterable, Iterator
 from dataclasses import dataclass, field
-from typing import Any, Protocol, runtime_checkable
+from typing import Any, Literal, Protocol, runtime_checkable
 
 from curvevision.domain.enums import AttributeType, ShapeType
 
@@ -64,6 +64,11 @@ class ShapeRecord:
     confidence: float | None = None
     mask: dict[str, Any] | None = None
     elements: list[dict[str, Any]] = field(default_factory=list)
+    #: On the way in only: a track's record marking the frame its object **leaves** on, as
+    #: CVAT's `outside="1"` does. Its geometry is not a position. A format whose tracks are
+    #: interpolated between the frames it lists (`ImportResult.track_gaps`) needs it to say
+    #: where an object goes; an export never produces one.
+    outside: bool = False
 
 
 @dataclass(slots=True)
@@ -158,6 +163,15 @@ class ImportResult:
     #: Human-readable notes: files skipped, labels invented, annotations dropped.
     warnings: list[str] = field(default_factory=list)
     frames_matched: int = 0
+    #: What a frame a track does not list means between two that it does.
+    #:
+    #: * ``"absent"``: the object is not there. Right for a format that lists an object on
+    #:   every frame it is on and on no other — MOTChallenge, and every per-frame export,
+    #:   where a gap *is* the object leaving. Each gap gets an ``outside`` keyframe.
+    #: * ``"interpolated"``: the listed frames are keyframes and the object moves between
+    #:   them, leaving only where a record says ``outside`` — CVAT XML, whose own reader
+    #:   (`load_anno`) treats a track this way.
+    track_gaps: Literal["absent", "interpolated"] = "absent"
 
 
 @runtime_checkable
