@@ -163,6 +163,32 @@ class TestProjectWorkflow:
         restored = client.annotations(job.id)["shapes"]
         assert restored[0]["points"] == [1, 2, 30, 40]
 
+    def test_a_released_version_exports_what_was_released(
+        self, client: CurveVision, organization: Any, tmp_path: Path
+    ) -> None:
+        project = client.create_project(
+            organization.id, slug="sdk-release", name="Release", labels=[{"name": "car"}]
+        )
+        task = client.create_task(project.id, name="Release batch")
+        client.upload(task.id, [write_png(tmp_path / "a.png")])
+        job = client.jobs(task_id=task.id)[0]
+        box = {
+            "label_id": str(project.label_id("car")),
+            "frame": 0,
+            "shape_type": "rectangle",
+            "points": [1, 2, 30, 40],
+        }
+        client.create_shapes(job.id, [box])
+        version = client.create_dataset_version(project.id, "v1")
+        client.release_dataset_version(project.id, version["id"])
+        client.clear_annotations(job.id)
+
+        archive = client.export_dataset_version(project.id, version["id"], format="coco")
+
+        with zipfile.ZipFile(io.BytesIO(archive)) as handle:
+            document = json.loads(handle.read("annotations/instances_default.json"))
+        assert [a["bbox"] for a in document["annotations"]] == [[1, 2, 29, 38]]
+
     def test_export_warning_is_surfaced_not_swallowed(
         self, client: CurveVision, organization: Any, tmp_path: Path
     ) -> None:

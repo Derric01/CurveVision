@@ -6,8 +6,9 @@ import uuid
 
 from fastapi import APIRouter, status
 
-from curvevision.api.deps import IdentityDep, SessionDep, organization_context
-from curvevision.policy import Action, ResourceType, require
+from curvevision.api.deps import Identity, IdentityDep, SessionDep, organization_context
+from curvevision.domain.enums import Role
+from curvevision.policy import Action, ResourceContext, ResourceType, require
 from curvevision.schemas.identity import (
     MembershipCreate,
     MembershipOut,
@@ -20,6 +21,11 @@ from curvevision.schemas.identity import (
 from curvevision.services import organizations as org_service
 
 router = APIRouter(prefix="/organizations", tags=["organizations"])
+
+
+def _actor_role(identity: Identity, context: ResourceContext) -> Role | None:
+    """The rank a member acts with when managing members; None for a superuser."""
+    return None if identity.principal.is_superuser else context.organization_role
 
 
 @router.get("", response_model=list[OrganizationWithRole])
@@ -123,6 +129,7 @@ async def add_member(
         user_id=payload.user_id,
         identifier=payload.identifier,
         role=payload.role,
+        actor_role=_actor_role(identity, context),
     )
     await session.commit()
     return MembershipOut.model_validate(membership)
@@ -141,7 +148,11 @@ async def update_member(
     )
     require(identity.principal, Action.UPDATE, context)
     membership = await org_service.update_member_role(
-        session, organization_id, membership_id, payload.role
+        session,
+        organization_id,
+        membership_id,
+        payload.role,
+        actor_role=_actor_role(identity, context),
     )
     await session.commit()
     return MembershipOut.model_validate(membership)
@@ -158,5 +169,7 @@ async def remove_member(
         session, identity, organization_id, ResourceType.MEMBERSHIP
     )
     require(identity.principal, Action.DELETE, context)
-    await org_service.remove_member(session, organization_id, membership_id)
+    await org_service.remove_member(
+        session, organization_id, membership_id, actor_role=_actor_role(identity, context)
+    )
     await session.commit()

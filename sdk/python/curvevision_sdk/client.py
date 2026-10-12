@@ -475,12 +475,15 @@ class CurveVision:
         response = self._request(
             "POST", f"/projects/{project_id}/export", json={"format": format, **options}
         )
+        return self._archive(response, destination)
+
+    def _archive(self, response: httpx.Response, destination: str | Path | None) -> bytes:
         if warning := response.headers.get("x-curvevision-warnings"):
             # Surfaced rather than swallowed: this is where "my dataset is missing
             # annotations" is diagnosed.
             import warnings as _warnings
 
-            _warnings.warn(f"CurveVision export: {warning}", stacklevel=2)
+            _warnings.warn(f"CurveVision export: {warning}", stacklevel=3)
         if destination is not None:
             Path(destination).write_bytes(response.content)
         return response.content
@@ -524,6 +527,25 @@ class CurveVision:
         self, project_id: uuid.UUID, version_id: uuid.UUID
     ) -> dict[str, Any]:
         return dict(self._json("POST", f"/projects/{project_id}/versions/{version_id}/release"))
+
+    def export_dataset_version(
+        self,
+        project_id: uuid.UUID,
+        version_id: uuid.UUID,
+        *,
+        format: str = "coco",
+        include_images: bool = False,
+        destination: str | Path | None = None,
+    ) -> bytes:
+        """Export a dataset version. A released one returns the annotations it was released
+        with, however the project has changed since — train on this, not on `export`, when
+        the run has to be reproducible."""
+        response = self._request(
+            "POST",
+            f"/projects/{project_id}/versions/{version_id}/export",
+            json={"format": format, "include_images": include_images},
+        )
+        return self._archive(response, destination)
 
     # ---------------------------------------------------------------------- models
 

@@ -242,6 +242,23 @@ class TestYoloPose:
         assert len(parts) == 1 + 4 + 3 * 3, "still three keypoints wide"
         assert parts[-1] == "0", "the absent joint is marked invisible"
 
+    def test_an_absent_joint_is_written_as_zeros_whatever_its_stored_position(self) -> None:
+        """`0 0 0`, as Ultralytics' own COCO converter writes one, not a stale position."""
+        stale = ShapeRecord(
+            label="person",
+            shape_type=ShapeType.SKELETON,
+            points=[],
+            elements=[
+                {"points": [100.0, 40.0]},
+                {"points": [120.0, 120.0], "occluded": True},
+                {"points": [190.0, 190.0], "outside": True},
+            ],
+        )
+        sink = MemoryExportSink()
+        get_format("yolo_pose").export(dataset([frame([stale])], [person_label()]), sink)
+
+        assert only_label_file(sink).split()[-3:] == ["0.000000", "0.000000", "0"]
+
     def test_the_box_wraps_only_the_located_keypoints(self) -> None:
         sink = MemoryExportSink()
         get_format("yolo_pose").export(dataset([frame([skeleton()])], [person_label()]), sink)
@@ -325,7 +342,7 @@ class TestYoloClassification:
         get_format("yolo_classification").export(
             dataset([frame([], tags=["daytime"], media=b"JPEGBYTES")]), sink
         )
-        assert sink.files["images/default/daytime/a.jpg"] == b"JPEGBYTES"
+        assert sink.files["train/daytime/a.jpg"] == b"JPEGBYTES"
 
     def test_two_tags_on_one_frame_are_reported_not_guessed(self) -> None:
         """One directory, two claims. Filing under the first asserts something nobody did."""

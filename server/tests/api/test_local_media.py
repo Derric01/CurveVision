@@ -316,11 +316,12 @@ async def test_the_garbage_collector_never_deletes_the_user_s_files(
     deleted = await local_owner.delete(f"/api/v1/tasks/{task['id']}")
     assert deleted.status_code == 204
 
+    # Deleting the task queues the collector (iteration 66), which has now run: the rows
+    # are forgotten, and a second pass finds nothing left to forget.
     async with sessionmaker_() as session:
         assert (await session.execute(select(Asset))).scalars().all() == []
-
-    result = await reclaim_orphan_blobs({})
-    assert result["blobs_removed"] == 3
+        assert (await session.execute(select(MediaBlob))).scalars().all() == []
+    assert (await reclaim_orphan_blobs({}))["blobs_removed"] == 0
 
     for name in ("a_first.png", "b_second.png", "nested/c_third.png"):
         assert (photo_folder / name).is_file()

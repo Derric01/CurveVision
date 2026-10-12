@@ -37,10 +37,12 @@ from curvevision.formats import (
     ImportContext,
     ImportResult,
     LabelSpec,
+    MemoryExportSink,
     ShapeRecord,
     ZipExportSink,
     get_format,
 )
+from curvevision.formats import native as native_format
 from curvevision.formats.base import AttributeSpec
 from curvevision.services import annotations as annotation_service
 from curvevision.services import media as media_service
@@ -166,6 +168,7 @@ async def build_dataset_view(
                         shapes=by_frame.get(frame_index, []),
                         tags=tags_by_frame.get(frame_index, []),
                         media=media,
+                        media_sha256=blob.sha256 if blob else None,
                     )
                 )
 
@@ -382,13 +385,20 @@ async def export_dataset(
         include_images=include_images,
         storage=storage,
     )
+    return _run_export(format_id, view, present, [])
 
-    warnings = []
+
+def _run_export(
+    format_id: str, view: DatasetView, present: list[ShapeType], notes: list[str]
+) -> tuple[bytes, list[str]]:
+    fmt = get_format(format_id)
+    warnings = list(notes)
     dropped = fmt.capabilities.unsupported(present)
     if dropped:
-        warnings.append(
+        warnings.insert(
+            0,
             f"{fmt.name} cannot represent "
-            f"{', '.join(shape.value for shape in dropped)}; those annotations were omitted."
+            f"{', '.join(shape.value for shape in dropped)}; those annotations were omitted.",
         )
 
     with ZipExportSink() as sink:
@@ -765,20 +775,34 @@ async def create_dataset_version(
     return version
 
 
+def snapshot_key(version: DatasetVersion) -> str:
+    """Where a released version's frozen annotations are stored."""
+    return f"versions/{version.project_id}/{version.id}/dataset.json"
+
+
 async def release_dataset_version(
-    session: AsyncSession, project: Project, version: DatasetVersion
+    session: AsyncSession, project: Project, version: DatasetVersion, storage: Storage
 ) -> DatasetVersion:
-    """Freeze a version: compute its content hash and statistics, then seal it.
+    """Freeze a version: store its annotations, compute their hash and statistics, seal it.
 
     A released version is immutable. Two releases with the same ``content_hash`` contain
     exactly the same annotations, which is what makes an experiment reproducible.
+
+    Until iteration 66 the hash and the statistics were all a release kept: exporting the
+    version later read the project as it was *then*, so a release could not be reproduced
+    once anyone edited an annotation. Now the annotations themselves are frozen, in the
+    lossless native format, and `export_dataset_version` exports from that copy.
     """
     if version.state is DatasetVersionState.RELEASED:
         raise ConflictError("This dataset version is already released")
 
     task_ids = [uuid.UUID(value) for value in version.manifest.get("task_ids", [])]
-    view, present = await build_dataset_view(
+    live, present = await build_dataset_view(
         session, project, task_ids=task_ids or None, only_accepted=False
+    )
+    # Read once, used twice: for the hash and statistics, and for the frozen copy.
+    view = DatasetView(
+        name=live.name, labels=live.labels, frames=list(live), metadata=live.metadata
     )
 
     hasher = hashlib.sha256()
@@ -814,10 +838,18 @@ async def release_dataset_version(
         # to surface before anyone trains on the release.
         "frames_without_annotations": empty_frames,
     }
+    sink = MemoryExportSink()
+    get_format("curvevision").export(view, sink)
+    frozen = sink.files["dataset.json"]
+    key = snapshot_key(version)
+    await storage.put(key, frozen, content_type="application/json")
+
     version.manifest = {
         **version.manifest,
         "labels": [label.name for label in view.labels],
         "sealed_at": utcnow().isoformat(),
+        "snapshot_key": key,
+        "snapshot_sha256": hashlib.sha256(frozen).hexdigest(),
     }
     version.state = DatasetVersionState.RELEASED
     version.released_at = utcnow()
@@ -834,6 +866,102 @@ async def get_dataset_version(
     return version
 
 
+async def version_snapshot_keys(session: AsyncSession, project_id: uuid.UUID) -> list[str]:
+    """Where a project's released versions keep their frozen annotations."""
+    versions = (
+        await session.execute(select(DatasetVersion).where(DatasetVersion.project_id == project_id))
+    ).scalars()
+    return [str(key) for version in versions if (key := version.manifest.get("snapshot_key"))]
+
+
+async def export_dataset_version(
+    session: AsyncSession,
+    project: Project,
+    version: DatasetVersion,
+    *,
+    format_id: str,
+    include_images: bool,
+    storage: Storage,
+) -> tuple[bytes, list[str]]:
+    """Export a dataset version in any format.
+
+    A released version exports from its frozen copy, so it is the same annotations however
+    the project has changed since. A draft has nothing frozen yet and exports the project's
+    current annotations for the version's tasks — what releasing it now would freeze.
+
+    Images are found by content hash, wherever they are still stored; one whose every task
+    has since been deleted is gone, and the export says which frames lost theirs.
+    """
+    fmt = get_format(format_id)
+    if not fmt.capabilities.supports_export:
+        raise ValidationError(f"Format {format_id!r} does not support export")
+
+    if version.state is not DatasetVersionState.RELEASED:
+        task_ids = [uuid.UUID(value) for value in version.manifest.get("task_ids", [])]
+        return await export_dataset(
+            session,
+            project,
+            format_id=format_id,
+            task_ids=task_ids or None,
+            include_images=include_images,
+            storage=storage if include_images else None,
+        )
+
+    key = version.manifest.get("snapshot_key")
+    if not key:
+        raise ConflictError(
+            f"{version.name!r} was released before releases kept a frozen copy of their "
+            "annotations (iteration 66), so there is no copy to export. Its content hash "
+            "and statistics still describe it; release a new version to freeze one."
+        )
+    frozen = await storage.get(str(key))
+    if hashlib.sha256(frozen).hexdigest() != version.manifest.get("snapshot_sha256"):
+        raise ConflictError(
+            f"The frozen copy of {version.name!r} does not match the hash recorded when it "
+            "was released; it has been altered or damaged in storage."
+        )
+    view = native_format.read_view(json.loads(frozen))
+    frames = list(view)
+    present = sorted(
+        {shape.shape_type for frame in frames for shape in frame.shapes},
+        key=lambda shape: shape.value,
+    )
+
+    notes: list[str] = []
+    if include_images:
+        missing = await _attach_media(session, frames, storage)
+        if missing:
+            shown = ", ".join(missing[:10]) + (" …" if len(missing) > 10 else "")
+            notes.append(
+                f"{len(missing)} frame(s) have no image: every task holding it was deleted "
+                f"after this version was released ({shown})."
+            )
+    view = DatasetView(name=view.name, labels=view.labels, frames=frames, metadata=view.metadata)
+    return _run_export(format_id, view, present, notes)
+
+
+async def _attach_media(
+    session: AsyncSession, frames: list[FrameRecord], storage: Storage
+) -> list[str]:
+    """Give each single-image frame its bytes, found by hash. Returns the frames without."""
+    hashes = {frame.media_sha256 for frame in frames if frame.media_sha256}
+    blobs = {
+        blob.sha256: blob
+        for blob in (await session.execute(select(MediaBlob).where(MediaBlob.sha256.in_(hashes))))
+        .scalars()
+        .all()
+    }
+    missing: list[str] = []
+    for frame in frames:
+        blob = blobs.get(frame.media_sha256 or "")
+        # As in a live export, only single-image frames carry their bytes.
+        if blob is None:
+            missing.append(frame.name)
+        elif (blob.frame_count or 1) == 1:
+            frame.media = await media_service.read_blob(blob, storage)
+    return missing
+
+
 async def iter_dataset_frames(view: DatasetView) -> AsyncIterator[FrameRecord]:
     """Adapter for callers that want to consume the view asynchronously."""
     for frame in view:
@@ -847,8 +975,10 @@ __all__ = [
     "build_import_context",
     "create_dataset_version",
     "export_dataset",
+    "export_dataset_version",
     "get_dataset_version",
     "release_dataset_version",
     "summarise_import",
+    "version_snapshot_keys",
     "write_import",
 ]

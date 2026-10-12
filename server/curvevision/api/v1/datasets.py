@@ -19,6 +19,7 @@ from curvevision.schemas.system import (
     DatasetVersionOut,
     ExportRequest,
     ImportResultOut,
+    VersionExportRequest,
 )
 from curvevision.services import annotations as annotation_service
 from curvevision.services import datasets as dataset_service
@@ -185,14 +186,47 @@ async def create_version(
     response_model=DatasetVersionOut,
 )
 async def release_version(
-    version_id: uuid.UUID, scope: ProjectScopeDep, session: SessionDep
+    version_id: uuid.UUID, scope: ProjectScopeDep, session: SessionDep, settings: SettingsDep
 ) -> DatasetVersionOut:
-    """Seal a version. After this it is immutable and can only be superseded."""
+    """Seal a version: freeze its annotations. After this it can only be superseded."""
     scope.authorize(Action.UPDATE, ResourceType.DATASET_VERSION)
     version = await dataset_service.get_dataset_version(session, scope.project.id, version_id)
-    await dataset_service.release_dataset_version(session, scope.project, version)
+    await dataset_service.release_dataset_version(
+        session, scope.project, version, get_storage(settings)
+    )
     await session.commit()
     return DatasetVersionOut.model_validate(version)
+
+
+@router.post("/projects/{project_id}/versions/{version_id}/export")
+async def export_version(
+    version_id: uuid.UUID,
+    payload: VersionExportRequest,
+    scope: ProjectScopeDep,
+    session: SessionDep,
+    settings: SettingsDep,
+) -> Response:
+    """Export a dataset version. A released one exports its frozen annotations, however the
+    project has changed since; a draft exports what releasing it now would freeze."""
+    scope.authorize(Action.EXPORT)
+    version = await dataset_service.get_dataset_version(session, scope.project.id, version_id)
+    fmt = get_format(payload.format)
+    archive, warnings = await dataset_service.export_dataset_version(
+        session,
+        scope.project,
+        version,
+        format_id=payload.format,
+        include_images=payload.include_images,
+        storage=get_storage(settings),
+    )
+    safe = "".join(c if c.isalnum() or c in "-_." else "-" for c in version.name)
+    filename = f"{scope.project.slug}-{safe}-{payload.format}.{fmt.extension}"
+    headers = {"Content-Disposition": f'attachment; filename="{filename}"'}
+    if version.content_hash:
+        headers["X-CurveVision-Content-Hash"] = version.content_hash
+    if warnings:
+        headers["X-CurveVision-Warnings"] = " | ".join(warnings)[:900]
+    return Response(content=archive, media_type="application/zip", headers=headers)
 
 
 @router.get("/projects/{project_id}/versions/{version_id}", response_model=DatasetVersionOut)

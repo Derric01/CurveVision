@@ -5,10 +5,10 @@
 > [`AGENTS.md`](./AGENTS.md) first; it is the working contract. Update this file after every
 > iteration, including the ones that mostly failed.
 >
-> **Last updated:** 2026-10-12 (iteration 64) · branch `claude/start-work-yx080h` · PRs
-> [#1](https://github.com/Derric01/CurveVision/pull/1)–[#31](https://github.com/Derric01/CurveVision/pull/31)
-> **all merged**, #31 carrying iterations 62 and 63 (merged mid-session). Iteration 64 is
-> rebased onto that merge and pushed with no PR yet.
+> **Last updated:** 2026-10-12 (iteration 66) · branch `claude/start-work-yx080h` · PRs
+> [#1](https://github.com/Derric01/CurveVision/pull/1)–[#32](https://github.com/Derric01/CurveVision/pull/32)
+> **all merged**, #32 carrying iteration 64. Iterations 65 and 66 are pushed on top of that
+> merge with no PR yet.
 >
 > *Two things worth knowing about this repository's PR rhythm, which replace the
 > PR-by-PR changelog that used to sit here and had stopped helping anybody.* **PRs are
@@ -22,7 +22,7 @@
 > **Keep the session short.** One iteration, then commit, push, update this file and report —
 > `AGENTS.md` § *Continue* and the `start-work` skill both say so now, because they did not
 > before and a single session ran six iterations and roughly a third of a week's budget. The
-> concrete costs, in rough order: re-reading this file (iterations 1–58 now live in
+> concrete costs, in rough order: re-reading this file (iterations 1–60 now live in
 > [`docs/iterations/ARCHIVE.md`](./docs/iterations/ARCHIVE.md), which cut it from 3,800
 > lines to 1,000 — keep it that way); `python desktop/sidecar/build.py`, which is a
 > PyInstaller run of a minute or two and is needed *again* for every sabotage-and-restore
@@ -45,10 +45,41 @@ shapes (detection/segmentation, OBB, pose, classification), each declaring in it
 The desktop shape works: a packaged single-executable server, a Tauri shell that supervises
 it, and folders annotated in place without copying a byte.
 
-**The tree is green.** `./scripts/check.sh` passes all thirteen steps: 647 server tests, 15
-SDK, 718 web, and `scripts/` is lint-clean under its own `ruff.toml`. Thirty browser
-harnesses drive the packaged desktop application in a real Chromium, nightly and on every
-push to `main`. (Iteration 52 arrived to a red tree — mypy 2 — and fixed it first.)
+**The tree is green.** `./scripts/check.sh` passes all thirteen steps: 690 server tests, 16
+SDK, 745 web, and `scripts/` is lint-clean under its own `ruff.toml`. Thirty-one browser
+harnesses drive the application in a real Chromium, nightly and on every push to `main` —
+thirty against the packaged desktop server, and `verify_workspace.py` against the real server
+too. (Iteration 52 arrived to a red tree — mypy 2 — and fixed it first.)
+
+**Every exporter is held to the reader that consumes it, and a workspace can be run from
+the application** (iteration 66, asked for as "finish everything", with export quality
+"industry grade"). Exports were read back by Datumaro (CVAT's export library) and by
+CVAT's own XML reader, and Ultralytics' loader rules were restated as tests (Ultralytics
+itself needs PyTorch, which this container cannot install). They found real defects: **every
+YOLO export was refused by Ultralytics** — `data.yaml` named `images/train` and the files
+went to `images/default` — and **a YOLO file mixing boxes and polygons corrupted the boxes**,
+because Ultralytics reads such a file as segments throughout; **CVAT XML dropped rotated
+boxes and skeletons**, wrote empty tracks and a frame past the last, and lacked
+`original_size`; VOC's labelmap colours, the segmentation image set and MOTChallenge's label
+file were where no reader looks. All fixed, each with a test written against the reader's
+rule. In the application: a **Workspace** page (add people by username or email, change
+roles, remove; mint and revoke API tokens), **dataset versions** on the project page,
+**renaming and deleting** projects and tasks, and images and accepted-only on export. Three
+server defects came with them: **an admin could make themselves owner** and then demote the
+owner; **a released dataset version kept only a hash** — exporting it read the project as
+it was at export time — and now freezes its annotations; and **deleting a task never removed
+its images from storage**.
+
+**COCO exports are held to pycocotools, the reader the industry trains through**
+(iteration 65, asked for as "industry grade" export quality). Round trips through this
+project's own importer could not catch a convention got wrong both ways, and the reference
+reader found five: **masks were left out of COCO entirely** (and COCO masks were not read on
+import — they fell back to a box); a **rotated box's `bbox` was the unrotated box**, which
+a detector would learn as written; a skeleton's **`bbox` stretched to (0, 0)** whenever a
+joint was absent; **absent joints kept stale coordinates** instead of `0,0,0` (YOLO Pose
+too); and **`num_keypoints` counted only visible joints**, so COCOeval skipped people whose
+joints were all occluded. All fixed; `COCOeval` now scores an export against itself at AP
+1.0 for boxes, masks and keypoints.
 
 **Annotations made elsewhere can be imported from the task page** (iteration 64). An
 *Import annotations* panel, for workspace maintainers: the formats that import, an archive,
@@ -423,8 +454,19 @@ was the last unconnected piece of the desktop application.
 
 ## Next best action
 
-*Hosted AI by API key was iteration 63; import keeping attributes and tracks, 62; adding a
-model from the application, 61; joints that arrive from outside, 60.*
+*Exports held to Datumaro, CVAT and Ultralytics' rules, and a workspace run from the app,
+were iteration 66; COCO held to pycocotools, 65; importing from the task page, 64; hosted
+AI by API key, 63.*
+
+**Run a real Ultralytics training on an export, in a CI job that can install PyTorch.**
+Iteration 66 restated Ultralytics' loader rules as tests because `pip install ultralytics`
+could not reach the PyTorch index from this container. A job that exports the sample
+project as `yolo` (boxes, then with a polygon), `yolo_obb` and `yolo_pose` with images, and
+runs `YOLO("yolo11n.pt").train(data=…, epochs=1, imgsz=64)` on each, would replace a
+restatement with the reader itself. Expect it to find little — the rules were read from
+`ultralytics/data/utils.py` — but it is the only check of the YOLO family that is the real
+thing. Optional job, not the core suite: it downloads weights.
+
 
 **First, if a key is available: try iteration 63 against the real services.** Add Claude,
 OpenAI and one OpenRouter vision model on the Models page with real keys, run each on a few
@@ -435,17 +477,10 @@ fakes written from each API's documentation. The likely adjustments are in
 `ml/openai_compatible.py`. This needs the user's keys — ask rather than skip it.
 
 
-**Then: adding people to a workspace from the application.** The server shape's largest
-remaining gap: `POST /organizations/{id}/members` takes a user id, nothing in the API looks
-one up, and no screen calls it — a team can register accounts but nobody can add them to a
-workspace without the API. Needs a server change first (add by username or email, as CVAT's
-invitations do — read `cvat/apps/organizations` before designing it), then a members panel.
-
-*The iteration-62 sweep also found, with no client method at all: adding people to a workspace
-(`POST /organizations/{id}/members`, which takes a user id nothing can look up — needs a
-server change first), dataset versions, renaming or deleting a project, API tokens and
-webhooks; and `deleteTask` with no caller. Adding members is the largest of these for the
-server shape.*
+*The iteration-62 sweep's list of features with an API and no way in through the
+application is down to **webhooks** (iteration 66 did members, dataset versions, renaming
+and deleting, and API tokens). Webhooks are an integrator's feature; a settings panel for
+them is worth doing when someone asks.*
 
 
 *Iteration 61 was chosen over the action below because the user asked whether AI annotation
@@ -563,6 +598,30 @@ a mutation that flushes the shape buffer, re-reads `annotation_version`, then wr
 </details>
 
 ## Completed
+
+**Exports held to the readers that consume them** (iteration 66) — YOLO's layout matches
+its `data.yaml`; a dataset with any polygon is written as segments throughout; boxes are
+clipped before conversion; classification is `train/<class>/`; CVAT XML carries rotated
+boxes, skeletons with their joints declared as labels, `original_size`, no empty tracks and
+no frame past the last; VOC's labelmap is `r,g,b` and a rotated box is its enclosing box;
+segmentation masks list their image set; MOTChallenge's labels are at `gt/labels.txt`.
+`tests/unit/test_export_conformance.py`.
+
+**A workspace run from the application** (iteration 66) — the *Workspace* page (members
+and API tokens; API tokens only in the desktop shape), dataset versions on the project page
+(create, release, download any version in any format, with images), renaming and deleting
+projects and tasks, and images and accepted-only on the project export. `verify_workspace.py`
+drives all of it in both shapes.
+
+**Releases are reproducible** (iteration 66) — a release freezes its annotations in the
+native format, checked by hash on every export; `POST /projects/{id}/versions/{id}/export`
+and `export_dataset_version` in the SDK.
+
+**COCO conformance with pycocotools** (iteration 65) — masks exported as uncompressed
+column-major RLE with `iscrowd: 0`, and read back (compressed strings too); rotated boxes as
+their exact polygon with the enclosing `bbox`; keypoints per spec (absent `0,0,0`,
+`num_keypoints` over v > 0, box over labelled joints); YOLO Pose absent joints `0 0 0`.
+`tests/unit/test_coco_reference.py` and `tests/api/test_coco_export.py`.
 
 **Importing annotations from the task page** (iteration 64) — `AnnotationImportPanel` and
 `annotationImport.ts`: importable formats from `GET /formats`, append or a confirmed replace,
@@ -948,6 +1007,51 @@ being updated and this one was not. Check it against* Completed *before trusting
 
 ## Verification performed
 
+Iteration 66:
+
+* **Readers.** A rich dataset (tracks, a rotated box, a polygon, a mask, a skeleton with
+  visible, occluded and absent joints, a polyline, attributes) exported through every format
+  and read by Datumaro 1.13.11: VOC, KITTI, MOTChallenge, segmentation and COCO load with the
+  right labels and boxes. CVAT XML was then read by **CVAT's own extractor** (CVAT's
+  `develop` `formats/cvat.py`, against `cvat-ai/datumaro`, Django stubbed) in both modes:
+  every box, the rotated box with its rotation, polygon, polyline and the skeleton with
+  `head`/`hand`/`foot` as visible/hidden/absent come back. Datumaro's own CVAT reader cannot
+  read skeletons (it parses their joints as track shapes) or masks inside tracks, which CVAT
+  itself writes; those are Datumaro's limits, recorded under *Known issues*.
+* `tests/unit/test_export_conformance.py` (17), each against the reader's rule; the YOLO
+  ones restate Ultralytics' `img2label_paths`, the [0, 1] range, the class bound and the
+  per-task row widths.
+* **The escalation**, reproduced first: as an admin, `PATCH` of their own membership to
+  `owner` answered 200 and adding a newcomer as `owner` 201. `TestWhoManagesWhom` (5).
+* **Reclaiming media**: `tests/api/test_deletion.py` (3) fail with the new enqueue removed —
+  checked by doing exactly that, then restoring.
+* **Reproducible releases**: `TestAReleaseIsReproducible` (5) — an edit after release does
+  not reach the release's export while it does reach the project's; images by hash; a draft
+  exports live; an altered frozen copy is refused; deleting the project deletes the copies.
+  `read_view` is pinned as the exact inverse of the native export.
+* **Browser**: `scripts/verify_workspace.py`, 20 checks, all passing — against the real
+  server (uvicorn, SQLite, the built bundle) as an admin, then the packaged desktop server.
+  Its screenshots found two things the tests could not: "1 frames · 1 annotations", and the
+  delete form squeezed beside the task's status badge. Both fixed.
+* Full `./scripts/check.sh`: green (690 server, 16 SDK, 745 web). It caught one test
+  written against the old behaviour — the local-media collector test called the collector by
+  hand after a delete, which now runs it — updated to assert the same thing directly.
+
+Iteration 65:
+
+* `tests/unit/test_coco_reference.py` (9) and `tests/api/test_coco_export.py` (1), written
+  first: on the old exporter six fail — the missing mask, the unrotated `bbox`, the stale
+  absent joint and `num_keypoints`, and the end-to-end export. With the fix, pycocotools
+  loads every export, rasterises every segmentation, the mask is pixel-identical after
+  COCO's RLE (an L-shape, so a transposed decode cannot pass), a compressed RLE made by
+  pycocotools' own encoder reads back identically, and `COCOeval` gives AP 1.0 on boxes,
+  masks and keypoints.
+* The YOLO Pose absent-joint test failed first (`0.950000` where `0.000000` belonged).
+* What the tests themselves had wrong, for the next person: pycocotools cannot segm-evaluate
+  a category holding a box written with `segmentation: []` (as CVAT and Datumaro write
+  boxes), and keypoint evaluation needs per-joint sigmas for a non-COCO skeleton.
+* `./scripts/check.sh`: **all thirteen pass** — 658 server, 15 SDK, 718 web.
+
 Iteration 64:
 
 * `annotationImport.test.ts` (7). `contract.ts` now holds `AnnotationImportResult` to
@@ -1158,6 +1262,26 @@ Iteration 54:
 
 ## Bugs fixed
 
+* **Every YOLO export was refused by Ultralytics** (iteration 66): images and labels went
+  to `images/default` while `data.yaml` named `images/train`. And **a YOLO file mixing box
+  and polygon lines corrupted the boxes**: Ultralytics reads any file with a line longer
+  than six values as segments throughout.
+* **An admin could make themselves owner** and then demote the owner (iteration 66). The
+  policy gated *who may manage members*; nothing gated *which*.
+* **A released dataset version kept only a hash and statistics** (iteration 66); exporting
+  "the release" read the project as it was at export time.
+* **Deleting a task or project left its media in storage forever** (iteration 66): the
+  collector existed and nothing queued it. It also deleted files before rows, so a
+  concurrent upload of the same image could lose it.
+* **CVAT XML dropped rotated boxes and skeletons**, wrote empty `<track>`s and a closing
+  frame past the last, and lacked `original_size` (iteration 66).
+* **Pascal VOC's labelmap gave `#rrggbb` colours, and rotated boxes as their unrotated
+  box; segmentation masks had no image set; MOTChallenge's label list was not where readers
+  look** (iteration 66).
+* **COCO exports dropped masks; rotated boxes, partly visible skeletons and keypoint counts
+  were wrong** (iteration 65) — see *Status*. Root cause: COCO was only ever checked against
+  this project's own importer.
+
 * **Every import dropped attributes and broke tracks apart** (iteration 62), contradicting
   the README's round-trip table for CVAT XML, MOTChallenge and the native format. Root
   cause: the route stored `attributes={}` and ignored `track_id`; the readers had always
@@ -1249,6 +1373,19 @@ Iteration 54:
 
 ## Known issues
 
+* **Ultralytics itself has not read an export** (iteration 66). Its loader's rules are
+  restated as tests; the real thing needs PyTorch, which this container could not install.
+  That is the next best action.
+* **Datumaro's CVAT reader cannot read skeletons or masks inside tracks** (iteration 66).
+  Both are what CVAT itself writes, and CVAT's own reader reads ours; Datumaro users
+  importing a CVAT XML with either will hit Datumaro's limit, not ours.
+* **A release's images are found by hash in storage** (iteration 66): delete every task
+  holding an image and a later download of the release has no image for it (the export
+  lists which). The annotations are frozen; the pictures are not copied.
+* **Versions released before iteration 66 have no frozen copy** and answer `409` on export,
+  saying so. Their hash and statistics still describe them.
+* **YOLO classification writes `train/` only**; Ultralytics also needs `val/`, which the
+  export's README says how to make. Splitting someone's data is their decision.
 * **Hosted models have never met a real service** (iteration 63). The request shapes come
   from each API's documentation and the Anthropic SDK; how good the boxes are, and whether
   a given service's model list or JSON habits need adjusting, is unknown until somebody runs
@@ -1371,6 +1508,24 @@ Iteration 54:
 
 ## Decisions
 
+* **A YOLO dataset with any polygon is segments throughout** (iteration 66), boxes as their
+  four corners. The alternative — dropping polygons from the detection format — loses data;
+  mixing loses boxes. Ultralytics derives the same box from the corners, and the importer
+  reads four axis-aligned corners back as a rectangle (so a polygon drawn as a perfect
+  rectangle comes back as one).
+* **Below the owner, members manage only members below them** (iteration 66), CVAT's rule.
+  CVAT has one owner; this has several, so owners manage anyone and the last one is
+  protected by the existing 409.
+* **A release freezes annotations, not images** (iteration 66). Copying images per release
+  multiplies storage by the number of releases; finding them by content hash costs nothing
+  and fails only when someone deleted every task that held them — said in the export.
+* **COCO masks use `iscrowd: 0`, not CVAT's `iscrowd: 1`** (iteration 65). Datumaro writes
+  every mask as a crowd region; Detectron2 and MMDetection then ignore it in training. A
+  mask drawn here is one object, so it is written as one.
+* **Pascal VOC stays 0-based floats** (iteration 65), as Datumaro writes and reads it,
+  rather than the devkit's 1-based integers: interoperating with CVAT outweighs the devkit
+  letter, and every common loader parses floats.
+
 * **Offer, do not put back, and put back nothing the server has** (iteration 56). The plan
   is checked against the server's document when offered and again when restored.
 * **A remembered port that is busy is not forgotten** (iteration 56): the instance holding
@@ -1411,6 +1566,47 @@ Iteration 54:
 ---
 
 ## Last iteration
+
+### 66 — every export held to its reader; a workspace run from the application
+
+Asked for directly: "finish everything in this iteration", with the export bar from 65. One
+iteration of five parts, said up front, with three things excluded and said so: the
+YOLO-World server (a separate, GPL repository this session cannot create), signed
+installers (certificates the project does not have) and a real-key AI trial (the user's
+keys).
+
+Exports first, against readers rather than round trips: Datumaro 1.13 for VOC, KITTI, MOT,
+segmentation and CVAT XML; then CVAT's own XML reader (`dataset_manager/formats/cvat.py`,
+run against CVAT's Datumaro fork with its Django imports stubbed) once Datumaro was found
+not to read skeletons at all. Ultralytics would not install, so its loader was read and its
+rules restated (`img2label_paths`, `verify_image_label`, `YOLODataset.get_labels`).
+Reading `verify_image_label` is what found the mixed-row corruption; no reader that was
+installed would have.
+
+Then the application. Reading the member service before building its page found the
+escalation; reading the version service before building its panel found that "immutable"
+releases froze nothing; tracing what a task delete leaves behind found the collector nothing
+called. Each was fixed with a failing test first, and each is the server work a panel would
+otherwise have shipped to more people. CVAT was read for the member rule
+(`organizations/rules/memberships.rego`) and its XML dumper's conventions; neither is
+adapted code, and both are in the notices.
+
+Verified: see *Verification performed*.
+
+## Iteration 65
+
+### 65 — COCO exports held to pycocotools
+
+Asked for directly: export quality "top notch, industry grade". The useful question was not
+"does it round-trip" — it did — but "does the reader everyone else uses agree", so the
+iteration started by installing pycocotools and writing tests against it, and reading how
+Datumaro (CVAT's exporter) writes COCO and VOC before changing any convention. Two of its
+conventions were followed (VOC coordinates; uncompressed RLE) and one deliberately not
+(`iscrowd: 1` for masks) — see *Decisions*. The other formats are the next best action.
+
+Verified: see *Verification performed*.
+
+## Iteration 64
 
 ### 64 — annotations made elsewhere can be imported from the task page
 
@@ -1483,52 +1679,9 @@ request as well as on the client, because the tests' injected client had never c
 
 Verified: see *Verification performed*.
 
-## Iteration 60
-
-### 60 — a skeleton from outside is stored with joints the editor can read
-
-The next best action, found by iteration 59's contract check and not yet reproduced; it
-reproduced as tests at once, in three ways rather than one (COCO by name, native by another
-project's ids, an import-created label with no joints). The fix is one service both paths
-use, matching by name. CVAT was read for it (`dataset_manager/bindings.py`,
-`_import_shape`): it resolves each element with `_get_label_id(name, parent_label_id)`, by
-name under the skeleton's label, so the design is CVAT's; no code adapted. One difference,
-chosen: CVAT fails the import on a joint the label does not declare, and this drops the
-joint and says so in the import's warnings, as it already did for an unknown label. Exporting names was needed for the native format: its
-archives carried only ids, which mean nothing in another project. Joints with no names at
-all — native archives from before this — are matched by position, the order every format
-writes them in.
-
-Writing the inference test found an unrelated 500 on the label routes, which nothing had
-exercised with joints; and reading the provider for it found the unscaled joints. The
-historical rows are left, deliberately: repairing them is a data migration with its own
-decisions and its own tests, and it is the next best action.
-
-Verified: see *Verification performed*.
-
-## Iteration 59
-
-### 59 — the hand-written API types are checked against the server
-
-The candidate this file had carried longest. The hand-written `types.ts` stays — it holds
-the comments and the narrower unions the editor relies on — and is held to a generated
-`schema.ts` by a compile-time contract, rather than replaced by it. `openapi-typescript`
-generates; writing a generator was not considered (`AGENTS.md`: reuse first). It is dev-only
-and joins the notices gate's exempt list beside `vite` and `typescript`.
-
-**The contract's first run named 22 mismatches; 20 were optionality** (a field with a default
-is optional in the schema and always serialised), handled once in the contract rather than
-by loosening `types.ts`. **The other two were real**: `ShapeOut.elements` is `list[dict]` on
-the server while the client relies on `label_id` in each joint. Typing it on the server made
-everything pass — and would have turned every job holding an imported COCO skeleton into a
-500 on read, because the import stores joints by name. Reverted; the gap is held open by name
-in the contract, and fixing the import is the next best action.
-
-Verified: see *Verification performed*.
-
 ## Earlier iterations
 
-Iterations **1–58** are in [`docs/iterations/ARCHIVE.md`](./docs/iterations/ARCHIVE.md) —
+Iterations **1–60** are in [`docs/iterations/ARCHIVE.md`](./docs/iterations/ARCHIVE.md) —
 moved there so that orienting costs a few hundred lines rather than four thousand. Read them
 when `git log` points you at an iteration number, or when you are about to build something
 and want to know whether it was already tried and rejected. The lessons from them that are

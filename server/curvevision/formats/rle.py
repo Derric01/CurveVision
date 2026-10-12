@@ -174,3 +174,110 @@ __all__ = [
     "to_attribute",
     "validate_mask",
 ]
+
+
+# ------------------------------------------------------------------------------- COCO RLE
+#
+# COCO stores a mask as runs over the *whole image*, **column-major** (down each column, then
+# the next), starting with background: `{"counts": [...], "size": [height, width]}`. Writing
+# it row-major is the classic way to produce a file that loads cleanly and draws every mask
+# transposed into noise; `tests/unit/test_coco_reference.py` holds both directions to
+# pycocotools, the reference reader.
+
+
+def to_coco_rle(mask: dict[str, Any], frame_width: int, frame_height: int) -> dict[str, Any]:
+    """A stored mask as COCO's uncompressed RLE over a `frame_width` x `frame_height` image.
+
+    Walks the mask's own sub-rectangle column by column, so the cost is the mask's area, not
+    the frame's: background above, inside and below it is counted rather than enumerated.
+    """
+    validate_mask(mask)
+    left, top = int(mask["left"]), int(mask["top"])
+    width, height = int(mask["width"]), int(mask["height"])
+    flags = decode([int(run) for run in mask["rle"]], width, height)
+    counts: list[int] = [0]
+    foreground = False
+
+    def add(value: bool, length: int) -> None:
+        nonlocal foreground
+        if length <= 0:
+            return
+        if value != foreground:
+            counts.append(0)
+            foreground = value
+        counts[-1] += length
+
+    # Columns, and rows within a column, that fall outside the frame are not drawn.
+    add(False, max(0, min(left, frame_width)) * frame_height)
+    for x in range(left, left + width):
+        if not 0 <= x < frame_width:
+            continue
+        add(False, max(0, min(top, frame_height)))
+        for y in range(height):
+            if 0 <= top + y < frame_height:
+                add(flags[y * width + (x - left)], 1)
+        add(False, max(0, frame_height - max(top + height, 0)))
+    add(False, max(0, frame_width - max(left + width, 0)) * frame_height)
+    return {"counts": counts, "size": [frame_height, frame_width]}
+
+
+def from_coco_rle(segmentation: dict[str, Any]) -> dict[str, Any] | None:
+    """COCO RLE — uncompressed `counts` or the compressed string — as a stored mask.
+
+    None for a mask with no foreground. Only the foreground runs are walked, so a small
+    object on a large image costs its own size.
+    """
+    height, _width = (int(value) for value in segmentation["size"])
+    raw = segmentation["counts"]
+    counts = _counts_from_string(raw) if isinstance(raw, str | bytes) else [int(c) for c in raw]
+    on: list[tuple[int, int]] = []
+    index = 0
+    for run_number, run in enumerate(counts):
+        if run_number % 2 == 1:
+            for offset in range(index, index + run):
+                on.append((offset // height, offset % height))  # (x, y): column-major
+        index += run
+    if not on:
+        return None
+    xs = [x for x, _y in on]
+    ys = [y for _x, y in on]
+    left, top = min(xs), min(ys)
+    box_width, box_height = max(xs) - left + 1, max(ys) - top + 1
+    flags = [False] * (box_width * box_height)
+    for x, y in on:
+        flags[(y - top) * box_width + (x - left)] = True
+    return {
+        "rle": encode(flags, box_width, box_height),
+        "left": left,
+        "top": top,
+        "width": box_width,
+        "height": box_height,
+    }
+
+
+def _counts_from_string(value: str | bytes) -> list[int]:
+    """Decode COCO's compressed RLE string into run lengths.
+
+    The algorithm of `rleFrString` in pycocotools' `maskApi.c` (BSD-2-Clause, © 2015 Piotr
+    Dollar and Tsung-Yi Lin): each run is a little-endian sequence of 5-bit groups offset by
+    48, with 0x20 marking a continuation and 0x10 the sign; from the third run on, a value
+    is a delta from the run two before it. Re-implemented here so that importing a COCO
+    file does not depend on pycocotools.
+    """
+    text = value.decode("ascii") if isinstance(value, bytes) else value
+    counts: list[int] = []
+    position = 0
+    while position < len(text):
+        number, shift, more = 0, 0, True
+        while more:
+            char = ord(text[position]) - 48
+            number |= (char & 0x1F) << (5 * shift)
+            more = bool(char & 0x20)
+            position += 1
+            shift += 1
+            if not more and char & 0x10:
+                number |= -1 << (5 * shift)
+        if len(counts) > 2:
+            number += counts[-2]
+        counts.append(number)
+    return counts

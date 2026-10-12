@@ -41,7 +41,8 @@ POST /api/v1/auth/tokens
 
 **The token is shown once.** Only a hash is stored. Tokens do not expire unless you set
 `expires_at`, and each can be revoked individually — which is why they, not passwords, are
-the right credential for anything unattended.
+the right credential for anything unattended. The app mints, lists and revokes them on the
+*Workspace* page (*API tokens* in the desktop application), with a 90-day expiry by default.
 
 ## Conventions
 
@@ -93,10 +94,24 @@ the right credential for anything unattended.
 | Annotations | `/jobs/{id}/annotations`, `/jobs/{id}/frames/{frame}/annotations`, `/jobs/{id}/history` |
 | Review | `/jobs/{id}/issues`, `/jobs/{id}/issues/{id}/comments` |
 | Quality | `/tasks/{id}/ground-truth`, `/jobs/{id}/quality`, `/tasks/{id}/quality` |
-| Datasets | `/projects/{id}/export`, `/tasks/{id}/import`, `/projects/{id}/versions` |
+| Datasets | `/projects/{id}/export`, `/tasks/{id}/import`, `/projects/{id}/versions`, `/projects/{id}/versions/{id}/release`, `/projects/{id}/versions/{id}/export` |
 | AI | `/models`, `/models/discover`, `/jobs/{id}/inference`, `/jobs/{id}/suggestions` |
 | Integrations | `/webhooks` |
 | System | `/health`, `/formats`, `/background-tasks` |
+
+### Members, and who manages whom
+
+```http
+POST /api/v1/organizations/{id}/members   { "identifier": "ann@example.com", "role": "annotator" }
+PATCH /api/v1/organizations/{id}/members/{membership}   { "role": "reviewer" }
+```
+
+Someone is added by the username or email they signed up with. Managing members takes
+admin rank; below the owner, a member changes or removes only members ranked below them and
+gives only roles below their own (`403` otherwise) — CVAT's rule. An owner manages anyone,
+and the last owner can be neither demoted nor removed (`409`). *Until iteration 66 an admin
+could make themselves owner and then demote the owner.* The app does all of this on the
+*Workspace* page.
 
 ## Frame counts, and when to trust one
 
@@ -344,6 +359,39 @@ X-CurveVision-Warnings: COCO 1.0 cannot represent polyline; those annotations we
 Silently dropping annotations is how people discover a broken dataset during training,
 which is far too late.
 
+**COCO is held to pycocotools**, the reader Detectron2, MMDetection and torchvision go
+through (`tests/unit/test_coco_reference.py`): the document loads, every segmentation
+rasterises, each `bbox` is the tight box of what it covers, and `COCOeval` scores the ground
+truth against itself at AP 1.0 for boxes, masks and keypoints. Conventions it follows:
+
+* **Masks** are uncompressed RLE, column-major over the whole image, with `iscrowd: 0` —
+  instances to train on. (CVAT writes masks with `iscrowd: 1`, which Detectron2 ignores as
+  crowd regions.) Compressed RLE strings are read on import.
+* **Rotated boxes** are written as their exact four-corner polygon, with the enclosing
+  axis-aligned box as `bbox`; they read back as polygons.
+* **Keypoints**: an absent joint is `0,0,0`, `num_keypoints` counts labelled joints
+  (visible or occluded), and `bbox` covers only those. YOLO Pose writes absent joints as
+  `0 0 0` too, as Ultralytics' own COCO converter does.
+* **Pascal VOC** coordinates are 0-based floats, as Datumaro (CVAT's exporter) writes and
+  reads them — not the devkit's 1-based integers.
+
+**The other formats are held to the readers people use** (`tests/unit/test_export_conformance.py`),
+checked in iteration 66 against Datumaro and CVAT's own XML reader:
+
+* **YOLO** writes `images/train` and `labels/train`, which is what `data.yaml` names; `val`
+  is the training images when no frame is in a `val` subset (Ultralytics requires one).
+  A dataset with any polygon is written as segments throughout — a box as its four
+  corners — because Ultralytics reads a file mixing box and polygon lines as all segments,
+  turning each box into a wrong one. Boxes are clipped to the image before they become
+  centre and size. YOLO classification is `train/<class>/<image>`.
+* **CVAT XML** writes `original_size`, rotated boxes as `<box rotation>`, skeletons as
+  `<skeleton>` with each joint declared as a label under its parent, and no closing frame
+  past the last frame.
+* **Pascal VOC** writes its labelmap as `name:r,g,b::`, and a rotated box as the box around
+  its rotated corners. **Segmentation masks** list their frames in
+  `ImageSets/Segmentation/default.txt`. **MOTChallenge** puts its label list at
+  `gt/labels.txt`.
+
 ### What an import keeps
 
 ```http
@@ -369,11 +417,41 @@ task's jobs first; `append`, the default, adds to what is there.
 * **Provenance is not carried in**: everything an import writes is `source: "imported"`,
   whatever the file says it was.
 
+### Dataset versions
+
+```http
+POST /api/v1/projects/{id}/versions                      { "name": "v1.0" }       → draft
+POST /api/v1/projects/{id}/versions/{version}/release                             → released
+POST /api/v1/projects/{id}/versions/{version}/export     { "format": "yolo", "include_images": true }
+```
+
+**Releasing freezes the annotations.** The release stores them in the lossless native
+format, with each frame's image hash, and records a `content_hash` and statistics. Exporting
+a released version returns those annotations in any format, however the project has
+changed since — the dataset an experiment is reproduced from (`X-CurveVision-Content-Hash`
+on the response names it). A draft exports the project's current annotations for its tasks.
+A released version cannot be changed or deleted, only superseded.
+
+* Images come from storage by hash. One whose every task has since been deleted is gone;
+  the export lists the frames that lost theirs.
+* A frozen copy altered in storage is refused (`409`): its hash is checked on every export.
+* Versions released before iteration 66 kept only the hash and statistics, and answer
+  `409` saying so. *Until then, "exporting a release" read the project as it was at export
+  time.*
+
+### Deleting
+
+Deleting a task or a project deletes its jobs, annotations, reviews and versions, and
+queues the removal of its images and videos from storage — except any another task still
+uses (images are stored once per content hash). *Until iteration 66 nothing queued that
+job, and every deleted task's media stayed on disk.* The app asks for the name to be typed
+before deleting either.
+
 ### Shipped formats
 
 | Format | Import | Export | Carries | Use it for |
 | --- | :-: | :-: | --- | --- |
-| **COCO** | ✓ | ✓ | boxes, polygons, keypoints | the default for detection and segmentation |
+| **COCO** | ✓ | ✓ | boxes, rotated boxes (as polygons), polygons, masks (RLE), keypoints | the default for detection and segmentation |
 | **YOLO** | ✓ | ✓ | boxes, segmentation polygons | training a YOLO model directly |
 | **YOLO OBB** | ✓ | ✓ | **oriented** boxes — the angle survives | aerial and satellite imagery, industrial inspection, document layout |
 | **YOLO Pose** | — | ✓ | skeletons as keypoints with visibility | human and animal pose models |

@@ -861,6 +861,27 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/projects/{project_id}/versions/{version_id}/export": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Export Version
+         * @description Export a dataset version. A released one exports its frozen annotations, however the
+         *     project has changed since; a draft exports what releasing it now would freeze.
+         */
+        post: operations["export_version_api_v1_projects__project_id__versions__version_id__export_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/projects/{project_id}/versions/{version_id}/release": {
         parameters: {
             query?: never;
@@ -872,7 +893,7 @@ export interface paths {
         put?: never;
         /**
          * Release Version
-         * @description Seal a version. After this it is immutable and can only be superseded.
+         * @description Seal a version: freeze its annotations. After this it can only be superseded.
          */
         post: operations["release_version_api_v1_projects__project_id__versions__version_id__release_post"];
         delete?: never;
@@ -3303,6 +3324,19 @@ export interface components {
             /** Error Type */
             type: string;
         };
+        /** VersionExportRequest */
+        VersionExportRequest: {
+            /**
+             * Format
+             * @description Format id, e.g. 'coco', 'yolo', 'voc', 'curvevision'
+             */
+            format: string;
+            /**
+             * Include Images
+             * @default false
+             */
+            include_images: boolean;
+        };
         /** WebhookCreate */
         WebhookCreate: {
             /** Description */
@@ -5599,6 +5633,44 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content?: never;
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    export_version_api_v1_projects__project_id__versions__version_id__export_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                authorization?: string | null;
+            };
+            path: {
+                version_id: string;
+                project_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["VersionExportRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
             };
             /** @description Validation Error */
             422: {

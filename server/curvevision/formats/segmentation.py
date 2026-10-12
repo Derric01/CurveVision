@@ -109,6 +109,7 @@ class SegmentationMaskFormat:
         class_index = {label.name: index for index, label in enumerate(dataset.labels, start=1)}
         palette = voc_palette()
         skipped: set[str] = set()
+        written: list[str] = []
 
         for frame in dataset:
             width = frame.width or 0
@@ -134,9 +135,13 @@ class SegmentationMaskFormat:
             mask.save(buffer, format="PNG")
             stem = frame.name.rsplit(".", 1)[0] if "." in frame.name else frame.name
             sink.write(f"SegmentationClass/{stem}.png", buffer.getvalue())
+            written.append(stem)
             if frame.media is not None:
                 sink.write(f"JPEGImages/{frame.name}", frame.media)
 
+        # The image list the VOC layout requires; without it Datumaro (and CVAT, through it)
+        # does not recognise the directory as a segmentation dataset at all.
+        sink.write("ImageSets/Segmentation/default.txt", "".join(f"{stem}\n" for stem in written))
         sink.write(
             "labelmap.txt",
             "# label:color_rgb:parts:actions\n"

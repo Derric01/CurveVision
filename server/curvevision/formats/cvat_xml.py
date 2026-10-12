@@ -61,6 +61,8 @@ logger = get_logger(__name__)
 #: CVAT element name for each of our shape types, and back.
 TO_XML: dict[ShapeType, str] = {
     ShapeType.RECTANGLE: "box",
+    # CVAT's rotated box is a `<box>` with a `rotation` attribute.
+    ShapeType.ROTATED_RECTANGLE: "box",
     ShapeType.POLYGON: "polygon",
     ShapeType.POLYLINE: "polyline",
     ShapeType.POINTS: "points",
@@ -68,7 +70,9 @@ TO_XML: dict[ShapeType, str] = {
     ShapeType.MASK: "mask",
     ShapeType.CUBOID: "cuboid",
 }
-FROM_XML: dict[str, ShapeType] = {value: key for key, value in TO_XML.items()}
+FROM_XML: dict[str, ShapeType] = {
+    value: key for key, value in TO_XML.items() if key is not ShapeType.ROTATED_RECTANGLE
+}
 
 #: CVAT's own 16 named attributes for a `<cuboid>`, in the order its `points` list carries
 #: them: front face (top-left, bottom-left, top-right, bottom-right), then the same four
@@ -137,6 +141,14 @@ def _mask_from(element: ET.Element) -> dict[str, Any] | None:
     }
 
 
+def _named_joints(elements: list[dict[str, Any]], names: tuple[str, ...]) -> list[dict[str, Any]]:
+    """Each joint named after the label's keypoint at its position, where it has no name."""
+    return [
+        {**element, "name": element.get("name") or names[index]} if index < len(names) else element
+        for index, element in enumerate(elements)
+    ]
+
+
 def _parse_points(value: str) -> list[float]:
     flat: list[float] = []
     for pair in value.split(";"):
@@ -156,12 +168,14 @@ class CvatXmlFormat:
     capabilities = FormatCapabilities(
         shape_types=(
             ShapeType.RECTANGLE,
+            ShapeType.ROTATED_RECTANGLE,
             ShapeType.POLYGON,
             ShapeType.POLYLINE,
             ShapeType.POINTS,
             ShapeType.ELLIPSE,
             ShapeType.MASK,
             ShapeType.CUBOID,
+            ShapeType.SKELETON,
         ),
         supports_import=True,
         supports_export=True,
@@ -174,8 +188,9 @@ class CvatXmlFormat:
             "polylines, points, ellipses, masks, cuboids, tags, per-object attributes and "
             "tracks with keyframes. The cuboid's 16 coordinates round-trip through CVAT's "
             "own xtl1/ytl1.../ybr2 attributes, not a generic points list, so a box drawn "
-            "here reads back as the same box in real CVAT. Skeletons are written as their "
-            "element points and lose the parent/child structure, which is the one real gap."
+            "here reads back as the same box in real CVAT. Rotated boxes are `<box>` with "
+            "CVAT's `rotation`, and skeletons are CVAT's `<skeleton>` of named `<points>` — "
+            "until iteration 66 both were silently left out."
         ),
     )
 
@@ -184,6 +199,11 @@ class CvatXmlFormat:
     def export(self, dataset: DatasetView, sink: ExportSink) -> None:
         frames = list(dataset)
         tracked = any(shape.track_id is not None for frame in frames for shape in frame.shapes)
+        joints = {label.name: label.keypoints for label in dataset.labels if label.keypoints}
+        for frame in frames:
+            for shape in frame.shapes:
+                if shape.shape_type is ShapeType.SKELETON and shape.label in joints:
+                    shape.elements = _named_joints(shape.elements, joints[shape.label])
 
         lines: list[str] = [
             '<?xml version="1.0" encoding="utf-8"?>',
@@ -193,12 +213,22 @@ class CvatXmlFormat:
             "    <task>",
         ]
         lines.append(f"      <size>{len(frames)}</size>")
+        # CVAT writes the frame size into a track-mode file's meta, and CVAT's importer and
+        # Datumaro read every track's size from it; without it Datumaro refused the file.
+        sized = next((frame for frame in frames if frame.width and frame.height), None)
+        if sized is not None:
+            lines.append("      <original_size>")
+            lines.append(f"        <width>{sized.width}</width>")
+            lines.append(f"        <height>{sized.height}</height>")
+            lines.append("      </original_size>")
         lines.append(f"      <mode>{'interpolation' if tracked else 'annotation'}</mode>")
         lines.append("      <labels>")
         for label in dataset.labels:
             lines.append("        <label>")
             lines.append(f"          <name>{escape(label.name)}</name>")
             lines.append(f"          <color>{escape(label.color or '')}</color>")
+            if label.keypoints:
+                lines.append("          <type>skeleton</type>")
             lines.append("          <attributes>")
             for attribute in label.attributes:
                 lines.append("            <attribute>")
@@ -212,6 +242,17 @@ class CvatXmlFormat:
                 lines.append("            </attribute>")
             lines.append("          </attributes>")
             lines.append("        </label>")
+            # A skeleton's joints are labels of their own in CVAT, each naming its parent;
+            # CVAT resolves every `<points label=…>` inside a `<skeleton>` against them.
+            for joint in label.keypoints:
+                lines.append("        <label>")
+                lines.append(f"          <name>{escape(joint)}</name>")
+                lines.append(f"          <color>{escape(label.color or '')}</color>")
+                lines.append("          <type>points</type>")
+                lines.append(f"          <parent>{escape(label.name)}</parent>")
+                lines.append("          <attributes>")
+                lines.append("          </attributes>")
+                lines.append("        </label>")
         lines.append("      </labels>")
         lines.append("    </task>")
         lines.append("    <dumped>CurveVision</dumped>")
@@ -262,6 +303,7 @@ class CvatXmlFormat:
                     by_track[shape.track_id].append((frame.index, shape))
 
         lines: list[str] = []
+        last_index = max((frame.index for frame in frames), default=0)
         next_id = (max(by_track) + 1) if by_track else 0
         for index, shape in loose:
             by_track[next_id] = [(index, shape)]
@@ -270,19 +312,25 @@ class CvatXmlFormat:
         for track_id in sorted(by_track):
             entries = sorted(by_track[track_id], key=lambda item: item[0])
             label = entries[0][1].label
-            lines.append(f'  <track id="{track_id}" label="{escape(label)}" source="manual">')
+            body: list[str] = []
             for frame_index, shape in entries:
-                lines.extend(
+                body.extend(
                     self._shape_element(shape, indent="    ", frame=frame_index, keyframe=True)
                 )
+            if not body:
+                continue  # Nothing this format can write; an empty <track> is malformed.
+            lines.append(f'  <track id="{track_id}" label="{escape(label)}" source="manual">')
+            lines.extend(body)
             # Close the track: CVAT reads the trailing `outside` shape as the object leaving,
-            # and without it a consumer interpolates the object forever.
+            # and without it a consumer interpolates the object forever. Not past the last
+            # frame, though, as CVAT's own dumper does not: there is no frame there to leave.
             last_frame, last_shape = entries[-1]
-            lines.extend(
-                self._shape_element(
-                    last_shape, indent="    ", frame=last_frame + 1, keyframe=True, outside=True
+            if last_frame < last_index:
+                lines.extend(
+                    self._shape_element(
+                        last_shape, indent="    ", frame=last_frame + 1, keyframe=True, outside=True
+                    )
                 )
-            )
             lines.append("  </track>")
         return lines
 
@@ -295,6 +343,10 @@ class CvatXmlFormat:
         keyframe: bool = False,
         outside: bool = False,
     ) -> list[str]:
+        if shape.shape_type is ShapeType.SKELETON:
+            return self._skeleton_element(
+                shape, indent=indent, frame=frame, keyframe=keyframe, outside=outside
+            )
         element = TO_XML.get(shape.shape_type)
         if element is None:
             return []
@@ -309,7 +361,7 @@ class CvatXmlFormat:
         if shape.rotation:
             parts.append(f' rotation="{shape.rotation:.2f}"')
 
-        if shape.shape_type is ShapeType.RECTANGLE:
+        if shape.shape_type in (ShapeType.RECTANGLE, ShapeType.ROTATED_RECTANGLE):
             x1, y1, x2, y2 = normalise_rectangle(shape.points)
             parts.append(f' xtl="{x1:.2f}" ytl="{y1:.2f}" xbr="{x2:.2f}" ybr="{y2:.2f}"')
         elif shape.shape_type is ShapeType.ELLIPSE:
@@ -344,6 +396,43 @@ class CvatXmlFormat:
                 f'{indent}  <attribute name="{escape(name)}">{escape(str(value))}</attribute>'
             )
         lines.append(f"{indent}</{element}>")
+        return lines
+
+    @staticmethod
+    def _skeleton_element(
+        shape: ShapeRecord,
+        *,
+        indent: str,
+        frame: int | None,
+        keyframe: bool,
+        outside: bool,
+    ) -> list[str]:
+        """CVAT's `<skeleton>`: one `<points>` per joint, labelled with the joint's name.
+
+        Joint names come with each element (`services.datasets._named`); a joint without
+        one is named by its position, so the element count still lines up.
+        """
+        head = f'{indent}<skeleton label="{escape(shape.label)}"'
+        if frame is not None:
+            head += f' frame="{frame}" keyframe="{1 if keyframe else 0}"'
+        lines = [head + f' z_order="{shape.z_order}">']
+        for index, element in enumerate(shape.elements):
+            name = str(element.get("name") or f"joint{index + 1}")
+            x, y = [*list(element.get("points") or []), 0.0, 0.0][:2]
+            gone = outside or bool(element.get("outside"))
+            child = f'{indent}  <points label="{escape(name)}"'
+            if frame is not None:
+                child += f' keyframe="{1 if keyframe else 0}"'
+            child += (
+                f' occluded="{1 if element.get("occluded") else 0}" outside="{1 if gone else 0}"'
+                f' points="{float(x):.2f},{float(y):.2f}"></points>'
+            )
+            lines.append(child)
+        for name, value in sorted(shape.attributes.items()):
+            lines.append(
+                f'{indent}  <attribute name="{escape(name)}">{escape(str(value))}</attribute>'
+            )
+        lines.append(f"{indent}</skeleton>")
         return lines
 
     # ----------------------------------------------------------------------- import
@@ -452,6 +541,8 @@ class CvatXmlFormat:
     def _shape_from(
         element: ET.Element, source_name: str, result: ImportResult, *, label: str | None = None
     ) -> ShapeRecord | None:
+        if element.tag == "skeleton":
+            return CvatXmlFormat._skeleton_from(element, label=label)
         shape_type = FROM_XML.get(element.tag)
         if shape_type is None:
             return None
@@ -492,6 +583,8 @@ class CvatXmlFormat:
         except ValueError:
             rotation = 0.0
 
+        if shape_type is ShapeType.RECTANGLE and rotation:
+            shape_type = ShapeType.ROTATED_RECTANGLE  # CVAT's rotated box: a `<box>` turned
         return ShapeRecord(
             label=label or element.get("label", "") or "",
             shape_type=shape_type,
@@ -501,6 +594,39 @@ class CvatXmlFormat:
             z_order=int(element.get("z_order", "0") or 0),
             attributes=attributes,
             mask=mask,
+        )
+
+    @staticmethod
+    def _skeleton_from(element: ET.Element, *, label: str | None) -> ShapeRecord | None:
+        """CVAT's `<skeleton>`: its `<points>` children are the joints, named by `label`."""
+        elements: list[dict[str, Any]] = []
+        for child in element.findall("points"):
+            try:
+                x, y = _parse_points(child.get("points", ""))[:2]
+            except (ValueError, ValidationError):
+                x, y = 0.0, 0.0
+            elements.append(
+                {
+                    "name": child.get("label", ""),
+                    "points": [x, y],
+                    "occluded": child.get("occluded") == "1",
+                    "outside": child.get("outside") == "1",
+                }
+            )
+        if not elements:
+            return None
+        attributes = {
+            child.get("name", ""): (child.text or "")
+            for child in element.findall("attribute")
+            if child.get("name")
+        }
+        return ShapeRecord(
+            label=label or element.get("label", "") or "",
+            shape_type=ShapeType.SKELETON,
+            points=[],
+            z_order=int(element.get("z_order", "0") or 0),
+            attributes=attributes,
+            elements=elements,
         )
 
 
