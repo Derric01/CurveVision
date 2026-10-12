@@ -1,9 +1,11 @@
 import { useRef, useState } from 'react';
-import { Link, useParams } from 'react-router-dom';
+import { Link, useNavigate, useParams } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Check, Download, ImagePlus, Pencil, Plus, Tag, Trash2, X } from 'lucide-react';
 import { api } from '@/api/client';
 import type { Label as LabelSchemaEntry } from '@/api/types';
+import { ManageMenu } from '@/features/common/ManageMenu';
+import { VersionsPanel } from './VersionsPanel';
 import {
   Badge,
   Button,
@@ -53,6 +55,9 @@ export function ProjectPage() {
     queryFn: () => api.projectStatistics(projectId),
   });
   const formats = useQuery({ queryKey: ['formats'], queryFn: () => api.formats() });
+  const organizations = useQuery({ queryKey: ['organizations'], queryFn: () => api.organizations() });
+  const role = organizations.data?.find((org) => org.id === project.data?.organization_id)?.role;
+  const navigate = useNavigate();
 
   const createTask = useMutation({
     mutationFn: async () => {
@@ -69,9 +74,15 @@ export function ProjectPage() {
     },
   });
 
+  const [exportImages, setExportImages] = useState(false);
+  const [exportAccepted, setExportAccepted] = useState(false);
   const exportDataset = useMutation({
     mutationFn: async (format: string) => {
-      const blob = await api.exportProject(projectId, { format });
+      const blob = await api.exportProject(projectId, {
+        format,
+        include_images: exportImages,
+        only_accepted: exportAccepted,
+      });
       const url = URL.createObjectURL(blob);
       const anchor = document.createElement('a');
       anchor.href = url;
@@ -95,8 +106,29 @@ export function ProjectPage() {
   return (
     <div className="mx-auto max-w-6xl space-y-6 px-6 py-8">
       <header className="flex flex-wrap items-start justify-between gap-4">
-        <div>
-          <h1 className="text-lg font-semibold tracking-tight">{project.data?.name}</h1>
+        <div className="min-w-0 flex-1">
+          <div className="flex flex-wrap items-center gap-2">
+            <h1 className="text-lg font-semibold tracking-tight">{project.data?.name}</h1>
+            {project.data && (
+              <ManageMenu
+                resource="project"
+                name={project.data.name}
+                role={role}
+                counts={{ tasks: tasks.data?.count ?? 0 }}
+                onRename={async (name) => {
+                  await api.updateProject(projectId, { name });
+                  await queryClient.invalidateQueries({ queryKey: ['project', projectId] });
+                  await queryClient.invalidateQueries({ queryKey: ['projects'] });
+                }}
+                onDelete={async () => {
+                  await api.deleteProject(projectId);
+                  queryClient.removeQueries({ queryKey: ['project', projectId] });
+                  await queryClient.invalidateQueries({ queryKey: ['projects'] });
+                  navigate('/projects');
+                }}
+              />
+            )}
+          </div>
           <p className="mt-0.5 text-sm text-ink-400">
             {project.data?.description || 'No description'}
           </p>
@@ -115,15 +147,40 @@ export function ProjectPage() {
                 </option>
               ))}
           </select>
+          <label
+            className="flex items-center gap-1.5 text-xs text-ink-400"
+            title="Put the images in the archive too — what a training run needs."
+          >
+            <input
+              type="checkbox"
+              checked={exportImages}
+              onChange={(event) => setExportImages(event.target.checked)}
+              data-export-images=""
+            />
+            Images
+          </label>
+          <label
+            className="flex items-center gap-1.5 text-xs text-ink-400"
+            title="Only jobs a reviewer accepted — the usual choice for training data."
+          >
+            <input
+              type="checkbox"
+              checked={exportAccepted}
+              onChange={(event) => setExportAccepted(event.target.checked)}
+              data-export-accepted=""
+            />
+            Accepted only
+          </label>
           <Button
             onClick={() => {
               const select = document.getElementById('export-format') as HTMLSelectElement | null;
               exportDataset.mutate(select?.value ?? 'coco');
             }}
             disabled={exportDataset.isPending}
+            data-export-run=""
           >
             <Download size={15} />
-            Export
+            {exportDataset.isPending ? 'Exporting…' : 'Export'}
           </Button>
         </div>
       </header>
@@ -247,6 +304,15 @@ export function ProjectPage() {
           </Panel>
         </div>
       </div>
+
+      {project.data && (
+        <VersionsPanel
+          projectId={projectId}
+          projectSlug={project.data.slug}
+          role={role}
+          formats={formats.data ?? []}
+        />
+      )}
     </div>
   );
 }

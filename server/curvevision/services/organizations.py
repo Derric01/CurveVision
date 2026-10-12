@@ -8,8 +8,13 @@ from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
-from curvevision.core.errors import ConflictError, NotFoundError, ValidationError
-from curvevision.domain.enums import Role
+from curvevision.core.errors import (
+    ConflictError,
+    NotFoundError,
+    PermissionDeniedError,
+    ValidationError,
+)
+from curvevision.domain.enums import ROLE_RANK, Role
 from curvevision.domain.identity import Organization, OrganizationMembership, User
 
 
@@ -79,9 +84,11 @@ async def add_member(
     user_id: uuid.UUID | None = None,
     identifier: str | None = None,
     role: Role = Role.ANNOTATOR,
+    actor_role: Role | None,
 ) -> OrganizationMembership:
     if user_id is None and identifier is None:
         raise ValidationError("Provide either user_id or identifier")
+    _assert_may_grant(actor_role, role)
 
     if user_id is not None:
         user = await session.get(User, user_id)
@@ -133,10 +140,14 @@ async def update_member_role(
     organization_id: uuid.UUID,
     membership_id: uuid.UUID,
     role: Role,
+    *,
+    actor_role: Role | None,
 ) -> OrganizationMembership:
     membership = await session.get(OrganizationMembership, membership_id)
     if membership is None or membership.organization_id != organization_id:
         raise NotFoundError("Membership not found")
+    _assert_may_manage(actor_role, membership.role)
+    _assert_may_grant(actor_role, role)
 
     if membership.role is Role.OWNER and role is not Role.OWNER:
         await _assert_not_last_owner(session, organization_id, membership.id)
@@ -148,14 +159,48 @@ async def update_member_role(
 
 
 async def remove_member(
-    session: AsyncSession, organization_id: uuid.UUID, membership_id: uuid.UUID
+    session: AsyncSession,
+    organization_id: uuid.UUID,
+    membership_id: uuid.UUID,
+    *,
+    actor_role: Role | None,
 ) -> None:
     membership = await session.get(OrganizationMembership, membership_id)
     if membership is None or membership.organization_id != organization_id:
         raise NotFoundError("Membership not found")
+    _assert_may_manage(actor_role, membership.role)
     if membership.role is Role.OWNER:
         await _assert_not_last_owner(session, organization_id, membership.id)
     await session.delete(membership)
+
+
+# Who manages whom. The policy engine decides who may manage members at all (admin and up);
+# these decide which members, after CVAT's rule (`organizations/rules/memberships.rego`):
+# below the owner, a member acts only on members ranked below them and grants only roles
+# below their own. Without them an admin could make themselves owner and then demote the
+# owner who appointed them. CVAT has one owner per organization; this has as many as its
+# owners choose, so an owner manages anyone, other owners included, and
+# `_assert_not_last_owner` keeps one in place. `actor_role` None is a superuser, whom no
+# organization rank binds.
+
+
+def _assert_may_grant(actor_role: Role | None, role: Role) -> None:
+    if actor_role is None or actor_role is Role.OWNER:
+        return
+    if ROLE_RANK[role] >= ROLE_RANK[actor_role]:
+        raise PermissionDeniedError(
+            f"As {actor_role.value} you can give only roles below your own, not {role.value}."
+        )
+
+
+def _assert_may_manage(actor_role: Role | None, target: Role) -> None:
+    if actor_role is None or actor_role is Role.OWNER:
+        return
+    if ROLE_RANK[target] >= ROLE_RANK[actor_role]:
+        raise PermissionDeniedError(
+            f"As {actor_role.value} you can change only members ranked below you; "
+            f"this member is {target.value}."
+        )
 
 
 async def _assert_not_last_owner(

@@ -12,12 +12,15 @@
 
 import { desktopToken } from '@/desktop';
 import type {
+  ApiToken,
+  ApiTokenCreated,
   AnnotationDocument,
   AnnotationWriteResult,
   Asset,
   BackgroundTaskBrief,
   AnnotationImportResult,
   DatasetFormat,
+  DatasetVersion,
   FrameInfo,
   InferenceResult,
   Issue,
@@ -36,6 +39,7 @@ import type {
   Project,
   ProjectStatistics,
   QualityReport,
+  Role,
   Task,
   TaskMediaMeta,
   TaskProgress,
@@ -240,12 +244,38 @@ export const api = {
 
   me: () => request<User>('/auth/me'),
 
+  /** The caller's personal API tokens, revoked ones included. */
+  apiTokens: () => request<ApiToken[]>('/auth/tokens'),
+
+  createApiToken: (input: { name: string; expires_at: string | null }) =>
+    request<ApiTokenCreated>('/auth/tokens', { method: 'POST', body: input }),
+
+  revokeApiToken: (id: string) => request<void>(`/auth/tokens/${id}`, { method: 'DELETE' }),
+
   // ---------------------------------------------------------------- organizations
   organizations: () => request<Organization[]>('/organizations'),
 
   /** Everyone in an organization, with the role each holds — who a job can be handed to. */
   members: (organizationId: string) =>
     request<Membership[]>(`/organizations/${organizationId}/members`),
+
+  /** Add someone by username or email; the server refuses a role at or above the caller's. */
+  addMember: (organizationId: string, input: { identifier: string; role: Role }) =>
+    request<Membership>(`/organizations/${organizationId}/members`, {
+      method: 'POST',
+      body: input,
+    }),
+
+  changeMemberRole: (organizationId: string, membershipId: string, role: Role) =>
+    request<Membership>(`/organizations/${organizationId}/members/${membershipId}`, {
+      method: 'PATCH',
+      body: { role },
+    }),
+
+  removeMember: (organizationId: string, membershipId: string) =>
+    request<void>(`/organizations/${organizationId}/members/${membershipId}`, {
+      method: 'DELETE',
+    }),
 
   createOrganization: (input: { slug: string; name: string; description?: string }) =>
     request<Organization>('/organizations', { method: 'POST', body: input }),
@@ -255,6 +285,12 @@ export const api = {
     request<Page<Project>>('/projects', { params }),
 
   project: (id: string) => request<Project>(`/projects/${id}`),
+
+  updateProject: (id: string, changes: { name?: string; description?: string | null }) =>
+    request<Project>(`/projects/${id}`, { method: 'PATCH', body: changes }),
+
+  /** Deletes the project, its tasks and their annotations; unshared media is reclaimed. */
+  deleteProject: (id: string) => request<void>(`/projects/${id}`, { method: 'DELETE' }),
 
   createProject: (input: {
     organization_id: string;
@@ -303,6 +339,9 @@ export const api = {
     description?: string;
     segment_size?: number;
   }) => request<Task>('/tasks', { method: 'POST', body: input }),
+
+  updateTask: (id: string, changes: { name?: string; description?: string | null }) =>
+    request<Task>(`/tasks/${id}`, { method: 'PATCH', body: changes }),
 
   deleteTask: (id: string) => request<void>(`/tasks/${id}`, { method: 'DELETE' }),
 
@@ -544,8 +583,37 @@ export const api = {
   // --------------------------------------------------------------------- datasets
   formats: () => request<DatasetFormat[]>('/formats'),
 
-  exportProject: (projectId: string, body: { format: string; only_accepted?: boolean }) =>
-    request<Blob>(`/projects/${projectId}/export`, { method: 'POST', body }),
+  exportProject: (
+    projectId: string,
+    body: { format: string; only_accepted?: boolean; include_images?: boolean },
+  ) => request<Blob>(`/projects/${projectId}/export`, { method: 'POST', body }),
+
+  // -------------------------------------------------------------- dataset versions
+  versions: (projectId: string) =>
+    request<DatasetVersion[]>(`/projects/${projectId}/versions`),
+
+  createVersion: (projectId: string, input: { name: string; description?: string }) =>
+    request<DatasetVersion>(`/projects/${projectId}/versions`, { method: 'POST', body: input }),
+
+  /** Freeze a version's annotations. It cannot be changed or deleted afterwards. */
+  releaseVersion: (projectId: string, versionId: string) =>
+    request<DatasetVersion>(`/projects/${projectId}/versions/${versionId}/release`, {
+      method: 'POST',
+    }),
+
+  deleteVersion: (projectId: string, versionId: string) =>
+    request<void>(`/projects/${projectId}/versions/${versionId}`, { method: 'DELETE' }),
+
+  /** A released version exports its frozen annotations; a draft, the project's current ones. */
+  exportVersion: (
+    projectId: string,
+    versionId: string,
+    body: { format: string; include_images?: boolean },
+  ) =>
+    request<Blob>(`/projects/${projectId}/versions/${versionId}/export`, {
+      method: 'POST',
+      body,
+    }),
 
   // ----------------------------------------------------------------------- models
   models: (params?: { organization_id?: string }) =>

@@ -12,6 +12,7 @@ from curvevision.api.deps import (
     IdentityDep,
     ProjectScopeDep,
     SessionDep,
+    SettingsDep,
     organization_context,
 )
 from curvevision.core.errors import NotFoundError
@@ -29,7 +30,10 @@ from curvevision.schemas.project import (
     ProjectStatistics,
     ProjectUpdate,
 )
+from curvevision.services import background as background_service
+from curvevision.services import datasets as dataset_service
 from curvevision.services import projects as project_service
+from curvevision.storage import get_storage
 
 router = APIRouter(prefix="/projects", tags=["projects"])
 
@@ -121,10 +125,20 @@ async def update_project(
 
 
 @router.delete("/{project_id}", status_code=status.HTTP_204_NO_CONTENT)
-async def delete_project(scope: ProjectScopeDep, session: SessionDep) -> None:
+async def delete_project(
+    scope: ProjectScopeDep, session: SessionDep, settings: SettingsDep
+) -> None:
     scope.authorize(Action.DELETE)
+    # Before the delete: the versions' rows, which name the files, go with the project.
+    # A frozen copy outliving its row only wastes space; one deleted ahead of a delete
+    # that then fails would lose a release, so the files go after the commit.
+    keys = await dataset_service.version_snapshot_keys(session, scope.project.id)
     await session.delete(scope.project)
     await session.commit()
+    storage = get_storage(settings)
+    for key in keys:
+        await storage.delete(key)
+    await background_service.reclaim_media(session, created_by_id=scope.identity.user.id)
 
 
 @router.get("/{project_id}/statistics", response_model=ProjectStatistics)

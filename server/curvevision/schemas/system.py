@@ -99,6 +99,11 @@ class ExportRequest(StrictModel):
     only_accepted: bool = False
 
 
+class VersionExportRequest(StrictModel):
+    format: str = Field(description="Format id, e.g. 'coco', 'yolo', 'voc', 'curvevision'")
+    include_images: bool = False
+
+
 class ImportRequest(StrictModel):
     format: str
     task_id: uuid.UUID

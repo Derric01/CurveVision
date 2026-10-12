@@ -291,6 +291,19 @@ class TestPascalVoc:
 
 
 class TestNativeFormat:
+    def test_read_view_is_the_exact_inverse_of_export(self) -> None:
+        """What a released dataset version is exported from: nothing may change in between."""
+        from curvevision.formats.native import read_view
+
+        first = MemoryExportSink()
+        get_format("curvevision").export(sample_dataset(), first)
+        document = json.loads(first.files["dataset.json"])
+
+        again = MemoryExportSink()
+        get_format("curvevision").export(read_view(document), again)
+
+        assert json.loads(again.files["dataset.json"]) == document
+
     def test_round_trip_is_lossless_for_every_field(self) -> None:
         labels = [LabelSpec(id="1", name="car", color="#ff0000")]
         original = ShapeRecord(

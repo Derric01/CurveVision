@@ -157,6 +157,7 @@ async def delete_task(scope: TaskScopeDep, session: SessionDep) -> None:
     scope.authorize(Action.DELETE)
     await session.delete(scope.task)
     await session.commit()
+    await background_service.reclaim_media(session, created_by_id=scope.identity.user.id)
 
 
 @router.get("/tasks/{task_id}/progress", response_model=TaskProgress)
@@ -214,6 +215,7 @@ async def delete_asset(asset_id: uuid.UUID, scope: TaskScopeDep, session: Sessio
     await task_service.recount_frames(session, scope.task)
     await task_service.rebuild_jobs(session, scope.task)
     await session.commit()
+    await background_service.reclaim_media(session, created_by_id=scope.identity.user.id)
 
 
 # ------------------------------------------------------------------- resumable uploads

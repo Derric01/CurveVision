@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 import io
+import json
 import zipfile
+from pathlib import Path
 from typing import Any
 
 import pytest
@@ -121,6 +123,91 @@ class TestMembership:
             json={"role": "admin"},
         )
         assert response.status_code == 200
+
+
+class TestWhoManagesWhom:
+    """A member manages only members ranked below them, and grants only roles below their
+    own; an owner manages anyone. CVAT's rule (`organizations/rules/memberships.rego`),
+    adapted to an organization that may have several owners."""
+
+    async def members(self, actor: ApiActor, organization: dict[str, Any]) -> dict[str, str]:
+        listed = (await actor.get(f"/api/v1/organizations/{organization['id']}/members")).json()
+        return {m["user"]["username"]: m["id"] for m in listed}
+
+    async def test_an_admin_cannot_make_themselves_owner(
+        self, owner: ApiActor, organization: dict[str, Any]
+    ) -> None:
+        admin = await register(owner.client, "ambitious")
+        await add_member(owner, organization["id"], admin, Role.ADMIN)
+        members = await self.members(owner, organization)
+
+        response = await admin.patch(
+            f"/api/v1/organizations/{organization['id']}/members/{members['ambitious']}",
+            json={"role": "owner"},
+        )
+        assert response.status_code == 403
+
+    async def test_an_admin_cannot_grant_their_own_rank_or_above(
+        self, owner: ApiActor, organization: dict[str, Any]
+    ) -> None:
+        admin = await register(owner.client, "deputy")
+        await add_member(owner, organization["id"], admin, Role.ADMIN)
+        newcomer = await register(owner.client, "newcomer")
+
+        for role in ("owner", "admin"):
+            response = await admin.post(
+                f"/api/v1/organizations/{organization['id']}/members",
+                json={"identifier": "newcomer", "role": role},
+            )
+            assert response.status_code == 403, role
+        allowed = await admin.post(
+            f"/api/v1/organizations/{organization['id']}/members",
+            json={"identifier": newcomer.user["username"], "role": "maintainer"},
+        )
+        assert allowed.status_code == 201
+
+    async def test_an_admin_cannot_demote_or_remove_an_owner_or_another_admin(
+        self, owner: ApiActor, organization: dict[str, Any]
+    ) -> None:
+        admin = await register(owner.client, "admin1")
+        await add_member(owner, organization["id"], admin, Role.ADMIN)
+        peer = await register(owner.client, "admin2")
+        await add_member(owner, organization["id"], peer, Role.ADMIN)
+        members = await self.members(owner, organization)
+        base = f"/api/v1/organizations/{organization['id']}/members"
+
+        for target in ("founder", "admin2"):
+            demoted = await admin.patch(f"{base}/{members[target]}", json={"role": "viewer"})
+            assert demoted.status_code == 403, target
+            removed = await admin.delete(f"{base}/{members[target]}")
+            assert removed.status_code == 403, target
+
+    async def test_an_admin_manages_the_members_below_them(
+        self, owner: ApiActor, organization: dict[str, Any]
+    ) -> None:
+        admin = await register(owner.client, "lead")
+        await add_member(owner, organization["id"], admin, Role.ADMIN)
+        worker = await register(owner.client, "worker1")
+        await add_member(owner, organization["id"], worker, Role.ANNOTATOR)
+        members = await self.members(owner, organization)
+        base = f"/api/v1/organizations/{organization['id']}/members"
+
+        promoted = await admin.patch(f"{base}/{members['worker1']}", json={"role": "reviewer"})
+        assert promoted.status_code == 200
+        assert promoted.json()["role"] == "reviewer"
+        assert (await admin.delete(f"{base}/{members['worker1']}")).status_code == 204
+
+    async def test_an_owner_manages_anyone(
+        self, owner: ApiActor, organization: dict[str, Any]
+    ) -> None:
+        admin = await register(owner.client, "steward")
+        await add_member(owner, organization["id"], admin, Role.ADMIN)
+        members = await self.members(owner, organization)
+        base = f"/api/v1/organizations/{organization['id']}/members"
+
+        response = await owner.patch(f"{base}/{members['steward']}", json={"role": "owner"})
+        assert response.status_code == 200
+        assert (await owner.delete(f"{base}/{members['steward']}")).status_code == 204
 
 
 class TestAnnotationPermissions:
@@ -563,6 +650,139 @@ class TestDatasetLifecycle:
             f"/api/v1/projects/{project['id']}/versions/{version['id']}/release"
         )
         assert rereleased.status_code == 409
+
+
+class TestAReleaseIsReproducible:
+    """A released version exports the annotations it was released with, however the
+    project changes after. Until iteration 66 a release kept only a hash and statistics,
+    and exporting it read the project as it was at the time of the export."""
+
+    async def release(self, owner: ApiActor, project: dict[str, Any], name: str) -> str:
+        base = f"/api/v1/projects/{project['id']}/versions"
+        version = (await owner.post(base, json={"name": name})).json()
+        released = await owner.post(f"{base}/{version['id']}/release")
+        assert released.status_code == 200, released.text
+        return str(version["id"])
+
+    async def boxes(self, owner: ApiActor, project: dict[str, Any], path: str) -> list[Any]:
+        response = await owner.post(
+            f"/api/v1/projects/{project['id']}{path}", json={"format": "coco"}
+        )
+        assert response.status_code == 200, response.text
+        with zipfile.ZipFile(io.BytesIO(response.content)) as archive:
+            document = json.loads(archive.read("annotations/instances_default.json"))
+        return [annotation["bbox"] for annotation in document["annotations"]]
+
+    async def test_editing_after_a_release_does_not_change_the_release(
+        self, owner: ApiActor, project: dict[str, Any]
+    ) -> None:
+        _task, jobs = await make_task(owner, project, frames=1)
+        annotations = f"/api/v1/jobs/{jobs[0]['id']}/annotations"
+        await owner.patch(
+            annotations,
+            json={
+                "created_shapes": [
+                    {
+                        "label_id": label_id(project, "car"),
+                        "frame": 0,
+                        "shape_type": "rectangle",
+                        "points": [0, 0, 40, 40],
+                    }
+                ]
+            },
+        )
+        version_id = await self.release(owner, project, "v1")
+
+        # After the release: the box moves and a second appears.
+        document = (await owner.get(annotations)).json()
+        moved = {**document["shapes"][0], "points": [100, 100, 150, 150]}
+        await owner.patch(
+            annotations,
+            json={
+                "updated_shapes": [moved],
+                "created_shapes": [
+                    {
+                        "label_id": label_id(project, "car"),
+                        "frame": 0,
+                        "shape_type": "rectangle",
+                        "points": [10, 10, 20, 20],
+                    }
+                ],
+            },
+        )
+
+        assert await self.boxes(owner, project, f"/versions/{version_id}/export") == [
+            [0.0, 0.0, 40.0, 40.0]
+        ]
+        assert len(await self.boxes(owner, project, "/export")) == 2
+
+    async def test_a_released_version_brings_its_images(
+        self, owner: ApiActor, project: dict[str, Any]
+    ) -> None:
+        await make_task(owner, project, frames=2)
+        version_id = await self.release(owner, project, "with-images")
+
+        response = await owner.post(
+            f"/api/v1/projects/{project['id']}/versions/{version_id}/export",
+            json={"format": "coco", "include_images": True},
+        )
+
+        with zipfile.ZipFile(io.BytesIO(response.content)) as archive:
+            images = [n for n in archive.namelist() if n.startswith("images/")]
+        assert len(images) == 2
+        assert response.headers["x-curvevision-content-hash"]
+
+    async def test_a_draft_exports_what_releasing_it_would_freeze(
+        self, owner: ApiActor, project: dict[str, Any]
+    ) -> None:
+        _task, jobs = await make_task(owner, project, frames=1)
+        base = f"/api/v1/projects/{project['id']}/versions"
+        draft = (await owner.post(base, json={"name": "draft"})).json()
+        await owner.patch(
+            f"/api/v1/jobs/{jobs[0]['id']}/annotations",
+            json={
+                "created_shapes": [
+                    {
+                        "label_id": label_id(project, "car"),
+                        "frame": 0,
+                        "shape_type": "rectangle",
+                        "points": [5, 5, 25, 25],
+                    }
+                ]
+            },
+        )
+
+        assert await self.boxes(owner, project, f"/versions/{draft['id']}/export") == [
+            [5.0, 5.0, 20.0, 20.0]
+        ]
+
+    async def test_an_altered_frozen_copy_is_refused(
+        self, owner: ApiActor, project: dict[str, Any], settings: Any
+    ) -> None:
+        await make_task(owner, project, frames=1)
+        version_id = await self.release(owner, project, "tampered")
+        root = Path(settings.storage_local_root)
+        [frozen] = root.glob(f"versions/{project['id']}/{version_id}/dataset.json")
+        frozen.write_text(frozen.read_text().replace('"frames"', '"frames" ', 1))
+
+        response = await owner.post(
+            f"/api/v1/projects/{project['id']}/versions/{version_id}/export",
+            json={"format": "coco"},
+        )
+        assert response.status_code == 409
+        assert "altered or damaged" in response.text
+
+    async def test_deleting_the_project_deletes_its_frozen_copies(
+        self, owner: ApiActor, project: dict[str, Any], settings: Any
+    ) -> None:
+        await make_task(owner, project, frames=1)
+        await self.release(owner, project, "gone")
+        root = Path(settings.storage_local_root)
+        assert list(root.glob("versions/**/dataset.json"))
+
+        await owner.delete(f"/api/v1/projects/{project['id']}")
+
+        assert not list(root.glob("versions/**/dataset.json"))
 
 
 class TestImportExport:

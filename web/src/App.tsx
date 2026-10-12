@@ -1,6 +1,6 @@
 import { useEffect } from 'react';
 import { Link, Navigate, Route, Routes, useLocation } from 'react-router-dom';
-import { LogOut, Layers, ListChecks, Sparkles } from 'lucide-react';
+import { KeyRound, LogOut, Layers, ListChecks, Sparkles, Users } from 'lucide-react';
 import { useSession } from '@/store/session';
 import { desktop } from '@/desktop';
 import { Button, Spinner } from '@/ui/primitives';
@@ -11,6 +11,7 @@ import { TaskPage } from '@/features/tasks/TaskPage';
 import { EditorPage } from '@/features/editor/EditorPage';
 import { MyWorkPage } from '@/features/tasks/MyWorkPage';
 import { ModelsPage } from '@/features/models/ModelsPage';
+import { WorkspacePage } from '@/features/workspace/WorkspacePage';
 
 function Logo() {
   return (
@@ -51,6 +52,9 @@ function TopBar() {
           </NavLink>
           <NavLink to="/models" icon={<Sparkles size={14} />}>
             Models
+          </NavLink>
+          <NavLink to="/workspace" icon={desktop ? <KeyRound size={14} /> : <Users size={14} />}>
+            {desktop ? 'API tokens' : 'Workspace'}
           </NavLink>
         </nav>
       </div>
@@ -177,6 +181,7 @@ export default function App() {
           <Route path="/jobs/:jobId" element={<EditorPage />} />
           <Route path="/my-work" element={<MyWorkPage />} />
           <Route path="/models" element={<ModelsPage />} />
+          <Route path="/workspace" element={<WorkspacePage />} />
           <Route path="/login" element={<Navigate to="/projects" replace />} />
           <Route path="*" element={<Navigate to="/projects" replace />} />
         </Routes>

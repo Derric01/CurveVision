@@ -77,6 +77,9 @@ class FrameRecord:
     #: Bytes of the frame's media, present only when the export requested images.
     media: bytes | None = None
     subset: str = "default"
+    #: The SHA-256 of the frame's image or video, when known: which picture this is,
+    #: independent of its name. Recorded in a released dataset version's frozen copy.
+    media_sha256: str | None = None
 
 
 @dataclass(slots=True)

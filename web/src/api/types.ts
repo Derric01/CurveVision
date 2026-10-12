@@ -57,6 +57,41 @@ export interface User extends UserBrief {
   last_login_at: string | null;
 }
 
+/** A personal API token, as listed. The secret is never listed — only when minted. */
+export interface ApiToken {
+  id: string;
+  name: string;
+  public_id: string;
+  created_at: string;
+  expires_at: string | null;
+  last_used_at: string | null;
+  revoked_at: string | null;
+}
+
+export interface ApiTokenCreated extends ApiToken {
+  /** `cv_<public_id>_<secret>`, shown exactly once. */
+  token: string;
+}
+
+/** A named snapshot of a project's annotations. Released ones are frozen. */
+export interface DatasetVersion {
+  id: string;
+  project_id: string;
+  name: string;
+  description: string | null;
+  state: 'draft' | 'released';
+  content_hash: string | null;
+  statistics: {
+    frame_count?: number;
+    shape_count?: number;
+    frames_without_annotations?: number;
+    label_distribution?: Record<string, number>;
+    source_distribution?: Record<string, number>;
+  };
+  created_at: string;
+  released_at: string | null;
+}
+
 export interface TokenPair {
   access_token: string;
   refresh_token: string;

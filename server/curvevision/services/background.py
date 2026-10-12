@@ -88,3 +88,12 @@ async def enqueue(
         delay_seconds=delay_seconds,
     )
     return task
+
+
+async def reclaim_media(session: AsyncSession, *, created_by_id: uuid.UUID | None) -> None:
+    """Queue the removal of stored media nothing references any more.
+
+    Called after deleting a task, a project or an asset. Until iteration 66 nothing queued
+    it, so every deleted task's images stayed on disk for good. Commits, as `enqueue` does.
+    """
+    await enqueue(session, kind="media.reclaim_blobs", payload={}, created_by_id=created_by_id)

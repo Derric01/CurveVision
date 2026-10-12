@@ -18,6 +18,7 @@ from curvevision.formats.base import (
     DatasetView,
     ExportSink,
     FormatCapabilities,
+    FrameRecord,
     ImportContext,
     ImportResult,
     ImportSource,
@@ -56,6 +57,9 @@ class CurveVisionFormat:
                     "width": frame.width,
                     "height": frame.height,
                     "subset": frame.subset,
+                    # Which image this is, by content: what lets a frozen copy of the
+                    # annotations find its pictures again (`read_view`).
+                    "media_sha256": frame.media_sha256,
                     "tags": list(frame.tags),
                     "shapes": [self._shape_to_json(shape) for shape in frame.shapes],
                 }
@@ -135,25 +139,11 @@ class CurveVisionFormat:
             )
 
         for label in document.get("labels", []):
-            name = str(label.get("name", "")).strip()
-            if not name or name in context.known_labels or not context.create_missing_labels:
+            spec = _label_spec(label)
+            if spec is None or spec.name in context.known_labels:
                 continue
-            result.new_labels.append(
-                LabelSpec(
-                    id=name,
-                    name=name,
-                    color=str(label.get("color", "#38bdf8")),
-                    keypoints=tuple(label.get("keypoints", ())),
-                    skeleton_edges=tuple(
-                        (int(edge[0]), int(edge[1]))
-                        for edge in label.get("skeleton_edges", [])
-                        if len(edge) == 2
-                    ),
-                    attributes=tuple(
-                        _attribute_spec(attribute) for attribute in label.get("attributes", [])
-                    ),
-                )
-            )
+            if context.create_missing_labels:
+                result.new_labels.append(spec)
 
         matched: set[int] = set()
         for frame_doc in document.get("frames", []):
@@ -169,31 +159,11 @@ class CurveVisionFormat:
                 result.tags.append((frame, str(tag)))
 
             for shape_doc in frame_doc.get("shapes", []):
-                try:
-                    shape_type = ShapeType(shape_doc["type"])
-                except (KeyError, ValueError):
+                shape = _shape_record(shape_doc)
+                if shape is None:
                     result.warnings.append(f"Unknown shape type {shape_doc.get('type')!r}; skipped")
                     continue
-                result.shapes.append(
-                    (
-                        frame,
-                        ShapeRecord(
-                            label=str(shape_doc.get("label", "")),
-                            shape_type=shape_type,
-                            points=[float(value) for value in shape_doc.get("points", [])],
-                            rotation=float(shape_doc.get("rotation", 0.0)),
-                            occluded=bool(shape_doc.get("occluded", False)),
-                            z_order=int(shape_doc.get("z_order", 0)),
-                            group=shape_doc.get("group"),
-                            track_id=shape_doc.get("track_id"),
-                            attributes=dict(shape_doc.get("attributes", {})),
-                            source=str(shape_doc.get("source", "imported")),
-                            confidence=shape_doc.get("confidence"),
-                            mask=shape_doc.get("mask"),
-                            elements=list(shape_doc.get("elements", [])),
-                        ),
-                    )
-                )
+                result.shapes.append((frame, shape))
 
         result.frames_matched = len(matched)
         return result
@@ -215,6 +185,75 @@ class CurveVisionFormat:
         return None
 
 
+def read_view(document: dict[str, Any]) -> DatasetView:
+    """The dataset a `dataset.json` describes, as a view any format can export.
+
+    The inverse of `CurveVisionFormat.export`, losslessly: it is how a released dataset
+    version, frozen in this format, is exported later in any other. Frames carry no image
+    bytes; `media_sha256` says which image each was, for a caller that can fetch it.
+    """
+    labels = [spec for label in document.get("labels", []) if (spec := _label_spec(label))]
+    frames = [
+        FrameRecord(
+            index=int(frame.get("index", position)),
+            name=str(frame.get("name", "")),
+            width=frame.get("width"),
+            height=frame.get("height"),
+            subset=str(frame.get("subset") or "default"),
+            tags=[str(tag) for tag in frame.get("tags", [])],
+            shapes=[shape for doc in frame.get("shapes", []) if (shape := _shape_record(doc))],
+            media_sha256=frame.get("media_sha256"),
+        )
+        for position, frame in enumerate(document.get("frames", []))
+    ]
+    return DatasetView(
+        name=str(document.get("name", "")),
+        labels=labels,
+        frames=frames,
+        metadata=dict(document.get("metadata") or {}),
+    )
+
+
+def _label_spec(label: dict[str, Any]) -> LabelSpec | None:
+    name = str(label.get("name", "")).strip()
+    if not name:
+        return None
+    return LabelSpec(
+        id=name,
+        name=name,
+        color=str(label.get("color", "#38bdf8")),
+        keypoints=tuple(label.get("keypoints", ())),
+        skeleton_edges=tuple(
+            (int(edge[0]), int(edge[1]))
+            for edge in label.get("skeleton_edges", [])
+            if len(edge) == 2
+        ),
+        attributes=tuple(_attribute_spec(attribute) for attribute in label.get("attributes", [])),
+    )
+
+
+def _shape_record(shape_doc: dict[str, Any]) -> ShapeRecord | None:
+    try:
+        shape_type = ShapeType(shape_doc["type"])
+    except (KeyError, ValueError):
+        return None
+    return ShapeRecord(
+        label=str(shape_doc.get("label", "")),
+        shape_type=shape_type,
+        points=[float(value) for value in shape_doc.get("points", [])],
+        rotation=float(shape_doc.get("rotation", 0.0)),
+        occluded=bool(shape_doc.get("occluded", False)),
+        z_order=int(shape_doc.get("z_order", 0)),
+        group=shape_doc.get("group"),
+        track_id=shape_doc.get("track_id"),
+        attributes=dict(shape_doc.get("attributes", {})),
+        source=str(shape_doc.get("source", "imported")),
+        confidence=shape_doc.get("confidence"),
+        mask=shape_doc.get("mask"),
+        elements=list(shape_doc.get("elements", [])),
+    )
+
+
 def _attribute_spec(attribute: dict[str, Any]) -> Any:
     from curvevision.formats.base import AttributeSpec
 
@@ -232,4 +271,4 @@ def _attribute_spec(attribute: dict[str, Any]) -> Any:
 
 register(CurveVisionFormat())
 
-__all__ = ["SCHEMA_VERSION", "CurveVisionFormat"]
+__all__ = ["SCHEMA_VERSION", "CurveVisionFormat", "read_view"]

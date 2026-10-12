@@ -339,13 +339,19 @@ async def reclaim_orphan_blobs(payload: dict[str, Any]) -> dict[str, Any]:
 
     Deletion is deferred to this job rather than done inline when an asset is removed,
     because a blob is shared across tasks and an interactive delete cannot safely prove it
-    is unreferenced.
+    is unreferenced. Deleting a task, a project or an asset queues it.
+
+    The rows go first and the files only once that commit has held. An upload of the same
+    image attaches to the existing blob by its hash, and can do so between this job's read
+    and its delete: removing the file first would then leave an asset whose row survives
+    (the delete fails on the new reference) and whose picture is gone. This way that race
+    costs the upload a retry, never the image.
     """
     del payload
     factory = get_sessionmaker()
     settings = get_settings()
     storage = get_storage(settings)
-    removed = 0
+    keys: list[str] = []
     async with factory() as session:
         referenced = select(Asset.blob_id).distinct()
         orphans = (
@@ -357,10 +363,11 @@ async def reclaim_orphan_blobs(payload: dict[str, Any]) -> dict[str, Any]:
             # A blob annotated in place points at a file the user owns. Forgetting the
             # row is right; deleting their picture is not.
             if blob.storage_key is not None:
-                await storage.delete(blob.storage_key)
+                keys.append(blob.storage_key)
             if blob.thumbnail_key:
-                await storage.delete(blob.thumbnail_key)
+                keys.append(blob.thumbnail_key)
             await session.delete(blob)
-            removed += 1
         await session.commit()
-    return {"blobs_removed": removed}
+    for key in keys:
+        await storage.delete(key)
+    return {"blobs_removed": len(orphans)}

@@ -41,7 +41,8 @@ POST /api/v1/auth/tokens
 
 **The token is shown once.** Only a hash is stored. Tokens do not expire unless you set
 `expires_at`, and each can be revoked individually — which is why they, not passwords, are
-the right credential for anything unattended.
+the right credential for anything unattended. The app mints, lists and revokes them on the
+*Workspace* page (*API tokens* in the desktop application), with a 90-day expiry by default.
 
 ## Conventions
 
@@ -93,10 +94,24 @@ the right credential for anything unattended.
 | Annotations | `/jobs/{id}/annotations`, `/jobs/{id}/frames/{frame}/annotations`, `/jobs/{id}/history` |
 | Review | `/jobs/{id}/issues`, `/jobs/{id}/issues/{id}/comments` |
 | Quality | `/tasks/{id}/ground-truth`, `/jobs/{id}/quality`, `/tasks/{id}/quality` |
-| Datasets | `/projects/{id}/export`, `/tasks/{id}/import`, `/projects/{id}/versions` |
+| Datasets | `/projects/{id}/export`, `/tasks/{id}/import`, `/projects/{id}/versions`, `/projects/{id}/versions/{id}/release`, `/projects/{id}/versions/{id}/export` |
 | AI | `/models`, `/models/discover`, `/jobs/{id}/inference`, `/jobs/{id}/suggestions` |
 | Integrations | `/webhooks` |
 | System | `/health`, `/formats`, `/background-tasks` |
+
+### Members, and who manages whom
+
+```http
+POST /api/v1/organizations/{id}/members   { "identifier": "ann@example.com", "role": "annotator" }
+PATCH /api/v1/organizations/{id}/members/{membership}   { "role": "reviewer" }
+```
+
+Someone is added by the username or email they signed up with. Managing members takes
+admin rank; below the owner, a member changes or removes only members ranked below them and
+gives only roles below their own (`403` otherwise) — CVAT's rule. An owner manages anyone,
+and the last owner can be neither demoted nor removed (`409`). *Until iteration 66 an admin
+could make themselves owner and then demote the owner.* The app does all of this on the
+*Workspace* page.
 
 ## Frame counts, and when to trust one
 
@@ -401,6 +416,36 @@ task's jobs first; `append`, the default, adds to what is there.
 * **Skeleton joints** are matched to the label's joints by name.
 * **Provenance is not carried in**: everything an import writes is `source: "imported"`,
   whatever the file says it was.
+
+### Dataset versions
+
+```http
+POST /api/v1/projects/{id}/versions                      { "name": "v1.0" }       → draft
+POST /api/v1/projects/{id}/versions/{version}/release                             → released
+POST /api/v1/projects/{id}/versions/{version}/export     { "format": "yolo", "include_images": true }
+```
+
+**Releasing freezes the annotations.** The release stores them in the lossless native
+format, with each frame's image hash, and records a `content_hash` and statistics. Exporting
+a released version returns those annotations in any format, however the project has
+changed since — the dataset an experiment is reproduced from (`X-CurveVision-Content-Hash`
+on the response names it). A draft exports the project's current annotations for its tasks.
+A released version cannot be changed or deleted, only superseded.
+
+* Images come from storage by hash. One whose every task has since been deleted is gone;
+  the export lists the frames that lost theirs.
+* A frozen copy altered in storage is refused (`409`): its hash is checked on every export.
+* Versions released before iteration 66 kept only the hash and statistics, and answer
+  `409` saying so. *Until then, "exporting a release" read the project as it was at export
+  time.*
+
+### Deleting
+
+Deleting a task or a project deletes its jobs, annotations, reviews and versions, and
+queues the removal of its images and videos from storage — except any another task still
+uses (images are stored once per content hash). *Until iteration 66 nothing queued that
+job, and every deleted task's media stayed on disk.* The app asks for the name to be typed
+before deleting either.
 
 ### Shipped formats
 

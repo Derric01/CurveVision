@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState, type ChangeEvent } from 'react';
 import clsx from 'clsx';
-import { Link, useParams } from 'react-router-dom';
+import { Link, useNavigate, useParams } from 'react-router-dom';
 import { useMutation, useQueryClient, useQuery } from '@tanstack/react-query';
 import { ArrowLeft, Files, FolderOpen, PenLine, UploadCloud } from 'lucide-react';
 import { api } from '@/api/client';
@@ -18,6 +18,7 @@ import { GroundTruthPanel } from './GroundTruthPanel';
 import { AnnotationImportPanel } from './AnnotationImportPanel';
 import { canImportInto } from './annotationImport';
 import { FrameCountNotice } from './FrameCountNotice';
+import { ManageMenu } from '@/features/common/ManageMenu';
 import { latestReportByJob, splitJobs } from './groundTruth';
 import { assignmentCandidates, assignmentPatch } from './assignment';
 import {
@@ -76,6 +77,7 @@ export function TaskPage() {
   });
 
   const queryClient = useQueryClient();
+  const navigate = useNavigate();
   const [importing, setImporting] = useState(false);
   const [summary, setSummary] = useState<ImportSummary | null>(null);
   const [importError, setImportError] = useState<unknown>(null);
@@ -261,11 +263,36 @@ export function TaskPage() {
           <ArrowLeft size={13} />
           Back to project
         </Link>
-        <div className="flex flex-wrap items-center justify-between gap-3">
+        {/* Wraps: renaming or deleting opens a form on a line of its own. */}
+        <div className="flex flex-wrap items-center gap-2">
           <h1 className="text-lg font-semibold tracking-tight">{task.data?.name}</h1>
-          <Badge tone={task.data?.status === 'completed' ? 'success' : 'neutral'}>
+          <Badge
+            tone={task.data?.status === 'completed' ? 'success' : 'neutral'}
+            className="ml-auto"
+          >
             {task.data?.status.replace('_', ' ')}
           </Badge>
+          {task.data && (
+            <ManageMenu
+              resource="task"
+              name={task.data.name}
+              role={workspaceRole}
+              counts={{ frames: task.data.frame_count }}
+              onRename={async (name) => {
+                await api.updateTask(taskId, { name });
+                await queryClient.invalidateQueries({ queryKey: ['task', taskId] });
+                await queryClient.invalidateQueries({ queryKey: ['tasks'] });
+              }}
+              onDelete={async () => {
+                const projectId = task.data!.project_id;
+                await api.deleteTask(taskId);
+                queryClient.removeQueries({ queryKey: ['task', taskId] });
+                await queryClient.invalidateQueries({ queryKey: ['tasks', projectId] });
+                await queryClient.invalidateQueries({ queryKey: ['project-statistics'] });
+                navigate(`/projects/${projectId}`);
+              }}
+            />
+          )}
         </div>
         <p className="mt-1 text-sm text-ink-400">
           {task.data?.frame_count.toLocaleString()} frames · {task.data?.media_kind}
