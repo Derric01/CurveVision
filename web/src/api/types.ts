@@ -387,6 +387,19 @@ export interface DatasetFormat {
   notes: string | null;
 }
 
+/** What `POST /tasks/{id}/import` stored, and what it said about what it did not. */
+export interface AnnotationImportResult {
+  shapes_imported: number;
+  /** Records the file gave one identity across frames, stored as tracks. */
+  tracks_imported: number;
+  tags_imported: number;
+  /** Frames of the task the file had anything for, matched by image name. */
+  frames_matched: number;
+  labels_created: string[];
+  /** Everything skipped or dropped, in words. */
+  warnings: string[];
+}
+
 export interface ModelRegistration {
   id: string;
   organization_id: string | null;

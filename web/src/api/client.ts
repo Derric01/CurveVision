@@ -16,6 +16,7 @@ import type {
   AnnotationWriteResult,
   Asset,
   BackgroundTaskBrief,
+  AnnotationImportResult,
   DatasetFormat,
   FrameInfo,
   InferenceResult,
@@ -304,6 +305,24 @@ export const api = {
   }) => request<Task>('/tasks', { method: 'POST', body: input }),
 
   deleteTask: (id: string) => request<void>(`/tasks/${id}`, { method: 'DELETE' }),
+
+  /**
+   * Import an annotation archive into a task's jobs. `replace` deletes every annotation in
+   * the task's jobs first; `append` adds to them.
+   */
+  importAnnotations: (
+    taskId: string,
+    file: File,
+    options: { format: string; conflictPolicy: 'append' | 'replace' },
+  ) => {
+    const form = new FormData();
+    form.append('file', file);
+    return request<AnnotationImportResult>(`/tasks/${taskId}/import`, {
+      method: 'POST',
+      params: { format: options.format, conflict_policy: options.conflictPolicy },
+      formData: form,
+    });
+  },
 
   uploadAssets: (taskId: string, files: File[]) => {
     const form = new FormData();

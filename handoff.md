@@ -5,10 +5,10 @@
 > [`AGENTS.md`](./AGENTS.md) first; it is the working contract. Update this file after every
 > iteration, including the ones that mostly failed.
 >
-> **Last updated:** 2026-10-12 (iteration 63) · branch `claude/start-work-yx080h` · PRs
-> [#1](https://github.com/Derric01/CurveVision/pull/1)–[#30](https://github.com/Derric01/CurveVision/pull/30)
-> **all merged**, #30 carrying iterations 60 and 61. Iterations 62 and 63 are pushed to the
-> branch with no PR yet.
+> **Last updated:** 2026-10-12 (iteration 64) · branch `claude/start-work-yx080h` · PRs
+> [#1](https://github.com/Derric01/CurveVision/pull/1)–[#31](https://github.com/Derric01/CurveVision/pull/31)
+> **all merged**, #31 carrying iterations 62 and 63 (merged mid-session). Iteration 64 is
+> rebased onto that merge and pushed with no PR yet.
 >
 > *Two things worth knowing about this repository's PR rhythm, which replace the
 > PR-by-PR changelog that used to sit here and had stopped helping anybody.* **PRs are
@@ -22,7 +22,7 @@
 > **Keep the session short.** One iteration, then commit, push, update this file and report —
 > `AGENTS.md` § *Continue* and the `start-work` skill both say so now, because they did not
 > before and a single session ran six iterations and roughly a third of a week's budget. The
-> concrete costs, in rough order: re-reading this file (iterations 1–57 now live in
+> concrete costs, in rough order: re-reading this file (iterations 1–58 now live in
 > [`docs/iterations/ARCHIVE.md`](./docs/iterations/ARCHIVE.md), which cut it from 3,800
 > lines to 1,000 — keep it that way); `python desktop/sidecar/build.py`, which is a
 > PyInstaller run of a minute or two and is needed *again* for every sabotage-and-restore
@@ -46,9 +46,16 @@ The desktop shape works: a packaged single-executable server, a Tauri shell that
 it, and folders annotated in place without copying a byte.
 
 **The tree is green.** `./scripts/check.sh` passes all thirteen steps: 647 server tests, 15
-SDK, 711 web, and `scripts/` is lint-clean under its own `ruff.toml`. Twenty-nine browser
+SDK, 718 web, and `scripts/` is lint-clean under its own `ruff.toml`. Thirty browser
 harnesses drive the packaged desktop application in a real Chromium, nightly and on every
 push to `main`. (Iteration 52 arrived to a red tree — mypy 2 — and fixed it first.)
+
+**Annotations made elsewhere can be imported from the task page** (iteration 64). An
+*Import annotations* panel, for workspace maintainers: the formats that import, an archive,
+append or replace (replace waits for a ticked warning that it deletes the task's
+annotations), and a summary of what was stored and dropped. Until now `POST
+/tasks/{id}/import` had no caller in the application; iteration 62 made what it stores
+faithful first.
 
 **AI-assisted annotation works with an API key** (iteration 63, asked for by the user).
 The Models page opens on hosted services: Claude (through Anthropic's official SDK) and,
@@ -428,18 +435,13 @@ fakes written from each API's documentation. The likely adjustments are in
 `ml/openai_compatible.py`. This needs the user's keys — ask rather than skip it.
 
 
-**Import annotations from the task page.** `POST /tasks/{id}/import` has no caller in the
-web client: a dataset in COCO, CVAT XML, YOLO or any other importable format can be brought
-in only with the API, the SDK or the CLI, in either shape. Found in iteration 62 by the
-sweep below (route-and-method pairs with no client method); iteration 62 made what it
-stores faithful first, so the panel exposes an import worth having. A panel on the task page:
-the importable formats from `GET /formats` (`supports_import`), a file, append or replace —
-replace deletes the task's annotations, so it says so — and the `ImportResultOut` summary,
-warnings included. The route's response is typed now, so the client type can be held to it
-in `contract.ts`. Drive it in a browser: export from one project, import into another, open
-the editor and see the track and its attributes.
+**Then: adding people to a workspace from the application.** The server shape's largest
+remaining gap: `POST /organizations/{id}/members` takes a user id, nothing in the API looks
+one up, and no screen calls it — a team can register accounts but nobody can add them to a
+workspace without the API. Needs a server change first (add by username or email, as CVAT's
+invitations do — read `cvat/apps/organizations` before designing it), then a members panel.
 
-*The sweep also found, with no client method at all: adding people to a workspace
+*The iteration-62 sweep also found, with no client method at all: adding people to a workspace
 (`POST /organizations/{id}/members`, which takes a user id nothing can look up — needs a
 server change first), dataset versions, renaming or deleting a project, API tokens and
 webhooks; and `deleteTask` with no caller. Adding members is the largest of these for the
@@ -561,6 +563,11 @@ a mutation that flushes the shape buffer, re-reads `annotation_version`, then wr
 </details>
 
 ## Completed
+
+**Importing annotations from the task page** (iteration 64) — `AnnotationImportPanel` and
+`annotationImport.ts`: importable formats from `GET /formats`, append or a confirmed replace,
+and `describeImport` saying what was stored, created and dropped. Shown to maintainers and
+above (`TASK`/`IMPORT` floors there). Driven in a browser (`verify_annotation_import.py`).
 
 **Hosted AI models by API key** (iteration 63) — `ml/anthropic_provider.py` (Claude via the
 `anthropic` SDK: Models API filtered to `image_input`, structured outputs where supported,
@@ -940,6 +947,19 @@ being updated and this one was not. Check it against* Completed *before trusting
 ---
 
 ## Verification performed
+
+Iteration 64:
+
+* `annotationImport.test.ts` (7). `contract.ts` now holds `AnnotationImportResult` to
+  `ImportResultOut`.
+* `verify_annotation_import.py` (10 checks) against the packaged server, importing an
+  archive written as CVAT writes one. Its first run failed one check and was right to: a
+  CVAT XML track lands in a task whose files are named differently, because CVAT places
+  tracks by frame number. The panel's copy said frames match by file name; it now says which
+  formats match how, and the "nothing matched" step uses COCO. One sabotage build (replace
+  sendable unticked, the client always sending `append`, tracks left out of the summary)
+  failed exactly those three checks; the restored build matches the clean bundle hash.
+* `./scripts/check.sh`: **all thirteen pass** — 647 server, 15 SDK, 718 web.
 
 Iteration 63:
 
@@ -1392,6 +1412,18 @@ Iteration 54:
 
 ## Last iteration
 
+### 64 — annotations made elsewhere can be imported from the task page
+
+The next best action since iteration 62, with the real-service trial of iteration 63 left
+waiting for the user's keys. Small by design: the server work was done in 62, and the panel
+follows the ground-truth panel's pattern — pure rules in their own module, the component
+only wiring. The one thing the harness taught: frame matching differs by format, and the
+copy had to say so rather than promise file names.
+
+Verified: see *Verification performed*.
+
+## Iteration 63
+
 ### 63 — AI-assisted annotation with an API key: Claude, OpenAI, Gemini, xAI, OpenRouter…
 
 Asked for directly: "add the API key and it will work", for every standard service. That
@@ -1494,22 +1526,9 @@ in the contract, and fixing the import is the next best action.
 
 Verified: see *Verification performed*.
 
-## Iteration 58
-
-### 58 — a resent create is answered, not a 500
-
-The next best action, found by reading in iteration 56. Reproduced as a test first. The fix
-treats the job's one-object-per-client-id rule as what it is for: idempotent retries. The
-same object again — label, frame, type and points for a shape, label and type for a track —
-gets the id it already has; anything else under a reused id is refused through `_entry`,
-so it is named, rather than silently dropped. A retry still bumps `annotation_version`,
-like any accepted batch.
-
-Verified: see *Verification performed*.
-
 ## Earlier iterations
 
-Iterations **1–57** are in [`docs/iterations/ARCHIVE.md`](./docs/iterations/ARCHIVE.md) —
+Iterations **1–58** are in [`docs/iterations/ARCHIVE.md`](./docs/iterations/ARCHIVE.md) —
 moved there so that orienting costs a few hundred lines rather than four thousand. Read them
 when `git log` points you at an iteration number, or when you are about to build something
 and want to know whether it was already tried and rejected. The lessons from them that are

@@ -32,7 +32,7 @@ means designed, not built.
 | Export: YOLO OBB, Pose and Classification — the other three Ultralytics tasks | **Done** — OBB imports too, and is the only YOLO variant that keeps a rotated box's angle |
 | Export/import: KITTI, MOTChallenge, CVAT XML | **Done** — the robotics/driving convention, multi-object tracking with identity, and a two-way bridge to CVAT |
 | Export: segmentation masks (indexed PNG) | **Done** — export only; a mask cannot be turned back into the polygons it came from |
-| Import with append/replace conflict policy | **Done** — and since iteration 62 an import keeps what the file carries: attributes the label declares (the rest dropped and named), and a track as one track rather than a box per frame. **Not reachable from the application yet** — the API, the SDK and the CLI only |
+| Import with append/replace conflict policy | **Done** — and since iteration 62 an import keeps what the file carries: attributes the label declares (the rest dropped and named), and a track as one track rather than a box per frame. Reachable from the task page's *Import annotations* panel since iteration 64, as well as the API, SDK and CLI |
 | Docker Compose deployment | **Done** |
 | Desktop application: zero-config local mode, packaged server, Tauri shell | **Done** |
 | Annotate local folders in place, without copying | **Done** |

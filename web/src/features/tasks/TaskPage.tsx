@@ -15,6 +15,8 @@ import {
   type UploadEntry,
 } from './resumableUpload';
 import { GroundTruthPanel } from './GroundTruthPanel';
+import { AnnotationImportPanel } from './AnnotationImportPanel';
+import { canImportInto } from './annotationImport';
 import { FrameCountNotice } from './FrameCountNotice';
 import { latestReportByJob, splitJobs } from './groundTruth';
 import { assignmentCandidates, assignmentPatch } from './assignment';
@@ -61,6 +63,11 @@ export function TaskPage() {
     enabled: !!task.data?.project_id,
     retry: false,
   });
+  // The caller's rank in the task's workspace, which decides what this page offers them.
+  const organizations = useQuery({ queryKey: ['organizations'], queryFn: () => api.organizations() });
+  const workspaceRole = organizations.data?.find(
+    (organization) => organization.id === project.data?.organization_id,
+  )?.role;
   const members = useQuery({
     queryKey: ['members', project.data?.organization_id],
     queryFn: () => api.members(project.data!.organization_id),
@@ -408,6 +415,10 @@ export function TaskPage() {
               ))}
           </div>
         </Panel>
+      )}
+
+      {task.data && task.data.frame_count > 0 && canImportInto(workspaceRole) && (
+        <AnnotationImportPanel taskId={taskId} />
       )}
 
       {task.data && (

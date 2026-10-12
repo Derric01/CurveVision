@@ -1,6 +1,6 @@
 # Iteration archive
 
-> The narrative record of iterations **1–57**, moved out of
+> The narrative record of iterations **1–58**, moved out of
 > [`handoff.md`](../../handoff.md) so that orienting on this project costs a few hundred
 > lines rather than four thousand.
 >
@@ -15,6 +15,19 @@
 > window, append it to the top of this file rather than deleting it.
 
 ---
+
+## Iteration 58
+
+### 58 — a resent create is answered, not a 500
+
+The next best action, found by reading in iteration 56. Reproduced as a test first. The fix
+treats the job's one-object-per-client-id rule as what it is for: idempotent retries. The
+same object again — label, frame, type and points for a shape, label and type for a track —
+gets the id it already has; anything else under a reused id is refused through `_entry`,
+so it is named, rather than silently dropped. A retry still bumps `annotation_version`,
+like any accepted batch.
+
+Verified: see *Verification performed*.
 
 ## Iteration 57
 
