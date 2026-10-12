@@ -156,9 +156,25 @@ def main() -> int:
                     them, which is where a value the schema no longer accepts shows up.
                     """
                     before = api(base, token, f"/jobs/{job['id']}/annotations")["shapes"][0]
+                    answers: list[str] = []
+
+                    def on_response(response) -> None:
+                        if ("/annotations" in response.url
+                                and response.request.method == "PATCH"):
+                            answers.append(f"{response.status}"
+                                           + ("" if response.ok else f" {response.text()}"))
+
+                    page.on("response", on_response)
                     page.goto(f"{base}/jobs/{job['id']}", wait_until="networkidle")
                     page.wait_for_selector("canvas", timeout=60_000)
-                    page.wait_for_timeout(1200)
+                    # Ready is the box listed in the objects panel, not a guessed delay: on
+                    # CI's runners 1.2 s was not always enough, the drag landed on a canvas
+                    # with nothing on it yet, and the check blamed a refused save that was
+                    # never sent.
+                    row = page.locator(f"[data-object-id='{before['id']}']")
+                    row.wait_for(timeout=30_000)
+                    page.wait_for_timeout(500)
+                    recovered = page.locator("[data-recovered-notice]").count()
                     canvas = page.locator("canvas").nth(1)  # the shapes layer
                     box = canvas.bounding_box()
                     assert box is not None
@@ -167,19 +183,31 @@ def main() -> int:
                     start = canvas_point(box, (IMAGE_WIDTH, IMAGE_HEIGHT),
                                          (x1 + x2) / 2, (y1 + y2) / 2)
                     page.mouse.click(*start)
+                    page.wait_for_timeout(250)
+                    selected = row.get_attribute("data-selected") == "true"
                     page.mouse.move(*start)
                     page.mouse.down()
                     page.mouse.move(start[0] + 30, start[1] + 20, steps=8)
                     page.mouse.up()
                     page.wait_for_timeout(300)
                     save_now(page, 1500)
+                    page.remove_listener("response", on_response)
 
                     after = api(base, token, f"/jobs/{job['id']}/annotations")["shapes"][0]
                     moved = after["points"][0] > before["points"][0] + 5
+                    # Say which of the ways it can fail it was: a save refused, or never sent
+                    # because the drag did not take.
+                    why = (f"the editor's saves were answered {answers}" if answers
+                           else "the editor sent no save: "
+                           + ("the box was never selected" if not selected
+                              else "the box was selected but the drag did not move it")
+                           + (", and a recovered-work notice was on screen" if recovered
+                              else ""))
                     check(moved,
                           f"{when}, the box is moved in the editor and the save lands",
-                          f"{when}, the box is still at {after['points']}: the editor's "
-                          "save was refused")
+                          f"{when}, the box is still at {after['points']}: {why}")
+                    if not moved:
+                        page.screenshot(path="/tmp/curvevision-attribute-editor-move.png")
                     # Only means something if the save landed: a refused save leaves the
                     # stored value untouched, which would pass this on its own.
                     check(moved and after["attributes"].get("colour") == "red",
