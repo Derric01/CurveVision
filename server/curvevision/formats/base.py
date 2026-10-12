@@ -237,3 +237,17 @@ def rotated_corners(points: list[float], rotation: float) -> list[float]:
         dx, dy = px - cx, py - cy
         corners.extend([cx + dx * cos - dy * sin, cy + dx * sin + dy * cos])
     return corners
+
+
+def enclosing_box(points: list[float], rotation: float = 0.0) -> list[float]:
+    """``[x1, y1, x2, y2]``, axis-aligned, around a box that may be rotated.
+
+    What every axis-aligned format (VOC, COCO's `bbox`, YOLO detection) must write for a
+    rotated box: the unrotated box understates the object it claims to bound, and a
+    detector trains on exactly what is written.
+    """
+    if not rotation:
+        return normalise_rectangle(points)
+    corners = rotated_corners(points, rotation)
+    xs, ys = corners[0::2], corners[1::2]
+    return [min(xs), min(ys), max(xs), max(ys)]

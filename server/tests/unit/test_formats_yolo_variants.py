@@ -342,7 +342,7 @@ class TestYoloClassification:
         get_format("yolo_classification").export(
             dataset([frame([], tags=["daytime"], media=b"JPEGBYTES")]), sink
         )
-        assert sink.files["images/default/daytime/a.jpg"] == b"JPEGBYTES"
+        assert sink.files["train/daytime/a.jpg"] == b"JPEGBYTES"
 
     def test_two_tags_on_one_frame_are_reported_not_guessed(self) -> None:
         """One directory, two claims. Filing under the first asserts something nobody did."""

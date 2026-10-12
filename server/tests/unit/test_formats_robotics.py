@@ -253,7 +253,7 @@ class TestMot:
         """MOT stores a numeric class only; without the names the export is not portable."""
         sink = MemoryExportSink()
         get_format("mot").export(dataset(self.tracked()), sink)
-        assert text(sink, "labels.txt").split() == ["car", "pedestrian"]
+        assert text(sink, "gt/labels.txt").split() == ["car", "pedestrian"]
 
     def test_round_trip_preserves_identity_and_geometry(self) -> None:
         mot = get_format("mot")
@@ -279,7 +279,7 @@ class TestMot:
         assert pedestrians and all(shape.track_id is None for shape in pedestrians)
 
     def test_a_frame_outside_the_task_is_reported_not_clamped(self) -> None:
-        files = {"gt/gt.txt": "99,1,10,10,20,20,1,1,1.0\n", "labels.txt": "car\n"}
+        files = {"gt/gt.txt": "99,1,10,10,20,20,1,1,1.0\n", "gt/labels.txt": "car\n"}
         result = get_format("mot").import_(source(files), context(count=2))
 
         assert result.shapes == []
@@ -431,7 +431,8 @@ class TestCvatXml:
                 width=800,
                 height=600,
                 shapes=[box("car", 10, 10, 50, 50, track_id=3)],
-            )
+            ),
+            FrameRecord(index=1, name="b.jpg", width=800, height=600, shapes=[]),
         ]
         sink = MemoryExportSink()
         get_format("cvat_xml").export(dataset(frames), sink)
@@ -440,6 +441,24 @@ class TestCvatXml:
         boxes = root.findall("./track/box")
         assert [b.get("outside") for b in boxes] == ["0", "1"]
         assert boxes[1].get("frame") == "1"
+
+    def test_a_track_on_the_last_frame_is_not_closed_past_it(self) -> None:
+        """CVAT's own dumper does not write a frame the task does not have; Datumaro then
+        reads one into existence."""
+        frames = [
+            FrameRecord(
+                index=0,
+                name="a.jpg",
+                width=800,
+                height=600,
+                shapes=[box("car", 10, 10, 50, 50, track_id=3)],
+            )
+        ]
+        sink = MemoryExportSink()
+        get_format("cvat_xml").export(dataset(frames), sink)
+        root = ET.fromstring(text(sink, "annotations.xml"))
+
+        assert [b.get("frame") for b in root.findall("./track/box")] == ["0"]
 
     def test_a_track_round_trips_with_its_identity(self) -> None:
         cvat = get_format("cvat_xml")

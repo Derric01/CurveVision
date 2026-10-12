@@ -102,8 +102,10 @@ class MotFormat:
                 )
 
         sink.write("gt/gt.txt", "\n".join(rows) + ("\n" if rows else ""))
+        # Beside gt.txt, where Datumaro (CVAT's exporter) writes and reads it; at the archive's
+        # root it was missed, and every class read back as MOTChallenge's fixed `pedestrian`.
         sink.write(
-            "labels.txt",
+            "gt/labels.txt",
             "\n".join(name for name, _ in sorted(class_ids.items(), key=lambda item: item[1]))
             + ("\n" if class_ids else ""),
         )

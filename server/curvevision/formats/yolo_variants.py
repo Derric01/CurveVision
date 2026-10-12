@@ -37,6 +37,7 @@ from curvevision.formats.base import (
     rotated_corners,
 )
 from curvevision.formats.registry import register
+from curvevision.formats.yolo import split_lines, split_of
 
 logger = get_logger(__name__)
 
@@ -50,15 +51,16 @@ def _stem(name: str) -> str:
     return base.rsplit(".", 1)[0] if "." in base else base
 
 
-def _data_yaml(dataset_name: str, class_names: list[str], extra: str = "") -> str:
+def _data_yaml(
+    dataset_name: str, class_names: list[str], extra: str = "", splits: set[str] | None = None
+) -> str:
     """`data.yaml` is four keys; a YAML dependency for that would be gratuitous."""
     names = "\n".join(f"  {index}: {name}" for index, name in enumerate(class_names))
     return "\n".join(
         [
             f"# {dataset_name} — exported by CurveVision",
             "path: .",
-            "train: images/train",
-            "val: images/val",
+            *split_lines(splits or {"train"}),
             *([extra] if extra else []),
             f"nc: {len(class_names)}",
             "names:",
@@ -70,7 +72,7 @@ def _data_yaml(dataset_name: str, class_names: list[str], extra: str = "") -> st
 
 def _write_media(sink: ExportSink, frame: FrameRecord) -> None:
     if frame.media is not None:
-        sink.write(f"images/{frame.subset}/{frame.name.rsplit('/', 1)[-1]}", frame.media)
+        sink.write(f"images/{split_of(frame.subset)}/{frame.name.rsplit('/', 1)[-1]}", frame.media)
 
 
 # ------------------------------------------------------------------- oriented boxes
@@ -128,7 +130,9 @@ class YoloObbFormat:
                 ]
                 lines.append(" ".join([str(index), *(f"{v:.6f}" for v in values)]))
 
-            sink.write(f"labels/{frame.subset}/{_stem(frame.name)}.txt", "\n".join(lines) + "\n")
+            sink.write(
+                f"labels/{split_of(frame.subset)}/{_stem(frame.name)}.txt", "\n".join(lines) + "\n"
+            )
             _write_media(sink, frame)
 
         sink.write("data.yaml", _data_yaml(dataset.name, class_names))
@@ -318,7 +322,9 @@ class YoloPoseFormat:
                 line = self._pose_line(shape, index, frame.width, frame.height, keypoint_count)
                 if line:
                     lines.append(line)
-            sink.write(f"labels/{frame.subset}/{_stem(frame.name)}.txt", "\n".join(lines) + "\n")
+            sink.write(
+                f"labels/{split_of(frame.subset)}/{_stem(frame.name)}.txt", "\n".join(lines) + "\n"
+            )
             _write_media(sink, frame)
 
         sink.write(
@@ -405,7 +411,7 @@ class YoloPoseFormat:
 
 
 class YoloClassificationFormat:
-    """One class per image, expressed as `images/<split>/<class>/<file>`.
+    """One class per image, expressed as `<split>/<class>/<file>` — Ultralytics' layout.
 
     The odd one out: there are no label files at all, because in this format the **directory
     tree is the annotation**. That is also its limit — an image with two tags has one
@@ -452,10 +458,19 @@ class YoloClassificationFormat:
             if frame.media is None:
                 without_media.append(frame.name)
                 continue
-            sink.write(f"images/{frame.subset}/{tag}/{frame.name.rsplit('/', 1)[-1]}", frame.media)
+            # `train/<class>/`, at the root, as Ultralytics' classification datasets are laid
+            # out; `images/train/<class>/` (until iteration 66) is the detection layout.
+            sink.write(
+                f"{split_of(frame.subset)}/{tag}/{frame.name.rsplit('/', 1)[-1]}",
+                frame.media,
+            )
 
         report = ["Ultralytics YOLO classification export by CurveVision.", ""]
         report.append(f"Classes: {', '.join(sorted(classes)) or '(none)'}")
+        report.append(
+            "Ultralytics also wants a `val/` folder of the same shape: move some images of "
+            "each class from `train/` into `val/<class>/` before training."
+        )
         if without_media:
             report += [
                 "",

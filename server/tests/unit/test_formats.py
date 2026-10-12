@@ -158,13 +158,21 @@ class TestCoco:
         assert result.warnings
 
 
+def boxes_only() -> DatasetView:
+    dataset = sample_dataset()
+    frames = list(dataset)
+    for frame in frames:
+        frame.shapes = [s for s in frame.shapes if s.shape_type is ShapeType.RECTANGLE]
+    return DatasetView(name=dataset.name, labels=dataset.labels, frames=iter(frames))
+
+
 class TestYolo:
     def test_export_normalises_coordinates(self) -> None:
         sink = MemoryExportSink()
-        get_format("yolo").export(sample_dataset(), sink)
+        get_format("yolo").export(boxes_only(), sink)
 
-        lines = sink.files["labels/default/frame_000.txt"].decode().strip().splitlines()
-        assert len(lines) == 2
+        lines = sink.files["labels/train/frame_000.txt"].decode().strip().splitlines()
+        assert len(lines) == 1
 
         class_index, cx, cy, w, h = lines[0].split()
         assert class_index == "0"
@@ -183,9 +191,16 @@ class TestYolo:
 
         result = yolo.import_(MemoryImportSource(sink.files), import_context())
 
-        rectangles = [s for _, s in result.shapes if s.shape_type is ShapeType.RECTANGLE]
-        assert len(rectangles) == 1
+        # The polygon makes this a segment file, so the box went out as its four corners
+        # and comes back as the box. The polygon here is itself an axis-aligned rectangle,
+        # and so comes back as one too: the same pixels, a different tool.
+        rectangles = sorted(
+            (s for _, s in result.shapes if s.shape_type is ShapeType.RECTANGLE),
+            key=lambda s: s.points[0],
+        )
+        assert [s.label for s in rectangles] == ["car", "pedestrian"]
         assert rectangles[0].points == pytest.approx([100.0, 100.0, 300.0, 250.0], abs=0.5)
+        assert rectangles[1].points == pytest.approx([400.0, 200.0, 460.0, 400.0], abs=0.5)
 
     def test_frames_without_dimensions_are_skipped_not_guessed(self) -> None:
         """Exporting with a guessed frame size would silently produce a bad dataset."""
@@ -213,7 +228,7 @@ class TestYolo:
         sink = MemoryExportSink()
         get_format("yolo").export(dataset, sink)
 
-        assert "labels/default/a.txt" not in sink.files
+        assert "labels/train/a.txt" not in sink.files
         notes = json.loads(sink.files["curvevision_warnings.json"])
         assert notes["skipped_frames_missing_dimensions"] == ["a.jpg"]
 

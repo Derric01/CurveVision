@@ -360,6 +360,23 @@ truth against itself at AP 1.0 for boxes, masks and keypoints. Conventions it fo
 * **Pascal VOC** coordinates are 0-based floats, as Datumaro (CVAT's exporter) writes and
   reads them — not the devkit's 1-based integers.
 
+**The other formats are held to the readers people use** (`tests/unit/test_export_conformance.py`),
+checked in iteration 66 against Datumaro and CVAT's own XML reader:
+
+* **YOLO** writes `images/train` and `labels/train`, which is what `data.yaml` names; `val`
+  is the training images when no frame is in a `val` subset (Ultralytics requires one).
+  A dataset with any polygon is written as segments throughout — a box as its four
+  corners — because Ultralytics reads a file mixing box and polygon lines as all segments,
+  turning each box into a wrong one. Boxes are clipped to the image before they become
+  centre and size. YOLO classification is `train/<class>/<image>`.
+* **CVAT XML** writes `original_size`, rotated boxes as `<box rotation>`, skeletons as
+  `<skeleton>` with each joint declared as a label under its parent, and no closing frame
+  past the last frame.
+* **Pascal VOC** writes its labelmap as `name:r,g,b::`, and a rotated box as the box around
+  its rotated corners. **Segmentation masks** list their frames in
+  `ImageSets/Segmentation/default.txt`. **MOTChallenge** puts its label list at
+  `gt/labels.txt`.
+
 ### What an import keeps
 
 ```http

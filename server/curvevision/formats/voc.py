@@ -30,7 +30,7 @@ from curvevision.formats.base import (
     ImportSource,
     LabelSpec,
     ShapeRecord,
-    normalise_rectangle,
+    enclosing_box,
 )
 from curvevision.formats.registry import register
 
@@ -80,7 +80,8 @@ class PascalVocFormat:
                     ShapeType.ROTATED_RECTANGLE,
                 ):
                     continue
-                x1, y1, x2, y2 = normalise_rectangle(shape.points)
+                # A rotated box is written as the box around it, as every VOC reader expects.
+                x1, y1, x2, y2 = enclosing_box(shape.points, shape.rotation)
                 obj = ET.SubElement(root, "object")
                 ET.SubElement(obj, "name").text = shape.label
                 ET.SubElement(obj, "pose").text = "Unspecified"
@@ -107,9 +108,12 @@ class PascalVocFormat:
                 sink.write(f"JPEGImages/{base}", frame.media)
 
         sink.write("ImageSets/Main/default.txt", "\n".join(stems) + "\n")
+        # `name:r,g,b:parts:actions`, the labelmap CVAT and Datumaro read. A `#38bdf8` here
+        # made CVAT and Datumaro refuse the whole export (found in iteration 66).
         sink.write(
             "labelmap.txt",
-            "\n".join(f"{label.name}:{label.color}::" for label in dataset.labels) + "\n",
+            "# label:color_rgb:parts:actions\n"
+            + "".join(f"{label.name}:{_rgb(label.color)}::\n" for label in dataset.labels),
         )
 
     # ----------------------------------------------------------------------- import
@@ -195,3 +199,14 @@ class PascalVocFormat:
 register(PascalVocFormat())
 
 __all__ = ["PascalVocFormat"]
+
+
+def _rgb(color: str) -> str:
+    """A `#rrggbb` label colour as VOC's `r,g,b`; black for anything that is not one."""
+    value = color.strip().lstrip("#")
+    if len(value) == 3:
+        value = "".join(ch * 2 for ch in value)
+    try:
+        return ",".join(str(int(value[i : i + 2], 16)) for i in (0, 2, 4))
+    except (ValueError, IndexError):
+        return "0,0,0"
