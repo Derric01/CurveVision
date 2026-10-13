@@ -30,9 +30,9 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - {name: Linux (.deb, .rpm, .AppImage), os: ubuntu-22.04, bundles: 'deb,rpm,appimage'}
-          - {name: macOS (.dmg), os: macos-14, bundles: 'app,dmg'}
-          - {name: Windows (.exe installer), os: windows-latest, bundles: nsis}
+          - {name: 'Linux (.deb, .rpm, .AppImage)', os: ubuntu-22.04, bundles: 'deb,rpm,appimage'}
+          - {name: 'macOS (.dmg)', os: macos-14, bundles: 'app,dmg'}
+          - {name: 'Windows (.exe installer)', os: windows-latest, bundles: nsis}
     steps:
       - uses: actions/checkout@v5
 
@@ -49,6 +49,8 @@ jobs:
           cache-dependency-path: web/package-lock.json
 
       - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy, rustfmt
 
       - uses: Swatinem/rust-cache@v2
         with:
@@ -71,6 +73,15 @@ jobs:
         run: |
           pip install -e "./server[media,desktop]"
           python desktop/sidecar/build.py
+
+      # The shell's own tests, on each platform it ships to — including starting and
+      # stopping the server just packaged, the way the application does.
+      - name: The shell — format, lints, tests
+        working-directory: desktop/shell/src-tauri
+        run: |
+          cargo fmt --check
+          cargo clippy --all-targets -- -D warnings
+          cargo test
 
       - name: The installers
         working-directory: desktop/shell/src-tauri
