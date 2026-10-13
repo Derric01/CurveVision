@@ -1,6 +1,6 @@
 # Iteration archive
 
-> The narrative record of iterations **1–76**, moved out of
+> The narrative record of iterations **1–79**, moved out of
 > [`handoff.md`](../../handoff.md) so that orienting on this project costs a few hundred
 > lines rather than four thousand.
 >
@@ -13,6 +13,48 @@
 >
 > Newest first, as in `handoff.md`. When an iteration drops out of `handoff.md`'s recent
 > window, append it to the top of this file rather than deleting it.
+
+---
+
+## Iteration 79
+
+### 79 — backup and restore, either shape, across databases
+
+The next 1.0 item. Backups were two hand-run commands against two systems, for the server
+only, and nothing had ever restored one. `curvevision-server backup` / `restore`
+(`services/backup.py`) write one archive: every row as JSON, in foreign-key order, and every
+stored object a row names, with its SHA-256. Rows as JSON rather than a database dump is
+the design decision: it makes an archive portable between databases, so a desktop user's
+SQLite moves to a team server's PostgreSQL with the same two commands — tested. A restore
+refuses anything but an empty installation at the backup's schema revision.
+
+Verified: see *Verification performed*.
+
+## Iteration 78
+
+### 78 — OpenTelemetry tracing
+
+The next 1.0 item. `core/tracing.py`: requests (FastAPI), SQL (SQLAlchemy), outbound HTTP
+(httpx: model servers, hosted models, webhooks) and background jobs (a span around
+`run_task`), to an OTLP/HTTP collector, with the trace id in every JSON log line written
+inside a span. Optional twice — off by default, and its packages are the `tracing` extra,
+which the server image includes so an operator turns it on with an environment variable.
+
+Verified: see *Verification performed*.
+
+## Iteration 77
+
+### 77 — uploads scanned by ClamAV
+
+The next item on the 1.0 list, and another false claim: `SECURITY.md` and
+`ARCHITECTURE.md` described a `ContentScanner` hook that did not exist. It does now
+(`media/scanning.py`), with ClamAV behind it through clamd's `INSTREAM` command — no client
+library — called in the one path direct and resumable uploads share. Off by default; when
+on, it fails closed, because a scanner an attacker can switch off by overloading it is not a
+control. Docker Compose gets an opt-in `scanning` profile, and its `api` replicas now share
+iteration 76's Redis rate limit by default.
+
+Verified: see *Verification performed*.
 
 ---
 

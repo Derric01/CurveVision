@@ -5,10 +5,10 @@
 > [`AGENTS.md`](./AGENTS.md) first; it is the working contract. Update this file after every
 > iteration, including the ones that mostly failed.
 >
-> **Last updated:** 2026-10-13 (iteration 82) · branch `claude/start-work-yx080h` · PRs
-> [#1](https://github.com/Derric01/CurveVision/pull/1)–[#34](https://github.com/Derric01/CurveVision/pull/34)
-> **all merged**, #34 carrying iterations 67–69. Iterations 70–82 are pushed on top of
-> that merge with no PR yet.
+> **Last updated:** 2026-10-13 (iteration 85) · branch `claude/start-work-yx080h` · PRs
+> [#1](https://github.com/Derric01/CurveVision/pull/1)–[#35](https://github.com/Derric01/CurveVision/pull/35)
+> **all merged**, #35 carrying iterations 70–82. Iterations 83–85 are
+> [#36](https://github.com/Derric01/CurveVision/pull/36).
 >
 > *Two things worth knowing about this repository's PR rhythm, which replace the
 > PR-by-PR changelog that used to sit here and had stopped helping anybody.* **PRs are
@@ -22,7 +22,7 @@
 > **Keep the session short.** One iteration, then commit, push, update this file and report —
 > `AGENTS.md` § *Continue* and the `start-work` skill both say so now, because they did not
 > before and a single session ran six iterations and roughly a third of a week's budget. The
-> concrete costs, in rough order: re-reading this file (iterations 1–76 now live in
+> concrete costs, in rough order: re-reading this file (iterations 1–79 now live in
 > [`docs/iterations/ARCHIVE.md`](./docs/iterations/ARCHIVE.md), which cut it from 3,800
 > lines to 1,000 — keep it that way); `python desktop/sidecar/build.py`, which is a
 > PyInstaller run of a minute or two and is needed *again* for every sabotage-and-restore
@@ -43,11 +43,14 @@ shapes (detection/segmentation, OBB, pose, classification), each declaring in it
 `capabilities` exactly what it cannot carry rather than dropping it silently.
 
 The desktop shape works: a packaged single-executable server, a Tauri shell that supervises
-it, and folders annotated in place without copying a byte.
+it, folders annotated in place without copying a byte, installers built on Linux, macOS and
+Windows (unsigned), and a switch to a team's shared server. Since iteration 85 the **real**
+application is driven in CI over WebDriver — which found that the shell had never granted
+its commands, so the native pickers had never worked in a built app until then.
 
-**The tree is green.** `./scripts/check.sh` passes all fifteen steps: 774 server tests, 16
-SDK, 771 web, and `scripts/` is lint-clean under its own `ruff.toml`. Thirty-two browser
-harnesses drive the application in a real Chromium, nightly and on every push to `main` —
+**The tree is green.** `./scripts/check.sh` passes all fifteen steps: 803 server tests (the
+PostgreSQL and S3 ones skip without a server; CI provides both), 16 SDK, 771 web, and
+`scripts/` is lint-clean under its own `ruff.toml`. Thirty-four browser harnesses drive the application in a real Chromium, nightly and on every push to `main` —
 thirty-one against the packaged desktop server, and `verify_workspace.py` against the real
 server too — and **all thirty-two pass on GitHub's runners** (iteration 70, run
 38282080179: the first green `browser.yml` since 10-08). (Iteration 52 arrived to a red tree — mypy 2 — and fixed it first.)
@@ -450,8 +453,8 @@ than dropped — which is what keeps `yolo_pose`'s positional triples lined up �
 are drawn. That closes the last case of the platform exporting a dataset shape it could not
 produce.
 
-Honestly incomplete, and marked as such everywhere: signed desktop installers, blocked
-outside the repository, and a reference model server, which needs a repository this session
+Honestly incomplete, and marked as such everywhere: *signed* desktop installers, blocked
+outside the repository (unsigned ones are built on every platform since iteration 84), and a reference model server, which needs a repository this session
 cannot create. Everything else this paragraph has named over the last several iterations —
 the mask brush, the resumable upload's SDK, CLI and browser clients, and the reviewer's
 queue — is finished, in iterations 37, 43 and 47 respectively.
@@ -504,34 +507,33 @@ was the last unconnected piece of the desktop application.
 
 ## Next best action
 
-*A TypeScript client package, iteration 82; single sign-on through OpenID Connect, 81; a Helm chart, 80; backup and restore, either shape and across databases, 79; OpenTelemetry tracing, 78; uploads scanned by ClamAV, 77; a rate limit shared by every server instance through Redis, and Phase 12's markers made true, iteration 76; a default the server fills in is stored typed, 75; Submit checks what its own save achieved, 74. No edit made during a save is lost any more — to a new object while its first save is in
-flight, or to any object while a save that then fails is — and the editor always fits the
-frame it opens on, iteration 73; a backup that
-restores what it holds, and tracks that keep their keyframes through CVAT XML and the
-native format, 72; CVAT XML tracks read as CVAT reads them, 71.*
+*The desktop app on a team server, and the shell's commands granted — the pickers had never
+worked in a built app — iteration 85; desktop installers on every platform, `aiosqlite` made
+a real dependency, Windows shutdown fixed, MinIO replaced by Versity Gateway and the S3
+backend tested for the first time, 84; the Helm chart installed into a live cluster in CI,
+83; a TypeScript client, 82; OIDC sign-on, 81; a Helm chart, 80. Iterations 1–79 are in the
+archive.*
 
-**CI on GitHub**: on this branch `ci.yml`, `ultralytics.yml` and `browser.yml` run only
-when dispatched (or for a PR). All three were green on iteration 72's commit; dispatch them
-on whatever is pushed next.
+**CI on GitHub**: `ci.yml` runs for PRs (and on dispatch); `desktop.yml` for PRs touching
+the desktop and on tags; `browser.yml` and `ultralytics.yml` only when dispatched. All
+are recorded under *Verification performed* for iteration 85's commit.
 
-**Then, with no dependency on the user: the rest of the 1.0 list in `docs/ROADMAP.md`**,
-in this order — each self-contained, each a gap a production operator would hit:
+**The 1.0 list in `docs/ROADMAP.md` is done** except what needs someone else: signing
+certificates, an npm token, real AI keys. What remains with no dependency on the user, in
+order:
 
-1. ~~Content scanning (ClamAV)~~ — done, iteration 77.
-2. ~~OpenTelemetry tracing~~ — done, iteration 78.
-3. ~~Backup and restore tooling~~ — done, iteration 79.
-4. ~~A Helm chart~~ — done, iteration 80 (linted and schema-validated; not yet installed
-   into a live cluster in CI — a `kind` job with in-cluster PostgreSQL, Redis and MinIO
-   would be the proof, and is worth doing).
-5. ~~OIDC sign-on~~ — done, iteration 81. (SAML is not, and nobody has asked.)
-6. ~~A TypeScript client~~ — done, iteration 82; **publishing it to npm is the
-   maintainers'** (an `NPM_TOKEN` secret, then *Publish TypeScript client* by hand).
-
-**Next, with no dependency on the user: install the Helm chart into a real cluster in CI.**
-A `kind` job: build both images, load them, install PostgreSQL, Redis and MinIO in the
-cluster (plain manifests are enough), `helm install` with `--wait`, then register an
-account, create a project and upload an image through the ingress or a port-forward. Until
-it exists, the chart is validated, not proven — and the docs say so.
+1. **The desktop webview's storage across launches** (*Known issues*): now testable, with
+   `scripts/verify_desktop_shell.py`'s WebDriver session — write an autosave draft, quit,
+   relaunch, and read it back. Crash recovery in the desktop shape rests on it.
+2. **The native menu** (*Use This Computer*, *Open Folder…*) is the one part of the shell no
+   test reaches: WebDriver cannot click a native menu. An `xdotool` keystroke under Xvfb
+   might; worth an hour, not more.
+3. **The Helm chart could run `storage-init`** in its migration hook, so a fresh bucket is
+   made on install, as Compose does. Deliberately not done yet: with an IAM policy that
+   allows objects but not `s3:ListBucket`, `HeadBucket` fails and the install would too —
+   it needs an opt-out value first.
+4. **Auto-update** — Tauri's updater, which needs a key pair the maintainers hold; the
+   wiring can be built and tested with a throwaway key.
 
 **First, if a key is available: try iteration 63 against the real services.** Add Claude,
 OpenAI and one OpenRouter vision model on the Models page with real keys, run each on a few
@@ -570,14 +572,12 @@ server to point at — the first item under* Then, still needing the user.
   part of it needs revisiting. A FastAPI wrapper speaking the documented contract is perhaps
   a day's work; it needs the user's go-ahead because it is a new repository this session has
   no access to create.
-* **Signed installers in CI** — one runner per platform and signing certificates the project
-  does not have.
+* **Code signing** — installers are built on every platform since iteration 84; signing them
+  needs certificates the project does not have.
 
-Past those, the remaining candidates are all 1.0-list infrastructure with no specific gap
-pulling any one of them forward — Redis-backed rate limiting, OpenTelemetry tracing, the
-ClamAV hook, OIDC/SSO, a Helm chart, backup/restore tooling, a published TypeScript client,
-a Datumaro bridge, an external security review. Picking one without a reason beyond "it is
-on the list" is exactly the "next unchecked box" `AGENTS.md` says not to default to.
+The 1.0 list's infrastructure items are done (iterations 76–83). What is left on it is a
+Datumaro bridge and an external security review — the second is not something a session
+can do for itself.
 
 > **How the last two real gaps were found, since both came from the same habit rather than
 > from this list.** Iteration 42 found a docstring that named endpoints which did not exist.
@@ -1045,12 +1045,57 @@ being updated and this one was not. Check it against* Completed *before trusting
    gets a model, but no request has gone to Anthropic, OpenAI or any other real endpoint.
    A trained detector for production volume still needs a model server — no reference one
    exists yet (ADR 0005's separate repositories).
-2. **Signed installers in CI** — *blocked outside the repository*: one runner per platform
-   (PyInstaller does not cross-compile) and signing certificates the project does not have.
+2. **Code signing** — *blocked outside the repository*: installers are built on every
+   platform (iteration 84) but unsigned; signing needs an Apple Developer ID and a Windows
+   code-signing certificate the project does not have.
+3. **Publishing** the TypeScript client to npm (an `NPM_TOKEN` secret) and a first tagged
+   release whose installers are attached — both outward acts under the maintainers' names.
 
 ---
 
 ## Verification performed
+
+Iteration 85:
+
+* `tests/api/test_team_server_check.py`, 26 tests: addresses as a person types them become
+  origins, and what is not a web address (or carries a password) is refused before anything
+  is fetched; a team server is recognised with its version, a redirect to https is followed
+  and remembered, another desktop installation, a server whose database is down, something
+  that is not CurveVision, nothing answering and an untrusted certificate each get their
+  own sentence; the route is 404 on a shared server and needs the installation's
+  credential.
+* Rust (`cargo test`, 13): the address rules, the choice surviving a restart and a damaged
+  file meaning this computer, the credential script guarded by origin, the capability
+  granting every command to the local window and only to it, and the server stopped by
+  end-of-file rather than killed. `cargo clippy -D warnings` and `cargo fmt --check` clean.
+* `scripts/verify_team_server.py`, 11 checks, against the packaged server and a team server.
+  Sabotaged (the desktop installation accepted; the typed address handed to the shell):
+  3 checks failed, then green again after restoring and rebuilding.
+* `scripts/verify_desktop_shell.py`, 9 checks, the **built shell** over WebDriver under
+  Xvfb. First run: `invoke('connection')` refused, "not allowed" — the bug this iteration
+  fixed. After the fix, all nine pass. Sabotaged (the capability granted to the team window
+  too; a payload injected into it): the two isolation checks failed, and the output showed
+  the team server's page reading this computer's token through the shell.
+
+Iteration 84:
+
+* The installers workflow on GitHub, on `dad342d`: `.deb`/`.rpm`/`.AppImage`, `.dmg` and
+  the NSIS `.exe` all built; the `.deb` installed, its server started, the health check in
+  local mode and the editor's HTML read from it. The two runs before were red on all three
+  platforms (`aiosqlite` missing) and then on Windows (the orphaned server) — both fixed.
+* `tests/unit/test_packaging.py` pins the default database's driver to the required
+  dependencies.
+* Versity Gateway v1.8.0 built from source here (`go install`): `tests/api/test_s3_storage.py`
+  (storage-init creating the bucket and saying so again; put, get, stream, a presigned URL
+  fetched as is, append, delete) passes against it, and `scripts/helm_smoke.py`'s whole
+  flow passes against a server on S3 through it, with the gateway's metadata in a sidecar
+  directory.
+
+Iteration 83:
+
+* `scripts/helm_smoke.py` against a real server here. On GitHub the `helm-install` job's
+  first runs never got past MinIO's images (iteration 84); its result on the gateway is
+  recorded below when the run finishes.
 
 Iteration 82:
 
@@ -1808,9 +1853,14 @@ Iteration 54:
 
 * **The Tauri webviews' storage across launches is not verified.** Recovery in the
   desktop shape rests on the webview keeping IndexedDB for an origin from one launch to the
-  next — the default for WebView2, WKWebView and Tauri's WebKitGTK setup, but not run
-  here, where the shell has no display. Everything up to that is verified with the packaged
-  server and a persistent Chromium profile.
+  next — the default for WebView2, WKWebView and Tauri's WebKitGTK setup. Everything up to
+  that is verified with the packaged server and a persistent Chromium profile. *Since
+  iteration 85 the real webview can be driven (`scripts/verify_desktop_shell.py`), so this
+  is now a test to write — first under* Next best action.
+* **The native menus are driven by no test.** WebDriver cannot click them; *Use This
+  Computer* shares `switch_to_local` with the code the WebDriver harness does exercise.
+* **The desktop installers are unsigned** (iteration 84): macOS asks the person to open the
+  app from System Settings, and Windows SmartScreen warns.
 * **Until an offer is restored or discarded, new work is not copied**: rewriting the copy
   would replace what was found. New work still saves every four seconds; what is lost to a
   crash in that window is at most what failed to save meanwhile.
@@ -1948,6 +1998,70 @@ Iteration 54:
 
 ## Last iteration
 
+### 85 — the desktop app on a team server; the shell's commands granted at last
+
+The last desktop item that needed nobody's certificates. *File ▸ Connect to a Team
+Server…* (and a *Team server* link in the desktop build): this computer's server checks the
+address — `POST /local/team-server-check`, local mode only, fetching the health check with
+nothing of this installation's, through the OS trust store (`truststore`) — and the shell
+opens the team server in a window of its own. That window (`team`) is named by no
+capability, so its pages cannot use the shell, and has no initialization script, so none of
+this computer's credentials reach it; the local window's script now checks the origin
+before handing the connection over. The choice is remembered (origin only); *Use This
+Computer* switches back. The check is server-side because the page's CSP is `connect-src
+'self'`, and loosening it for one feature was the wrong trade — the first design (a CORS
+grant on the team server's health check) was dropped for that reason.
+
+Driving the **real** application found a much older bug. Over WebDriver (`tauri-driver`
+and WebKitGTK's driver, under Xvfb — `scripts/verify_desktop_shell.py`), the first
+`invoke()` was refused: the page is served from `http://127.0.0.1`, a remote origin to
+Tauri, and no capability granted the app's own commands. **The folder and file pickers have
+never worked in a built application**, and ADR 0008 said IPC was "verified by hand". Now
+`build.rs` declares the commands, the capability grants them to the local window only, a
+Rust test pins both, and the harness runs in the installers workflow.
+
+Verified: see *Verification performed*.
+
+## Iteration 84
+
+### 84 — desktop installers on every platform, and what building them found
+
+`.github/workflows/desktop.yml` builds the installers on each platform's runner (PyInstaller
+does not cross-compile): `.deb`, `.rpm`, `.AppImage`; `.dmg`; NSIS `.exe` — unsigned, kept as
+artifacts. On Linux the `.deb` is installed and the server inside it started and used. The
+first run failed on all three platforms, which is what it was for:
+
+* **`aiosqlite` was a development dependency** while the default database — and every
+  desktop installation's — needs it. Tests install `dev`, so they passed; every installer
+  shipped a server that could not open its database. Now a core dependency, pinned by a test.
+* **On Windows, stopping the server orphaned it.** A one-file PyInstaller executable is a
+  bootloader with the server as its child; killing the bootloader leaves the server holding
+  the database. The smoke test now stops it the way the shell does — end-of-file on its
+  input — and the shell itself closes the input first and kills only after a grace period.
+* **MinIO's images are gone** from Docker Hub, and Quay no longer serves them anonymously
+  (September 2026), so `docker compose up` failed on a fresh machine and the kind job never
+  got past its dependencies. The bundled object store is now Versity Gateway (Apache-2.0), a
+  directory served as S3; `curvevision-server storage-init` makes the bucket; and for the
+  first time CI tests the S3 backend against an S3 server, and brings the compose stack up
+  and uses it. OPERATIONS.md says how an installation with MinIO's data moves across.
+
+Verified: see *Verification performed*.
+
+## Iteration 83
+
+### 83 — the Helm chart installed into a live cluster in CI
+
+The proof iteration 80 lacked. CI's `helm-install` job builds both images, loads them into a
+`kind` cluster with PostgreSQL, Redis and an S3 service in it (`deploy/helm/ci/`), runs
+`helm install --wait`, and uses the release through its web service
+(`scripts/helm_smoke.py`: register, workspace, project, task, an image uploaded and read
+back, an annotation exported as COCO), takes a backup with `kubectl exec`, and runs `helm
+upgrade` so the migration hook runs twice.
+
+Verified: see *Verification performed*.
+
+## Iteration 82
+
 ### 82 — a TypeScript client package
 
 The last code item on the 1.0 list. `sdk/typescript` is `@curvevision/client`: a thin
@@ -1989,49 +2103,9 @@ the proxy's rate limit.
 
 Verified: see *Verification performed*.
 
-## Iteration 79
-
-### 79 — backup and restore, either shape, across databases
-
-The next 1.0 item. Backups were two hand-run commands against two systems, for the server
-only, and nothing had ever restored one. `curvevision-server backup` / `restore`
-(`services/backup.py`) write one archive: every row as JSON, in foreign-key order, and every
-stored object a row names, with its SHA-256. Rows as JSON rather than a database dump is
-the design decision: it makes an archive portable between databases, so a desktop user's
-SQLite moves to a team server's PostgreSQL with the same two commands — tested. A restore
-refuses anything but an empty installation at the backup's schema revision.
-
-Verified: see *Verification performed*.
-
-## Iteration 78
-
-### 78 — OpenTelemetry tracing
-
-The next 1.0 item. `core/tracing.py`: requests (FastAPI), SQL (SQLAlchemy), outbound HTTP
-(httpx: model servers, hosted models, webhooks) and background jobs (a span around
-`run_task`), to an OTLP/HTTP collector, with the trace id in every JSON log line written
-inside a span. Optional twice — off by default, and its packages are the `tracing` extra,
-which the server image includes so an operator turns it on with an environment variable.
-
-Verified: see *Verification performed*.
-
-## Iteration 77
-
-### 77 — uploads scanned by ClamAV
-
-The next item on the 1.0 list, and another false claim: `SECURITY.md` and
-`ARCHITECTURE.md` described a `ContentScanner` hook that did not exist. It does now
-(`media/scanning.py`), with ClamAV behind it through clamd's `INSTREAM` command — no client
-library — called in the one path direct and resumable uploads share. Off by default; when
-on, it fails closed, because a scanner an attacker can switch off by overloading it is not a
-control. Docker Compose gets an opt-in `scanning` profile, and its `api` replicas now share
-iteration 76's Redis rate limit by default.
-
-Verified: see *Verification performed*.
-
 ## Earlier iterations
 
-Iterations **1–76** are in [`docs/iterations/ARCHIVE.md`](./docs/iterations/ARCHIVE.md) —
+Iterations **1–79** are in [`docs/iterations/ARCHIVE.md`](./docs/iterations/ARCHIVE.md) —
 moved there so that orienting costs a few hundred lines rather than four thousand. Read them
 when `git log` points you at an iteration number, or when you are about to build something
 and want to know whether it was already tried and rejected. The lessons from them that are
