@@ -1,6 +1,6 @@
 # Iteration archive
 
-> The narrative record of iterations **1–82**, moved out of
+> The narrative record of iterations **1–83**, moved out of
 > [`handoff.md`](../../handoff.md) so that orienting on this project costs a few hundred
 > lines rather than four thousand.
 >
@@ -15,6 +15,19 @@
 > window, append it to the top of this file rather than deleting it.
 
 ---
+
+## Iteration 83
+
+### 83 — the Helm chart installed into a live cluster in CI
+
+The proof iteration 80 lacked. CI's `helm-install` job builds both images, loads them into a
+`kind` cluster with PostgreSQL, Redis and an S3 service in it (`deploy/helm/ci/`), runs
+`helm install --wait`, and uses the release through its web service
+(`scripts/helm_smoke.py`: register, workspace, project, task, an image uploaded and read
+back, an annotation exported as COCO), takes a backup with `kubectl exec`, and runs `helm
+upgrade` so the migration hook runs twice.
+
+Verified: see *Verification performed*.
 
 ## Iteration 82
 

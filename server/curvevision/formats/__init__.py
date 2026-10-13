@@ -15,6 +15,7 @@ from curvevision.formats import (  # noqa: F401
     open_images,
     registry,
     segmentation,
+    tfrecord,
     voc,
     yolo,
     yolo_variants,

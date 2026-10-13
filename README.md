@@ -163,12 +163,12 @@ Point it at any inference endpoint. Predictions arrive as suggestions you accept
 reject. No bundled weights, no vendor SDK.
 
 **Export**
-Fourteen formats — COCO, all five Ultralytics YOLO tasks (detection, segmentation, OBB, pose,
+Fifteen formats — COCO, all five Ultralytics YOLO tasks (detection, segmentation, OBB, pose,
 classification), Pascal VOC, KITTI, MOTChallenge, CVAT XML, LabelMe, Cityscapes, Open Images,
-segmentation masks and a lossless native one — each declaring honestly what it can represent, *before* you rely on it.
+TFRecord, segmentation masks and a lossless native one — each declaring honestly what it can represent, *before* you rely on it.
 **CVAT XML imports and exports**, so work done there is not stranded here. Each is checked
 against the reader that consumes it — pycocotools, Datumaro, CVAT's own reader, Ultralytics,
-labelme's own loader, cityscapesScripts — not only against this project's importer.
+labelme's own loader, cityscapesScripts, TensorFlow — not only against this project's importer.
 
 </td></tr>
 </table>
@@ -298,7 +298,7 @@ visibly scrambles a shape the moment an annotator inserts a vertex.
 
 ### Import and export
 
-Fourteen formats, each declaring **honestly** what it can represent:
+Fifteen formats, each declaring **honestly** what it can represent:
 
 | Format | Round-trips |
 | --- | --- |
@@ -314,6 +314,7 @@ Fourteen formats, each declaring **honestly** what it can represent:
 | **LabelMe (JSON)** | boxes, rotated boxes, polygons, polylines, points, circles, **masks**, checkbox attributes, tags — read and written by labelme itself in CI |
 | **Cityscapes** | polygons, boxes and ellipses (as polygons), **masks**, as the gtFine polygons file and its label, instance and training-id images — every image identical to cityscapesScripts' own drawing, checked in CI |
 | **Open Images (CSV)** | boxes with their occluded/truncated/group-of/depiction/inside flags, **masks** (polygons and ellipses written as the masks they cover), image-level labels as tags — read and written by Datumaro in CI |
+| **TFRecord** (TF Object Detection API) | boxes, **masks** (polygons and ellipses as the masks they cover), difficult/truncated flags — read by TensorFlow and Datumaro in CI; written without either |
 | **MOTChallenge** | boxes with object identity across frames |
 | **Segmentation mask** | masks, polygons, boxes and ellipses, rasterised — export only |
 

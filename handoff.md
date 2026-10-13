@@ -23,7 +23,7 @@
 > **Keep the session short.** One iteration, then commit, push, update this file and report —
 > `AGENTS.md` § *Continue* and the `start-work` skill both say so now, because they did not
 > before and a single session ran six iterations and roughly a third of a week's budget. The
-> concrete costs, in rough order: re-reading this file (iterations 1–82 now live in
+> concrete costs, in rough order: re-reading this file (iterations 1–83 now live in
 > [`docs/iterations/ARCHIVE.md`](./docs/iterations/ARCHIVE.md), which cut it from 3,800
 > lines to 1,000 — keep it that way); `python desktop/sidecar/build.py`, which is a
 > PyInstaller run of a minute or two and is needed *again* for every sabotage-and-restore
@@ -37,7 +37,7 @@
 
 CurveVision is a working annotation platform in **two shapes from one codebase**: a desktop
 application and a server. The manual annotation path is complete end to end — create a
-project and label schema, add media, draw, review, export to any of fourteen formats — and
+project and label schema, add media, draw, review, export to any of fifteen formats — and
 is tested. The exporters cover COCO, CVAT XML, Pascal VOC, KITTI, MOTChallenge, indexed
 segmentation masks, the lossless native format, and the Ultralytics YOLO family in four
 shapes (detection/segmentation, OBB, pose, classification), each declaring in its
@@ -49,7 +49,7 @@ Windows (unsigned), and a switch to a team's shared server. Since iteration 85 t
 application is driven in CI over WebDriver — which found that the shell had never granted
 its commands, so the native pickers had never worked in a built app until then.
 
-**The tree is green.** `./scripts/check.sh` passes all fifteen steps: 874 server tests (the
+**The tree is green.** `./scripts/check.sh` passes all fifteen steps: 894 server tests (the
 PostgreSQL and S3 ones skip without a server; CI provides both), 16 SDK, 771 web, and
 `scripts/` is lint-clean under its own `ruff.toml`. Thirty-four browser harnesses drive the application in a real Chromium, nightly and on every push to `main` —
 thirty-one against the packaged desktop server, and `verify_workspace.py` against the real
@@ -520,9 +520,9 @@ the desktop and on tags; `browser.yml` and `ultralytics.yml` only when dispatche
 are recorded under *Verification performed* for iteration 85's commit.
 
 **The 1.0 list in `docs/ROADMAP.md` is done** except what needs someone else (signing
-certificates, an npm token, real AI keys, an external security review) and three formats —
-TFRecord — after LabelMe in iteration 86, Cityscapes in 87 and Open Images in 88, plus SAML and a
-Datumaro bridge. What remains with no dependency on the user, in order:
+certificates, an npm token, real AI keys, an external security review), SAML and a Datumaro
+bridge — the additional formats shipped in iterations 86–89. What remains with no dependency
+on the user, in order:
 
 1. ~~The desktop webview's storage across launches~~ — done for Linux in iteration 85
    (check 8 of `verify_desktop_shell.py`); Windows and macOS have no WebDriver bridge.
@@ -533,9 +533,8 @@ Datumaro bridge. What remains with no dependency on the user, in order:
    made on install, as Compose does. Deliberately not done yet: with an IAM policy that
    allows objects but not `s3:ListBucket`, `HeadBucket` fails and the install would too —
    it needs an opt-out value first.
-4. **The last format on the 1.0 list**: TFRecord (the TensorFlow Object Detection API's
-   `tf.train.Example`s; needs a protobuf writer — check Datumaro's first). Hold it to its
-   own reader, as LabelMe is to labelme and Cityscapes to cityscapesScripts.
+4. ~~The additional formats on the 1.0 list~~ — done: LabelMe (86), Cityscapes (87), Open
+   Images (88), TFRecord (89), each held in CI to a reader written by other people.
 5. **Auto-update** — Tauri's updater, which needs a key pair the maintainers hold; the
    wiring can be built and tested with a throwaway key.
 
@@ -1058,6 +1057,23 @@ being updated and this one was not. Check it against* Completed *before trusting
 ---
 
 ## Verification performed
+
+Iteration 89:
+
+* `tests/unit/test_formats_tfrecord.py`, 19 tests: CRC-32C against its published check value
+  and a bitwise reference at every alignment; the framing, and a damaged or cut record
+  refused; the encoding byte for byte against protobuf's own serialisation, every kind round
+  trip (negative and empty included), unpacked repeated values read, a cut message refused;
+  the label map in either quoting, `display_name`; the export's files, image, boxes, flags,
+  masks all-or-none; the import of an export, classes from the label map, sharded file names,
+  and everything unreadable reported while the rest imports.
+* `tests/api/test_import_fidelity.py`: TFRecord through the real import route — which found
+  the float32 noise now rounded away.
+* `scripts/verify_tfrecord.py` with TensorFlow 2.21.0 and Datumaro 1.13.11: 14 checks, every
+  one passing; four sabotages each caught (a broken checksum stops TensorFlow outright).
+  `verify_open_images.py` and the Open Images tests rerun after the shared rasteriser.
+* `./scripts/check.sh`: all fifteen steps green; 894 server tests (10 skip without PostgreSQL or
+  S3), 16 SDK, 771 web.
 
 Iteration 88:
 
@@ -2093,6 +2109,32 @@ Iteration 54:
 
 ## Last iteration
 
+### 89 — TFRecord, written without TensorFlow and read by it
+
+The last of the 1.0 list's additional formats, so that row is **Done**: the TensorFlow
+Object Detection API's `tf.train.Example` records with `label_map.pbtxt`, both ways. Nothing
+here depends on TensorFlow or protobuf: TFRecord's framing (a length and its masked CRC-32C,
+the record and its masked CRC-32C), the CRC-32C itself (slicing-by-8, 12 MB/s in pure
+Python; `google-crc32c` is used when installed) and the protocol buffer are written by hand.
+Because a hand-written encoding could be wrong everywhere at once, each layer is pinned on
+its own — the CRC to its published check value, the encoding byte for byte to what protobuf
+serialises — and then the real readers check the whole: `scripts/verify_tfrecord.py`
+(`.github/workflows/tfrecord.yml`) has TensorFlow read every record, verifying each
+checksum, and parse it with the Object Detection API's own feature specification, decoding
+the image and every mask; Datumaro reads the export; and we read what Datumaro writes
+through TensorFlow's own writer. It passed first time against TensorFlow; four sabotages
+(the CRC mask, big-endian floats, a coordinate normalised by the wrong side, label ids from
+0) each caught.
+
+Masks are written only on an image where every object has one, because the API reads a mask
+for every object or for none. The import route test found that a normalised float32 reads
+back as 64.00000095 of 640, so imported pixel coordinates are rounded to a thousandth. Open
+Images and TFRecord now share one rasteriser (`formats/raster.py`) rather than two.
+
+Verified: see *Verification performed*.
+
+## Iteration 88
+
 ### 88 — Open Images (CSV), both ways, against Datumaro in both directions
 
 The third of the 1.0 list's additional formats: the annotation files Google's Open Images
@@ -2240,22 +2282,9 @@ first run failed on all three platforms, which is what it was for:
 
 Verified: see *Verification performed*.
 
-## Iteration 83
-
-### 83 — the Helm chart installed into a live cluster in CI
-
-The proof iteration 80 lacked. CI's `helm-install` job builds both images, loads them into a
-`kind` cluster with PostgreSQL, Redis and an S3 service in it (`deploy/helm/ci/`), runs
-`helm install --wait`, and uses the release through its web service
-(`scripts/helm_smoke.py`: register, workspace, project, task, an image uploaded and read
-back, an annotation exported as COCO), takes a backup with `kubectl exec`, and runs `helm
-upgrade` so the migration hook runs twice.
-
-Verified: see *Verification performed*.
-
 ## Earlier iterations
 
-Iterations **1–82** are in [`docs/iterations/ARCHIVE.md`](./docs/iterations/ARCHIVE.md) —
+Iterations **1–83** are in [`docs/iterations/ARCHIVE.md`](./docs/iterations/ARCHIVE.md) —
 moved there so that orienting costs a few hundred lines rather than four thousand. Read them
 when `git log` points you at an iteration number, or when you are about to build something
 and want to know whether it was already tried and rejected. The lessons from them that are

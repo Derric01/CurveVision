@@ -532,10 +532,11 @@ class DatasetFormat(Protocol):
 `DatasetView` is a read-only, streaming projection over jobs/frames/annotations, so exporting
 a 500k-image dataset never materialises it in memory.
 
-Shipped, fourteen: **CurveVision JSON** (lossless native), **CVAT XML 1.1**, **COCO**
+Shipped, fifteen: **CurveVision JSON** (lossless native), **CVAT XML 1.1**, **COCO**
 (instances + keypoints), **YOLO** (detection + segmentation), **YOLO OBB**, **YOLO Pose**,
 **YOLO Classification**, **Pascal VOC**, **KITTI**, **MOTChallenge**, **LabelMe (JSON)**,
-**Cityscapes**, **Open Images (CSV)**, and **segmentation mask** (indexed PNG). Each declares its capabilities, and the export API warns which
+**Cityscapes**, **Open Images (CSV)**, **TFRecord** (TF Object Detection API), and
+**segmentation mask** (indexed PNG). Each declares its capabilities, and the export API warns which
 annotations will be dropped *before* running (e.g. polylines are not representable in COCO
 instances).
 
@@ -593,7 +594,21 @@ so the files are readable without the images. Held to Datumaro by
 `scripts/verify_open_images.py` (`.github/workflows/open_images.yml`): it reads our export
 with and without the images, and we read what its own exporter writes.
 
-Planned: TFRecord, Datumaro bridge.
+**TFRecord** (iteration 89): the TensorFlow Object Detection API's `tf.train.Example`
+records, one file per subset, with `label_map.pbtxt` — written without TensorFlow or
+protobuf: TFRecord's framing and CRC-32C (slicing-by-8 in pure Python; `google-crc32c` is
+used when installed) and the protocol buffer are encoded by hand, the encoding pinned byte
+for byte to protobuf's own. Boxes normalised to the image, class text and label-map id,
+`difficult` and `truncated` from checkbox attributes; polygons, ellipses and masks as their
+box plus a PNG mask, on an image where every object has one (the API reads all or none).
+Import reads sharded files (`train.record-00000-of-00010`), takes classes from the record or
+the label map, checks every checksum, and rounds pixel coordinates to a thousandth, which is
+all a float32 can mean. Held to the real readers by `scripts/verify_tfrecord.py`
+(`.github/workflows/tfrecord.yml`): TensorFlow reads every record and parses it with the
+Object Detection API's own feature specification; Datumaro reads the export; we read what
+Datumaro writes through TensorFlow's own writer.
+
+Planned: Datumaro bridge.
 
 ---
 

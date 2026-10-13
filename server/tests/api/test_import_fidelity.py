@@ -497,6 +497,60 @@ class TestATrackWithAGap:
         assert present_on(track) == [0, 1, 4, 5]
 
 
+async def test_tfrecord_examples_arrive_through_the_import_route(
+    owner: ApiActor, organization: dict[str, Any]
+) -> None:
+    """TFRecord (iteration 89), through the real import route: records written by hand to
+    the TensorFlow Object Detection API's layout — a label map, boxes normalised to the size
+    each record states, the flags as attributes."""
+    from curvevision.formats.tfrecord import encode_example, frame_record
+
+    def example(name: bytes, boxes: list[list[float]], labels: list[int]) -> bytes:
+        return frame_record(
+            encode_example(
+                {
+                    "image/filename": ("bytes", [name]),
+                    "image/height": ("int", [480]),
+                    "image/width": ("int", [640]),
+                    "image/object/bbox/xmin": ("float", [b[0] for b in boxes]),
+                    "image/object/bbox/ymin": ("float", [b[1] for b in boxes]),
+                    "image/object/bbox/xmax": ("float", [b[2] for b in boxes]),
+                    "image/object/bbox/ymax": ("float", [b[3] for b in boxes]),
+                    "image/object/class/label": ("int", labels),
+                    "image/object/truncated": ("int", [1] * len(labels)),
+                }
+            )
+        )
+
+    project = await street_project(owner, organization, "tfrecord-import")
+    archive = io.BytesIO()
+    with zipfile.ZipFile(archive, "w") as bundle:
+        bundle.writestr(
+            "label_map.pbtxt", "item { id: 1 name: 'car' }\nitem { id: 2 name: 'bus' }\n"
+        )
+        bundle.writestr(
+            "train.tfrecord",
+            example(b"f0.png", [[0.1, 0.1, 0.5, 0.5]], [1])
+            + example(b"f1.png", [[0.25, 0.5, 0.75, 1.0]], [2]),
+        )
+
+    _summary, document = await import_into(owner, project, "tfrecord", archive.getvalue(), frames=2)
+
+    labels = {
+        label["name"]: label
+        for label in (await owner.get(f"/api/v1/projects/{project['id']}/labels")).json()
+    }
+    # The flag the records carry is declared on the label the import made.
+    assert [(a["name"], a["attribute_type"]) for a in labels["bus"]["attributes"]] == [
+        ("truncated", "checkbox")
+    ]
+    by_frame = {shape["frame"]: shape for shape in document["shapes"]}
+    assert by_frame[0]["points"] == [64, 48, 320, 240]
+    assert by_frame[0]["label_id"] == labels["car"]["id"]
+    assert by_frame[1]["points"] == [160, 240, 480, 480]
+    assert by_frame[1]["attributes"]["truncated"] is True
+
+
 async def test_open_images_files_arrive_at_the_images_own_size(
     owner: ApiActor, organization: dict[str, Any]
 ) -> None:

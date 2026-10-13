@@ -91,7 +91,7 @@ Beta named is finished, and the label waits for use.
 | Kubernetes Helm chart | **Done** — `deploy/helm/curvevision`, linted and schema-validated, and installed into a live `kind` cluster and used on every CI run (iteration 83). That first install found the chart had never started: list settings set as text crashed every pod, and the worker sent and consumed no job — both fixed in iteration 85 |
 | Backup and restore tooling | **Done** — `curvevision-server backup` / `restore`, either shape, across databases, restored in CI |
 | TypeScript client package | **Done** — `sdk/typescript` (`@curvevision/client`), typed from the server's schema and tested against a real server in CI. **Publishing to npm needs the maintainers' account**: a manual workflow is ready for an `NPM_TOKEN` |
-| Additional formats: LabelMe, Open Images, TFRecord, Cityscapes | **In Progress** — **LabelMe (JSON)** import and export shipped in iteration 86, read and written by labelme's own code in CI; **Cityscapes** both ways in iteration 87, every label image identical to cityscapesScripts' own drawing and read by Datumaro in CI; **Open Images (CSV)** both ways in iteration 88, read and written by Datumaro in CI; TFRecord planned. KITTI, MOTChallenge, CVAT XML and segmentation masks shipped ahead of this list |
+| Additional formats: LabelMe, Open Images, TFRecord, Cityscapes | **Done** — all four both ways, each held in CI to a reader written by other people: **LabelMe (JSON)** (iteration 86) read and written by labelme's own code; **Cityscapes** (87) every label image identical to cityscapesScripts' own drawing, and read by Datumaro; **Open Images (CSV)** (88) read and written by Datumaro; **TFRecord** (89) written without TensorFlow, read by TensorFlow with the Object Detection API's own feature specification and by Datumaro. KITTI, MOTChallenge, CVAT XML and segmentation masks shipped ahead of this list |
 | Datumaro bridge for the long tail of formats | **Planned** |
 | An external security review | **Planned** |
 
@@ -163,9 +163,9 @@ deciding whether to adopt this needs them more than they need the roadmap.
 
 * **No 3D or point-cloud annotation.** No LiDAR, no cuboids in 3D. Not close, and not
   planned for 1.0.
-* **Fourteen dataset formats**, not thirty-three. COCO, YOLO (detection, segmentation, OBB,
+* **Fifteen dataset formats**, not thirty-three. COCO, YOLO (detection, segmentation, OBB,
   pose, classification), Pascal VOC, KITTI, MOTChallenge, CVAT XML, LabelMe, Cityscapes,
-  Open Images, segmentation masks and
+  Open Images, TFRecord, segmentation masks and
   the lossless native format, each declaring honestly what it can represent. The mature tool in this space ships 33 exporters; most of the remainder
   are single-dataset conventions (LFW, VGGFace2, Market-1501, ICDAR, WiderFace) that matter
   to whoever needs them and to nobody else. The registry takes plugins through entry points,

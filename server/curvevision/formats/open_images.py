@@ -44,7 +44,6 @@ from collections.abc import Iterable, Iterator
 from dataclasses import dataclass, field
 from typing import Any
 
-from curvevision.core.errors import ValidationError
 from curvevision.core.logging import get_logger
 from curvevision.domain.enums import AttributeType, ShapeType
 from curvevision.formats.base import (
@@ -61,9 +60,8 @@ from curvevision.formats.base import (
     TagRecord,
     normalise_rectangle,
 )
+from curvevision.formats.raster import cover, mask_shape_from_image
 from curvevision.formats.registry import register
-from curvevision.formats.rle import encode as rle_encode
-from curvevision.formats.rle import pixels as mask_pixels
 
 logger = get_logger(__name__)
 
@@ -210,7 +208,7 @@ class OpenImagesFormat:
                     continue
                 if shape.shape_type not in SEGMENTED:
                     continue
-                drawn = _draw(shape, width, height)
+                drawn = cover(shape, width, height)
                 if drawn is None:
                     continue
                 png, box = drawn
@@ -321,52 +319,6 @@ def _box_row(
         value = shape.attributes.get(attribute)
         row[column] = int(value) if isinstance(value, bool) else -1
     return row
-
-
-def _draw(shape: ShapeRecord, width: int, height: int) -> tuple[bytes, list[float]] | None:
-    """The shape as a full-image binary PNG, and the box of what it covers."""
-    try:
-        from PIL import Image, ImageDraw
-    except ImportError:
-        logger.warning("open_images: masks need Pillow (the media extra); a shape was left out")
-        return None
-    image = Image.new("L", (width, height), 0)
-    draw = ImageDraw.Draw(image)
-    points = list(shape.points)
-    if shape.shape_type is ShapeType.MASK:
-        try:
-            covered = list(mask_pixels(shape.mask or {}))
-        except ValidationError:
-            logger.warning("open_images: an unreadable mask was left out")
-            return None
-        covered = [(x, y) for x, y in covered if 0 <= x < width and 0 <= y < height]
-        if covered:
-            draw.point(covered, fill=255)
-    elif shape.shape_type is ShapeType.ELLIPSE:
-        cx, cy, rx, ry = [*points, 0, 0, 0, 0][:4]
-        if shape.rotation:
-            turn = math.radians(shape.rotation)
-            cos, sin = math.cos(turn), math.sin(turn)
-            traced = []
-            for step in range(36):
-                angle = 2 * math.pi * step / 36
-                dx, dy = rx * math.cos(angle), ry * math.sin(angle)
-                traced.append((cx + dx * cos - dy * sin, cy + dx * sin + dy * cos))
-            draw.polygon(traced, fill=255)
-        else:
-            draw.ellipse([cx - rx, cy - ry, cx + rx, cy + ry], fill=255)
-    else:
-        pairs = list(zip(points[0::2], points[1::2], strict=False))
-        if len(pairs) < 3:
-            return None
-        draw.polygon(pairs, fill=255)
-    bounds = image.getbbox()
-    if bounds is None:
-        return None
-    left, top, right, bottom = bounds  # right and bottom are one past the last pixel
-    buffer = io.BytesIO()
-    image.convert("1").save(buffer, format="PNG")
-    return buffer.getvalue(), [float(left), float(top), float(right), float(bottom)]
 
 
 def _csv(rows: Iterable[dict[str, Any]], fields: tuple[str, ...], *, header: bool = True) -> str:
@@ -595,7 +547,7 @@ class _Reader:
                 # The dataset's masks are not at the image's resolution; scaled as Datumaro
                 # scales them, to the nearest pixel.
                 image = image.resize(size, Image.Resampling.NEAREST)
-            shape = _mask_shape(image, label)
+            shape = mask_shape_from_image(image, label)
             if shape is None:
                 self.result.warnings.append(f"{where}: {mask_name} covers no pixels; skipped")
                 continue
@@ -632,28 +584,6 @@ def _coords(
     if not all(math.isfinite(v) for v in values):
         return None
     return values[0], values[1], values[2], values[3]
-
-
-def _mask_shape(image: Any, label: str) -> ShapeRecord | None:
-    bounds = image.getbbox()
-    if bounds is None:
-        return None
-    left, top, right, bottom = bounds
-    width, height = right - left, bottom - top
-    crop = image.crop(bounds).tobytes()  # mode "L": one byte per pixel
-    flags = [value > 0 for value in crop]
-    return ShapeRecord(
-        label=label,
-        shape_type=ShapeType.MASK,
-        points=[left, top, right - 1, bottom - 1],
-        mask={
-            "rle": rle_encode(flags, width, height),
-            "left": left,
-            "top": top,
-            "width": width,
-            "height": height,
-        },
-    )
 
 
 register(OpenImagesFormat())
