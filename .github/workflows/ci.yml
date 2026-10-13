@@ -327,6 +327,78 @@ jobs:
           ! helm template demo curvevision 2> refused.txt
           grep -q "Set secretKey" refused.txt
 
+  helm-install:
+    name: Helm chart installs and serves, in kind
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v5
+      - uses: docker/setup-buildx-action@v3
+
+      - name: Build the server image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: deploy/Dockerfile.server
+          load: true
+          tags: curvevision-server:ci
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Build the web image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: deploy/Dockerfile.web
+          load: true
+          tags: curvevision-web:ci
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - uses: helm/kind-action@v1
+        with:
+          cluster_name: curvevision
+      - uses: azure/setup-helm@v4
+        with:
+          version: v3.16.2
+
+      # What the chart leaves to the operator — PostgreSQL, Redis, S3 — at its smallest.
+      - name: Load the images, and start what the chart expects to find
+        run: |
+          kind load docker-image curvevision-server:ci curvevision-web:ci --name curvevision
+          kubectl apply -f deploy/helm/ci/dependencies.yaml
+          kubectl wait --for=condition=available deploy/postgres deploy/redis deploy/minio --timeout=300s
+          kubectl wait --for=condition=complete job/minio-bucket --timeout=300s
+
+      - name: helm install, and wait for every pod to be ready
+        run: >
+          helm install cv deploy/helm/curvevision -f deploy/helm/ci/values.yaml
+          --wait --timeout 10m
+
+      # Through the web pods' nginx, the API Service and pods, and everything behind them.
+      - name: Use it as a person would
+        run: |
+          kubectl port-forward svc/cv-curvevision-web 8080:80 > /dev/null 2>&1 &
+          sleep 3
+          python3 scripts/helm_smoke.py http://127.0.0.1:8080
+
+      - name: Back it up from inside the cluster
+        run: |
+          kubectl exec deploy/cv-curvevision-api -- curvevision-server backup /tmp/cv.tar
+          kubectl exec deploy/cv-curvevision-api -- ls -l /tmp/cv.tar
+
+      - name: helm upgrade runs the migration hook again
+        run: >
+          helm upgrade cv deploy/helm/curvevision -f deploy/helm/ci/values.yaml
+          --wait --timeout 10m
+
+      - name: What the cluster said, when anything failed
+        if: failure()
+        run: |
+          kubectl get pods -A -o wide
+          kubectl describe pods
+          kubectl logs -l app.kubernetes.io/instance=cv --all-containers --tail=200 --prefix
+
   licenses:
     name: Third-party notices are current
     runs-on: ubuntu-latest

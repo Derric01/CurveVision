@@ -27,7 +27,6 @@ EXEMPT = {
     "ruff",
     "mypy",
     "types-boto3",
-    "aiosqlite",
     # The reference COCO reader, in the test suite only.
     "pycocotools",
     "vite",

@@ -1,0 +1,96 @@
+# What the chart expects an operator to provide, at its smallest: for CI's `kind` install
+# (`.github/workflows/ci.yml`, job `helm-install`), not for production. Each is one pod
+# with no persistence.
+apiVersion: apps/v1
+kind: Deployment
+metadata: {name: postgres}
+spec:
+  selector: {matchLabels: {app: postgres}}
+  template:
+    metadata: {labels: {app: postgres}}
+    spec:
+      containers:
+        - name: postgres
+          image: postgres:16-alpine
+          env:
+            - {name: POSTGRES_USER, value: curvevision}
+            - {name: POSTGRES_PASSWORD, value: curvevision}
+            - {name: POSTGRES_DB, value: curvevision}
+          ports: [{containerPort: 5432}]
+          readinessProbe:
+            exec: {command: [pg_isready, -U, curvevision]}
+            periodSeconds: 3
+---
+apiVersion: v1
+kind: Service
+metadata: {name: postgres}
+spec:
+  selector: {app: postgres}
+  ports: [{port: 5432}]
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata: {name: redis}
+spec:
+  selector: {matchLabels: {app: redis}}
+  template:
+    metadata: {labels: {app: redis}}
+    spec:
+      containers:
+        - name: redis
+          image: redis:7-alpine
+          ports: [{containerPort: 6379}]
+          readinessProbe:
+            exec: {command: [redis-cli, ping]}
+            periodSeconds: 3
+---
+apiVersion: v1
+kind: Service
+metadata: {name: redis}
+spec:
+  selector: {app: redis}
+  ports: [{port: 6379}]
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata: {name: minio}
+spec:
+  selector: {matchLabels: {app: minio}}
+  template:
+    metadata: {labels: {app: minio}}
+    spec:
+      containers:
+        - name: minio
+          image: minio/minio:RELEASE.2024-10-13T13-34-11Z
+          args: [server, /data]
+          env:
+            - {name: MINIO_ROOT_USER, value: curvevision}
+            - {name: MINIO_ROOT_PASSWORD, value: curvevision-ci-secret}
+          ports: [{containerPort: 9000}]
+          readinessProbe:
+            httpGet: {path: /minio/health/ready, port: 9000}
+            periodSeconds: 3
+---
+apiVersion: v1
+kind: Service
+metadata: {name: minio}
+spec:
+  selector: {app: minio}
+  ports: [{port: 9000}]
+---
+# The bucket, as `minio-init` makes it under Docker Compose.
+apiVersion: batch/v1
+kind: Job
+metadata: {name: minio-bucket}
+spec:
+  backoffLimit: 20
+  template:
+    spec:
+      restartPolicy: OnFailure
+      containers:
+        - name: mc
+          image: minio/mc:RELEASE.2024-10-08T09-37-26Z
+          command: [/bin/sh, -c]
+          args:
+            - mc alias set local http://minio:9000 curvevision curvevision-ci-secret &&
+              mc mb --ignore-existing local/curvevision

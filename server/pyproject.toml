@@ -18,6 +18,10 @@ dependencies = [
     "email-validator>=2.2",
     "sqlalchemy>=2.0.30",
     "alembic>=1.13",
+    # The default database (`sqlite+aiosqlite://`), and the only one a desktop installation
+    # uses. Not optional: without it the zero-configuration server cannot start, and the
+    # desktop installers built from `[media,desktop]` shipped without it (iteration 84).
+    "aiosqlite>=0.20",
     "greenlet>=3.0",
     "argon2-cffi>=23.1",
     "pyjwt>=2.8",
@@ -64,7 +68,6 @@ dev = [
     "opentelemetry-instrumentation-sqlalchemy>=0.46b0",
     "opentelemetry-instrumentation-httpx>=0.46b0",
     "pytest-asyncio>=0.23",
-    "aiosqlite>=0.20",
     "ruff>=0.5",
     "mypy>=1.10",
     "types-boto3",

@@ -1,0 +1,21 @@
+# The chart's values for CI's `kind` install, against `dependencies.yaml`.
+image:
+  server: {repository: curvevision-server, tag: ci}
+  web: {repository: curvevision-web, tag: ci}
+  pullPolicy: Never # loaded into kind, not pulled
+secretKey: ci-only-secret-key-not-used-anywhere-real-0123456789
+database:
+  url: postgresql+asyncpg://curvevision:curvevision@postgres:5432/curvevision
+redis:
+  url: redis://redis:6379/0
+storage:
+  s3:
+    endpointUrl: http://minio:9000
+    bucket: curvevision
+    accessKeyId: curvevision
+    secretAccessKey: curvevision-ci-secret
+api: {replicas: 2, workers: 1}
+worker: {replicas: 1}
+web: {replicas: 1}
+config:
+  environment: production
