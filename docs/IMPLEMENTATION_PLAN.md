@@ -532,10 +532,10 @@ class DatasetFormat(Protocol):
 `DatasetView` is a read-only, streaming projection over jobs/frames/annotations, so exporting
 a 500k-image dataset never materialises it in memory.
 
-Shipped, twelve: **CurveVision JSON** (lossless native), **CVAT XML 1.1**, **COCO**
+Shipped, thirteen: **CurveVision JSON** (lossless native), **CVAT XML 1.1**, **COCO**
 (instances + keypoints), **YOLO** (detection + segmentation), **YOLO OBB**, **YOLO Pose**,
-**YOLO Classification**, **Pascal VOC**, **KITTI**, **MOTChallenge**, **LabelMe (JSON)**, and
-**segmentation mask** (indexed PNG). Each declares its capabilities, and the export API warns which
+**YOLO Classification**, **Pascal VOC**, **KITTI**, **MOTChallenge**, **LabelMe (JSON)**,
+**Cityscapes**, and **segmentation mask** (indexed PNG). Each declares its capabilities, and the export API warns which
 annotations will be dropped *before* running (e.g. polylines are not representable in COCO
 instances).
 
@@ -570,7 +570,18 @@ the format, since labelme is GPL-3.0; held to labelme itself by
 labelme's own loader, draws every shape with its rasteriser and compares the pixels, and
 imports a file written by labelme's own writer. Not *LabelMe 3.0*, the MIT CSAIL XML.
 
-Planned: Open Images, TFRecord, Cityscapes, Datumaro bridge.
+**Cityscapes** (iteration 87): the `gtFine` layout both ways — per image the polygons file
+and the label-id, instance-id, training-id and colour images drawn from it, the image under
+`leftImg8bit/`. A project whose labels are all Cityscapes classes (crowds such as `cargroup`
+and `license plate` included) keeps Cityscapes' ids, colours and training ids; any other is
+numbered after a background in `label_colors.txt`. Import reads the polygons file when there
+is one, and otherwise makes each instance of the instance image (or each class of the label
+image) the mask of exactly its pixels. Held to the dataset's own tools by
+`scripts/verify_cityscapes.py` (`.github/workflows/cityscapes.yml`): cityscapesScripts draws
+every exported polygons file, and each image must equal its drawing pixel for pixel;
+cityscapesScripts' own instance images are imported; Datumaro reads the export.
+
+Planned: Open Images, TFRecord, Datumaro bridge.
 
 ---
 

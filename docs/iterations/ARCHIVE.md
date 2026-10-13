@@ -1,6 +1,6 @@
 # Iteration archive
 
-> The narrative record of iterations **1–80**, moved out of
+> The narrative record of iterations **1–81**, moved out of
 > [`handoff.md`](../../handoff.md) so that orienting on this project costs a few hundred
 > lines rather than four thousand.
 >
@@ -15,6 +15,21 @@
 > window, append it to the top of this file rather than deleting it.
 
 ---
+
+## Iteration 81
+
+### 81 — single sign-on through OpenID Connect
+
+The largest item left on the 1.0 list, and the third false claim found this session: the
+docs said an `AuthBackend` seam existed; nothing by that name did. `services/oidc.py`
+implements the authorization-code flow with PKCE, the server a confidential client that
+keeps no login state (the signed `state` carries nonce, verifier and destination), and the
+web application checks `state` against what its own tab kept — login CSRF, without a
+cookie. Accounts link by issuer and `sub` (`external_identities`, a migration); a first
+sign-in uses an existing account only through a verified email. The sign-in page asks the
+server what to offer.
+
+Verified: see *Verification performed*.
 
 ## Iteration 80
 

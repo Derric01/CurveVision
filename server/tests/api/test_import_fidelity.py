@@ -497,6 +497,63 @@ class TestATrackWithAGap:
         assert present_on(track) == [0, 1, 4, 5]
 
 
+async def test_cityscapes_label_images_and_polygons_arrive_through_the_import_route(
+    owner: ApiActor, organization: dict[str, Any]
+) -> None:
+    """Cityscapes (iteration 87), through the real import route: one frame from its polygons
+    file, another from its instance image alone — each instance a mask of its pixels, the
+    road (which has no instances) one mask, and a label the project lacks made in
+    Cityscapes' colour."""
+    import json
+
+    from PIL import Image
+
+    instance = Image.new("I", (8, 6), 0)
+    for x, y in [(1, 1), (2, 1), (2, 2)]:
+        instance.putpixel((x, y), 26000)
+    for x in range(8):
+        instance.putpixel((x, 5), 7)
+    encoded = io.BytesIO()
+    instance.convert("I;16").save(encoded, format="PNG")
+
+    project = await street_project(owner, organization, "cityscapes-import")
+    archive = io.BytesIO()
+    with zipfile.ZipFile(archive, "w") as bundle:
+        bundle.writestr("gtFine/train/f0_gtFine_instanceIds.png", encoded.getvalue())
+        bundle.writestr(
+            "gtFine/train/f1_gtFine_polygons.json",
+            json.dumps(
+                {
+                    "imgHeight": 48,
+                    "imgWidth": 64,
+                    "objects": [{"label": "car", "polygon": [[10, 10], [50, 10], [30, 40]]}],
+                }
+            ),
+        )
+
+    _summary, document = await import_into(
+        owner, project, "cityscapes", archive.getvalue(), frames=2
+    )
+
+    labels = {
+        label["name"]: label
+        for label in (await owner.get(f"/api/v1/projects/{project['id']}/labels")).json()
+    }
+    assert labels["road"]["color"] == "#804080"
+    on_first = sorted(
+        (shape for shape in document["shapes"] if shape["frame"] == 0),
+        key=lambda shape: shape["label_id"] == labels["road"]["id"],
+    )
+    car, road = on_first
+    assert (car["label_id"], car["shape_type"]) == (labels["car"]["id"], "mask")
+    assert (car["mask"]["left"], car["mask"]["top"]) == (1, 1)
+    assert (car["mask"]["width"], car["mask"]["height"]) == (2, 2)
+    assert (road["label_id"], road["mask"]["width"]) == (labels["road"]["id"], 8)
+    polygon = next(shape for shape in document["shapes"] if shape["frame"] == 1)
+    assert polygon["shape_type"] == "polygon"
+    assert polygon["points"] == [10, 10, 50, 10, 30, 40]
+
+
 async def test_labelme_files_arrive_with_their_flags_groups_and_tags(
     owner: ApiActor, organization: dict[str, Any]
 ) -> None:

@@ -5,6 +5,7 @@ themselves through the ``curvevision.formats`` entry-point group.
 """
 
 from curvevision.formats import (  # noqa: F401
+    cityscapes,
     coco,
     cvat_xml,
     kitti,

@@ -23,7 +23,7 @@
 > **Keep the session short.** One iteration, then commit, push, update this file and report —
 > `AGENTS.md` § *Continue* and the `start-work` skill both say so now, because they did not
 > before and a single session ran six iterations and roughly a third of a week's budget. The
-> concrete costs, in rough order: re-reading this file (iterations 1–80 now live in
+> concrete costs, in rough order: re-reading this file (iterations 1–81 now live in
 > [`docs/iterations/ARCHIVE.md`](./docs/iterations/ARCHIVE.md), which cut it from 3,800
 > lines to 1,000 — keep it that way); `python desktop/sidecar/build.py`, which is a
 > PyInstaller run of a minute or two and is needed *again* for every sabotage-and-restore
@@ -37,7 +37,7 @@
 
 CurveVision is a working annotation platform in **two shapes from one codebase**: a desktop
 application and a server. The manual annotation path is complete end to end — create a
-project and label schema, add media, draw, review, export to any of twelve formats — and
+project and label schema, add media, draw, review, export to any of thirteen formats — and
 is tested. The exporters cover COCO, CVAT XML, Pascal VOC, KITTI, MOTChallenge, indexed
 segmentation masks, the lossless native format, and the Ultralytics YOLO family in four
 shapes (detection/segmentation, OBB, pose, classification), each declaring in its
@@ -49,7 +49,7 @@ Windows (unsigned), and a switch to a team's shared server. Since iteration 85 t
 application is driven in CI over WebDriver — which found that the shell had never granted
 its commands, so the native pickers had never worked in a built app until then.
 
-**The tree is green.** `./scripts/check.sh` passes all fifteen steps: 837 server tests (the
+**The tree is green.** `./scripts/check.sh` passes all fifteen steps: 858 server tests (the
 PostgreSQL and S3 ones skip without a server; CI provides both), 16 SDK, 771 web, and
 `scripts/` is lint-clean under its own `ruff.toml`. Thirty-four browser harnesses drive the application in a real Chromium, nightly and on every push to `main` —
 thirty-one against the packaged desktop server, and `verify_workspace.py` against the real
@@ -521,7 +521,7 @@ are recorded under *Verification performed* for iteration 85's commit.
 
 **The 1.0 list in `docs/ROADMAP.md` is done** except what needs someone else (signing
 certificates, an npm token, real AI keys, an external security review) and three formats —
-Open Images, TFRecord, Cityscapes — after LabelMe in iteration 86, plus SAML and a
+Open Images and TFRecord — after LabelMe in iteration 86 and Cityscapes in 87, plus SAML and a
 Datumaro bridge. What remains with no dependency on the user, in order:
 
 1. ~~The desktop webview's storage across launches~~ — done for Linux in iteration 85
@@ -533,10 +533,9 @@ Datumaro bridge. What remains with no dependency on the user, in order:
    made on install, as Compose does. Deliberately not done yet: with an IAM policy that
    allows objects but not `s3:ListBucket`, `HeadBucket` fails and the install would too —
    it needs an opt-out value first.
-4. **The next formats on the 1.0 list**: Cityscapes (polygons per image as JSON, plus
-   label-ID PNGs — close to what LabelMe and the segmentation exporter already do), then
-   Open Images (CSV boxes and masks), then TFRecord (needs a protobuf writer; check
-   Datumaro's first). Hold each to its own reader, as LabelMe is to labelme.
+4. **The next formats on the 1.0 list**: Open Images (CSV boxes and masks), then TFRecord
+   (needs a protobuf writer; check Datumaro's first). Hold each to its own reader, as
+   LabelMe is to labelme and Cityscapes to cityscapesScripts.
 5. **Auto-update** — Tauri's updater, which needs a key pair the maintainers hold; the
    wiring can be built and tested with a throwaway key.
 
@@ -1059,6 +1058,25 @@ being updated and this one was not. Check it against* Completed *before trusting
 ---
 
 ## Verification performed
+
+Iteration 87:
+
+* `tests/unit/test_formats_cityscapes.py`, 20 tests: the layout and where the image goes,
+  Cityscapes' ids, colours and training ids, which shape wins a pixel, instances numbered per
+  class from 0, a crowd with no number, a licence plate listed and never drawn, boxes and
+  ellipses as their polygons, a mask pixel for pixel, a project's own labels after a
+  background; and on import an export's polygons in their order, the dataset's own names,
+  instance and label-id images as masks of exactly their pixels, `label_colors.txt` names,
+  and everything unreadable reported while the rest imports.
+* `tests/api/test_import_fidelity.py`: a Cityscapes archive through the real import route,
+  one frame from its polygons file and one from its instance image alone.
+* `scripts/verify_cityscapes.py` with cityscapesScripts 2.3.0 and Datumaro 1.13.11: 14
+  checks, every one passing, the module raising no deprecation warning. Sabotaged three
+  ways — instances numbered from 1, the drawing order reversed, a crowd given an instance
+  number — and each caught; the reversed order only on the frame with a mask, which is why a
+  unit test pins it too (and fails under the same sabotage).
+* `./scripts/check.sh`: all fifteen steps green; 858 server tests (10 skip without PostgreSQL or
+  S3), 16 SDK, 771 web.
 
 Iteration 86:
 
@@ -1855,6 +1873,14 @@ Iteration 54:
 
 ## Known issues
 
+* **Datumaro 1.x reads Cityscapes differently from the dataset** (iteration 87). It takes
+  `instanceIds` values as class ids, where the dataset (and cityscapesScripts, and this
+  export) write class x 1000 + instance, so it finds no car or person in real Cityscapes
+  instance images; it reads `labelTrainIds` first when present, which is why the export
+  writes one for every project; and it skips label index 0, which in its training-id map is
+  the road, so it reads no road from anyone's files. Its `label_colors.txt` reader keeps only
+  the first word of a name, so a project label with a space (`wooden crate`) reaches
+  Datumaro truncated. This project's reader handles all four.
 * **YOLO Pose writes `flip_idx` only when joint names say left and right** (iteration 67).
   A skeleton named `hand1`/`hand2` gets none, and Ultralytics then trains without flip
   augmentation — slower to generalise, never wrong. Naming joints `left_…`/`right_…` fixes it.
@@ -2049,6 +2075,34 @@ Iteration 54:
 
 ## Last iteration
 
+### 87 — Cityscapes, both ways, drawn exactly as the dataset's own tools draw it
+
+The second of the 1.0 list's additional formats: the `gtFine` layout — per image the
+polygons file and the label-id, instance-id, training-id and colour images drawn from it,
+the image under `leftImg8bit/`. A project whose labels are all Cityscapes classes keeps
+Cityscapes' ids, colours and training ids (crowds such as `cargroup` drawn with the class id
+and no instance number, `license plate` listed and never drawn, as cityscapesScripts does);
+any other project is numbered after a background in `label_colors.txt`. Import reads the
+polygons file when there is one and otherwise makes each instance — or each class of a
+label-id image — the mask of exactly its pixels. Boxes and ellipses are written as the
+polygons they are; masks are painted into the images only, since the polygons file has no
+place for them.
+
+Held to the dataset's own tools: `scripts/verify_cityscapes.py`
+(`.github/workflows/cityscapes.yml`) has cityscapesScripts draw every exported polygons file
+and requires each of the four images to equal its drawing pixel for pixel; imports instance
+images cityscapesScripts drew; and has Datumaro read both kinds of export. It passed first
+time on the drawing. What it found was elsewhere: **Pillow 13 (due 2026-10-15) stops writing
+32-bit PNGs** and deprecates `getdata`, so the instance image is written 16-bit, as the
+dataset's own are, and read from raw bytes; and **Datumaro 1.x reads Cityscapes differently
+from the dataset** (see *Known issues*). One rule the cross-check cannot see — which shape
+wins a pixel, since the polygons file and the images come from one loop — is pinned by a unit
+test, and that test fails when the order is reversed.
+
+Verified: see *Verification performed*.
+
+## Iteration 86
+
 ### 86 — LabelMe (JSON), both ways; labels an import creates keep their attributes
 
 The first of the 1.0 list's additional formats, and the one most individual annotators
@@ -2170,24 +2224,9 @@ manual workflow waits for their token.
 
 Verified: see *Verification performed*.
 
-## Iteration 81
-
-### 81 — single sign-on through OpenID Connect
-
-The largest item left on the 1.0 list, and the third false claim found this session: the
-docs said an `AuthBackend` seam existed; nothing by that name did. `services/oidc.py`
-implements the authorization-code flow with PKCE, the server a confidential client that
-keeps no login state (the signed `state` carries nonce, verifier and destination), and the
-web application checks `state` against what its own tab kept — login CSRF, without a
-cookie. Accounts link by issuer and `sub` (`external_identities`, a migration); a first
-sign-in uses an existing account only through a verified email. The sign-in page asks the
-server what to offer.
-
-Verified: see *Verification performed*.
-
 ## Earlier iterations
 
-Iterations **1–80** are in [`docs/iterations/ARCHIVE.md`](./docs/iterations/ARCHIVE.md) —
+Iterations **1–81** are in [`docs/iterations/ARCHIVE.md`](./docs/iterations/ARCHIVE.md) —
 moved there so that orienting costs a few hundred lines rather than four thousand. Read them
 when `git log` points you at an iteration number, or when you are about to build something
 and want to know whether it was already tried and rejected. The lessons from them that are
