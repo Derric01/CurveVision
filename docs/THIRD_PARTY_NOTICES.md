@@ -148,7 +148,7 @@ These run as unmodified services; CurveVision links to none of them.
 | --- | --- | --- |
 | [PostgreSQL](https://www.postgresql.org/) | PostgreSQL License (BSD-like) | Primary datastore |
 | [Redis](https://redis.io/) | RSALv2 / SSPLv1 (Redis 7.4+) | Cache and job broker. Run as a network service, never linked or redistributed, so the source-available terms do not extend to CurveVision. Substitute [Valkey](https://valkey.io/) (BSD-3-Clause) if you prefer a fully OSI-licensed drop-in. |
-| [MinIO](https://min.io/) | AGPL-3.0 | Development object storage, run as an unmodified network service. Any S3-compatible backend works instead. |
+| [Versity Gateway](https://github.com/versity/versitygw) | Apache-2.0 | The object store Docker Compose runs (`s3`), and CI's S3 server, as an unmodified network service. Any S3-compatible backend works instead. (MinIO, AGPL-3.0, held this role until October 2026.) |
 | [ClamAV](https://www.clamav.net/) (`clamav/clamav` image) | GPL-2.0 | Optional malware scanning (`--profile scanning`), run as an unmodified network service and spoken to over clamd's socket protocol; nothing of it is linked or redistributed. |
 | [nginx](https://nginx.org/) | BSD-2-Clause | Static file serving and reverse proxy |
 

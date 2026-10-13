@@ -35,6 +35,7 @@ class S3Storage:
             ) from exc
 
         self._bucket = settings.s3_bucket
+        self._region = settings.s3_region
         self._presign_ttl = settings.presigned_url_ttl_seconds
         self._client: Any = boto3.client(
             "s3",
@@ -48,6 +49,43 @@ class S3Storage:
                 retries={"max_attempts": 5, "mode": "standard"},
             ),
         )
+
+    @property
+    def bucket(self) -> str:
+        return self._bucket
+
+    async def ensure_bucket(self) -> bool:
+        """Create the bucket if it does not exist. Returns whether it had to be created.
+
+        `curvevision-server storage-init` runs this before the server's first upload, so a
+        new installation fails on a clear setup step rather than on a confusing S3 error in
+        the middle of someone's upload.
+        """
+
+        def _ensure() -> bool:
+            from botocore.exceptions import ClientError
+
+            try:
+                self._client.head_bucket(Bucket=self._bucket)
+                return False
+            except ClientError as exc:
+                status = exc.response.get("ResponseMetadata", {}).get("HTTPStatusCode")
+                if status != 404 and exc.response.get("Error", {}).get("Code") not in (
+                    "404",
+                    "NoSuchBucket",
+                    "NotFound",
+                ):
+                    raise
+            # Outside us-east-1, S3 wants to be told where; everywhere else it is the default.
+            location = (
+                {"CreateBucketConfiguration": {"LocationConstraint": self._region}}
+                if self._region and self._region != "us-east-1"
+                else {}
+            )
+            self._client.create_bucket(Bucket=self._bucket, **location)
+            return True
+
+        return await asyncio.to_thread(_ensure)
 
     async def put(
         self,

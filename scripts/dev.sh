@@ -5,8 +5,10 @@ set -euo pipefail
 
 cd "$(dirname "$0")/.."
 
-echo "→ starting postgres, redis and minio"
-docker compose up -d postgres redis minio minio-init
+# Media goes to ./data/storage on the host (CURVEVISION_STORAGE_BACKEND=local below), so no
+# object store is started.
+echo "→ starting postgres and redis"
+docker compose up -d postgres redis
 
 export CURVEVISION_ENVIRONMENT=development
 export CURVEVISION_DATABASE_URL="postgresql+asyncpg://curvevision:curvevision@localhost:5432/curvevision"

@@ -349,7 +349,7 @@ requests — so it cannot drift from the implementation. Swagger UI at `/api/doc
   Browser ──┐
   SDK/CLI ──┼──▶  FastAPI (async)  ──▶  PostgreSQL
   CI      ──┘      │  policy · services · domain        Redis (cache + broker)
-                   │  ┌────────┬─────────┬────────┐     S3 / MinIO
+                   │  ┌────────┬─────────┬────────┐     S3-compatible storage
                    │  │storage │ formats │   ml   │
                    │  └────────┴─────────┴────────┘
                    └──▶ Dramatiq worker ──▶ your model server

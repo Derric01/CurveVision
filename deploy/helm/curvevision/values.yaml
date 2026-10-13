@@ -39,7 +39,7 @@ redis:
 
 storage:
   s3:
-    # Leave empty for AWS S3 itself; set for MinIO, Ceph, R2 and the like.
+    # Leave empty for AWS S3 itself; set for Ceph, R2, Versity Gateway and the like.
     endpointUrl: ""
     bucket: curvevision
     region: ""

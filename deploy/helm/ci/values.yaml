@@ -10,7 +10,7 @@ redis:
   url: redis://redis:6379/0
 storage:
   s3:
-    endpointUrl: http://minio:9000
+    endpointUrl: http://s3:9000
     bucket: curvevision
     accessKeyId: curvevision
     secretAccessKey: curvevision-ci-secret
