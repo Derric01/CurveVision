@@ -748,9 +748,19 @@ to reply can deduplicate on that id rather than doing the work twice. Treat deli
 
 ## Rate limiting
 
-Default 600 requests per minute, keyed by API token or client address. Exceeding it returns
-`429` with `Retry-After`. Note the limit is per-process — see
-[SECURITY.md](./SECURITY.md#known-limitations).
+Default 600 requests per minute (`CURVEVISION_RATE_LIMIT_PER_MINUTE`; `0` turns it off),
+over a sliding one-minute window, keyed by API token or client address. Exceeding it returns
+`429` as `application/problem+json`, with `Retry-After` in seconds.
+
+Where the counts live is `CURVEVISION_RATE_LIMIT_BACKEND`:
+
+* `memory` (the default) — in the server process. Right for one instance and for the
+  desktop application; a server run as *N* processes or replicas allows *N* times the limit.
+* `redis` — in `CURVEVISION_REDIS_URL`, shared by every instance, counted on Redis' own
+  clock so instances whose clocks disagree still share one window. Needs the `redis` extra
+  (`pip install "curvevision-server[redis]"`). If Redis cannot be reached, requests are
+  **allowed** and the outage is logged once — a limiter failing must not take the API with
+  it.
 
 ## Clients
 

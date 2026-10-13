@@ -93,6 +93,11 @@ class Settings(BaseSettings):
     default_page_size: int = 50
     max_page_size: int = 500
     rate_limit_per_minute: int = 600
+    #: Where request counts are kept. ``memory``: in this process, which is right for one
+    #: instance and for the desktop build. ``redis``: in `redis_url`, shared by every
+    #: instance, so a server run as several processes or replicas enforces one limit
+    #: rather than one per process. Needs the `redis` extra.
+    rate_limit_backend: Literal["memory", "redis"] = "memory"
 
     # --- observability ------------------------------------------------------------
     log_level: str = "INFO"

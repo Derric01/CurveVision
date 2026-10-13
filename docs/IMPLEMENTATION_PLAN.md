@@ -869,11 +869,16 @@ Benchmarks live in `server/tests/benchmarks/` (annotation write/read at 1k/10k/1
 
 ## Phase 12 — Production hardening · **In Progress**
 
-* Rate limiting (Redis token bucket, per-token and per-IP) — **In Progress**.
+* Rate limiting, per-token and per-IP — **Done**: a sliding one-minute window, in the
+  process by default and in Redis (`rate_limit_backend = "redis"`) for a server run as
+  several instances, failing open when Redis is unreachable. Tested against a real Redis in
+  CI.
 * Audit log of security-relevant actions — **Done** (`AuditEvent`).
 * Security headers + strict CORS allow-list — **Done**.
-* CSRF — not applicable to the token/Bearer API; the cookie refresh flow uses
-  `SameSite=Strict` plus a double-submit token — **In Progress**.
+* CSRF — **not applicable**, and not a gap: no cookie carries authentication anywhere. The
+  web client sends a bearer header, and the refresh token travels in a JSON body, which a
+  cross-site form cannot set. (This line used to describe a cookie refresh flow with a
+  double-submit token as *In Progress*; no such flow exists, nor is one needed. Iteration 76.)
 * Input validation — **Done** (Pydantic v2 everywhere, geometry validated against frame
   bounds).
 * File validation — **Done**: extension + magic-byte sniffing + size caps; a

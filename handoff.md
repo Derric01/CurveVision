@@ -5,9 +5,9 @@
 > [`AGENTS.md`](./AGENTS.md) first; it is the working contract. Update this file after every
 > iteration, including the ones that mostly failed.
 >
-> **Last updated:** 2026-10-13 (iteration 75) · branch `claude/start-work-yx080h` · PRs
+> **Last updated:** 2026-10-13 (iteration 76) · branch `claude/start-work-yx080h` · PRs
 > [#1](https://github.com/Derric01/CurveVision/pull/1)–[#34](https://github.com/Derric01/CurveVision/pull/34)
-> **all merged**, #34 carrying iterations 67–69. Iterations 70–75 are pushed on top of
+> **all merged**, #34 carrying iterations 67–69. Iterations 70–76 are pushed on top of
 > that merge with no PR yet.
 >
 > *Two things worth knowing about this repository's PR rhythm, which replace the
@@ -22,7 +22,7 @@
 > **Keep the session short.** One iteration, then commit, push, update this file and report —
 > `AGENTS.md` § *Continue* and the `start-work` skill both say so now, because they did not
 > before and a single session ran six iterations and roughly a third of a week's budget. The
-> concrete costs, in rough order: re-reading this file (iterations 1–69 now live in
+> concrete costs, in rough order: re-reading this file (iterations 1–70 now live in
 > [`docs/iterations/ARCHIVE.md`](./docs/iterations/ARCHIVE.md), which cut it from 3,800
 > lines to 1,000 — keep it that way); `python desktop/sidecar/build.py`, which is a
 > PyInstaller run of a minute or two and is needed *again* for every sabotage-and-restore
@@ -45,7 +45,7 @@ shapes (detection/segmentation, OBB, pose, classification), each declaring in it
 The desktop shape works: a packaged single-executable server, a Tauri shell that supervises
 it, and folders annotated in place without copying a byte.
 
-**The tree is green.** `./scripts/check.sh` passes all thirteen steps: 726 server tests, 16
+**The tree is green.** `./scripts/check.sh` passes all thirteen steps: 732 server tests, 16
 SDK, 765 web, and `scripts/` is lint-clean under its own `ruff.toml`. Thirty-two browser
 harnesses drive the application in a real Chromium, nightly and on every push to `main` —
 thirty-one against the packaged desktop server, and `verify_workspace.py` against the real
@@ -504,7 +504,7 @@ was the last unconnected piece of the desktop application.
 
 ## Next best action
 
-*A default the server fills in is stored typed, iteration 75; Submit checks what its own save achieved, 74. No edit made during a save is lost any more — to a new object while its first save is in
+*A rate limit shared by every server instance through Redis, and Phase 12's markers made true, iteration 76; a default the server fills in is stored typed, 75; Submit checks what its own save achieved, 74. No edit made during a save is lost any more — to a new object while its first save is in
 flight, or to any object while a save that then fails is — and the editor always fits the
 frame it opens on, iteration 73; a backup that
 restores what it holds, and tracks that keep their keyframes through CVAT XML and the
@@ -514,16 +514,19 @@ native format, 72; CVAT XML tracks read as CVAT reads them, 71.*
 when dispatched (or for a PR). All three were green on iteration 72's commit; dispatch them
 on whatever is pushed next.
 
-**Then, with no dependency on the user: production hardening, Phase 12.** Two of its
-markers are not what the code is. *Rate limiting* says "Redis token bucket, per-token and
-per-IP — In Progress"; what exists is `SlidingWindowLimiter` in `api/middleware.py`, one
-per process, so a server run as several instances lets a client through N times the limit.
-Add a Redis-backed limiter, chosen by configuration, sharing the in-process one's interface
-and keys, tested against a real Redis (one is installed in this container; add a `redis`
-service to `ci.yml` as the PostgreSQL one is). *CSRF* says a cookie refresh flow uses
-`SameSite=Strict` plus a double-submit token — but no cookie carries authentication
-anywhere (the refresh token travels in the JSON body; the web client sends a bearer
-header), so the honest marker is "not applicable", with that reason.
+**Then, with no dependency on the user: the rest of the 1.0 list in `docs/ROADMAP.md`**,
+in this order — each self-contained, each a gap a production operator would hit:
+
+1. **Content scanning (ClamAV).** `ContentScanner` exists as a hook with no
+   implementation. clamd's `INSTREAM` protocol is a few lines over a socket; implement it
+   behind a setting, refuse an infected upload with a clear problem, test against a real
+   clamd if one can be installed (else a fake speaking the protocol, and say so).
+2. **OpenTelemetry tracing**, behind the seam in `core/observability`, optional extra.
+3. **Backup and restore tooling** — a documented, tested command for the database and
+   the storage, both shapes.
+4. **A Helm chart**, linted in CI.
+5. **OIDC sign-on** behind the `AuthBackend` seam — the largest.
+6. **A published TypeScript client** from the OpenAPI schema.
 
 **First, if a key is available: try iteration 63 against the real services.** Add Claude,
 OpenAI and one OpenRouter vision model on the Models page with real keys, run each on a few
@@ -1044,6 +1047,19 @@ being updated and this one was not. Check it against* Completed *before trusting
 
 ## Verification performed
 
+Iteration 76:
+
+* `tests/api/test_rate_limit.py`, the limiter's first tests: in memory, the request past
+  the limit is a 429 problem with `Retry-After`, each token has its own limit, and two app
+  instances each allow the whole limit (the defect, pinned); **through a real Redis**
+  (`redis-server` 7 in this container; a `redis` service in `ci.yml`, as PostgreSQL has),
+  two app instances enforce one limit between them and each token keeps its own; and with
+  Redis unreachable, requests are let through (fail open).
+* The CSRF marker checked against the code before rewriting it: the server sets and reads
+  no cookie (`grep` for `set_cookie`, `request.cookies`: none), and the web client sends a
+  bearer header.
+* Full `./scripts/check.sh` green.
+
 Iteration 75:
 
 * `test_label_schema.py::TestEditingAttributes::test_a_default_the_server_fills_in_is_stored_as_its_type`:
@@ -1476,6 +1492,8 @@ Iteration 54:
 
 ## Bugs fixed
 
+* **A server run as several instances let a client through once per instance** (iteration
+  76): the only rate limiter counted in each process. Redis now backs it when configured.
 * **A default the server filled in was stored as a string** (iteration 75): a checkbox's
   `"false"`, a number's `"3"`, whenever an annotation came from the SDK, the CLI, an import
   or a model — and every export carried the string.
@@ -1820,6 +1838,20 @@ Iteration 54:
 
 ## Last iteration
 
+### 76 — a rate limit every instance shares; Phase 12's markers made true
+
+Asked to finish the project quickly: the 1.0 list in `docs/ROADMAP.md` is what is left,
+and its first line was distributed rate limiting. The limiter that existed counted in each
+process and had no test at all. Added a Redis backend behind `rate_limit_backend`, keeping
+the in-process one as the default (one instance, and the desktop build, need no Redis): the
+same sliding window, done atomically in one Lua script on Redis' clock, failing open. The
+plan's CSRF line described a cookie flow that does not exist; it now says why CSRF does not
+apply.
+
+Verified: see *Verification performed*.
+
+## Iteration 75
+
 ### 75 — a default the server fills in is stored typed
 
 The next best action, and small: the server wrote a default as the string a label stores
@@ -1895,28 +1927,9 @@ through it — fixed alongside. A third, smaller one is the next best action.
 
 Verified: see *Verification performed*.
 
-## Iteration 70
-
-### 70 — the nightly browser run green again, and the defect it was hiding
-
-Orienting after #34 merged found its Ultralytics workflow green on GitHub — and
-`browser.yml` red on `main`, as it had been on every run since 10-08. A red build outranks
-everything, and this one had also made the harnesses' claim in this file untrue. The
-runner's logs (through the GitHub connector; the built-in `gh` cannot follow a log
-redirect) named the failing harnesses; locally all of them passed, so the difference was
-timing, and a harness that waits past one autosave flush reproduced the one failure that
-was not a timeout, deterministically. That one was the app's.
-
-The first dispatch on GitHub's runners left one harness red, with a message that blamed a
-refused save; the history said no save had been sent, and the step had dragged before the
-box was drawn. With it waiting for the box, **all 32 harnesses pass on GitHub** — the claim
-this file makes about them is true again, checked where it is made.
-
-Verified: see *Verification performed*.
-
 ## Earlier iterations
 
-Iterations **1–69** are in [`docs/iterations/ARCHIVE.md`](./docs/iterations/ARCHIVE.md) —
+Iterations **1–70** are in [`docs/iterations/ARCHIVE.md`](./docs/iterations/ARCHIVE.md) —
 moved there so that orienting costs a few hundred lines rather than four thousand. Read them
 when `git log` points you at an iteration number, or when you are about to build something
 and want to know whether it was already tried and rejected. The lessons from them that are

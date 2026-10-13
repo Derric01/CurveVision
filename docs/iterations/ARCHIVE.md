@@ -1,6 +1,6 @@
 # Iteration archive
 
-> The narrative record of iterations **1–69**, moved out of
+> The narrative record of iterations **1–70**, moved out of
 > [`handoff.md`](../../handoff.md) so that orienting on this project costs a few hundred
 > lines rather than four thousand.
 >
@@ -15,6 +15,25 @@
 > window, append it to the top of this file rather than deleting it.
 
 ---
+
+## Iteration 70
+
+### 70 — the nightly browser run green again, and the defect it was hiding
+
+Orienting after #34 merged found its Ultralytics workflow green on GitHub — and
+`browser.yml` red on `main`, as it had been on every run since 10-08. A red build outranks
+everything, and this one had also made the harnesses' claim in this file untrue. The
+runner's logs (through the GitHub connector; the built-in `gh` cannot follow a log
+redirect) named the failing harnesses; locally all of them passed, so the difference was
+timing, and a harness that waits past one autosave flush reproduced the one failure that
+was not a timeout, deterministically. That one was the app's.
+
+The first dispatch on GitHub's runners left one harness red, with a message that blamed a
+refused save; the history said no save had been sent, and the step had dragged before the
+box was drawn. With it waiting for the box, **all 32 harnesses pass on GitHub** — the claim
+this file makes about them is true again, checked where it is made.
+
+Verified: see *Verification performed*.
 
 ## Iteration 69
 

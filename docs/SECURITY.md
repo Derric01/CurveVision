@@ -121,9 +121,10 @@ CurveVision cannot enforce these for you:
 
 Stated plainly, because a security document that only lists strengths is not useful:
 
-* **Rate limiting is per-process** and in-memory. It protects one instance from a runaway
-  client; a multi-replica deployment needs a limit at the ingress. A Redis-backed limiter is
-  planned.
+* **Rate limiting is per-process unless Redis backs it.** The default keeps counts in each
+  process; a server run as several instances should set `rate_limit_backend = "redis"`
+  ([API.md](./API.md#rate-limiting)), which shares one limit between them. It **fails
+  open**: while Redis is unreachable, nothing is rate-limited (and the outage is logged).
 * **No content scanning by default.** A `ContentScanner` hook exists; wiring it to ClamAV or
   a vendor scanner is planned and currently unimplemented.
 * **No OIDC/SAML.** The `AuthBackend` seam exists; the implementation does not.

@@ -57,6 +57,9 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     import curvevision.ml  # noqa: F401
 
     yield
+    # The Redis-backed rate limiter holds a connection pool; the in-memory one holds nothing.
+    if (close := getattr(getattr(app.state, "rate_limiter", None), "aclose", None)) is not None:
+        await close()
     await dispose_engine()
     configure_settings(None)
     logger.info("CurveVision stopped")

@@ -17,6 +17,14 @@ jobs:
   server:
     name: Server (lint, types, tests)
     runs-on: ubuntu-latest
+    # Only for the step that says so: the suite itself needs no services.
+    services:
+      redis:
+        image: redis:7-alpine
+        ports: ['6379:6379']
+        options: >-
+          --health-cmd "redis-cli ping" --health-interval 5s --health-timeout 3s
+          --health-retries 10
     steps:
       - uses: actions/checkout@v5
 
@@ -66,6 +74,13 @@ jobs:
       - name: Tests (SQLite)
         working-directory: server
         run: pytest -q
+
+      # The rate limit several instances share: skipped above, where no Redis is named.
+      - name: Rate limit shared through Redis
+        working-directory: server
+        env:
+          CURVEVISION_TEST_REDIS_URL: redis://localhost:6379/0
+        run: pytest tests/api/test_rate_limit.py -q
 
       - name: Migration round-trip
         working-directory: server

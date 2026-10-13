@@ -389,7 +389,7 @@ and produce a real dataset with it.
 **Beta's list is finished** — chunked video delivery, the track-editing timeline and webhook
 retries are all done and tested. Whether to *call* a release Beta is a judgement about
 maturity rather than a checklist, and nobody has run this in anger yet. **1.0** needs
-distributed rate limiting, backup tooling and an external security review — we will not call
+backup tooling and an external security review (distributed rate limiting is done) — we will not call
 a release 1.0 before that, because it would be a claim we cannot back.
 
 Full detail, including what we have decided *against*, in [ROADMAP.md](docs/ROADMAP.md).
