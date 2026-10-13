@@ -46,6 +46,10 @@ storage:
     accessKeyId: ""
     secretAccessKey: ""
     forcePathStyle: true
+    # Where browsers reach the store, if they can: media is then fetched from it directly
+    # by presigned URL (the bucket must allow this application's origin by CORS). Empty,
+    # the API streams media itself, which works whatever the network.
+    publicEndpointUrl: ""
 
 api:
   replicas: 2

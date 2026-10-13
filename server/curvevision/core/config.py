@@ -73,6 +73,12 @@ class Settings(BaseSettings):
     s3_access_key_id: str | None = None
     s3_secret_access_key: str | None = None
     s3_force_path_style: bool = True
+    #: Where browsers reach the object store, when they can: media is then fetched from it
+    #: directly, by presigned URL, rather than through the API (the bucket must allow the
+    #: application's origin by CORS). Unset, the API streams media itself — which is right
+    #: whenever `s3_endpoint_url` is an address only the server can reach, as `http://s3:9000`
+    #: is under Docker Compose and in a cluster.
+    s3_public_endpoint_url: str | None = None
     presigned_url_ttl_seconds: int = 3600
 
     # --- jobs ---------------------------------------------------------------------

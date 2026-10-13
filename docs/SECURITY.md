@@ -91,7 +91,8 @@ Stating the design so you know what to test *against*, and so operators know wha
   on the JSON API, `Referrer-Policy`, and `Permissions-Policy` on every response.
 * CORS uses an explicit allow-list — never `*`, because the API accepts credentials.
 * Media is never served from a public bucket. It goes through an authenticated endpoint or
-  a short-lived presigned URL.
+  a short-lived presigned URL — the latter only when the operator names an address browsers
+  can reach the store at (`s3_public_endpoint_url`).
 * Errors are RFC 9457 problem documents. Unexpected exceptions return a generic message;
   the detail goes to the structured log, not to the caller.
 

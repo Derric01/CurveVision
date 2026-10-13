@@ -37,17 +37,26 @@ class S3Storage:
         self._bucket = settings.s3_bucket
         self._region = settings.s3_region
         self._presign_ttl = settings.presigned_url_ttl_seconds
-        self._client: Any = boto3.client(
-            "s3",
-            endpoint_url=settings.s3_endpoint_url,
-            region_name=settings.s3_region,
-            aws_access_key_id=settings.s3_access_key_id,
-            aws_secret_access_key=settings.s3_secret_access_key,
-            config=Config(
-                signature_version="s3v4",
-                s3={"addressing_style": "path" if settings.s3_force_path_style else "auto"},
-                retries={"max_attempts": 5, "mode": "standard"},
-            ),
+
+        def client(endpoint_url: str | None) -> Any:
+            return boto3.client(
+                "s3",
+                endpoint_url=endpoint_url,
+                region_name=settings.s3_region,
+                aws_access_key_id=settings.s3_access_key_id,
+                aws_secret_access_key=settings.s3_secret_access_key,
+                config=Config(
+                    signature_version="s3v4",
+                    s3={"addressing_style": "path" if settings.s3_force_path_style else "auto"},
+                    retries={"max_attempts": 5, "mode": "standard"},
+                ),
+            )
+
+        self._client: Any = client(settings.s3_endpoint_url)
+        # A presigned URL names the host it was signed for, so one meant for a browser is
+        # signed against the address the browser uses — and only when there is one.
+        self._presigner: Any = (
+            client(settings.s3_public_endpoint_url) if settings.s3_public_endpoint_url else None
         )
 
     @property
@@ -158,7 +167,9 @@ class S3Storage:
         return await asyncio.to_thread(_head)
 
     def public_url(self, key: str, *, expires_in: int | None = None) -> str | None:
-        url: str = self._client.generate_presigned_url(
+        if self._presigner is None:
+            return None
+        url: str = self._presigner.generate_presigned_url(
             "get_object",
             Params={"Bucket": self._bucket, "Key": key},
             ExpiresIn=expires_in or self._presign_ttl,

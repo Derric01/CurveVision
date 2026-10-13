@@ -19,6 +19,9 @@ x-api-env: &api-env
   CURVEVISION_STORAGE_BACKEND: s3
   CURVEVISION_S3_ENDPOINT_URL: ${CURVEVISION_S3_ENDPOINT_URL:-http://s3:9000}
   CURVEVISION_S3_REGION: ${CURVEVISION_S3_REGION:-us-east-1}
+  # Empty: media is streamed by the API, because browsers cannot reach http://s3:9000. Set
+  # it when they can reach the store (docs/OPERATIONS.md).
+  CURVEVISION_S3_PUBLIC_ENDPOINT_URL: ${CURVEVISION_S3_PUBLIC_ENDPOINT_URL:-}
   CURVEVISION_S3_BUCKET: ${CURVEVISION_S3_BUCKET:-curvevision}
   # MINIO_ROOT_* are still read, so an .env written for the MinIO-based stack keeps working.
   CURVEVISION_S3_ACCESS_KEY_ID: ${S3_ACCESS_KEY:-${MINIO_ROOT_USER:-curvevision}}

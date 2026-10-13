@@ -28,6 +28,13 @@ Backblaze: set `CURVEVISION_S3_ENDPOINT_URL`, `S3_ACCESS_KEY` and `S3_SECRET_KEY
 Until October 2026 `s3` was MinIO, whose images can no longer be pulled anonymously; see
 [Upgrading](#from-the-minio-based-stack) if your installation still has its data.
 
+**How images reach the browser.** By default the API streams them: browsers cannot reach
+`http://s3:9000`, and a presigned URL naming it would fail. When browsers *can* reach the
+store — AWS S3, R2, a public gateway — set `CURVEVISION_S3_PUBLIC_ENDPOINT_URL` to that
+address and allow this application's origin in the bucket's CORS rules; images are then
+fetched from the store directly by short-lived presigned URL, which takes their bandwidth
+off the API.
+
 Scale `api` and `worker` horizontally; they hold no local state. Redis is deliberately not
 a source of truth: media chunks live in object storage, so losing Redis costs a cache, not
 data. It also counts the **rate limit** every `api` replica shares

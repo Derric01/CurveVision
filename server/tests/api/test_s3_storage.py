@@ -75,8 +75,12 @@ async def test_objects_go_in_come_back_and_go_away(s3_settings: Settings) -> Non
         b"\x89PNG not really"
     )
 
-    # What a browser is handed for a direct download: a presigned URL that works as is.
-    url = storage.public_url("blobs/ab/frame.png")
+    # No public endpoint configured: a browser is never sent to the server's own address.
+    assert storage.public_url("blobs/ab/frame.png") is None
+    # With one, what a browser is handed is a presigned URL that works as is.
+    reset_storage_cache()
+    public = get_storage(s3_settings.model_copy(update={"s3_public_endpoint_url": S3_URL}))
+    url = public.public_url("blobs/ab/frame.png")
     assert url is not None
     async with httpx.AsyncClient() as client:
         fetched = await client.get(url)
