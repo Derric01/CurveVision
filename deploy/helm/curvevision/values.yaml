@@ -1,0 +1,113 @@
+# CurveVision on Kubernetes. Everything stateful is yours to provide — PostgreSQL, Redis and
+# S3-compatible object storage — because every cluster already has a way it runs those
+# (a managed database, an operator, a chart), and a second copy bundled here would be one
+# more thing to back up and upgrade. docs/OPERATIONS.md#kubernetes walks through an install.
+
+image:
+  # No images are published yet: build both from this repository and push them to a
+  # registry your cluster can pull from (`docker build -f deploy/Dockerfile.server .`).
+  server:
+    repository: curvevision-server
+    # Defaults to the chart's appVersion.
+    tag: ""
+  web:
+    repository: curvevision-web
+    tag: ""
+  pullPolicy: IfNotPresent
+imagePullSecrets: []
+
+# Signs sessions and tokens. Required unless `existingSecret` holds it. Generate one with
+#   python3 -c 'import secrets; print(secrets.token_urlsafe(48))'
+secretKey: ""
+
+# A Secret you manage instead of the one this chart writes, with the keys `secret-key`,
+# `database-url`, `redis-url`, and (for S3 credentials) `s3-access-key-id` and
+# `s3-secret-access-key`. When set, the five values above and below that would go into the
+# chart's Secret are ignored.
+existingSecret: ""
+
+oidcClientSecret: ""
+
+database:
+  # postgresql+asyncpg://USER:PASSWORD@HOST:5432/DATABASE — required.
+  url: ""
+
+redis:
+  # redis://HOST:6379/0 — required: the job broker, and the rate limit every API replica
+  # shares.
+  url: ""
+
+storage:
+  s3:
+    # Leave empty for AWS S3 itself; set for MinIO, Ceph, R2 and the like.
+    endpointUrl: ""
+    bucket: curvevision
+    region: ""
+    accessKeyId: ""
+    secretAccessKey: ""
+    forcePathStyle: true
+
+api:
+  replicas: 2
+  # uvicorn worker processes per replica.
+  workers: 2
+  resources: {}
+  extraEnv: []
+
+worker:
+  replicas: 1
+  queues: [default, media, import, export, inference, webhooks, quality]
+  resources: {}
+  extraEnv: []
+
+web:
+  replicas: 2
+  resources: {}
+
+config:
+  environment: production
+  logLevel: INFO
+  # The origins a browser may call the API from, comma-separated. With the web application
+  # served by this chart on the same host, nothing needs to be listed.
+  corsOrigins: ""
+  rateLimitPerMinute: 600
+  # none, or clamd — then point clamdHost at a clamd your cluster runs.
+  contentScanner: none
+  clamdHost: ""
+  clamdPort: 3310
+  # Single sign-on through an OpenID Connect provider (docs/OPERATIONS.md#single-sign-on).
+  # The client secret goes in the Secret (`oidcClientSecret` below, or `oidc-client-secret`
+  # in your existingSecret).
+  oidc:
+    enabled: false
+    issuer: ""
+    clientId: ""
+    # https://<your host>/auth/callback, registered with the provider exactly so.
+    redirectUri: ""
+    displayName: single sign-on
+    createUsers: true
+    allowedDomains: ""
+    defaultWorkspace: ""
+    only: false
+  tracing:
+    enabled: false
+    # e.g. http://otel-collector.observability:4318/v1/traces
+    otlpEndpoint: ""
+    sampleRatio: 1.0
+
+# Run `alembic upgrade head` in a Job before each install and upgrade, once, rather than
+# in every API replica at start (where two replicas would race).
+migrations:
+  enabled: true
+
+service:
+  type: ClusterIP
+
+ingress:
+  enabled: false
+  className: ""
+  annotations: {}
+  host: curvevision.example.com
+  # - secretName: curvevision-tls
+  #   hosts: [curvevision.example.com]
+  tls: []

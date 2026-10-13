@@ -21,6 +21,7 @@ from curvevision.domain.enums import MediaKind, TaskStatus
 from curvevision.domain.media import Asset, MediaBlob, MediaChunk, UploadSession
 from curvevision.domain.task import Task
 from curvevision.media import probe as media_probe
+from curvevision.media import scanning
 from curvevision.services import background as background_service
 from curvevision.services import tasks as task_service
 from curvevision.storage import ObjectNotFoundError, Storage
@@ -70,6 +71,14 @@ async def _ingest_bytes(
     """
     content_type = media_probe.validate_upload(filename, data[:32], len(data), settings)
     kind = media_probe.classify(filename, content_type, settings)
+    # Every upload, a duplicate of a stored file included: that file may have been stored
+    # before scanning was turned on.
+    await scanning.check_upload(
+        scanning.make_scanner(settings),
+        data,
+        filename=filename,
+        fail_open=settings.content_scanner_fail_open,
+    )
     digest = hashlib.sha256(data).hexdigest()
 
     blob = (

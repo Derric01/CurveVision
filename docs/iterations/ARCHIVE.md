@@ -1,6 +1,6 @@
 # Iteration archive
 
-> The narrative record of iterations **1–63**, moved out of
+> The narrative record of iterations **1–76**, moved out of
 > [`handoff.md`](../../handoff.md) so that orienting on this project costs a few hundred
 > lines rather than four thousand.
 >
@@ -15,6 +15,211 @@
 > window, append it to the top of this file rather than deleting it.
 
 ---
+
+## Iteration 76
+
+### 76 — a rate limit every instance shares; Phase 12's markers made true
+
+Asked to finish the project quickly: the 1.0 list in `docs/ROADMAP.md` is what is left,
+and its first line was distributed rate limiting. The limiter that existed counted in each
+process and had no test at all. Added a Redis backend behind `rate_limit_backend`, keeping
+the in-process one as the default (one instance, and the desktop build, need no Redis): the
+same sliding window, done atomically in one Lua script on Redis' clock, failing open. The
+plan's CSRF line described a cookie flow that does not exist; it now says why CSRF does not
+apply.
+
+Verified: see *Verification performed*.
+
+## Iteration 75
+
+### 75 — a default the server fills in is stored typed
+
+The next best action, and small: the server wrote a default as the string a label stores
+it as, and a default nobody overrode is in most annotations made outside the editor. It
+now goes through the same coercion a submitted value does; a default from before defaults
+were checked, that its attribute would refuse, is written as before rather than failing the
+save.
+
+Verified: see *Verification performed*.
+
+## Iteration 74
+
+### 74 — Submit checks what its own save achieved
+
+The next best action. Submit's guard read what was refused *before* the press; nothing
+read what the save Submit runs first achieved — and that save returned at once whenever
+the periodic autosave was already running. Reproduced in a browser both ways (a failing
+save, and a refused one held in flight), then: `flush` waits for a flush in progress and
+returns what it left (refused, still queued), and Submit refuses with the reason unless
+both are zero.
+
+Verified: see *Verification performed*.
+
+## Iteration 73
+
+### 73 — no edit made during a save is lost
+
+The next best action, found by reading in iteration 55 and made the common case by
+iteration 70, which kept a new box's attributes panel up through its first save: an edit
+to a drawn object was dropped unless the object was queued to be created, which it is not
+while its creation is on the wire. Reproduced in a browser by holding that request open,
+then fixed with one rule (`savedForm`): such an edit is queued under the local id, and
+resolved when sent, shown or copied — under the server id once the first save has
+answered, as the creation itself until then. Its neighbour in *Known issues*, the same
+loss on a save that fails, was one line in the same function and is fixed and driven too.
+
+A third defect turned up while verifying: `verify_attribute_editor.py` failed one run in
+four locally, its diagnostics saying the box was never selected, and its screenshot showing
+why — the frame never fitted, because its image arrived before the canvas had a size. That
+is very likely iteration 70's CI failure of the same step too (it predates the diagnostics).
+The engine now fits on the first resize instead.
+
+Verified: see *Verification performed*.
+
+## Iteration 72
+
+### 72 — a backup that restores what it holds; tracks that keep their keyframes
+
+Asked for a larger piece of work, so two items from *Known issues* that are one subject:
+what survives a round trip. The native format calls itself lossless, and its import
+dropped three things it wrote — provenance (so pending suggestions came back as finished
+work), tag attributes, and which frames were keyframes; CVAT XML lost the keyframes too,
+which was the next best action. Formats now say which frames were authored, and the import
+keeps a frame marked as interpolated only where its own interpolation disagrees — so it is
+lossless whatever tool wrote the file, not only when the tools agree. Provenance is kept
+only from the one format that wrote it from this server's annotations.
+
+Verified: see *Verification performed*.
+
+## Iteration 71
+
+### 71 — a CVAT XML track read the way CVAT reads it
+
+The oldest item in *Next best action* with no dependency on the user, found during 68. The
+import read a frame a CVAT track did not list as the object being gone — iteration 62's
+rule, right for MOTChallenge and wrong for CVAT, which interpolates between keyframes. Read
+CVAT's `load_anno` and `_slice_track` first, and followed both: only keyframes are kept,
+gaps interpolate, `outside` keyframes are departures, and a track crossing into another
+job carries its interpolated position across the boundary. The rule is now the format's to
+state (`ImportResult.track_gaps`). Writing the tests turned up the mirror-image defect in
+the export — a gap in a track was never marked `outside`, so CVAT would draw the object
+through it — fixed alongside. A third, smaller one is the next best action.
+
+Verified: see *Verification performed*.
+
+## Iteration 70
+
+### 70 — the nightly browser run green again, and the defect it was hiding
+
+Orienting after #34 merged found its Ultralytics workflow green on GitHub — and
+`browser.yml` red on `main`, as it had been on every run since 10-08. A red build outranks
+everything, and this one had also made the harnesses' claim in this file untrue. The
+runner's logs (through the GitHub connector; the built-in `gh` cannot follow a log
+redirect) named the failing harnesses; locally all of them passed, so the difference was
+timing, and a harness that waits past one autosave flush reproduced the one failure that
+was not a timeout, deterministically. That one was the app's.
+
+The first dispatch on GitHub's runners left one harness red, with a message that blamed a
+refused save; the history said no save had been sent, and the step had dragged before the
+box was drawn. With it waiting for the box, **all 32 harnesses pass on GitHub** — the claim
+this file makes about them is true again, checked where it is made.
+
+Verified: see *Verification performed*.
+
+## Iteration 69
+
+### 69 — old skeleton joints repaired, and every joint typed
+
+The handoff's next action with no dependency on the user. One decision the handoff left
+open — what to do with a skeleton whose label has no joints — was settled by the import's
+own behaviour since iteration 60: the label gains the joints its skeletons named. Deleting
+or emptying them would lose annotation to fix a schema. PostgreSQL 16 turned out to be
+installed in this container, so the migration was run against it rather than left to CI,
+and it failed there first.
+
+Verified: see *Verification performed*.
+
+## Iteration 68
+
+### 68 — skeletons that move, and tracked skeletons that work
+
+Chosen over the joints migration because it was live: CVAT tracks skeletons and the CVAT
+XML import keeps tracks, so a tracked skeleton could reach the editor and be broken there.
+Reading the select tool to see how a tracked skeleton would be edited found the larger
+defect — no skeleton, tracked or not, could be moved after it was placed — and reading the
+track serialiser found the data loss. CVAT was read for the rule (`dataset_manager/
+annotation.py`: each joint a sub-track, interpolated linearly); no code adapted. Two things
+left as found: the CVAT gap divergence above, and the old joints migration below it.
+
+Verified: see *Verification performed*.
+
+## Iteration 67
+
+### 67 — Ultralytics itself reads and trains on every YOLO export
+
+The next best action from 66, which had expected to find little. PyTorch's own index is
+blocked from this container, so PyTorch came from PyPI (its CUDA build, 4 GB, run on CPU)
+into a scratch environment — the workflow uses the CPU index, which a runner can reach.
+The script was written to compare Ultralytics' loaded labels against values computed from
+the source geometry, not with the exporter's helpers, and its first run failed on
+`path: .`: the restated rules in the unit suite had made the same assumption as the
+exporter. Reading the variants before Ultralytics could run found the missing `flip_idx`
+and the OBB/pose split; orienting found iteration 66's harness missing from CI.
+
+Verified: see *Verification performed*.
+
+## Iteration 66
+
+### 66 — every export held to its reader; a workspace run from the application
+
+Asked for directly: "finish everything in this iteration", with the export bar from 65. One
+iteration of five parts, said up front, with three things excluded and said so: the
+YOLO-World server (a separate, GPL repository this session cannot create), signed
+installers (certificates the project does not have) and a real-key AI trial (the user's
+keys).
+
+Exports first, against readers rather than round trips: Datumaro 1.13 for VOC, KITTI, MOT,
+segmentation and CVAT XML; then CVAT's own XML reader (`dataset_manager/formats/cvat.py`,
+run against CVAT's Datumaro fork with its Django imports stubbed) once Datumaro was found
+not to read skeletons at all. Ultralytics would not install, so its loader was read and its
+rules restated (`img2label_paths`, `verify_image_label`, `YOLODataset.get_labels`).
+Reading `verify_image_label` is what found the mixed-row corruption; no reader that was
+installed would have.
+
+Then the application. Reading the member service before building its page found the
+escalation; reading the version service before building its panel found that "immutable"
+releases froze nothing; tracing what a task delete leaves behind found the collector nothing
+called. Each was fixed with a failing test first, and each is the server work a panel would
+otherwise have shipped to more people. CVAT was read for the member rule
+(`organizations/rules/memberships.rego`) and its XML dumper's conventions; neither is
+adapted code, and both are in the notices.
+
+Verified: see *Verification performed*.
+
+## Iteration 65
+
+### 65 — COCO exports held to pycocotools
+
+Asked for directly: export quality "top notch, industry grade". The useful question was not
+"does it round-trip" — it did — but "does the reader everyone else uses agree", so the
+iteration started by installing pycocotools and writing tests against it, and reading how
+Datumaro (CVAT's exporter) writes COCO and VOC before changing any convention. Two of its
+conventions were followed (VOC coordinates; uncompressed RLE) and one deliberately not
+(`iscrowd: 1` for masks) — see *Decisions*. The other formats are the next best action.
+
+Verified: see *Verification performed*.
+
+## Iteration 64
+
+### 64 — annotations made elsewhere can be imported from the task page
+
+The next best action since iteration 62, with the real-service trial of iteration 63 left
+waiting for the user's keys. Small by design: the server work was done in 62, and the panel
+follows the ground-truth panel's pattern — pure rules in their own module, the component
+only wiring. The one thing the harness taught: frame matching differs by format, and the
+copy had to say so rather than promise file names.
+
+Verified: see *Verification performed*.
 
 ## Iteration 63
 

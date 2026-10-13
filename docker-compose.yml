@@ -23,6 +23,12 @@ x-api-env: &api-env
   CURVEVISION_S3_SECRET_ACCESS_KEY: ${MINIO_ROOT_PASSWORD:-curvevision-dev-secret}
   CURVEVISION_CORS_ORIGINS: ${CURVEVISION_CORS_ORIGINS:-http://localhost:8080}
   CURVEVISION_LOG_FORMAT: json
+  # `api` scales horizontally, so its rate limit is counted in Redis, shared by every replica.
+  CURVEVISION_RATE_LIMIT_BACKEND: ${CURVEVISION_RATE_LIMIT_BACKEND:-redis}
+  # Malware scanning of uploads: `docker compose --profile scanning up -d`, and set
+  # CURVEVISION_CONTENT_SCANNER=clamd in .env. Off by default (docs/OPERATIONS.md).
+  CURVEVISION_CONTENT_SCANNER: ${CURVEVISION_CONTENT_SCANNER:-none}
+  CURVEVISION_CLAMD_HOST: clamav
 
 services:
   postgres:
@@ -101,6 +107,9 @@ services:
     command: >
       /bin/sh -c "alembic upgrade head &&
       uvicorn curvevision.main:app --host 0.0.0.0 --port 8000 --workers ${API_WORKERS:-2}"
+    # Where `curvevision-server backup` writes and `restore` reads (docs/OPERATIONS.md).
+    volumes:
+      - ./backups:/backups
     restart: unless-stopped
 
   worker:
@@ -127,6 +136,18 @@ services:
       - "${WEB_PORT:-8080}:80"
     depends_on:
       - api
+    restart: unless-stopped
+
+  # Only with `--profile scanning`. The image ships its signatures and keeps them current
+  # with freshclam; clamd needs a minute or two, and about 1.5 GB of memory, to load them.
+  clamav:
+    image: clamav/clamav:stable
+    profiles: ["scanning"]
+    healthcheck:
+      test: ["CMD", "clamdcheck.sh"]
+      interval: 30s
+      timeout: 10s
+      retries: 10
     restart: unless-stopped
 
 volumes:

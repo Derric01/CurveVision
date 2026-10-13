@@ -43,11 +43,42 @@ class LoginRequest(StrictModel):
     password: str
 
 
+class SignInOptions(StrictModel):
+    """How a person may sign in here, for the sign-in page to offer exactly that."""
+
+    password: bool
+    registration: bool
+    #: Single sign-on through an OpenID Connect provider, when configured.
+    sso: bool
+    #: The sign-in button's label: "Sign in with <this>".
+    sso_name: str | None = None
+
+
+class SsoStartRequest(StrictModel):
+    #: A path on this site to go to once signed in.
+    return_to: str = "/"
+
+
+class SsoStarted(StrictModel):
+    #: Send the browser here.
+    authorization_url: str
+    #: Keep this, and compare it with the `state` the provider sends back: a sign-in this
+    #: browser did not start must not be finished in it.
+    state: str
+
+
+class SsoCompleteRequest(StrictModel):
+    code: str = Field(min_length=1, max_length=4096)
+    state: str = Field(min_length=1, max_length=8192)
+
+
 class TokenPair(StrictModel):
     access_token: str
     refresh_token: str
     token_type: str = "bearer"
     expires_in: int
+    #: After single sign-on, the path the person was going to.
+    return_to: str | None = None
 
 
 class RefreshRequest(StrictModel):

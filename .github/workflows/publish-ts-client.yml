@@ -1,0 +1,39 @@
+# Publishes @curvevision/client to npm. By hand only, and only with an `NPM_TOKEN` secret
+# the maintainers have added: publishing is an outward act, under their name.
+name: Publish TypeScript client
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  id-token: write # npm provenance
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: '22'
+          registry-url: https://registry.npmjs.org
+
+      - name: Build and test
+        working-directory: sdk/typescript
+        run: |
+          npm ci --no-audit --no-fund
+          npm run typecheck
+          npm run build
+          npm test
+
+      - name: Publish
+        working-directory: sdk/typescript
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: |
+          if [ -z "$NODE_AUTH_TOKEN" ]; then
+            echo "No NPM_TOKEN secret: add one under Settings > Secrets to publish." >&2
+            exit 1
+          fi
+          npm publish --access public --provenance

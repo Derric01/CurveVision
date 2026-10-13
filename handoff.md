@@ -5,10 +5,10 @@
 > [`AGENTS.md`](./AGENTS.md) first; it is the working contract. Update this file after every
 > iteration, including the ones that mostly failed.
 >
-> **Last updated:** 2026-10-12 (iteration 69) · branch `claude/start-work-yx080h` · PRs
-> [#1](https://github.com/Derric01/CurveVision/pull/1)–[#33](https://github.com/Derric01/CurveVision/pull/33)
-> **all merged**, #33 carrying iterations 65–66. Iterations 67–69 are pushed on top of that
-> merge with no PR yet.
+> **Last updated:** 2026-10-13 (iteration 82) · branch `claude/start-work-yx080h` · PRs
+> [#1](https://github.com/Derric01/CurveVision/pull/1)–[#34](https://github.com/Derric01/CurveVision/pull/34)
+> **all merged**, #34 carrying iterations 67–69. Iterations 70–82 are pushed on top of
+> that merge with no PR yet.
 >
 > *Two things worth knowing about this repository's PR rhythm, which replace the
 > PR-by-PR changelog that used to sit here and had stopped helping anybody.* **PRs are
@@ -22,7 +22,7 @@
 > **Keep the session short.** One iteration, then commit, push, update this file and report —
 > `AGENTS.md` § *Continue* and the `start-work` skill both say so now, because they did not
 > before and a single session ran six iterations and roughly a third of a week's budget. The
-> concrete costs, in rough order: re-reading this file (iterations 1–63 now live in
+> concrete costs, in rough order: re-reading this file (iterations 1–76 now live in
 > [`docs/iterations/ARCHIVE.md`](./docs/iterations/ARCHIVE.md), which cut it from 3,800
 > lines to 1,000 — keep it that way); `python desktop/sidecar/build.py`, which is a
 > PyInstaller run of a minute or two and is needed *again* for every sabotage-and-restore
@@ -45,11 +45,35 @@ shapes (detection/segmentation, OBB, pose, classification), each declaring in it
 The desktop shape works: a packaged single-executable server, a Tauri shell that supervises
 it, and folders annotated in place without copying a byte.
 
-**The tree is green.** `./scripts/check.sh` passes all thirteen steps: 690 server tests, 16
-SDK, 745 web, and `scripts/` is lint-clean under its own `ruff.toml`. Thirty-one browser
+**The tree is green.** `./scripts/check.sh` passes all fifteen steps: 774 server tests, 16
+SDK, 771 web, and `scripts/` is lint-clean under its own `ruff.toml`. Thirty-two browser
 harnesses drive the application in a real Chromium, nightly and on every push to `main` —
-thirty against the packaged desktop server, and `verify_workspace.py` against the real server
-too. (Iteration 52 arrived to a red tree — mypy 2 — and fixed it first.)
+thirty-one against the packaged desktop server, and `verify_workspace.py` against the real
+server too — and **all thirty-two pass on GitHub's runners** (iteration 70, run
+38282080179: the first green `browser.yml` since 10-08). (Iteration 52 arrived to a red tree — mypy 2 — and fixed it first.)
+
+**The nightly browser run had been red since 10-08, and hid a real defect** (iteration 70).
+Every run of `browser.yml` on `main` from 10-08 failed, three or four harnesses at a time —
+while this file called those harnesses the project's safety net. The cause was timing:
+autosave flushes every four seconds, and on CI's slower runners it often landed before a
+harness clicked Save, which was then disabled and timed out. Among those failures was a
+real one: **a box drawn in the editor lost its selection when its first autosave landed**
+— the reload brings it back under the server's id — so the attributes panel vanished under
+whoever was filling it in, within four seconds of drawing. The selection now follows the
+box to its saved id; the harnesses save through one helper that treats "autosave already
+did it" as done; and the deselection is checked on purpose rather than by luck.
+
+**A backup restores what it holds** (iteration 72): the native format's import keeps each
+annotation's provenance and confidence — a pending model suggestion is still one after a
+restore — and each tag's attributes, and a track exported to the native format or CVAT XML
+comes back with the keyframes it was drawn with rather than one on every frame.
+
+**A CVAT XML track is read the way CVAT reads it** (iteration 71): keyframes, with the
+frames between them interpolated and `outside` as the only departure, split across jobs
+the way CVAT splits one. A file listing only its keyframes used to come back empty between
+them. The export now marks every gap in a track `outside`, which CVAT needs to show it
+absent there. MOTChallenge and the native format keep "a gap is the object leaving", which
+is what a per-frame format means by one.
 
 **Skeleton joints stored before iteration 60 are repaired, and every joint is typed**
 (iteration 69). A migration rewrites the joints that a COCO import or a model stored by
@@ -480,18 +504,34 @@ was the last unconnected piece of the desktop application.
 
 ## Next best action
 
-*Ultralytics reading and training on every YOLO export was iteration 67; exports held to
-Datumaro and CVAT, and a workspace run from the app, 66; COCO held to pycocotools, 65.*
+*A TypeScript client package, iteration 82; single sign-on through OpenID Connect, 81; a Helm chart, 80; backup and restore, either shape and across databases, 79; OpenTelemetry tracing, 78; uploads scanned by ClamAV, 77; a rate limit shared by every server instance through Redis, and Phase 12's markers made true, iteration 76; a default the server fills in is stored typed, 75; Submit checks what its own save achieved, 74. No edit made during a save is lost any more — to a new object while its first save is in
+flight, or to any object while a save that then fails is — and the editor always fits the
+frame it opens on, iteration 73; a backup that
+restores what it holds, and tracks that keep their keyframes through CVAT XML and the
+native format, 72; CVAT XML tracks read as CVAT reads them, 71.*
 
-**Watch the first runs of `.github/workflows/ultralytics.yml`.** It has run locally (PyPI's
-CUDA build of PyTorch, on CPU) but not yet on a GitHub runner, where it installs the CPU
-build from `download.pytorch.org` — which this container cannot reach. If the install
-step fails there, the fix is in the workflow, not the script. It triggers on any change
-under `server/curvevision/formats/`, weekly, and by hand.
+**CI on GitHub**: on this branch `ci.yml`, `ultralytics.yml` and `browser.yml` run only
+when dispatched (or for a PR). All three were green on iteration 72's commit; dispatch them
+on whatever is pushed next.
 
-**Then: gaps in a CVAT XML track** — see below; the oldest item here with no dependency
-on the user.
+**Then, with no dependency on the user: the rest of the 1.0 list in `docs/ROADMAP.md`**,
+in this order — each self-contained, each a gap a production operator would hit:
 
+1. ~~Content scanning (ClamAV)~~ — done, iteration 77.
+2. ~~OpenTelemetry tracing~~ — done, iteration 78.
+3. ~~Backup and restore tooling~~ — done, iteration 79.
+4. ~~A Helm chart~~ — done, iteration 80 (linted and schema-validated; not yet installed
+   into a live cluster in CI — a `kind` job with in-cluster PostgreSQL, Redis and MinIO
+   would be the proof, and is worth doing).
+5. ~~OIDC sign-on~~ — done, iteration 81. (SAML is not, and nobody has asked.)
+6. ~~A TypeScript client~~ — done, iteration 82; **publishing it to npm is the
+   maintainers'** (an `NPM_TOKEN` secret, then *Publish TypeScript client* by hand).
+
+**Next, with no dependency on the user: install the Helm chart into a real cluster in CI.**
+A `kind` job: build both images, load them, install PostgreSQL, Redis and MinIO in the
+cluster (plain manifests are enough), `helm install` with `--wait`, then register an
+account, create a project and upload an image through the ingress or a port-forward. Until
+it exists, the chart is validated, not proven — and the docs say so.
 
 **First, if a key is available: try iteration 63 against the real services.** Add Claude,
 OpenAI and one OpenRouter vision model on the Models page with real keys, run each on a few
@@ -512,15 +552,6 @@ them is worth doing when someone asks.*
 is "add the API key and it works". It was not even that: there was no screen to add a key
 to. That is fixed; what still stands between a new user and a first prediction is a model
 server to point at — the first item under* Then, still needing the user.
-
-**A candidate found while doing 68, not yet decided: gaps in a CVAT XML track.** The
-import treats a frame a track does not list as the object being gone (iteration 62's rule,
-right for MOTChallenge, where a gap *is* the object leaving). CVAT's own reader treats an
-unlisted frame between two keyframes as interpolated, and marks absence only with
-`outside="1"`. CVAT's exports list every frame of a track, so a file CVAT wrote imports
-correctly; a hand-written or third-party CVAT XML with sparse keyframes does not. Making
-the gap rule per-format (`ImportResult` carrying "gaps mean absent" from the reader) is the
-fix; read CVAT's `formats/cvat.py` `load_anno` first.
 
 **Then, still needing the user:**
 
@@ -1021,6 +1052,246 @@ being updated and this one was not. Check it against* Completed *before trusting
 
 ## Verification performed
 
+Iteration 82:
+
+* `sdk/typescript/test/client.test.ts` (the client against a recording `fetch`: bearer
+  token, path built from the schema, a token function asked per request, a problem
+  document thrown as `CurveVisionError`) and `test/live.test.ts` **against a real server**
+  started by `scripts/with_server.py` (a project created with a label and read back; a 404
+  with the server's reason): 5 passing. `npm pack --dry-run`: 5 files, 19 kB.
+* `scripts/api_types.py` writes both copies from one OpenAPI document and `--check`s both;
+  the client's is generated with `--default-non-nullable false`, because otherwise a
+  request had to send every field the server defaults (found by the live test's
+  `labels: [{ name: 'car' }]` failing to typecheck).
+* `check_notices.py` now reads the client's `package.json`; it caught `openapi-fetch`.
+* `./scripts/check.sh` runs the client's typecheck and its tests against a real server;
+  green. CI's SDK job does the same.
+* Iteration 81 on GitHub: CI and all 33 browser harnesses green, `verify_sso.py` included.
+
+Iteration 81:
+
+* `tests/api/test_sso.py`, 17 tests against a provider in the same process that checks
+  PKCE and the client secret and signs RS256 ID tokens: a first sign-in creates the
+  account and a second finds it; a verified email signs into the existing account and an
+  unverified one never does; a new account joins the default workspace; `return_to` stays
+  on this site; refused — a wrong nonce, audience, issuer, an expired token, a token signed
+  with a key the provider does not publish, a forged `state`, a code spent twice, a domain
+  not allowed, a new person when accounts are not created; `/auth/options` tells the page
+  what to offer, and `oidc_only` turns passwords off.
+* `scripts/verify_sso.py`, in Chromium against the real server and a provider the script
+  runs: the button is offered, the round trip lands signed in on the projects page as the
+  account the provider's email made, a callback this tab did not start is refused in the
+  browser, and a cancelled sign-in says so. Added to `browser.yml`.
+* `sso.test.ts`: the callback check, six cases. Full server suite green; the migration
+  checked against the models by the suite.
+* The Helm chart gains the SSO settings; lint and kubeconform still clean.
+* Iteration 80 on GitHub: every job green, including the new `helm` job and the web
+  image's `nginx -T` check.
+* Full `./scripts/check.sh` green.
+
+Iteration 80:
+
+* `helm lint`, and `helm template` piped through `kubeconform -strict` against the
+  Kubernetes 1.30 schemas: 9 resources valid with an ingress and the chart's own Secret, 7
+  with `existingSecret`. Without its required values the chart refuses with the value to
+  set. Helm built from source here (`get.helm.sh` is blocked from this container); CI uses
+  `azure/setup-helm` and the same commands, in a new `helm` job.
+* The web image's nginx config became a template (`deploy/nginx.conf.template`); CI's
+  Docker job now loads the built image and checks `nginx -T` proxies to `api:8000` by
+  default and to a release's own API service when told. Not run here: no Docker daemon.
+* **Not verified: an install into a running cluster.** Said so in `OPERATIONS.md` and the
+  roadmap.
+* Iteration 79 on GitHub: CI green, including the new SQLite→PostgreSQL restore step.
+* Full `./scripts/check.sh` green.
+
+Iteration 79:
+
+* `tests/api/test_backup.py`: a migrated desktop installation seeded through the API (a
+  skeleton label with its joints, images, a model's pending suggestion, a track, a tagged
+  frame, a released version) is backed up, restored into a fresh installation, provisioned,
+  and read back through the API — projects, labels, annotations, both frames' bytes, and an
+  export of the release — **equal to before**. Into SQLite and into **PostgreSQL 16**
+  (installed and started in this container; `ci.yml`'s PostgreSQL job runs it too). Refused:
+  an installation with rows in it, one at another schema revision, an archive with a
+  damaged object, a tar that is not a backup. And the commands themselves, `backup
+  --desktop` and `restore --desktop`, round-trip a desktop data directory and refuse a
+  second restore.
+* Iteration 78 on GitHub: CI green.
+* `docker compose config` valid with the new `/backups` volume.
+* Full `./scripts/check.sh` green.
+
+Iteration 78:
+
+* `tests/api/test_tracing.py`, against OpenTelemetry's in-memory exporter: a request is
+  a trace named by its route template, with its SQL statements as spans in the same trace;
+  `/metrics` and the health check make none; a background job is a span in the trace of
+  the request that queued it; a JSON log line written in a span carries that span's
+  `trace_id` and `span_id`; off, nothing is configured. Full server suite green with it.
+* **Found writing them:** the SQLAlchemy instrumentation declares `sqlalchemy < 2.1`, and
+  against the 2.1.1 installed here it instrumented *nothing*, saying so in one log line.
+  `skip_dep_check=True`, and the SQL-span test is what would catch a release where its
+  hooks stopped working.
+* `scripts/check_notices.py` caught the five new packages missing from
+  `THIRD_PARTY_NOTICES.md` (and the dev extra naming its own package); both fixed.
+* Iteration 77 on GitHub: every CI job green, and the `clamav` job's clamd — the official
+  image, real signatures — logged `Eicar-Test-Signature FOUND` for the test's stream.
+* Full `./scripts/check.sh` green.
+
+Iteration 77:
+
+* `tests/api/test_content_scanning.py`, 13 tests. **Against a real clamd** (ClamAV 1.4,
+  installed here with `apt`; `freshclam` cannot reach `database.clamav.net` from this
+  container, so clamd ran one custom hash signature for the EICAR test file — a real
+  clamd, a real `INSTREAM`, one signature): a clean PNG is clean, EICAR is found and
+  named, a file of several chunks is scanned. Against an in-process stand-in that records
+  the framing: the whole file arrives in length-prefixed chunks after `zINSTREAM\0`, a
+  `FOUND` reply names the signature, an `ERROR` reply is not clean. Through the API with
+  the scanner replaced: infected is a 422 naming the signature and stores nothing,
+  unscannable is a 503 and stores nothing, clean is stored; `fail_open` accepts the
+  unscannable. A clamd that is not there is an error, never a pass.
+* `ci.yml` gains a `clamav` job against the official `clamav/clamav:stable` image with its
+  real signatures — the first run on GitHub is the check that the official EICAR signature
+  is matched too.
+* Iteration 76 on GitHub: CI green, its new *Rate limit shared through Redis* step
+  included.
+* `docker compose config` valid with and without `--profile scanning`.
+* Full `./scripts/check.sh` green.
+
+Iteration 76:
+
+* `tests/api/test_rate_limit.py`, the limiter's first tests: in memory, the request past
+  the limit is a 429 problem with `Retry-After`, each token has its own limit, and two app
+  instances each allow the whole limit (the defect, pinned); **through a real Redis**
+  (`redis-server` 7 in this container; a `redis` service in `ci.yml`, as PostgreSQL has),
+  two app instances enforce one limit between them and each token keeps its own; and with
+  Redis unreachable, requests are let through (fail open).
+* The CSRF marker checked against the code before rewriting it: the server sets and reads
+  no cookie (`grep` for `set_cookie`, `request.cookies`: none), and the web client sends a
+  bearer header.
+* Full `./scripts/check.sh` green.
+
+Iteration 75:
+
+* `test_label_schema.py::TestEditingAttributes::test_a_default_the_server_fills_in_is_stored_as_its_type`:
+  a checkbox, number, select and text default filled in by the server come back as
+  `False`, `3.0`, `"led"`, `"none"`; it failed first with `'false'`. Full server suite:
+  725 passed, 1 skipped (the PostgreSQL variant without its URL).
+
+Iteration 74:
+
+* `verify_save_refusals.py` claims 9 and 10: Submit pressed while its save fails (a 500
+  injected with `page.route`), and pressed while a save the server refuses is held on the
+  wire. **Against the iteration-73 editor both submitted the job** (`new → submitted`,
+  `in_progress → submitted`; claim 10 puts the job back first so it is checked on its own);
+  both pass now, the job's state read from the API.
+* `review.test.ts`: `submitBlocker`, the rule Submit applies, three tests.
+* Rebuilt sidecar: `verify_save_refusals`, `verify_job_review`, `verify_attribute_values`,
+  `verify_crash_recovery` pass. Full `./scripts/check.sh` green.
+
+Iteration 73:
+
+* **Reproduced in a browser first.** `verify_attribute_values.py` claim 2b holds the new
+  box's first save open (`page.route`), types into its panel, then lets the save through:
+  against the editor before this iteration (fix stashed, web and sidecar rebuilt) the box
+  saved as `{}`. Claim 2c holds a save of an existing box open, types again, fails the held
+  request with a 500, and lets the retry through: against the editor with only the first
+  fix it fails, the retry sending the older value. Both pass with the fixes.
+* **An intermittent harness failure was the app's.** `verify_attribute_editor.py`'s last
+  step failed once in four local runs, saying (thanks to iteration 70's diagnostics) that
+  the box was never selected; its screenshot showed the frame unfitted, at 100% in the
+  corner. `engine.test.ts` pins the cause — a fit asked of a canvas with no size yet — and
+  fails without the fix (`fitWhenSized`); with it, eight runs out of eight pass.
+* `drafts.test.ts`: four tests of `savedForm`, the one rule both fixes share — an edit to
+  a drawn object goes under the server id once its first save has answered, and is the
+  creation itself until then — including the crash copy, which keeps it either way.
+* Against the rebuilt sidecar, every harness that saves from the editor:
+  `verify_attribute_values`, `verify_crash_recovery`, `verify_save_refusals`,
+  `verify_attribute_editor`, `verify_tool_sync`, `verify_mask_brush`,
+  `verify_track_canvas_edit`, `verify_keyframe_editing`, `verify_cuboid`,
+  `verify_scissors`, `verify_skeleton_tool`, `verify_tracked_skeleton`,
+  `verify_auto_annotate`, `verify_shape_frame` all pass; then **all 32 harnesses in
+  `browser.yml`, against the final build: 32 passing.**
+* Iteration 72's commit on GitHub: `ci.yml`, `ultralytics.yml` and all 32 browser
+  harnesses green (dispatched).
+* Full `./scripts/check.sh`: green (725 server collected, 762 web).
+
+Iteration 72:
+
+* `tests/api/test_lossless_round_trip.py`, eight tests through the API — draw, export,
+  import into a second project, read back: a manual shape, a pending suggestion
+  (`model`, 0.7) and an accepted one (`model`, none) each come back as they were; a tag
+  with its attributes and provenance; a rectangle track with keyframes on 0 and 3 and a
+  departure on 5, and a polygon that gains a vertex between keyframes on 0 and 4, each
+  with exactly those keyframes, through the native format and through CVAT XML (whose two
+  decimals the reproduction tolerance absorbs); a `keyframe="0"` frame interpolation does
+  not reproduce kept as a keyframe; an import from CVAT XML still claiming no provenance.
+  **Seven fail against the code before this iteration**; the eighth is a guard, and held
+  before too.
+* `test_export_conformance.py` pins CVAT XML's `keyframe="0"` on a frame between keyframes.
+* `test_import_fidelity.py`: three expectations changed, each because the old one encoded
+  the loss — keyframes on every frame of a round trip (now the drawn ones), and the CVAT
+  file's `keyframe="0"` frame that says `occluded="1"` (now kept, where CVAT drops it: see
+  the test's docstring). Writing the job-split test's new path found a real defect, fixed:
+  a departure right after a part's entering shape was stripped as a leading one.
+* `merge._with_track_id` rebuilt a record field by field and would have reset `keyframe`;
+  it is `dataclasses.replace` now.
+* `ci.yml` and `ultralytics.yml` dispatched on iteration 71's commit: both green on GitHub.
+* Rebuilt sidecar: `verify_annotation_import`, `verify_cuboid`, `verify_tracked_skeleton`
+  and `verify_track_timeline` pass.
+* Full `./scripts/check.sh`: green (725 server collected, 756 web).
+
+Iteration 71:
+
+* **CVAT read first**: `load_anno` in `cvat/apps/dataset_manager/formats/cvat.py` (only
+  `keyframe="1"` shapes are kept; an `outside` keyframe is kept as the departure) and
+  `_slice_track` in `annotation.py` (a track split across jobs gets the interpolated shape
+  on each part's boundary; leading departures are dropped). The import now does both.
+* `tests/api/test_import_fidelity.py`: five new tests through the import route —
+  interpolated between two keyframes, checked through an export of the result (frame 2
+  halfway, frame 5 held); a `keyframe="0"` frame not made a keyframe; an `outside`
+  keyframe ending a run and a later keyframe starting one; a track split at a job boundary
+  carrying on moving into the next job; a one-frame track closed at once a shape, one left
+  open a track. **All five fail against the old code**, as does the rewritten CVAT-file
+  test, whose expectation was the old rule's and is now CVAT's (held on frame 5, frame 1
+  interpolated rather than a keyframe).
+* A gapped track round-trips through the native format, CVAT XML and MOTChallenge, and
+  comes back absent where it was absent. With the new reader and the old exporter, the
+  CVAT XML case fails; `test_export_conformance.py` pins the export itself (an `outside`
+  keyframe on the first frame of each gap and after the last run).
+* MOTChallenge and the native format keep "a gap is the object leaving": both list a
+  track on every frame it is on and on no other.
+* `verify_annotation_import.py` (imports a CVAT XML track) and `verify_cuboid.py` (exports
+  CVAT XML) against a rebuilt sidecar: both pass.
+* Full `./scripts/check.sh`: green (716 server collected, 756 web).
+
+Iteration 70:
+
+* **The CI failures, read from the runner logs**: every `main` run of `browser.yml` since
+  10-08 failed three or four of `verify_mask_brush`, `verify_attribute_values`,
+  `verify_attribute_editor`, `verify_save_refusals` — each a 30-second timeout clicking a
+  disabled Save, except `verify_attribute_values`, where a new box was saved with `{}`
+  instead of the value typed into it. All passed locally, so the difference was timing.
+* **Reproduced deterministically**: waiting 4.5 s (one autosave flush) after drawing a box
+  made its attributes panel disappear, every time, and the value typed afterwards was never
+  saved. `scene.test.ts` gains two tests (one failing first). The fix needed a second pass:
+  a drawn box's `id` and the `clientId` it is saved under are different values.
+* `verify_attribute_values` now waits past an autosave on purpose and checks the panel is
+  still there; against the old editor (fix stashed, rebuilt) it fails, and passes with it.
+* `save_now` in `scripts/screenshot.py` replaces five unconditional Save clicks.
+* **All 32 harnesses in `browser.yml`, run locally against the packaged app: 32 passing.**
+* **On GitHub's runners, first dispatch (run 38279585168, `cd3fc42`): 31 of 32.** The one
+  left, `verify_attribute_editor`, said its last editor move was "refused" — but before
+  `save_now` the same step had timed out on a Save that stayed *disabled*, so no save was
+  sent at all: the drag had landed on the canvas before the job's box was on it (a fixed
+  1.2 s wait after loading). Not reproducible locally, even with Chromium's CPU throttled
+  6×. The step now waits for the box to be listed in the objects panel, and its failure
+  names which way it failed — refused with the server's answer, never selected, or selected
+  but not moved (checked by a copy that clicks off the box: "never selected").
+* **On GitHub's runners, second dispatch (run 38282080179, `0b6b38e`): all 32 harnesses
+  passing** — the first green `browser.yml` since 10-08. (Before it, the one harness alone:
+  run 38281668412, green.)
+* Full `./scripts/check.sh`: green (756 web).
+
 Iteration 69:
 
 * `tests/api/test_joint_repair_migration.py`, on a real migrated installation: data made
@@ -1331,6 +1602,50 @@ Iteration 54:
 
 ## Bugs fixed
 
+* **A server run as several instances let a client through once per instance** (iteration
+  76): the only rate limiter counted in each process. Redis now backs it when configured.
+* **A default the server filled in was stored as a string** (iteration 75): a checkbox's
+  `"false"`, a number's `"3"`, whenever an annotation came from the SDK, the CLI, an import
+  or a model — and every export carried the string.
+* **Submit handed a job to review without work the annotator could still see** (iteration
+  74): when the save Submit runs first failed outright, or was refused, or was still in
+  flight from the periodic autosave (`flush` returned at once rather than waiting), the job
+  was submitted anyway. Submit now refuses, saying why, unless that save left nothing.
+* **Typing into a new box's attributes while its first save was in flight was lost**
+  (iteration 73): autosave dropped any edit to a drawn object not queued to be created,
+  which is where it is while its creation is on the wire and until the reload swaps its
+  server id in. Iteration 70 made that window the normal one, by keeping the panel up.
+* **A save that failed put its batch back over the edits made while it was in flight**
+  (iteration 73), so the retry sent the older value (found by reading in iteration 53).
+* **The editor sometimes opened a frame at 100% in the top-left corner** instead of fitted
+  (iteration 73): when the image loaded before the canvas' first resize, the fit was asked
+  of a 0x0 viewport, did nothing, and nothing asked again. It was the intermittent "the
+  box was never selected" in `verify_attribute_editor.py` one run in four locally, since
+  every harness clicks where a fitted image would be — and very likely iteration 70's CI
+  failure of the same step, which predates the diagnostics that would say so.
+* **Restoring a native backup turned every pending model suggestion into finished work**
+  (iteration 72): the format wrote each annotation's `source` and `confidence` and the
+  import ignored both, storing everything as `imported`. A tag lost its attributes too.
+* **Every track exported to CVAT XML or the native format came back with a keyframe on
+  every frame** (iteration 72), in this application and in CVAT: neither export said which
+  frames were authored.
+* **A CVAT XML track with sparse keyframes came back empty between them** (iteration 71):
+  the import read a frame a track did not list as the object being gone, where CVAT reads
+  it as interpolated. A file written by hand, by a script or by another tool — anything
+  but CVAT, which lists every frame — lost every frame between its keyframes, and a track
+  nothing closed was ended after its last keyframe instead of held to the end of the job.
+* **A CVAT XML export of a track that leaves and comes back showed it in CVAT throughout
+  its absence** (iteration 71): only a track's end was marked `outside`, and CVAT
+  interpolates across a frame a track does not list.
+* **A drawn box lost its selection, and its attributes panel, when its first autosave
+  landed** (iteration 70): the reload brings it back under the server's id, and the scene
+  dropped selected ids it no longer had.
+* **The nightly browser run had failed on every `main` push and schedule since 10-08**
+  (iteration 70): five harnesses clicked Save unconditionally, which times out whenever
+  autosave has already saved.
+* **`verify_attribute_editor` blamed a refused save for a drag that never happened**
+  (iteration 70): it dragged after a fixed 1.2 s, before the box was on the canvas on CI's
+  runners. It now waits for the box, and says which way a move failed.
 * **Moving a skeleton, or dragging one of its joints, changed nothing drawn or saved**
   (iteration 68): the select tool moved `points`, the joints' flattened copy.
 * **A tracked skeleton was invisible in the editor, froze between keyframes, and lost all its
@@ -1452,8 +1767,6 @@ Iteration 54:
 
 ## Known issues
 
-* **The Ultralytics workflow has not yet run on GitHub** (iteration 67). Verified locally;
-  see *Next best action*.
 * **YOLO Pose writes `flip_idx` only when joint names say left and right** (iteration 67).
   A skeleton named `hand1`/`hand2` gets none, and Ultralytics then trains without flip
   augmentation — slower to generalise, never wrong. Naming joints `left_…`/`right_…` fixes it.
@@ -1477,13 +1790,15 @@ Iteration 54:
   reported as a 502 that says so. Run it on a frame range.
 * **Boxes only** from hosted models: no masks, polygons, keypoints or whole-frame tags yet.
 
-* **An imported track has a keyframe on every frame the file lists**, not only on the
-  frames somebody keyed: no format here carries which frames were keyframes (CVAT XML's
-  `keyframe` attribute is not read), so the timeline shows a dense lane. The positions are
-  right; editing one frame edits that keyframe only.
-* **An import does not carry provenance in**: everything it writes is `source: "imported"`,
-  so a native backup restores model suggestions as imported annotations, without their
-  confidence. Tags come in without attributes (`ImportResult.tags` has no field for them).
+* **A MOTChallenge track comes back with a keyframe on every frame it lists**: the format
+  has no way to say which frames were keyed. CVAT XML and the native format do, and keep
+  them (iteration 72). The positions are right either way.
+* **Only the native format brings provenance in**: an import from any other format stores
+  `source: "imported"` with no confidence, because nothing else wrote its `source` from an
+  annotation of this server's. Tag attributes likewise come in only from the native format.
+* **A job-wide tag (one with no frame) is exported onto every frame of its job**, by every
+  format, so an import brings it back as one tag per frame. No export format here has a
+  place for a tag that belongs to no frame.
 
 * **A model's API key is stored as given**, in `model_registrations.config`, as a webhook's
   signing secret is in `webhooks.secret`. Neither is returned by the API; anyone who can
@@ -1505,12 +1820,6 @@ Iteration 54:
 * **A desktop relaunch that starts before the last server has let go of its port** takes
   another port, and so another origin, for that launch; the remembered port is kept, so the
   next launch is back on it.
-* **An edit to a new object made during its first save, or before the reload after it, is
-  dropped.** `record` skips an update for a `pending` object not in `created`, which is
-  where a new object is while its save is in flight and until the reload swaps its server
-  id in. Typing into the attribute panel right after drawing can lose keystrokes that way;
-  the reload then shows the saved value. Found by reading in iteration 55; the `local` map
-  added for deletions could carry the reload half, the in-flight half needs more.
 * **A refusal of an entry autosave cannot set aside still puts the batch back whole** —
   anything outside `created_shapes`, `updated_shapes` and `updated_tracks`. After iteration
   55 nothing autosave sends is known to hit this, but the fallback is the old behaviour.
@@ -1520,23 +1829,13 @@ Iteration 54:
   that one step this session (twice in about twenty runs); the drag-undo, saved-shape and
   track steps have the same exposure over shorter windows and were not seen to fail. The
   guard there is the pattern to copy if they are.
-* **Submit can still go ahead when a refusal arrives during its own flush**: the guard reads
-  what is held before Submit is pressed, and `flush` does not report what it held back.
-* **A default is recorded as a string** when the *server* fills it in —
-  `validate_attributes` writes `definition.default_value` uncoerced, so a checkbox default
-  lands as `"false"` from the SDK, the CLI or an import, while the editor now sends it
-  typed (iteration 55). The next save of that annotation coerces it. Harmless to saving,
-  visible in exports.
+* **Defaults recorded as strings before iteration 75 stay strings** until the annotation's
+  next save, which coerces them; no migration rewrites them.
 * **A rename or removal of an attribute with a default is refused as soon as the label is
   used**, because a default is recorded on every annotation saved with the label. That is
   the stated cost of refusing rather than rewriting (see *Decisions*), and the form says so.
 * **The PostgreSQL run of the attribute tests is manual.** CI's Postgres job only migrates;
   the whole suite runs on SQLite.
-* **A failed flush restores the older copy of a shape over a newer edit.** When a flush
-  fails, autosave puts its batch back with `Map.set`, overwriting an edit to the same shape
-  made while the request was in flight — the next retry sends the older geometry. Found by
-  reading, iteration 53; track edits restored in the same place do keep the newer one. Narrow
-  (an edit during a failing request), not fixed.
 * **An undo on an empty stack still re-emits the frame**, so Ctrl+Z after a save writes a
   no-op update of every shape on screen and bumps `annotation_version`. Harmless; found while
   tracing a harness.
@@ -1649,102 +1948,90 @@ Iteration 54:
 
 ## Last iteration
 
-### 69 — old skeleton joints repaired, and every joint typed
+### 82 — a TypeScript client package
 
-The handoff's next action with no dependency on the user. One decision the handoff left
-open — what to do with a skeleton whose label has no joints — was settled by the import's
-own behaviour since iteration 60: the label gains the joints its skeletons named. Deleting
-or emptying them would lose annotation to fix a schema. PostgreSQL 16 turned out to be
-installed in this container, so the migration was run against it rather than left to CI,
-and it failed there first.
-
-Verified: see *Verification performed*.
-
-## Iteration 68
-
-### 68 — skeletons that move, and tracked skeletons that work
-
-Chosen over the joints migration because it was live: CVAT tracks skeletons and the CVAT
-XML import keeps tracks, so a tracked skeleton could reach the editor and be broken there.
-Reading the select tool to see how a tracked skeleton would be edited found the larger
-defect — no skeleton, tracked or not, could be moved after it was placed — and reading the
-track serialiser found the data loss. CVAT was read for the rule (`dataset_manager/
-annotation.py`: each joint a sub-track, interpolated linearly); no code adapted. Two things
-left as found: the CVAT gap divergence above, and the old joints migration below it.
+The last code item on the 1.0 list. `sdk/typescript` is `@curvevision/client`: a thin
+wrapper over `openapi-fetch` (its only runtime dependency) with every path, body and
+response typed from the server's schema, a bearer token (or a function returning one), and
+problem documents thrown as a typed error. Its types come from the generator the web
+application uses, checked against the server in CI, and its tests run against a real
+server. Not published: that is an outward act under the maintainers' npm account, and a
+manual workflow waits for their token.
 
 Verified: see *Verification performed*.
 
-## Iteration 67
+## Iteration 81
 
-### 67 — Ultralytics itself reads and trains on every YOLO export
+### 81 — single sign-on through OpenID Connect
 
-The next best action from 66, which had expected to find little. PyTorch's own index is
-blocked from this container, so PyTorch came from PyPI (its CUDA build, 4 GB, run on CPU)
-into a scratch environment — the workflow uses the CPU index, which a runner can reach.
-The script was written to compare Ultralytics' loaded labels against values computed from
-the source geometry, not with the exporter's helpers, and its first run failed on
-`path: .`: the restated rules in the unit suite had made the same assumption as the
-exporter. Reading the variants before Ultralytics could run found the missing `flip_idx`
-and the OBB/pose split; orienting found iteration 66's harness missing from CI.
-
-Verified: see *Verification performed*.
-
-## Iteration 66
-
-### 66 — every export held to its reader; a workspace run from the application
-
-Asked for directly: "finish everything in this iteration", with the export bar from 65. One
-iteration of five parts, said up front, with three things excluded and said so: the
-YOLO-World server (a separate, GPL repository this session cannot create), signed
-installers (certificates the project does not have) and a real-key AI trial (the user's
-keys).
-
-Exports first, against readers rather than round trips: Datumaro 1.13 for VOC, KITTI, MOT,
-segmentation and CVAT XML; then CVAT's own XML reader (`dataset_manager/formats/cvat.py`,
-run against CVAT's Datumaro fork with its Django imports stubbed) once Datumaro was found
-not to read skeletons at all. Ultralytics would not install, so its loader was read and its
-rules restated (`img2label_paths`, `verify_image_label`, `YOLODataset.get_labels`).
-Reading `verify_image_label` is what found the mixed-row corruption; no reader that was
-installed would have.
-
-Then the application. Reading the member service before building its page found the
-escalation; reading the version service before building its panel found that "immutable"
-releases froze nothing; tracing what a task delete leaves behind found the collector nothing
-called. Each was fixed with a failing test first, and each is the server work a panel would
-otherwise have shipped to more people. CVAT was read for the member rule
-(`organizations/rules/memberships.rego`) and its XML dumper's conventions; neither is
-adapted code, and both are in the notices.
+The largest item left on the 1.0 list, and the third false claim found this session: the
+docs said an `AuthBackend` seam existed; nothing by that name did. `services/oidc.py`
+implements the authorization-code flow with PKCE, the server a confidential client that
+keeps no login state (the signed `state` carries nonce, verifier and destination), and the
+web application checks `state` against what its own tab kept — login CSRF, without a
+cookie. Accounts link by issuer and `sub` (`external_identities`, a migration); a first
+sign-in uses an existing account only through a verified email. The sign-in page asks the
+server what to offer.
 
 Verified: see *Verification performed*.
 
-## Iteration 65
+## Iteration 80
 
-### 65 — COCO exports held to pycocotools
+### 80 — a Helm chart
 
-Asked for directly: export quality "top notch, industry grade". The useful question was not
-"does it round-trip" — it did — but "does the reader everyone else uses agree", so the
-iteration started by installing pycocotools and writing tests against it, and reading how
-Datumaro (CVAT's exporter) writes COCO and VOC before changing any convention. Two of its
-conventions were followed (VOC coordinates; uncompressed RLE) and one deliberately not
-(`iscrowd: 1` for masks) — see *Decisions*. The other formats are the next best action.
+The next 1.0 item. `deploy/helm/curvevision`: the API, workers and web application, a
+migration Job as a pre-install/pre-upgrade hook (migrating in every replica at start would
+race), probes on the health check, non-root pods, an optional ingress; PostgreSQL, Redis and
+S3 are the operator's. The web image hard-coded its API as `api:8000`, which only Compose
+can provide; its nginx config is a template now, filled from the environment. The API trusts
+forwarded client addresses in the chart, without which every anonymous visitor would share
+the proxy's rate limit.
 
 Verified: see *Verification performed*.
 
-## Iteration 64
+## Iteration 79
 
-### 64 — annotations made elsewhere can be imported from the task page
+### 79 — backup and restore, either shape, across databases
 
-The next best action since iteration 62, with the real-service trial of iteration 63 left
-waiting for the user's keys. Small by design: the server work was done in 62, and the panel
-follows the ground-truth panel's pattern — pure rules in their own module, the component
-only wiring. The one thing the harness taught: frame matching differs by format, and the
-copy had to say so rather than promise file names.
+The next 1.0 item. Backups were two hand-run commands against two systems, for the server
+only, and nothing had ever restored one. `curvevision-server backup` / `restore`
+(`services/backup.py`) write one archive: every row as JSON, in foreign-key order, and every
+stored object a row names, with its SHA-256. Rows as JSON rather than a database dump is
+the design decision: it makes an archive portable between databases, so a desktop user's
+SQLite moves to a team server's PostgreSQL with the same two commands — tested. A restore
+refuses anything but an empty installation at the backup's schema revision.
+
+Verified: see *Verification performed*.
+
+## Iteration 78
+
+### 78 — OpenTelemetry tracing
+
+The next 1.0 item. `core/tracing.py`: requests (FastAPI), SQL (SQLAlchemy), outbound HTTP
+(httpx: model servers, hosted models, webhooks) and background jobs (a span around
+`run_task`), to an OTLP/HTTP collector, with the trace id in every JSON log line written
+inside a span. Optional twice — off by default, and its packages are the `tracing` extra,
+which the server image includes so an operator turns it on with an environment variable.
+
+Verified: see *Verification performed*.
+
+## Iteration 77
+
+### 77 — uploads scanned by ClamAV
+
+The next item on the 1.0 list, and another false claim: `SECURITY.md` and
+`ARCHITECTURE.md` described a `ContentScanner` hook that did not exist. It does now
+(`media/scanning.py`), with ClamAV behind it through clamd's `INSTREAM` command — no client
+library — called in the one path direct and resumable uploads share. Off by default; when
+on, it fails closed, because a scanner an attacker can switch off by overloading it is not a
+control. Docker Compose gets an opt-in `scanning` profile, and its `api` replicas now share
+iteration 76's Redis rate limit by default.
 
 Verified: see *Verification performed*.
 
 ## Earlier iterations
 
-Iterations **1–63** are in [`docs/iterations/ARCHIVE.md`](./docs/iterations/ARCHIVE.md) —
+Iterations **1–76** are in [`docs/iterations/ARCHIVE.md`](./docs/iterations/ARCHIVE.md) —
 moved there so that orienting costs a few hundred lines rather than four thousand. Read them
 when `git log` points you at an iteration number, or when you are about to build something
 and want to know whether it was already tried and rejected. The lessons from them that are

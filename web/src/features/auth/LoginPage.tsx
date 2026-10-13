@@ -1,27 +1,60 @@
-import { useState } from 'react';
-import { useSession } from '@/store/session';
-import { Button, ErrorNotice, Input } from '@/ui/primitives';
+import { useQuery } from "@tanstack/react-query";
+import { useState } from "react";
+import { api } from "@/api/client";
+import type { SignInOptions } from "@/api/types";
+import { useSession } from "@/store/session";
+import { Button, ErrorNotice, Input } from "@/ui/primitives";
+import { keepState } from "./sso";
+
+/** What a server too old to say offers: the password form, as it always did. */
+const PASSWORDS_ONLY: SignInOptions = {
+  password: true,
+  registration: true,
+  sso: false,
+};
 
 export function LoginPage() {
   const { login, register, error } = useSession();
-  const [mode, setMode] = useState<'signin' | 'signup'>('signin');
+  const [mode, setMode] = useState<"signin" | "signup">("signin");
   const [busy, setBusy] = useState(false);
   const [form, setForm] = useState({
-    identifier: '',
-    password: '',
-    email: '',
-    username: '',
-    fullName: '',
+    identifier: "",
+    password: "",
+    email: "",
+    username: "",
+    fullName: "",
   });
 
-  const set = (key: keyof typeof form) => (event: React.ChangeEvent<HTMLInputElement>) =>
-    setForm((current) => ({ ...current, [key]: event.target.value }));
+  const set =
+    (key: keyof typeof form) => (event: React.ChangeEvent<HTMLInputElement>) =>
+      setForm((current) => ({ ...current, [key]: event.target.value }));
+  const options =
+    useQuery({
+      queryKey: ["sign-in-options"],
+      queryFn: () => api.signInOptions().catch(() => PASSWORDS_ONLY),
+      staleTime: Infinity,
+    }).data ?? PASSWORDS_ONLY;
+  const [ssoProblem, setSsoProblem] = useState<unknown>(null);
+
+  async function signInWithSso() {
+    setSsoProblem(null);
+    setBusy(true);
+    try {
+      const started = await api.ssoStart("/");
+      // Checked when the provider sends the browser back (`SsoCallback`).
+      keepState(started.state);
+      window.location.assign(started.authorization_url);
+    } catch (error) {
+      setSsoProblem(error);
+      setBusy(false);
+    }
+  }
 
   async function submit(event: React.FormEvent) {
     event.preventDefault();
     setBusy(true);
     try {
-      if (mode === 'signin') {
+      if (mode === "signin") {
         await login(form.identifier, form.password);
       } else {
         await register({
@@ -61,82 +94,121 @@ export function LoginPage() {
               fill="none"
             />
           </svg>
-          <h1 className="mt-4 text-xl font-semibold tracking-tight">CurveVision</h1>
-          <p className="mt-1 text-sm text-ink-400">Build better vision datasets.</p>
+          <h1 className="mt-4 text-xl font-semibold tracking-tight">
+            CurveVision
+          </h1>
+          <p className="mt-1 text-sm text-ink-400">
+            Build better vision datasets.
+          </p>
         </div>
 
-        <form onSubmit={submit} className="panel space-y-4 p-6">
-          {mode === 'signup' && (
-            <>
+        {options.sso && (
+          <div className="panel mb-4 space-y-3 p-6">
+            <Button
+              variant="primary"
+              className="w-full"
+              disabled={busy}
+              onClick={() => void signInWithSso()}
+              data-sso-start=""
+            >
+              Sign in with {options.sso_name ?? "single sign-on"}
+            </Button>
+            {ssoProblem != null && <ErrorNotice error={ssoProblem} />}
+          </div>
+        )}
+
+        {options.password && (
+          <form onSubmit={submit} className="panel space-y-4 p-6">
+            {mode === "signup" && (
+              <>
+                <Input
+                  label="Email"
+                  name="email"
+                  type="email"
+                  autoComplete="email"
+                  required
+                  value={form.email}
+                  onChange={set("email")}
+                />
+                <Input
+                  label="Username"
+                  name="username"
+                  autoComplete="username"
+                  required
+                  value={form.username}
+                  onChange={set("username")}
+                />
+                <Input
+                  label="Full name"
+                  name="fullName"
+                  autoComplete="name"
+                  value={form.fullName}
+                  onChange={set("fullName")}
+                />
+              </>
+            )}
+
+            {mode === "signin" && (
               <Input
-                label="Email"
-                name="email"
-                type="email"
-                autoComplete="email"
-                required
-                value={form.email}
-                onChange={set('email')}
-              />
-              <Input
-                label="Username"
-                name="username"
+                label="Username or email"
+                name="identifier"
                 autoComplete="username"
                 required
-                value={form.username}
-                onChange={set('username')}
+                value={form.identifier}
+                onChange={set("identifier")}
               />
-              <Input
-                label="Full name"
-                name="fullName"
-                autoComplete="name"
-                value={form.fullName}
-                onChange={set('fullName')}
-              />
-            </>
-          )}
+            )}
 
-          {mode === 'signin' && (
             <Input
-              label="Username or email"
-              name="identifier"
-              autoComplete="username"
+              label="Password"
+              name="password"
+              type="password"
+              autoComplete={
+                mode === "signin" ? "current-password" : "new-password"
+              }
               required
-              value={form.identifier}
-              onChange={set('identifier')}
+              value={form.password}
+              onChange={set("password")}
+              hint={mode === "signup" ? "At least 10 characters." : undefined}
             />
-          )}
 
-          <Input
-            label="Password"
-            name="password"
-            type="password"
-            autoComplete={mode === 'signin' ? 'current-password' : 'new-password'}
-            required
-            value={form.password}
-            onChange={set('password')}
-            hint={mode === 'signup' ? 'At least 10 characters.' : undefined}
-          />
+            {error && <ErrorNotice error={error} />}
 
-          {error && <ErrorNotice error={error} />}
-
-          <Button type="submit" variant="primary" className="w-full" disabled={busy}>
-            {busy ? 'Working…' : mode === 'signin' ? 'Sign in' : 'Create account'}
-          </Button>
-
-          <p className="text-center text-xs text-ink-500">
-            {mode === 'signin' ? 'No account yet?' : 'Already have an account?'}{' '}
-            <button
-              type="button"
-              className="text-curve-400 hover:underline"
-              onClick={() => setMode(mode === 'signin' ? 'signup' : 'signin')}
+            <Button
+              type="submit"
+              variant="primary"
+              className="w-full"
+              disabled={busy}
             >
-              {mode === 'signin' ? 'Create one' : 'Sign in'}
-            </button>
-          </p>
-        </form>
+              {busy
+                ? "Working…"
+                : mode === "signin"
+                  ? "Sign in"
+                  : "Create account"}
+            </Button>
+
+            {options.registration && (
+              <p className="text-center text-xs text-ink-500">
+                {mode === "signin"
+                  ? "No account yet?"
+                  : "Already have an account?"}{" "}
+                <button
+                  type="button"
+                  className="text-curve-400 hover:underline"
+                  onClick={() =>
+                    setMode(mode === "signin" ? "signup" : "signin")
+                  }
+                >
+                  {mode === "signin" ? "Create one" : "Sign in"}
+                </button>
+              </p>
+            )}
+          </form>
+        )}
 
         <p className="mt-6 text-center text-xs text-ink-600">
-          The first account created on a fresh instance becomes its administrator.
+          The first account created on a fresh instance becomes its
+          administrator.
         </p>
       </div>
     </div>

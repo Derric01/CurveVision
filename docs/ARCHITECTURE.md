@@ -266,8 +266,9 @@ imports: the server starts and the full test suite passes without them, degradin
   the plaintext is shown exactly once.
 * Authorization is centralised: one policy table, resolved per request against the loaded
   resource. No permission logic in view bodies.
-* Uploads are validated by extension **and** magic bytes, with a configurable size cap and a
-  `ContentScanner` hook for ClamAV or a vendor scanner.
+* Uploads are validated by extension **and** magic bytes, with a configurable size cap, and
+  optionally scanned by ClamAV (`media/scanning.py`'s `ContentScanner`; failing closed)
+  before they are stored.
 * Security headers, strict CORS allow-list, per-token and per-IP rate limits.
 * `AuditEvent` records security-relevant actions (auth, permission changes, exports,
   deletions) with actor, IP and target.
@@ -341,7 +342,7 @@ to gain code would undo benchmarked decisions.
 | Video decode | PyAV, imageio-ffmpeg, opencv, ffmpeg subprocess | **PyAV** | BSD-3-Clause (wraps FFmpeg: LGPL/GPL) | Real frame-accurate seeking and keyframe indexing, which subprocess piping cannot give you | Optional extra; licensing documented in THIRD_PARTY_NOTICES | n/a |
 | Dataset formats | Datumaro, FiftyOne, custom | **Build a streaming registry**, Datumaro bridge *Planned* | (Datumaro: MIT) | Datumaro is excellent but loads datasets into memory; a server exporting 500k images cannot. Its transitive deps (NumPy/OpenCV) are also heavy for the API image. | We would rather contribute a streaming/iterator export API to Datumaro than maintain a parallel implementation forever | **Yes — candidate upstream contribution** |
 | ML serving | Nuclio, Triton, TorchServe, BentoML, Ray Serve, KServe | **None — an HTTP contract** | — | Bundling a serving platform forces our choice on every operator and drags model licenses into the core. A documented HTTP schema means all of the above work with zero CurveVision plugins. | We define and publish the inference contract | n/a |
-| Metrics | prometheus-client, OpenTelemetry, statsd | **prometheus-client** now, OTel *Planned* | Apache-2.0 | Every self-hoster already knows how to scrape Prometheus | Nothing | n/a |
+| Metrics | prometheus-client, OpenTelemetry, statsd | **prometheus-client** for metrics; OpenTelemetry for traces (optional extra) | Apache-2.0 | Every self-hoster already knows how to scrape Prometheus | Nothing | n/a |
 | Logging | structlog, loguru, stdlib | **stdlib logging + a JSON formatter** | — | ~40 lines vs a dependency; keeps library log integration trivial | n/a | n/a |
 | HTTP client | httpx, requests, aiohttp | **httpx** | BSD-3 | Sync+async in one API; `ASGITransport` lets the SDK's own tests run against the app with no server | Nothing | n/a |
 | CLI | Typer, Click, argparse | **Typer** | MIT | Type-hint-driven commands match the SDK's typed style | Nothing | n/a |

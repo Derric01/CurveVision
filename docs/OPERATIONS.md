@@ -24,12 +24,128 @@ Six services:
 
 Scale `api` and `worker` horizontally; they hold no local state. Redis is deliberately not
 a source of truth: media chunks live in object storage, so losing Redis costs a cache, not
-data.
+data. It also counts the **rate limit** every `api` replica shares
+(`CURVEVISION_RATE_LIMIT_BACKEND=redis`, the compose default); while Redis is down, requests
+are not rate-limited rather than refused ([API.md](./API.md#rate-limiting)).
+
+### Scanning uploads for malware
+
+Off by default. To have ClamAV scan every upload before it is stored:
+
+```bash
+echo CURVEVISION_CONTENT_SCANNER=clamd >> .env
+docker compose --profile scanning up -d
+```
+
+An infected file is refused with a `422` naming what was found; nothing is stored. A file
+that **cannot** be scanned — clamd down, still loading its signatures, or the file past its
+`StreamMaxLength` (25 MB unless configured) — is refused with a `503`: scanning fails
+closed. `CURVEVISION_CONTENT_SCANNER_FAIL_OPEN=true` accepts such files instead, logged
+each time; choose it only if an outage of the scanner must not stop uploads. Raise clamd's
+`StreamMaxLength` for video, or uploads of long videos will be refused. Other settings:
+`CURVEVISION_CLAMD_HOST`, `_PORT` (3310), `_SOCKET` (a Unix socket instead),
+`_TIMEOUT_SECONDS` (30).
+
+Folders imported in place by the desktop application are not scanned: they are already on
+the machine that would be protected.
+
+## Single sign-on
+
+People can sign in through any OpenID Connect provider — Keycloak, Okta, Microsoft Entra
+ID, Google, Authentik, Dex. Register CurveVision with it as a *confidential* client whose
+redirect URI is this deployment's web address plus `/auth/callback`, then:
+
+```bash
+CURVEVISION_OIDC_ENABLED=true
+CURVEVISION_OIDC_ISSUER=https://idp.example.com/realms/team   # .well-known is read from here
+CURVEVISION_OIDC_CLIENT_ID=curvevision
+CURVEVISION_OIDC_CLIENT_SECRET=...
+CURVEVISION_OIDC_REDIRECT_URI=https://curvevision.example.com/auth/callback
+CURVEVISION_OIDC_DISPLAY_NAME="Team SSO"                       # "Sign in with Team SSO"
+```
+
+The sign-in page then offers the provider. Who gets in, and as whom:
+
+* An account is linked by the provider's issuer and its `sub`, which never changes. On a
+  first sign-in, the account with the same email is used **only if the provider says the
+  email is verified**; otherwise a new account is created
+  (`CURVEVISION_OIDC_CREATE_USERS=false` refuses instead).
+* `CURVEVISION_OIDC_ALLOWED_DOMAINS=team.example` admits only those email domains.
+* `CURVEVISION_OIDC_DEFAULT_WORKSPACE=<slug>` puts a new account in that workspace as an
+  annotator, so their first sign-in lands somewhere.
+* `CURVEVISION_OIDC_ONLY=true` turns password sign-in and registration off.
+
+The server image includes what this needs; a pip install needs `curvevision-server[oidc]`.
+The desktop application has no sign-in, and ignores all of this.
+
+## Kubernetes
+
+A Helm chart is in [`deploy/helm/curvevision`](../deploy/helm/curvevision): the API, the
+workers and the web application, with a migration Job that runs once before each install
+and upgrade. **PostgreSQL, Redis and S3-compatible storage are yours to provide** — every
+cluster already runs those its own way, and a copy bundled here would be one more thing to
+back up.
+
+```bash
+# No images are published yet: build and push both to a registry your cluster pulls from.
+docker build -f deploy/Dockerfile.server -t registry.example.com/curvevision-server:0.1.0 .
+docker build -f deploy/Dockerfile.web    -t registry.example.com/curvevision-web:0.1.0 .
+docker push registry.example.com/curvevision-server:0.1.0
+docker push registry.example.com/curvevision-web:0.1.0
+
+helm install cv deploy/helm/curvevision \
+  --set image.server.repository=registry.example.com/curvevision-server \
+  --set image.web.repository=registry.example.com/curvevision-web \
+  --set secretKey=$(python3 -c 'import secrets; print(secrets.token_urlsafe(48))') \
+  --set database.url=postgresql+asyncpg://curvevision:PASSWORD@postgres:5432/curvevision \
+  --set redis.url=redis://redis:6379/0 \
+  --set storage.s3.endpointUrl=http://minio:9000 \
+  --set storage.s3.accessKeyId=... --set storage.s3.secretAccessKey=... \
+  --set ingress.enabled=true --set ingress.host=curvevision.example.com
+```
+
+Or keep the credentials in a Secret of your own (`existingSecret`; its keys are listed in
+`values.yaml`). Every API replica counts against one rate limit, in that Redis; malware
+scanning and tracing are `config.contentScanner` and `config.tracing`. The chart is linted
+and its manifests validated against the Kubernetes 1.30 schemas on every CI run; it has
+not yet been installed into a running cluster in CI.
 
 ## Backups
 
-**Back up PostgreSQL and object storage together.** An annotation row whose media is
-missing is not a usable dataset, and neither half alone is worth restoring.
+**Back up the database and object storage together.** An annotation row whose media is
+missing is not a usable dataset, and neither half alone is worth restoring. One command
+does both, into one archive:
+
+```bash
+docker compose exec api curvevision-server backup /backups/cv-$(date +%F).tar
+```
+
+Every row of every table, as JSON, and every stored object a row refers to — images,
+video, thumbnails, frame chunks, each released dataset version's frozen copy — with its
+SHA-256. Because the rows are not a database dump, **an archive restores into either
+database**: a desktop installation's SQLite into a team server's PostgreSQL is the same
+command. Mount `/backups` as a volume, and copy the archive off the machine.
+
+```bash
+# Restore, into a NEW installation: migrations are run first, and a database with any
+# rows in it, or at another schema revision, is refused rather than merged into.
+docker compose exec api curvevision-server restore /backups/cv-2026-01-15.tar
+```
+
+On the desktop, the same commands act on the application's data directory: quit the app,
+then `curvevision-server backup cv.tar --desktop` (or `--desktop /path/to/data`), and
+`restore cv.tar --desktop /new/data`. Folders annotated in place are the user's own files
+and are not copied; the command says how many.
+
+**Test your restore.** An untested backup is a hypothesis. Restore into a scratch instance,
+open a project, and export a dataset — that exercises the database, storage and their
+relationship in one go. (`tests/api/test_backup.py` does exactly that on every CI run, into
+SQLite and into PostgreSQL.)
+
+### For very large installations: the databases' own tools
+
+The archive is written row by row and object by object; with millions of images,
+`pg_dump` and a storage mirror are faster. The same rule applies — both, in this order:
 
 ```bash
 # Database
@@ -43,7 +159,7 @@ Take the object-storage snapshot **after** the database dump. Media is content-a
 and immutable, so a blob written between the two is simply unreferenced — harmless. The
 other order can leave a row pointing at a blob that was never captured.
 
-### Restore
+Restore:
 
 ```bash
 docker compose up -d postgres minio
@@ -51,10 +167,6 @@ docker compose exec -T postgres pg_restore -U curvevision -d curvevision --clean
 docker compose exec -T minio mc mirror --overwrite /backup/curvevision local/curvevision
 docker compose up -d
 ```
-
-**Test your restore.** An untested backup is a hypothesis. Restore into a scratch instance,
-open a project, and export a dataset — that exercises the database, storage and their
-relationship in one go.
 
 ## Upgrading
 
@@ -85,6 +197,24 @@ process is alive.
 Logs are JSON, one line per request, each carrying the `request_id` also returned in
 `X-Request-ID`. A user reporting "it failed at 14:32" plus that header takes you straight
 to the cause.
+
+### Tracing
+
+OpenTelemetry traces go to any OTLP/HTTP collector — Jaeger, Grafana Tempo, Honeycomb, the
+OpenTelemetry Collector:
+
+```bash
+CURVEVISION_TRACING_ENABLED=true
+CURVEVISION_TRACING_OTLP_ENDPOINT=http://otel-collector:4318/v1/traces  # or OTEL_EXPORTER_OTLP_ENDPOINT
+CURVEVISION_TRACING_SAMPLE_RATIO=0.1   # keep one trace in ten; 1.0 keeps all
+```
+
+One trace per request, named by its route template (`PATCH /api/v1/jobs/{job_id}/annotations`),
+with its SQL statements, its outbound HTTP calls (model servers, hosted models, webhooks)
+and any background job it ran inline as spans inside it. A job a worker runs is its own
+trace. `/metrics` and the health check are not traced. While tracing is on, every JSON log
+line written inside a span carries its `trace_id` and `span_id`. The server image includes
+the `tracing` extra; a pip install needs `curvevision-server[tracing]`.
 
 ## Capacity
 

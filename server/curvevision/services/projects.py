@@ -375,10 +375,24 @@ def validate_attributes(
             if definition.required and definition.default_value is None:
                 raise ValidationError(f"Attribute {name!r} is required")
             if definition.default_value is not None:
-                cleaned[name] = definition.default_value
+                cleaned[name] = _typed_default(name, definition)
             continue
         cleaned[name] = _coerce_attribute(name, values[name], definition)
     return cleaned
+
+
+def _typed_default(name: str, definition: AttributeDefinition) -> Any:
+    """A default as the type its attribute stores, as a value the editor sent would be.
+
+    Defaults are kept as strings, and until iteration 75 were written as one, so a
+    checkbox's default was stored as `"false"` whenever the server filled it in. A default
+    stored before defaults were checked (iteration 57) and that its attribute would refuse
+    is written as it is, as before, rather than failing the save.
+    """
+    try:
+        return _coerce_attribute(name, definition.default_value, definition)
+    except ValidationError:
+        return definition.default_value
 
 
 def _coerce_attribute(name: str, value: Any, definition: AttributeDefinition) -> Any:

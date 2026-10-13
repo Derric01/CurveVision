@@ -43,3 +43,4 @@ htmlcov/
 # Tauri shell build output
 /desktop/shell/src-tauri/target/
 /desktop/shell/src-tauri/gen/
+backups/

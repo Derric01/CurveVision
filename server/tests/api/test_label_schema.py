@@ -791,6 +791,37 @@ class TestEditingAttributes:
         )
         assert on_create.status_code == 422, on_create.text
 
+    async def test_a_default_the_server_fills_in_is_stored_as_its_type(
+        self, owner: ApiActor, project: dict[str, Any]
+    ) -> None:
+        """A default is written as given, and given as a string: a checkbox's `"false"`
+        and a number's `"3"` were stored as those strings whenever the server filled them in
+        — from the SDK, the CLI, an import or a model — while the editor sends them typed,
+        and every export carried the string (iteration 75)."""
+        created = await owner.post(
+            f"/api/v1/projects/{project['id']}/labels",
+            json={
+                "name": "lamp",
+                "attributes": [
+                    {"name": "lit", "attribute_type": "checkbox", "default_value": "false"},
+                    {"name": "count", "attribute_type": "number", "default_value": "3"},
+                    {
+                        "name": "kind",
+                        "attribute_type": "select",
+                        "values": ["led", "sodium"],
+                        "default_value": "led",
+                    },
+                    {"name": "note", "attribute_type": "text", "default_value": "none"},
+                ],
+            },
+        )
+        assert created.status_code == 201, created.text
+        _task, jobs = await make_task(owner, project)
+
+        shape = await draw(owner, jobs[0]["id"], created.json()["id"], {})
+
+        assert shape["attributes"] == {"lit": False, "count": 3.0, "kind": "led", "note": "none"}
+
     @pytest.mark.parametrize(
         ("attribute", "problem"),
         [

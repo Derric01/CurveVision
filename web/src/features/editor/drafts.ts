@@ -64,6 +64,30 @@ export interface LocalObject {
   saved: string | null;
 }
 
+/**
+ * An edit to an object drawn in this session, as the server must receive it.
+ *
+ * Until iteration 73 such an edit was dropped whenever the object was not queued to be
+ * created — which is exactly where it is while its first save is in flight, and after that
+ * save until the reload swaps its server id in. Typing into the attributes panel straight
+ * after drawing lost keystrokes that way. Now the edit is queued under the local id and
+ * resolved here when it is sent, drawn or copied:
+ *
+ * * `annotation` unchanged — not an object of this session's, or not one still pending;
+ * * under its server id — its first save has answered;
+ * * `null` — that save has not answered, or failed: the edit can only travel as the
+ *   creation itself.
+ */
+export function savedForm(
+  annotation: Annotation,
+  local: ReadonlyMap<string, LocalObject>,
+): Annotation | null {
+  const object = local.get(annotation.id);
+  if (!annotation.pending || !object) return annotation;
+  if (!object.saved) return null;
+  return { ...annotation, id: object.saved, pending: false };
+}
+
 export function trackKey(edit: Pick<CanvasEdit, 'trackId' | 'frame'>): string {
   return `${edit.trackId}@${edit.frame}`;
 }
@@ -92,7 +116,13 @@ export function draftOf(input: {
   }
   for (const queue of input.queues) {
     for (const [id, annotation] of queue.created) created.set(id, annotation);
-    for (const [id, annotation] of queue.updated) updated.set(id, annotation);
+    for (const annotation of queue.updated.values()) {
+      // An edit to a drawn object goes in under the id the server knows it by, or — its
+      // first save unanswered — as the newest copy of the creation itself.
+      const saved = savedForm(annotation, input.local);
+      if (saved) updated.set(saved.id, saved);
+      else created.set(annotation.id, annotation);
+    }
     for (const id of queue.deleted) deletions.add(id);
     for (const [key, edit] of queue.tracks) tracks.set(key, edit);
     for (const id of queue.deletedTracks) deletedTracks.add(id);

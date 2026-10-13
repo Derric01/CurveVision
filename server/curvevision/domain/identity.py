@@ -37,6 +37,26 @@ class User(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     )
 
 
+class ExternalIdentity(UUIDPrimaryKeyMixin, TimestampMixin, Base):
+    """An account at an OpenID Connect provider, signed in as a CurveVision user.
+
+    Keyed by the provider's issuer and its `sub` claim — the one identifier a provider
+    promises never to reassign — rather than by email, which a person can change and a
+    provider may let someone else claim later.
+    """
+
+    __tablename__ = "external_identities"
+    __table_args__ = (UniqueConstraint("issuer", "subject", name="uq_external_identity"),)
+
+    user_id: Mapped[uuid.UUID] = mapped_column(
+        GUID(), ForeignKey("users.id", ondelete="CASCADE"), index=True, nullable=False
+    )
+    issuer: Mapped[str] = mapped_column(String(500), nullable=False)
+    subject: Mapped[str] = mapped_column(String(255), nullable=False)
+    #: As the provider last said; for an administrator reading the table, not for matching.
+    email: Mapped[str | None] = mapped_column(String(320))
+
+
 class RefreshToken(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     """Server-side record of an issued refresh token so sessions can be revoked."""
 

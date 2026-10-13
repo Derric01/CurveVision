@@ -80,14 +80,30 @@ export class Scene {
   // ------------------------------------------------------------------ annotations
 
   load(annotations: readonly Annotation[]): void {
+    // Before the reset: which client id each selected object was saved under, if any.
+    const selectedClientIds = new Map(
+      [...this.selection].flatMap((id) => {
+        const clientId = this.index.get(id)?.clientId;
+        return clientId ? [[id, clientId] as const] : [];
+      }),
+    );
     this.index.reset(annotations);
     // Drop selections for objects that are no longer present rather than leaving dangling
-    // ids that make the sidebar and the canvas disagree.
+    // ids that make the sidebar and the canvas disagree — except an object that is present
+    // under a new id. A drawn object is selected by its client id until it is saved, and
+    // the reload after the save brings it back under the server's id, naming the client id
+    // it came from. Dropping it there (until iteration 70) took the attributes panel away
+    // from whoever was filling it in, at most one autosave after they drew the box.
     const present = new Set(annotations.map((a) => a.id));
+    const savedAs = new Map(
+      annotations.flatMap((a) => (a.clientId && a.clientId !== a.id ? [[a.clientId, a.id]] : [])),
+    );
     let changed = false;
     for (const id of [...this.selection]) {
       if (!present.has(id)) {
         this.selection.delete(id);
+        const successor = savedAs.get(selectedClientIds.get(id) ?? id);
+        if (successor) this.selection.add(successor);
         changed = true;
       }
     }

@@ -148,7 +148,7 @@ curvevision/
 ├─ desktop/                  # the desktop shape of the same application
 │  ├─ sidecar/               # PyInstaller build: server + web bundle, one executable
 │  └─ shell/                 # Tauri v2 shell (Rust): supervises it, opens the window
-├─ deploy/                   # docker compose, Dockerfiles, helm (Planned)
+├─ deploy/                   # docker compose, Dockerfiles, nginx template, Helm chart
 ├─ docs/
 └─ scripts/                  # dev scripts
 ```
@@ -210,7 +210,9 @@ already the seam.
   hashed in the DB so they can be revoked.
 * **API tokens** for SDK/CLI/CI: `cv_<id>_<secret>` displayed once, stored as a SHA-256
   hash, with optional expiry and last-used tracking.
-* OIDC/SAML: **Planned** — the `AuthBackend` seam exists.
+* Single sign-on — **OIDC Done** (iteration 81: authorization code with PKCE, accounts
+  linked by issuer and subject, driven in a browser against a provider); **SAML Planned**.
+  (This line used to say an `AuthBackend` seam existed; it did not.)
 
 ### 0.7 Authorization
 
@@ -248,7 +250,9 @@ already the seam.
 * `structlog`-style JSON logging with a request-scoped `request_id` bound to every line.
 * Prometheus metrics at `/metrics` (request latency histograms, job queue depth, annotation
   write counters).
-* OpenTelemetry tracing: **Planned**, with the instrumentation seam in `core/observability`.
+* OpenTelemetry tracing — **Done** (iteration 78), `core/tracing.py`: requests, SQL,
+  outbound HTTP and background jobs, to an OTLP/HTTP collector, log lines carrying the trace
+  id. Optional (`tracing` extra) and off by default.
 
 ### 0.11 CI/CD
 
@@ -780,6 +784,9 @@ editing it and rejected by deleting it.
   project and task lifecycle events.
 * **Python SDK** — **Done** for core resources; typed, `httpx`-based, sync client.
 * **CLI** — **Done** for auth, project/task creation, upload, export.
+* **TypeScript client** — **Done** (iteration 82): `sdk/typescript`, `@curvevision/client`,
+  typed from the OpenAPI document by the same generator as the web application and tested
+  against a real server; **not yet published** to npm, which needs the maintainers' account.
 
 ---
 
@@ -869,17 +876,27 @@ Benchmarks live in `server/tests/benchmarks/` (annotation write/read at 1k/10k/1
 
 ## Phase 12 — Production hardening · **In Progress**
 
-* Rate limiting (Redis token bucket, per-token and per-IP) — **In Progress**.
+* Rate limiting, per-token and per-IP — **Done**: a sliding one-minute window, in the
+  process by default and in Redis (`rate_limit_backend = "redis"`) for a server run as
+  several instances, failing open when Redis is unreachable. Tested against a real Redis in
+  CI.
 * Audit log of security-relevant actions — **Done** (`AuditEvent`).
 * Security headers + strict CORS allow-list — **Done**.
-* CSRF — not applicable to the token/Bearer API; the cookie refresh flow uses
-  `SameSite=Strict` plus a double-submit token — **In Progress**.
+* CSRF — **not applicable**, and not a gap: no cookie carries authentication anywhere. The
+  web client sends a bearer header, and the refresh token travels in a JSON body, which a
+  cross-site form cannot set. (This line used to describe a cookie refresh flow with a
+  double-submit token as *In Progress*; no such flow exists, nor is one needed. Iteration 76.)
 * Input validation — **Done** (Pydantic v2 everywhere, geometry validated against frame
   bounds).
-* File validation — **Done**: extension + magic-byte sniffing + size caps; a
-  `ContentScanner` hook exists for ClamAV/vendor scanners (**Planned** implementation).
-* Structured logging and metrics — **Done**; tracing — **Planned**.
-* Migrations — **Done**; backup/DR runbook — see [OPERATIONS.md](./OPERATIONS.md).
+* File validation — **Done**: extension + magic-byte sniffing + size caps, and malware
+  scanning through ClamAV (`content_scanner = "clamd"`, off by default, failing closed),
+  tested against a real clamd in CI. (Until iteration 77 this line said a `ContentScanner`
+  hook existed; it did not.)
+* Structured logging, metrics and tracing — **Done** (tracing: iteration 78).
+* Migrations — **Done**. Backup and restore — **Done** (iteration 79): `curvevision-server
+  backup` / `restore`, one archive of rows and stored objects, for either shape and across
+  databases (SQLite to PostgreSQL), restored and compared through the API in CI; the DR
+  runbook is [OPERATIONS.md](./OPERATIONS.md).
 
 ---
 

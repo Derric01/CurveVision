@@ -53,6 +53,12 @@ export class AnnotationEngine {
   private viewportState: ViewportState = createViewport();
   private media: SceneMedia = { width: 0, height: 0, image: null };
   /**
+   * A fit asked for before the canvas had a size, which `fitToImage` cannot do: made by the
+   * first `resize` that gives it one. Until iteration 73 it was simply lost when a frame's
+   * image loaded before that resize, and the editor opened at 100% in the corner.
+   */
+  private fitWhenSized = false;
+  /**
    * The frame number newly created shapes are stamped with.
    *
    * The engine otherwise has no notion of "frame" at all -- `Scene` holds whatever
@@ -105,6 +111,10 @@ export class AnnotationEngine {
 
   resize(width: number, height: number, dpr = 1): void {
     this.viewportState = { ...this.viewportState, width, height };
+    if (this.fitWhenSized && width > 0 && height > 0) {
+      this.fitWhenSized = false;
+      this.viewportState = fitToImage(this.viewportState, this.media.width, this.media.height);
+    }
     this.renderer.resize(width, height, dpr);
     this.invalidate('media', 'shapes', 'overlay');
     this.listeners.viewportChanged?.(this.viewportState);
@@ -121,6 +131,8 @@ export class AnnotationEngine {
       this.cachedImageDataSource = null;
     }
     if (fit) {
+      const sized = this.viewportState.width > 0 && this.viewportState.height > 0;
+      this.fitWhenSized = !sized;
       this.viewportState = fitToImage(this.viewportState, media.width, media.height);
       this.listeners.viewportChanged?.(this.viewportState);
     }

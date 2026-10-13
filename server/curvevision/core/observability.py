@@ -1,6 +1,6 @@
 """Request instrumentation: request ids, access logs, Prometheus metrics.
 
-OpenTelemetry tracing is *Planned*; this module is where it will attach.
+OpenTelemetry tracing is `core/tracing.py`.
 """
 
 from __future__ import annotations

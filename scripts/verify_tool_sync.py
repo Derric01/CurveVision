@@ -39,7 +39,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent))
 
-from screenshot import api, find_chromium, start_server
+from screenshot import api, find_chromium, save_now, start_server
 
 IMAGE_WIDTH = 480
 IMAGE_HEIGHT = 320
@@ -140,8 +140,7 @@ def main() -> int:
                 page.mouse.down()
                 page.mouse.move(box["x"] + 200, box["y"] + 200, steps=5)
                 page.mouse.up()
-                page.get_by_text("Save", exact=True).click()
-                page.wait_for_timeout(700)
+                save_now(page, 700)
                 shapes = api(base, token, f"/jobs/{job_id}/annotations")["shapes"]
                 check(len(shapes) == shapes_before + 1 and shapes[-1]["shape_type"] == "rectangle",
                       "and the engine really is on Rectangle, not just the button",

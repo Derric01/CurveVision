@@ -14,6 +14,7 @@ import {
   planRestore,
   readDraft,
   restoreSize,
+  savedForm,
   type Draft,
   type LocalObject,
   type Queue,
@@ -266,5 +267,58 @@ describe('planRestore', () => {
     expect(plan.updated.map((a) => a.id)).toEqual(['s2']);
     expect(plan.deleted).toEqual([]);
     expect(plan.tracks).toEqual([edit('t1', 4)]);
+  });
+});
+
+describe('an edit to an object drawn in this session', () => {
+  const drawn = box('local-1', { clientId: 'client-1', pending: true, attributes: { note: 'b' } });
+
+  it('is sent under the server id once its first save has answered', () => {
+    const local = new Map<string, LocalObject>([
+      ['local-1', { clientId: 'client-1', saved: 'server-9' }],
+    ]);
+    expect(savedForm(drawn, local)).toEqual({ ...drawn, id: 'server-9', pending: false });
+  });
+
+  it('can only travel as the creation while that save has not answered', () => {
+    const local = new Map<string, LocalObject>([
+      ['local-1', { clientId: 'client-1', saved: null }],
+    ]);
+    expect(savedForm(drawn, local)).toBeNull();
+  });
+
+  it('is left alone when it is not a pending object of this session', () => {
+    const saved = box('server-3');
+    expect(savedForm(saved, new Map())).toBe(saved);
+    expect(savedForm(drawn, new Map())).toBe(drawn);
+  });
+
+  it('is kept by the crash copy: as the creation before its save answers, an update after', () => {
+    const first = box('local-1', {
+      clientId: 'client-1',
+      pending: true,
+      attributes: { note: 'a' },
+    });
+    const inFlight = queue({ created: new Map([['local-1', first]]) });
+    const behind = queue({ updated: new Map([['local-1', drawn]]) });
+
+    const unanswered = draftOf({
+      queues: [inFlight, behind],
+      held: [],
+      local: new Map([['local-1', { clientId: 'client-1', saved: null }]]),
+      annotationVersion: 1,
+      savedAt: 0,
+    });
+    expect(unanswered.created).toEqual([drawn]);
+    expect(unanswered.updated).toEqual([]);
+
+    const answered = draftOf({
+      queues: [behind],
+      held: [],
+      local: new Map([['local-1', { clientId: 'client-1', saved: 'server-9' }]]),
+      annotationVersion: 2,
+      savedAt: 0,
+    });
+    expect(answered.updated).toEqual([{ ...drawn, id: 'server-9', pending: false }]);
   });
 });

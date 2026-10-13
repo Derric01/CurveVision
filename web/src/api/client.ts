@@ -40,6 +40,8 @@ import type {
   ProjectStatistics,
   QualityReport,
   Role,
+  SignInOptions,
+  SsoStarted,
   Task,
   TaskMediaMeta,
   TaskProgress,
@@ -219,6 +221,29 @@ export const api = {
     });
     tokenStore.set(tokens);
     return request<User>('/auth/me');
+  },
+
+  /** What the sign-in page should offer. Needs no credential. */
+  signInOptions(): Promise<SignInOptions> {
+    return request<SignInOptions>('/auth/options');
+  },
+
+  /** Begin single sign-on: where to send the browser, and the state to expect back. */
+  ssoStart(returnTo: string): Promise<SsoStarted> {
+    return request<SsoStarted>('/auth/sso/start', {
+      method: 'POST',
+      body: { return_to: returnTo },
+    });
+  },
+
+  /** Finish it with what the provider sent back; signed in, and where to go next. */
+  async ssoComplete(code: string, state: string): Promise<{ user: User; returnTo: string }> {
+    const tokens = await request<TokenPair>('/auth/sso/complete', {
+      method: 'POST',
+      body: { code, state },
+    });
+    tokenStore.set(tokens);
+    return { user: await request<User>('/auth/me'), returnTo: tokens.return_to ?? '/' };
   },
 
   async register(input: {

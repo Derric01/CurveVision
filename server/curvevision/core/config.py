@@ -87,20 +87,76 @@ class Settings(BaseSettings):
     )
     allowed_video_extensions: tuple[str, ...] = (".mp4", ".mov", ".mkv", ".avi", ".webm")
 
+    #: Scanning uploads for malware before they are stored (`media/scanning.py`). ``none``
+    #: by default; ``clamd`` sends each upload to ClamAV and refuses what it flags.
+    content_scanner: Literal["none", "clamd"] = "none"
+    clamd_host: str = "127.0.0.1"
+    clamd_port: int = 3310
+    #: A Unix socket instead of `clamd_host`/`clamd_port`, when set.
+    clamd_socket: str | None = None
+    clamd_timeout_seconds: float = 30.0
+    #: Accept an upload that cannot be scanned (clamd down) rather than refuse it. Off: a
+    #: scanner an attacker can disable by overloading it is not a control.
+    content_scanner_fail_open: bool = False
+
+    # --- single sign-on (OpenID Connect; `services/oidc.py`) -------------------------
+    #: Sign-in through an OpenID Connect provider: Keycloak, Okta, Entra ID, Google,
+    #: Authentik, Dex... Server shape only; ignored in local mode.
+    oidc_enabled: bool = False
+    #: The provider's issuer URL; its configuration is read from
+    #: ``<issuer>/.well-known/openid-configuration``.
+    oidc_issuer: str = ""
+    oidc_client_id: str = ""
+    oidc_client_secret: str = ""
+    #: Where the provider sends the browser back: this deployment's web address plus
+    #: ``/auth/callback``, registered with the provider exactly so.
+    oidc_redirect_uri: str = ""
+    oidc_scopes: str = "openid email profile"
+    #: The sign-in button's label: "Sign in with <this>".
+    oidc_display_name: str = "single sign-on"
+    #: Create an account on a first sign-in. Off: only people who already have one (matched
+    #: by verified email) or an existing link can sign in this way.
+    oidc_create_users: bool = True
+    #: Only these email domains may sign in (comma-separated); empty allows any.
+    oidc_allowed_domains: tuple[str, ...] = ()
+    #: A workspace (by slug) a newly created account joins, as an annotator.
+    oidc_default_workspace: str = ""
+    #: Disable the password sign-in form, when every person signs in through the provider.
+    oidc_only: bool = False
+
     # --- api ----------------------------------------------------------------------
     api_prefix: str = "/api/v1"
     cors_origins: tuple[str, ...] = ("http://localhost:5173", "http://127.0.0.1:5173")
     default_page_size: int = 50
     max_page_size: int = 500
     rate_limit_per_minute: int = 600
+    #: Where request counts are kept. ``memory``: in this process, which is right for one
+    #: instance and for the desktop build. ``redis``: in `redis_url`, shared by every
+    #: instance, so a server run as several processes or replicas enforces one limit
+    #: rather than one per process. Needs the `redis` extra.
+    rate_limit_backend: Literal["memory", "redis"] = "memory"
 
     # --- observability ------------------------------------------------------------
     log_level: str = "INFO"
     log_format: Literal["json", "console"] = "json"
     metrics_enabled: bool = True
+    #: OpenTelemetry tracing (`core/tracing.py`), to an OTLP/HTTP collector. Needs the
+    #: `tracing` extra.
+    tracing_enabled: bool = False
+    tracing_service_name: str = "curvevision-server"
+    #: e.g. ``http://otel-collector:4318/v1/traces``; unset, the standard
+    #: ``OTEL_EXPORTER_OTLP_ENDPOINT`` (or its default, localhost:4318) applies.
+    tracing_otlp_endpoint: str | None = None
+    #: The share of traces kept, from 0 to 1. A request arriving inside a sampled trace is
+    #: always kept, whatever this says.
+    tracing_sample_ratio: float = Field(default=1.0, ge=0.0, le=1.0)
 
     @field_validator(
-        "cors_origins", "allowed_image_extensions", "allowed_video_extensions", mode="before"
+        "cors_origins",
+        "allowed_image_extensions",
+        "allowed_video_extensions",
+        "oidc_allowed_domains",
+        mode="before",
     )
     @classmethod
     def _split_csv(cls, value: object) -> object:

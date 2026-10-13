@@ -97,6 +97,21 @@ export interface TokenPair {
   refresh_token: string;
   token_type: string;
   expires_in: number;
+  /** After single sign-on, the path the person was going to. */
+  return_to?: string | null;
+}
+
+/** What the sign-in page offers here (`GET /auth/options`). */
+export interface SignInOptions {
+  password: boolean;
+  registration: boolean;
+  sso: boolean;
+  sso_name?: string | null;
+}
+
+export interface SsoStarted {
+  authorization_url: string;
+  state: string;
 }
 
 export interface Organization {

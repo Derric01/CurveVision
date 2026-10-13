@@ -30,6 +30,27 @@ Access tokens are short-lived. Refresh tokens **rotate**: `POST /api/v1/auth/ref
 returns a new pair and invalidates the one you sent. Replaying a refresh token fails, which
 is what makes a stolen one usable at most once.
 
+### Single sign-on — through an OpenID Connect provider
+
+When the server is configured for it ([OPERATIONS.md](./OPERATIONS.md#single-sign-on)),
+`GET /api/v1/auth/options` says so (`"sso": true`, and the button's label). A sign-in is
+three steps, and ends with the same token pair as a password:
+
+```http
+POST /api/v1/auth/sso/start        { "return_to": "/projects" }
+→ { "authorization_url": "https://idp…/auth?…", "state": "eyJ…" }
+
+# The browser goes to authorization_url; the provider sends it back to
+# <oidc_redirect_uri>?code=…&state=…  — check `state` is the one you were given.
+
+POST /api/v1/auth/sso/complete     { "code": "…", "state": "eyJ…" }
+→ { "access_token": "…", "refresh_token": "…", "expires_in": 1800, "return_to": "/projects" }
+```
+
+The server keeps no login state: `state` is signed and expires in ten minutes. Comparing
+it with the one you were given is the *client's* job — it is what stops a sign-in started
+elsewhere being finished in your browser — and the web application does it.
+
 ### API tokens — for scripts, CI and the SDK
 
 ```http
@@ -748,13 +769,25 @@ to reply can deduplicate on that id rather than doing the work twice. Treat deli
 
 ## Rate limiting
 
-Default 600 requests per minute, keyed by API token or client address. Exceeding it returns
-`429` with `Retry-After`. Note the limit is per-process — see
-[SECURITY.md](./SECURITY.md#known-limitations).
+Default 600 requests per minute (`CURVEVISION_RATE_LIMIT_PER_MINUTE`; `0` turns it off),
+over a sliding one-minute window, keyed by API token or client address. Exceeding it returns
+`429` as `application/problem+json`, with `Retry-After` in seconds.
+
+Where the counts live is `CURVEVISION_RATE_LIMIT_BACKEND`:
+
+* `memory` (the default) — in the server process. Right for one instance and for the
+  desktop application; a server run as *N* processes or replicas allows *N* times the limit.
+* `redis` — in `CURVEVISION_REDIS_URL`, shared by every instance, counted on Redis' own
+  clock so instances whose clocks disagree still share one window. Needs the `redis` extra
+  (`pip install "curvevision-server[redis]"`). If Redis cannot be reached, requests are
+  **allowed** and the outage is logged once — a limiter failing must not take the API with
+  it.
 
 ## Clients
 
 * **Python SDK and CLI** — [`sdk/python`](../sdk/python/README.md)
-* **TypeScript** — the web app's client in `web/src/api/` is a working reference; a
-  published package is *Planned*.
+* **TypeScript** — [`sdk/typescript`](../sdk/typescript/README.md) (`@curvevision/client`):
+  every path, body and response typed from the server's own schema, problem documents as a
+  typed error. Not yet on npm — publishing is the maintainers' (a manual workflow is ready);
+  until then, build it from this repository.
 * **Anything else** — generate from `/api/v1/openapi.json`.

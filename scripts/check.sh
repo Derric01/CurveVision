@@ -37,6 +37,10 @@ step "api types"        "$PY" scripts/api_types.py --check
 step "eslint (web)"     npm --prefix web run lint
 step "tsc (web)"        npm --prefix web run typecheck
 step "vitest (web)"     npm --prefix web run test
+# The published TypeScript client: typed against the same schema, and tested against a
+# real server it starts (CI runs the same).
+step "tsc (ts client)"  npm --prefix sdk/typescript run typecheck
+step "test (ts client)" "$PY" scripts/with_server.py -- npm --prefix sdk/typescript test
 
 echo ""
 if [ "$failed" -eq 0 ]; then echo "All checks passed."; else echo "Some checks failed."; fi

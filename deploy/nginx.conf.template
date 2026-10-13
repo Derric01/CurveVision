@@ -1,3 +1,6 @@
+# A template: the nginx image fills `${CURVEVISION_API_UPSTREAM}` from the environment at
+# start (only variables that are set, so nginx's own `$host` and the rest are left alone).
+# `api:8000` under Docker Compose; the Helm chart names its release's API service.
 server {
     listen 80;
     server_name _;
@@ -17,7 +20,7 @@ server {
     }
 
     location /api/ {
-        proxy_pass http://api:8000;
+        proxy_pass http://${CURVEVISION_API_UPSTREAM};
         proxy_set_header Host $host;
         proxy_set_header X-Real-IP $remote_addr;
         proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
@@ -33,7 +36,7 @@ server {
         allow 172.16.0.0/12;
         allow 192.168.0.0/16;
         deny all;
-        proxy_pass http://api:8000/metrics;
+        proxy_pass http://${CURVEVISION_API_UPSTREAM}/metrics;
     }
 
     # Single-page app: unknown paths are routes, not missing files.

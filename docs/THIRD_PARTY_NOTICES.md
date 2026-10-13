@@ -56,6 +56,7 @@ Full license texts for permissive licenses used here are reproduced under
 | [greenlet](https://github.com/python-greenlet/greenlet) | MIT / PSF | Armin Rigo, Christian Tismer and contributors | Required by SQLAlchemy's async support |
 | [argon2-cffi](https://github.com/hynek/argon2-cffi) | MIT | Hynek Schlawack | Argon2id password hashing |
 | [PyJWT](https://github.com/jpadilla/pyjwt) | MIT | José Padilla | JSON Web Tokens |
+| [cryptography](https://github.com/pyca/cryptography) (via `pyjwt[crypto]`) | Apache-2.0 OR BSD-3-Clause | The Python Cryptographic Authority and contributors | Verifying single sign-on ID tokens (RS256/ES256; `oidc` extra) |
 | [email-validator](https://github.com/JoshData/python-email-validator) | Unlicense / CC0 | Joshua Tauberer | Email address validation |
 | [python-multipart](https://github.com/Kludex/python-multipart) | Apache-2.0 | Andrew Dunham and contributors | Multipart upload parsing |
 | [httpx](https://github.com/encode/httpx) | BSD-3-Clause | Encode OSS Ltd. | HTTP client (inference, webhooks) |
@@ -71,7 +72,12 @@ Full license texts for permissive licenses used here are reproduced under
 | [PyAV](https://github.com/PyAV-Org/PyAV) | BSD-3-Clause | PyAV authors | Video decoding (`media` extra) — see FFmpeg note below |
 | [PyInstaller](https://github.com/pyinstaller/pyinstaller) | GPL-2.0-or-later **with a bootloader exception** | PyInstaller Development Team | Packages the local server into one executable (`desktop` extra). The exception explicitly permits distributing applications built with it under any license; PyInstaller itself is a build-time tool and is not linked into CurveVision. |
 | [Dramatiq](https://github.com/Bogdanp/dramatiq) | LGPL-3.0 | CLEARTYPE SRL | Background job queue, used unmodified as a library (`worker` extra) |
-| [redis-py](https://github.com/redis/redis-py) | MIT | Redis Inc. and contributors | Redis client (`worker` extra) |
+| [redis-py](https://github.com/redis/redis-py) | MIT | Redis Inc. and contributors | Redis client (`worker` and `redis` extras: job broker, shared rate limit) |
+| [opentelemetry-sdk](https://github.com/open-telemetry/opentelemetry-python) | Apache-2.0 | The OpenTelemetry Authors | Tracing (`tracing` extra) |
+| [opentelemetry-exporter-otlp-proto-http](https://github.com/open-telemetry/opentelemetry-python) | Apache-2.0 | The OpenTelemetry Authors | Sends traces to an OTLP/HTTP collector (`tracing` extra) |
+| [opentelemetry-instrumentation-fastapi](https://github.com/open-telemetry/opentelemetry-python-contrib) | Apache-2.0 | The OpenTelemetry Authors | Request spans (`tracing` extra) |
+| [opentelemetry-instrumentation-sqlalchemy](https://github.com/open-telemetry/opentelemetry-python-contrib) | Apache-2.0 | The OpenTelemetry Authors | SQL spans (`tracing` extra) |
+| [opentelemetry-instrumentation-httpx](https://github.com/open-telemetry/opentelemetry-python-contrib) | Apache-2.0 | The OpenTelemetry Authors | Outbound HTTP spans (`tracing` extra) |
 
 ## Desktop shell (Rust)
 
@@ -113,6 +119,12 @@ because it is easy to inherit without noticing.
 | [Typer](https://github.com/fastapi/typer) | MIT | Sebastián Ramírez | Command-line interface |
 | [Click](https://github.com/pallets/click) (via Typer) | BSD-3-Clause | Pallets | CLI plumbing |
 
+## TypeScript client (`@curvevision/client`)
+
+| Package | License | Copyright / Author | Role |
+| --- | --- | --- | --- |
+| [openapi-fetch](https://github.com/openapi-ts/openapi-typescript) | MIT | Drew Powers and contributors | The typed `fetch` client the package wraps; its only runtime dependency |
+
 ## Web application (TypeScript)
 
 | Package | License | Copyright / Author | Role |
@@ -136,6 +148,7 @@ These run as unmodified services; CurveVision links to none of them.
 | [PostgreSQL](https://www.postgresql.org/) | PostgreSQL License (BSD-like) | Primary datastore |
 | [Redis](https://redis.io/) | RSALv2 / SSPLv1 (Redis 7.4+) | Cache and job broker. Run as a network service, never linked or redistributed, so the source-available terms do not extend to CurveVision. Substitute [Valkey](https://valkey.io/) (BSD-3-Clause) if you prefer a fully OSI-licensed drop-in. |
 | [MinIO](https://min.io/) | AGPL-3.0 | Development object storage, run as an unmodified network service. Any S3-compatible backend works instead. |
+| [ClamAV](https://www.clamav.net/) (`clamav/clamav` image) | GPL-2.0 | Optional malware scanning (`--profile scanning`), run as an unmodified network service and spoken to over clamd's socket protocol; nothing of it is linked or redistributed. |
 | [nginx](https://nginx.org/) | BSD-2-Clause | Static file serving and reverse proxy |
 
 ## Referenced but not used
