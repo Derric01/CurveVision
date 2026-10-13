@@ -216,6 +216,23 @@ jobs:
         working-directory: sdk/python
         run: pytest -q
 
+      # The TypeScript client: typed from the server's schema (the `server` job checks the
+      # generated copy is current), built as it would be published, and tested against a
+      # real server like the Python SDK.
+      - uses: actions/setup-node@v5
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: sdk/typescript/package-lock.json
+
+      - name: TypeScript client
+        run: |
+          npm ci --prefix sdk/typescript --no-audit --no-fund
+          npm --prefix sdk/typescript run typecheck
+          npm --prefix sdk/typescript run build
+          python scripts/with_server.py -- npm --prefix sdk/typescript test
+          cd sdk/typescript && npm pack --dry-run
+
   web:
     name: Web (lint, types, tests, build)
     runs-on: ubuntu-latest

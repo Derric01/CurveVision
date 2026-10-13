@@ -5,9 +5,9 @@
 > [`AGENTS.md`](./AGENTS.md) first; it is the working contract. Update this file after every
 > iteration, including the ones that mostly failed.
 >
-> **Last updated:** 2026-10-13 (iteration 81) · branch `claude/start-work-yx080h` · PRs
+> **Last updated:** 2026-10-13 (iteration 82) · branch `claude/start-work-yx080h` · PRs
 > [#1](https://github.com/Derric01/CurveVision/pull/1)–[#34](https://github.com/Derric01/CurveVision/pull/34)
-> **all merged**, #34 carrying iterations 67–69. Iterations 70–81 are pushed on top of
+> **all merged**, #34 carrying iterations 67–69. Iterations 70–82 are pushed on top of
 > that merge with no PR yet.
 >
 > *Two things worth knowing about this repository's PR rhythm, which replace the
@@ -22,7 +22,7 @@
 > **Keep the session short.** One iteration, then commit, push, update this file and report —
 > `AGENTS.md` § *Continue* and the `start-work` skill both say so now, because they did not
 > before and a single session ran six iterations and roughly a third of a week's budget. The
-> concrete costs, in rough order: re-reading this file (iterations 1–75 now live in
+> concrete costs, in rough order: re-reading this file (iterations 1–76 now live in
 > [`docs/iterations/ARCHIVE.md`](./docs/iterations/ARCHIVE.md), which cut it from 3,800
 > lines to 1,000 — keep it that way); `python desktop/sidecar/build.py`, which is a
 > PyInstaller run of a minute or two and is needed *again* for every sabotage-and-restore
@@ -45,7 +45,7 @@ shapes (detection/segmentation, OBB, pose, classification), each declaring in it
 The desktop shape works: a packaged single-executable server, a Tauri shell that supervises
 it, and folders annotated in place without copying a byte.
 
-**The tree is green.** `./scripts/check.sh` passes all thirteen steps: 757 server tests, 16
+**The tree is green.** `./scripts/check.sh` passes all fifteen steps: 774 server tests, 16
 SDK, 771 web, and `scripts/` is lint-clean under its own `ruff.toml`. Thirty-two browser
 harnesses drive the application in a real Chromium, nightly and on every push to `main` —
 thirty-one against the packaged desktop server, and `verify_workspace.py` against the real
@@ -504,7 +504,7 @@ was the last unconnected piece of the desktop application.
 
 ## Next best action
 
-*Single sign-on through OpenID Connect, iteration 81; a Helm chart, 80; backup and restore, either shape and across databases, 79; OpenTelemetry tracing, 78; uploads scanned by ClamAV, 77; a rate limit shared by every server instance through Redis, and Phase 12's markers made true, iteration 76; a default the server fills in is stored typed, 75; Submit checks what its own save achieved, 74. No edit made during a save is lost any more — to a new object while its first save is in
+*A TypeScript client package, iteration 82; single sign-on through OpenID Connect, 81; a Helm chart, 80; backup and restore, either shape and across databases, 79; OpenTelemetry tracing, 78; uploads scanned by ClamAV, 77; a rate limit shared by every server instance through Redis, and Phase 12's markers made true, iteration 76; a default the server fills in is stored typed, 75; Submit checks what its own save achieved, 74. No edit made during a save is lost any more — to a new object while its first save is in
 flight, or to any object while a save that then fails is — and the editor always fits the
 frame it opens on, iteration 73; a backup that
 restores what it holds, and tracks that keep their keyframes through CVAT XML and the
@@ -524,7 +524,14 @@ in this order — each self-contained, each a gap a production operator would hi
    into a live cluster in CI — a `kind` job with in-cluster PostgreSQL, Redis and MinIO
    would be the proof, and is worth doing).
 5. ~~OIDC sign-on~~ — done, iteration 81. (SAML is not, and nobody has asked.)
-6. **A published TypeScript client** from the OpenAPI schema.
+6. ~~A TypeScript client~~ — done, iteration 82; **publishing it to npm is the
+   maintainers'** (an `NPM_TOKEN` secret, then *Publish TypeScript client* by hand).
+
+**Next, with no dependency on the user: install the Helm chart into a real cluster in CI.**
+A `kind` job: build both images, load them, install PostgreSQL, Redis and MinIO in the
+cluster (plain manifests are enough), `helm install` with `--wait`, then register an
+account, create a project and upload an image through the ingress or a port-forward. Until
+it exists, the chart is validated, not proven — and the docs say so.
 
 **First, if a key is available: try iteration 63 against the real services.** Add Claude,
 OpenAI and one OpenRouter vision model on the Models page with real keys, run each on a few
@@ -1044,6 +1051,22 @@ being updated and this one was not. Check it against* Completed *before trusting
 ---
 
 ## Verification performed
+
+Iteration 82:
+
+* `sdk/typescript/test/client.test.ts` (the client against a recording `fetch`: bearer
+  token, path built from the schema, a token function asked per request, a problem
+  document thrown as `CurveVisionError`) and `test/live.test.ts` **against a real server**
+  started by `scripts/with_server.py` (a project created with a label and read back; a 404
+  with the server's reason): 5 passing. `npm pack --dry-run`: 5 files, 19 kB.
+* `scripts/api_types.py` writes both copies from one OpenAPI document and `--check`s both;
+  the client's is generated with `--default-non-nullable false`, because otherwise a
+  request had to send every field the server defaults (found by the live test's
+  `labels: [{ name: 'car' }]` failing to typecheck).
+* `check_notices.py` now reads the client's `package.json`; it caught `openapi-fetch`.
+* `./scripts/check.sh` runs the client's typecheck and its tests against a real server;
+  green. CI's SDK job does the same.
+* Iteration 81 on GitHub: CI and all 33 browser harnesses green, `verify_sso.py` included.
 
 Iteration 81:
 
@@ -1925,6 +1948,20 @@ Iteration 54:
 
 ## Last iteration
 
+### 82 — a TypeScript client package
+
+The last code item on the 1.0 list. `sdk/typescript` is `@curvevision/client`: a thin
+wrapper over `openapi-fetch` (its only runtime dependency) with every path, body and
+response typed from the server's schema, a bearer token (or a function returning one), and
+problem documents thrown as a typed error. Its types come from the generator the web
+application uses, checked against the server in CI, and its tests run against a real
+server. Not published: that is an outward act under the maintainers' npm account, and a
+manual workflow waits for their token.
+
+Verified: see *Verification performed*.
+
+## Iteration 81
+
 ### 81 — single sign-on through OpenID Connect
 
 The largest item left on the 1.0 list, and the third false claim found this session: the
@@ -1992,23 +2029,9 @@ iteration 76's Redis rate limit by default.
 
 Verified: see *Verification performed*.
 
-## Iteration 76
-
-### 76 — a rate limit every instance shares; Phase 12's markers made true
-
-Asked to finish the project quickly: the 1.0 list in `docs/ROADMAP.md` is what is left,
-and its first line was distributed rate limiting. The limiter that existed counted in each
-process and had no test at all. Added a Redis backend behind `rate_limit_backend`, keeping
-the in-process one as the default (one instance, and the desktop build, need no Redis): the
-same sliding window, done atomically in one Lua script on Redis' clock, failing open. The
-plan's CSRF line described a cookie flow that does not exist; it now says why CSRF does not
-apply.
-
-Verified: see *Verification performed*.
-
 ## Earlier iterations
 
-Iterations **1–75** are in [`docs/iterations/ARCHIVE.md`](./docs/iterations/ARCHIVE.md) —
+Iterations **1–76** are in [`docs/iterations/ARCHIVE.md`](./docs/iterations/ARCHIVE.md) —
 moved there so that orienting costs a few hundred lines rather than four thousand. Read them
 when `git log` points you at an iteration number, or when you are about to build something
 and want to know whether it was already tried and rejected. The lessons from them that are

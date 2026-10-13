@@ -784,6 +784,9 @@ editing it and rejected by deleting it.
   project and task lifecycle events.
 * **Python SDK** — **Done** for core resources; typed, `httpx`-based, sync client.
 * **CLI** — **Done** for auth, project/task creation, upload, export.
+* **TypeScript client** — **Done** (iteration 82): `sdk/typescript`, `@curvevision/client`,
+  typed from the OpenAPI document by the same generator as the web application and tested
+  against a real server; **not yet published** to npm, which needs the maintainers' account.
 
 ---
 

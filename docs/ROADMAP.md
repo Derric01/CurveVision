@@ -90,7 +90,7 @@ Beta named is finished, and the label waits for use.
 | SAML single sign-on | **Planned** |
 | Kubernetes Helm chart | **Done** — `deploy/helm/curvevision`, linted and schema-validated in CI; not yet installed into a live cluster in CI |
 | Backup and restore tooling | **Done** — `curvevision-server backup` / `restore`, either shape, across databases, restored in CI |
-| Published TypeScript client package | **Planned** |
+| TypeScript client package | **Done** — `sdk/typescript` (`@curvevision/client`), typed from the server's schema and tested against a real server in CI. **Publishing to npm needs the maintainers' account**: a manual workflow is ready for an `NPM_TOKEN` |
 | Additional formats: LabelMe, Open Images, TFRecord, Cityscapes | **Planned** — KITTI, MOTChallenge, CVAT XML and segmentation masks shipped ahead of this list |
 | Datumaro bridge for the long tail of formats | **Planned** |
 | An external security review | **Planned** |

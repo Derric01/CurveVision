@@ -1,6 +1,6 @@
 # Iteration archive
 
-> The narrative record of iterations **1–75**, moved out of
+> The narrative record of iterations **1–76**, moved out of
 > [`handoff.md`](../../handoff.md) so that orienting on this project costs a few hundred
 > lines rather than four thousand.
 >
@@ -15,6 +15,20 @@
 > window, append it to the top of this file rather than deleting it.
 
 ---
+
+## Iteration 76
+
+### 76 — a rate limit every instance shares; Phase 12's markers made true
+
+Asked to finish the project quickly: the 1.0 list in `docs/ROADMAP.md` is what is left,
+and its first line was distributed rate limiting. The limiter that existed counted in each
+process and had no test at all. Added a Redis backend behind `rate_limit_backend`, keeping
+the in-process one as the default (one instance, and the desktop build, need no Redis): the
+same sliding window, done atomically in one Lua script on Redis' clock, failing open. The
+plan's CSRF line described a cookie flow that does not exist; it now says why CSRF does not
+apply.
+
+Verified: see *Verification performed*.
 
 ## Iteration 75
 

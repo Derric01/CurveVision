@@ -1,5 +1,9 @@
 #!/usr/bin/env python3
-"""Generate `web/src/api/schema.ts` from the server's own OpenAPI document, or check it.
+"""Generate the API's TypeScript types from the server's own OpenAPI document, or check them.
+
+Two copies, one generation: `web/src/api/schema.ts` for the web application, and
+`sdk/typescript/src/schema.ts` for the published client (`@curvevision/client`), which
+must not reach into the web application's sources.
 
     python scripts/api_types.py           # regenerate
     python scripts/api_types.py --check   # fail if it no longer matches the server
@@ -24,7 +28,13 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 WEB = ROOT / "web"
-OUTPUT = WEB / "src" / "api" / "schema.ts"
+WEB_OUTPUT = WEB / "src" / "api" / "schema.ts"
+#: The published client's copy is generated with `--default-non-nullable false`: a field
+#: the server defaults may be left out of a request, which is what a caller writing one
+#: needs to be told. The web application's copy keeps the generator's default, which its
+#: hand-written types are checked against.
+SDK_OUTPUT = ROOT / "sdk" / "typescript" / "src" / "schema.ts"
+OUTPUTS = {WEB_OUTPUT: [], SDK_OUTPUT: ["--default-non-nullable", "false"]}
 
 
 def openapi_document() -> dict[str, object]:
@@ -44,13 +54,14 @@ def openapi_document() -> dict[str, object]:
     return create_app(settings).openapi()
 
 
-def generate() -> str:
+def generate(document_json: str, flags: list[str]) -> str:
     with tempfile.TemporaryDirectory() as workspace:
         document = Path(workspace) / "openapi.json"
         target = Path(workspace) / "schema.ts"
-        document.write_text(json.dumps(openapi_document(), indent=2, sort_keys=True))
+        document.write_text(document_json)
         subprocess.run(
-            ["npx", "--no-install", "openapi-typescript", str(document), "-o", str(target)],
+            ["npx", "--no-install", "openapi-typescript", str(document), "-o", str(target),
+             *flags],
             cwd=WEB,
             check=True,
             capture_output=True,
@@ -63,20 +74,27 @@ def generate() -> str:
 
 
 def main() -> int:
-    generated = generate()
+    document = json.dumps(openapi_document(), indent=2, sort_keys=True)
+    generated = {output: generate(document, flags) for output, flags in OUTPUTS.items()}
     if "--check" in sys.argv[1:]:
-        current = OUTPUT.read_text() if OUTPUT.exists() else ""
-        if current != generated:
+        stale = [
+            output
+            for output, text in generated.items()
+            if (output.read_text() if output.exists() else "") != text
+        ]
+        for output in stale:
+            print(f"{output.relative_to(ROOT)} does not match the server's schema.")
+        if stale:
             print(
-                f"{OUTPUT.relative_to(ROOT)} does not match the server's schema.\n"
                 "Run: python scripts/api_types.py, and update web/src/api/types.ts if the\n"
                 "contract check then fails."
             )
             return 1
         print("api types match the server")
         return 0
-    OUTPUT.write_text(generated)
-    print(f"wrote {OUTPUT.relative_to(ROOT)}")
+    for output, text in generated.items():
+        output.write_text(text)
+        print(f"wrote {output.relative_to(ROOT)}")
     return 0
 
 

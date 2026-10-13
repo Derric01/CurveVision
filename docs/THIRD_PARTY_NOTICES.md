@@ -119,6 +119,12 @@ because it is easy to inherit without noticing.
 | [Typer](https://github.com/fastapi/typer) | MIT | Sebastián Ramírez | Command-line interface |
 | [Click](https://github.com/pallets/click) (via Typer) | BSD-3-Clause | Pallets | CLI plumbing |
 
+## TypeScript client (`@curvevision/client`)
+
+| Package | License | Copyright / Author | Role |
+| --- | --- | --- | --- |
+| [openapi-fetch](https://github.com/openapi-ts/openapi-typescript) | MIT | Drew Powers and contributors | The typed `fetch` client the package wraps; its only runtime dependency |
+
 ## Web application (TypeScript)
 
 | Package | License | Copyright / Author | Role |

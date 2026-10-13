@@ -786,6 +786,8 @@ Where the counts live is `CURVEVISION_RATE_LIMIT_BACKEND`:
 ## Clients
 
 * **Python SDK and CLI** — [`sdk/python`](../sdk/python/README.md)
-* **TypeScript** — the web app's client in `web/src/api/` is a working reference; a
-  published package is *Planned*.
+* **TypeScript** — [`sdk/typescript`](../sdk/typescript/README.md) (`@curvevision/client`):
+  every path, body and response typed from the server's own schema, problem documents as a
+  typed error. Not yet on npm — publishing is the maintainers' (a manual workflow is ready);
+  until then, build it from this repository.
 * **Anything else** — generate from `/api/v1/openapi.json`.

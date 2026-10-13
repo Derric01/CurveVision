@@ -87,6 +87,7 @@ def main() -> int:
     declared |= python_dependencies(ROOT / "server" / "pyproject.toml")
     declared |= python_dependencies(ROOT / "sdk" / "python" / "pyproject.toml")
     declared |= node_dependencies(ROOT / "web" / "package.json")
+    declared |= node_dependencies(ROOT / "sdk" / "typescript" / "package.json")
 
     exempt = {name.lower() for name in EXEMPT}
     missing = sorted(
