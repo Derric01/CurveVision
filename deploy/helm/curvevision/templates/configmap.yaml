@@ -28,6 +28,17 @@ data:
   CURVEVISION_CLAMD_HOST: {{ . | quote }}
   {{- end }}
   CURVEVISION_CLAMD_PORT: {{ .Values.config.clamdPort | quote }}
+  CURVEVISION_OIDC_ENABLED: {{ .Values.config.oidc.enabled | quote }}
+  {{- if .Values.config.oidc.enabled }}
+  CURVEVISION_OIDC_ISSUER: {{ .Values.config.oidc.issuer | quote }}
+  CURVEVISION_OIDC_CLIENT_ID: {{ .Values.config.oidc.clientId | quote }}
+  CURVEVISION_OIDC_REDIRECT_URI: {{ .Values.config.oidc.redirectUri | quote }}
+  CURVEVISION_OIDC_DISPLAY_NAME: {{ .Values.config.oidc.displayName | quote }}
+  CURVEVISION_OIDC_CREATE_USERS: {{ .Values.config.oidc.createUsers | quote }}
+  CURVEVISION_OIDC_ALLOWED_DOMAINS: {{ .Values.config.oidc.allowedDomains | quote }}
+  CURVEVISION_OIDC_DEFAULT_WORKSPACE: {{ .Values.config.oidc.defaultWorkspace | quote }}
+  CURVEVISION_OIDC_ONLY: {{ .Values.config.oidc.only | quote }}
+  {{- end }}
   CURVEVISION_TRACING_ENABLED: {{ .Values.config.tracing.enabled | quote }}
   {{- with .Values.config.tracing.otlpEndpoint }}
   CURVEVISION_TRACING_OTLP_ENDPOINT: {{ . | quote }}

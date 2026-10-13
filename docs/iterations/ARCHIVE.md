@@ -1,6 +1,6 @@
 # Iteration archive
 
-> The narrative record of iterations **1–74**, moved out of
+> The narrative record of iterations **1–75**, moved out of
 > [`handoff.md`](../../handoff.md) so that orienting on this project costs a few hundred
 > lines rather than four thousand.
 >
@@ -15,6 +15,18 @@
 > window, append it to the top of this file rather than deleting it.
 
 ---
+
+## Iteration 75
+
+### 75 — a default the server fills in is stored typed
+
+The next best action, and small: the server wrote a default as the string a label stores
+it as, and a default nobody overrode is in most annotations made outside the editor. It
+now goes through the same coercion a submitted value does; a default from before defaults
+were checked, that its attribute would refuse, is written as before rather than failing the
+save.
+
+Verified: see *Verification performed*.
 
 ## Iteration 74
 

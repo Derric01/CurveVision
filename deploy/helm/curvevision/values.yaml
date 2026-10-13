@@ -26,6 +26,8 @@ secretKey: ""
 # chart's Secret are ignored.
 existingSecret: ""
 
+oidcClientSecret: ""
+
 database:
   # postgresql+asyncpg://USER:PASSWORD@HOST:5432/DATABASE — required.
   url: ""
@@ -73,6 +75,20 @@ config:
   contentScanner: none
   clamdHost: ""
   clamdPort: 3310
+  # Single sign-on through an OpenID Connect provider (docs/OPERATIONS.md#single-sign-on).
+  # The client secret goes in the Secret (`oidcClientSecret` below, or `oidc-client-secret`
+  # in your existingSecret).
+  oidc:
+    enabled: false
+    issuer: ""
+    clientId: ""
+    # https://<your host>/auth/callback, registered with the provider exactly so.
+    redirectUri: ""
+    displayName: single sign-on
+    createUsers: true
+    allowedDomains: ""
+    defaultWorkspace: ""
+    only: false
   tracing:
     enabled: false
     # e.g. http://otel-collector.observability:4318/v1/traces

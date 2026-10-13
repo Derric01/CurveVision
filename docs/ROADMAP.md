@@ -86,7 +86,8 @@ Beta named is finished, and the label waits for use.
 | Redis-backed distributed rate limiting | **Done** — `rate_limit_backend = "redis"`, tested against a real Redis in CI |
 | OpenTelemetry tracing | **Done** — requests, SQL, outbound HTTP and jobs, to any OTLP collector |
 | Content scanning (ClamAV) | **Done** — `content_scanner = "clamd"`, tested against a real clamd in CI |
-| OIDC / SAML single sign-on | **Planned** — the `AuthBackend` seam exists |
+| OIDC single sign-on | **Done** — Keycloak, Okta, Entra ID, Google, Authentik…; driven in a browser in CI |
+| SAML single sign-on | **Planned** |
 | Kubernetes Helm chart | **Done** — `deploy/helm/curvevision`, linted and schema-validated in CI; not yet installed into a live cluster in CI |
 | Backup and restore tooling | **Done** — `curvevision-server backup` / `restore`, either shape, across databases, restored in CI |
 | Published TypeScript client package | **Planned** |

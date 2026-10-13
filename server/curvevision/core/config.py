@@ -99,6 +99,31 @@ class Settings(BaseSettings):
     #: scanner an attacker can disable by overloading it is not a control.
     content_scanner_fail_open: bool = False
 
+    # --- single sign-on (OpenID Connect; `services/oidc.py`) -------------------------
+    #: Sign-in through an OpenID Connect provider: Keycloak, Okta, Entra ID, Google,
+    #: Authentik, Dex... Server shape only; ignored in local mode.
+    oidc_enabled: bool = False
+    #: The provider's issuer URL; its configuration is read from
+    #: ``<issuer>/.well-known/openid-configuration``.
+    oidc_issuer: str = ""
+    oidc_client_id: str = ""
+    oidc_client_secret: str = ""
+    #: Where the provider sends the browser back: this deployment's web address plus
+    #: ``/auth/callback``, registered with the provider exactly so.
+    oidc_redirect_uri: str = ""
+    oidc_scopes: str = "openid email profile"
+    #: The sign-in button's label: "Sign in with <this>".
+    oidc_display_name: str = "single sign-on"
+    #: Create an account on a first sign-in. Off: only people who already have one (matched
+    #: by verified email) or an existing link can sign in this way.
+    oidc_create_users: bool = True
+    #: Only these email domains may sign in (comma-separated); empty allows any.
+    oidc_allowed_domains: tuple[str, ...] = ()
+    #: A workspace (by slug) a newly created account joins, as an annotator.
+    oidc_default_workspace: str = ""
+    #: Disable the password sign-in form, when every person signs in through the provider.
+    oidc_only: bool = False
+
     # --- api ----------------------------------------------------------------------
     api_prefix: str = "/api/v1"
     cors_origins: tuple[str, ...] = ("http://localhost:5173", "http://127.0.0.1:5173")
@@ -127,7 +152,11 @@ class Settings(BaseSettings):
     tracing_sample_ratio: float = Field(default=1.0, ge=0.0, le=1.0)
 
     @field_validator(
-        "cors_origins", "allowed_image_extensions", "allowed_video_extensions", mode="before"
+        "cors_origins",
+        "allowed_image_extensions",
+        "allowed_video_extensions",
+        "oidc_allowed_domains",
+        mode="before",
     )
     @classmethod
     def _split_csv(cls, value: object) -> object:

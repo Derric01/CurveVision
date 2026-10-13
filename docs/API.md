@@ -30,6 +30,27 @@ Access tokens are short-lived. Refresh tokens **rotate**: `POST /api/v1/auth/ref
 returns a new pair and invalidates the one you sent. Replaying a refresh token fails, which
 is what makes a stolen one usable at most once.
 
+### Single sign-on — through an OpenID Connect provider
+
+When the server is configured for it ([OPERATIONS.md](./OPERATIONS.md#single-sign-on)),
+`GET /api/v1/auth/options` says so (`"sso": true`, and the button's label). A sign-in is
+three steps, and ends with the same token pair as a password:
+
+```http
+POST /api/v1/auth/sso/start        { "return_to": "/projects" }
+→ { "authorization_url": "https://idp…/auth?…", "state": "eyJ…" }
+
+# The browser goes to authorization_url; the provider sends it back to
+# <oidc_redirect_uri>?code=…&state=…  — check `state` is the one you were given.
+
+POST /api/v1/auth/sso/complete     { "code": "…", "state": "eyJ…" }
+→ { "access_token": "…", "refresh_token": "…", "expires_in": 1800, "return_to": "/projects" }
+```
+
+The server keeps no login state: `state` is signed and expires in ten minutes. Comparing
+it with the one you were given is the *client's* job — it is what stops a sign-in started
+elsewhere being finished in your browser — and the web application does it.
+
 ### API tokens — for scripts, CI and the SDK
 
 ```http

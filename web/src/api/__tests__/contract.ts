@@ -48,6 +48,8 @@ export type Contract = [
   Holds<Reads<Schemas['UserBrief'], Api.UserBrief>>,
   Holds<Reads<Schemas['UserOut'], Api.User>>,
   Holds<Reads<Schemas['TokenPair'], Api.TokenPair>>,
+  Holds<Reads<Schemas['SignInOptions'], Api.SignInOptions>>,
+  Holds<Reads<Schemas['SsoStarted'], Api.SsoStarted>>,
   Holds<Reads<Schemas['ApiTokenOut'], Api.ApiToken>>,
   Holds<Reads<Schemas['ApiTokenCreated'], Api.ApiTokenCreated>>,
   Holds<Reads<Schemas['MembershipOut'], Api.Membership>>,

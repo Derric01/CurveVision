@@ -5,9 +5,9 @@
 > [`AGENTS.md`](./AGENTS.md) first; it is the working contract. Update this file after every
 > iteration, including the ones that mostly failed.
 >
-> **Last updated:** 2026-10-13 (iteration 80) · branch `claude/start-work-yx080h` · PRs
+> **Last updated:** 2026-10-13 (iteration 81) · branch `claude/start-work-yx080h` · PRs
 > [#1](https://github.com/Derric01/CurveVision/pull/1)–[#34](https://github.com/Derric01/CurveVision/pull/34)
-> **all merged**, #34 carrying iterations 67–69. Iterations 70–80 are pushed on top of
+> **all merged**, #34 carrying iterations 67–69. Iterations 70–81 are pushed on top of
 > that merge with no PR yet.
 >
 > *Two things worth knowing about this repository's PR rhythm, which replace the
@@ -22,7 +22,7 @@
 > **Keep the session short.** One iteration, then commit, push, update this file and report —
 > `AGENTS.md` § *Continue* and the `start-work` skill both say so now, because they did not
 > before and a single session ran six iterations and roughly a third of a week's budget. The
-> concrete costs, in rough order: re-reading this file (iterations 1–74 now live in
+> concrete costs, in rough order: re-reading this file (iterations 1–75 now live in
 > [`docs/iterations/ARCHIVE.md`](./docs/iterations/ARCHIVE.md), which cut it from 3,800
 > lines to 1,000 — keep it that way); `python desktop/sidecar/build.py`, which is a
 > PyInstaller run of a minute or two and is needed *again* for every sabotage-and-restore
@@ -46,7 +46,7 @@ The desktop shape works: a packaged single-executable server, a Tauri shell that
 it, and folders annotated in place without copying a byte.
 
 **The tree is green.** `./scripts/check.sh` passes all thirteen steps: 757 server tests, 16
-SDK, 765 web, and `scripts/` is lint-clean under its own `ruff.toml`. Thirty-two browser
+SDK, 771 web, and `scripts/` is lint-clean under its own `ruff.toml`. Thirty-two browser
 harnesses drive the application in a real Chromium, nightly and on every push to `main` —
 thirty-one against the packaged desktop server, and `verify_workspace.py` against the real
 server too — and **all thirty-two pass on GitHub's runners** (iteration 70, run
@@ -504,7 +504,7 @@ was the last unconnected piece of the desktop application.
 
 ## Next best action
 
-*A Helm chart, iteration 80; backup and restore, either shape and across databases, 79; OpenTelemetry tracing, 78; uploads scanned by ClamAV, 77; a rate limit shared by every server instance through Redis, and Phase 12's markers made true, iteration 76; a default the server fills in is stored typed, 75; Submit checks what its own save achieved, 74. No edit made during a save is lost any more — to a new object while its first save is in
+*Single sign-on through OpenID Connect, iteration 81; a Helm chart, 80; backup and restore, either shape and across databases, 79; OpenTelemetry tracing, 78; uploads scanned by ClamAV, 77; a rate limit shared by every server instance through Redis, and Phase 12's markers made true, iteration 76; a default the server fills in is stored typed, 75; Submit checks what its own save achieved, 74. No edit made during a save is lost any more — to a new object while its first save is in
 flight, or to any object while a save that then fails is — and the editor always fits the
 frame it opens on, iteration 73; a backup that
 restores what it holds, and tracks that keep their keyframes through CVAT XML and the
@@ -523,7 +523,7 @@ in this order — each self-contained, each a gap a production operator would hi
 4. ~~A Helm chart~~ — done, iteration 80 (linted and schema-validated; not yet installed
    into a live cluster in CI — a `kind` job with in-cluster PostgreSQL, Redis and MinIO
    would be the proof, and is worth doing).
-5. **OIDC sign-on** behind the `AuthBackend` seam — the largest.
+5. ~~OIDC sign-on~~ — done, iteration 81. (SAML is not, and nobody has asked.)
 6. **A published TypeScript client** from the OpenAPI schema.
 
 **First, if a key is available: try iteration 63 against the real services.** Add Claude,
@@ -1044,6 +1044,27 @@ being updated and this one was not. Check it against* Completed *before trusting
 ---
 
 ## Verification performed
+
+Iteration 81:
+
+* `tests/api/test_sso.py`, 17 tests against a provider in the same process that checks
+  PKCE and the client secret and signs RS256 ID tokens: a first sign-in creates the
+  account and a second finds it; a verified email signs into the existing account and an
+  unverified one never does; a new account joins the default workspace; `return_to` stays
+  on this site; refused — a wrong nonce, audience, issuer, an expired token, a token signed
+  with a key the provider does not publish, a forged `state`, a code spent twice, a domain
+  not allowed, a new person when accounts are not created; `/auth/options` tells the page
+  what to offer, and `oidc_only` turns passwords off.
+* `scripts/verify_sso.py`, in Chromium against the real server and a provider the script
+  runs: the button is offered, the round trip lands signed in on the projects page as the
+  account the provider's email made, a callback this tab did not start is refused in the
+  browser, and a cancelled sign-in says so. Added to `browser.yml`.
+* `sso.test.ts`: the callback check, six cases. Full server suite green; the migration
+  checked against the models by the suite.
+* The Helm chart gains the SSO settings; lint and kubeconform still clean.
+* Iteration 80 on GitHub: every job green, including the new `helm` job and the web
+  image's `nginx -T` check.
+* Full `./scripts/check.sh` green.
 
 Iteration 80:
 
@@ -1904,6 +1925,21 @@ Iteration 54:
 
 ## Last iteration
 
+### 81 — single sign-on through OpenID Connect
+
+The largest item left on the 1.0 list, and the third false claim found this session: the
+docs said an `AuthBackend` seam existed; nothing by that name did. `services/oidc.py`
+implements the authorization-code flow with PKCE, the server a confidential client that
+keeps no login state (the signed `state` carries nonce, verifier and destination), and the
+web application checks `state` against what its own tab kept — login CSRF, without a
+cookie. Accounts link by issuer and `sub` (`external_identities`, a migration); a first
+sign-in uses an existing account only through a verified email. The sign-in page asks the
+server what to offer.
+
+Verified: see *Verification performed*.
+
+## Iteration 80
+
 ### 80 — a Helm chart
 
 The next 1.0 item. `deploy/helm/curvevision`: the API, workers and web application, a
@@ -1970,21 +2006,9 @@ apply.
 
 Verified: see *Verification performed*.
 
-## Iteration 75
-
-### 75 — a default the server fills in is stored typed
-
-The next best action, and small: the server wrote a default as the string a label stores
-it as, and a default nobody overrode is in most annotations made outside the editor. It
-now goes through the same coercion a submitted value does; a default from before defaults
-were checked, that its attribute would refuse, is written as before rather than failing the
-save.
-
-Verified: see *Verification performed*.
-
 ## Earlier iterations
 
-Iterations **1–74** are in [`docs/iterations/ARCHIVE.md`](./docs/iterations/ARCHIVE.md) —
+Iterations **1–75** are in [`docs/iterations/ARCHIVE.md`](./docs/iterations/ARCHIVE.md) —
 moved there so that orienting costs a few hundred lines rather than four thousand. Read them
 when `git log` points you at an iteration number, or when you are about to build something
 and want to know whether it was already tried and rejected. The lessons from them that are

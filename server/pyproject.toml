@@ -35,6 +35,8 @@ media = ["pillow>=10.3", "av>=12.0"]
 worker = ["dramatiq[redis]>=1.17", "redis>=5.0"]
 # A rate limit shared by every instance of the server (`rate_limit_backend = "redis"`).
 redis = ["redis>=5.0"]
+# Single sign-on through an OpenID Connect provider (`oidc_enabled`): RS256/ES256 ID tokens.
+oidc = ["pyjwt[crypto]>=2.8"]
 # OpenTelemetry tracing to an OTLP/HTTP collector (`tracing_enabled`).
 tracing = [
     "opentelemetry-sdk>=1.25",
@@ -51,6 +53,8 @@ dev = [
     "pytest>=8.2",
     # The Redis rate limiter's tests run against a real server when one is configured.
     "redis>=5.0",
+    # Single sign-on's tests verify real RS256 signatures.
+    "pyjwt[crypto]>=2.8",
     # Tracing is optional for a server and tested here, against an in-memory exporter. The
     # `tracing` extra's packages, listed again: an extra that names its own package is
     # not something every installer resolves.

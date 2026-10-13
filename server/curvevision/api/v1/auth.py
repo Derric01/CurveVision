@@ -17,11 +17,16 @@ from curvevision.schemas.identity import (
     PasswordChangeRequest,
     RefreshRequest,
     RegisterRequest,
+    SignInOptions,
+    SsoCompleteRequest,
+    SsoStarted,
+    SsoStartRequest,
     TokenPair,
     UserOut,
     UserUpdate,
 )
 from curvevision.services import auth as auth_service
+from curvevision.services import oidc
 
 router = APIRouter(tags=["auth"])
 
@@ -33,7 +38,7 @@ async def register(
     settings: SettingsDep,
     request: Request,
 ) -> UserOut:
-    if not settings.allow_registration:
+    if not settings.allow_registration or (settings.oidc_only and oidc.enabled(settings)):
         raise PermissionDeniedError("Registration is disabled on this instance")
     user = await auth_service.register_user(
         session,
@@ -63,6 +68,10 @@ async def login(
     settings: SettingsDep,
     request: Request,
 ) -> TokenPair:
+    if settings.oidc_only and oidc.enabled(settings):
+        raise PermissionDeniedError(
+            f"Sign in with {settings.oidc_display_name}: passwords are not used here"
+        )
     user = await auth_service.authenticate(session, payload.identifier, payload.password)
     access, refresh, ttl = await auth_service.issue_token_pair(
         session,
@@ -83,6 +92,55 @@ async def login(
     )
     await session.commit()
     return TokenPair(access_token=access, refresh_token=refresh, expires_in=ttl)
+
+
+@router.get("/auth/options", response_model=SignInOptions)
+async def sign_in_options(settings: SettingsDep) -> SignInOptions:
+    """What the sign-in page should offer. Needs no authentication."""
+    sso = oidc.enabled(settings)
+    only_sso = sso and settings.oidc_only
+    return SignInOptions(
+        password=not only_sso,
+        registration=settings.allow_registration and not only_sso,
+        sso=sso,
+        sso_name=settings.oidc_display_name if sso else None,
+    )
+
+
+@router.post("/auth/sso/start", response_model=SsoStarted)
+async def sso_start(payload: SsoStartRequest, settings: SettingsDep) -> SsoStarted:
+    """Begin a sign-in at the OpenID Connect provider (`services/oidc.py`)."""
+    started = await oidc.start(settings, return_to=payload.return_to)
+    return SsoStarted(authorization_url=started.authorization_url, state=started.state)
+
+
+@router.post("/auth/sso/complete", response_model=TokenPair)
+async def sso_complete(
+    payload: SsoCompleteRequest, session: SessionDep, settings: SettingsDep, request: Request
+) -> TokenPair:
+    """Finish it with the provider's `code` and the `state` it was started with."""
+    user, return_to = await oidc.complete(session, settings, code=payload.code, state=payload.state)
+    access, refresh, ttl = await auth_service.issue_token_pair(
+        session,
+        settings,
+        user,
+        user_agent=request.headers.get("user-agent"),
+        ip_address=client_ip(request),
+    )
+    session.add(
+        AuditEvent(
+            actor_id=user.id,
+            action="user.login.sso",
+            resource_type="user",
+            resource_id=user.id,
+            ip_address=client_ip(request),
+            user_agent=(request.headers.get("user-agent") or "")[:300] or None,
+        )
+    )
+    await session.commit()
+    return TokenPair(
+        access_token=access, refresh_token=refresh, expires_in=ttl, return_to=return_to
+    )
 
 
 @router.post("/auth/refresh", response_model=TokenPair)

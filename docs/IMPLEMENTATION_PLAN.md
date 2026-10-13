@@ -210,7 +210,9 @@ already the seam.
   hashed in the DB so they can be revoked.
 * **API tokens** for SDK/CLI/CI: `cv_<id>_<secret>` displayed once, stored as a SHA-256
   hash, with optional expiry and last-used tracking.
-* OIDC/SAML: **Planned** — the `AuthBackend` seam exists.
+* Single sign-on — **OIDC Done** (iteration 81: authorization code with PKCE, accounts
+  linked by issuer and subject, driven in a browser against a provider); **SAML Planned**.
+  (This line used to say an `AuthBackend` seam existed; it did not.)
 
 ### 0.7 Authorization
 

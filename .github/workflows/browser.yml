@@ -136,6 +136,9 @@ jobs:
               # Also starts the real server (uvicorn on SQLite, serving `web/dist`): the
               # desktop build has one person and no registration, and members need several.
               scripts/verify_workspace.py
+              # The real server too, signing in through an OpenID Connect provider the
+              # script runs itself.
+              scripts/verify_sso.py
             )
           fi
 

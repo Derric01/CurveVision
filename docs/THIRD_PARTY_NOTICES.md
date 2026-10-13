@@ -56,6 +56,7 @@ Full license texts for permissive licenses used here are reproduced under
 | [greenlet](https://github.com/python-greenlet/greenlet) | MIT / PSF | Armin Rigo, Christian Tismer and contributors | Required by SQLAlchemy's async support |
 | [argon2-cffi](https://github.com/hynek/argon2-cffi) | MIT | Hynek Schlawack | Argon2id password hashing |
 | [PyJWT](https://github.com/jpadilla/pyjwt) | MIT | José Padilla | JSON Web Tokens |
+| [cryptography](https://github.com/pyca/cryptography) (via `pyjwt[crypto]`) | Apache-2.0 OR BSD-3-Clause | The Python Cryptographic Authority and contributors | Verifying single sign-on ID tokens (RS256/ES256; `oidc` extra) |
 | [email-validator](https://github.com/JoshData/python-email-validator) | Unlicense / CC0 | Joshua Tauberer | Email address validation |
 | [python-multipart](https://github.com/Kludex/python-multipart) | Apache-2.0 | Andrew Dunham and contributors | Multipart upload parsing |
 | [httpx](https://github.com/encode/httpx) | BSD-3-Clause | Encode OSS Ltd. | HTTP client (inference, webhooks) |

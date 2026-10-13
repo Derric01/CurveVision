@@ -5,6 +5,8 @@ import { useSession } from '@/store/session';
 import { desktop } from '@/desktop';
 import { Button, Spinner } from '@/ui/primitives';
 import { LoginPage } from '@/features/auth/LoginPage';
+import { SsoCallback } from '@/features/auth/SsoCallback';
+import { CALLBACK_PATH } from '@/features/auth/sso';
 import { ProjectsPage } from '@/features/projects/ProjectsPage';
 import { ProjectPage } from '@/features/projects/ProjectPage';
 import { TaskPage } from '@/features/tasks/TaskPage';
@@ -165,6 +167,7 @@ export default function App() {
     return (
       <Routes>
         <Route path="/login" element={<LoginPage />} />
+        <Route path={CALLBACK_PATH} element={<SsoCallback />} />
         <Route path="*" element={<Navigate to="/login" replace />} />
       </Routes>
     );

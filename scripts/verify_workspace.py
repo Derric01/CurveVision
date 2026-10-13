@@ -51,11 +51,17 @@ _VENV = ROOT / "server" / ".venv" / "bin" / "python"
 PYTHON = _VENV if _VENV.is_file() else Path(sys.executable)
 
 
-def start_web_server(workdir: Path) -> tuple[subprocess.Popen[str], str]:
-    """The server shape: the API and the built web application, on SQLite."""
+def free_port() -> int:
     with socket.socket() as probe:
         probe.bind(("127.0.0.1", 0))
-        port = probe.getsockname()[1]
+        return int(probe.getsockname()[1])
+
+
+def start_web_server(
+    workdir: Path, *, port: int | None = None, extra_env: dict[str, str] | None = None
+) -> tuple[subprocess.Popen[str], str]:
+    """The server shape: the API and the built web application, on SQLite."""
+    port = port or free_port()
     env = {
         **os.environ,
         "CURVEVISION_ENVIRONMENT": "development",
@@ -67,6 +73,7 @@ def start_web_server(workdir: Path) -> tuple[subprocess.Popen[str], str]:
         "CURVEVISION_WEB_ROOT": str(ROOT / "web" / "dist"),
         "CURVEVISION_RATE_LIMIT_PER_MINUTE": "0",
         "CURVEVISION_LOG_LEVEL": "ERROR",
+        **(extra_env or {}),
     }
     subprocess.run(
         [str(PYTHON), "-c",

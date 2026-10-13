@@ -58,6 +58,26 @@ export interface paths {
         patch: operations["update_me_api_v1_auth_me_patch"];
         trace?: never;
     };
+    "/api/v1/auth/options": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Sign In Options
+         * @description What the sign-in page should offer. Needs no authentication.
+         */
+        get: operations["sign_in_options_api_v1_auth_options_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/auth/password": {
         parameters: {
             query?: never;
@@ -120,6 +140,46 @@ export interface paths {
         put?: never;
         /** Revoke All Sessions */
         post: operations["revoke_all_sessions_api_v1_auth_sessions_revoke_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/auth/sso/complete": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Sso Complete
+         * @description Finish it with the provider's `code` and the `state` it was started with.
+         */
+        post: operations["sso_complete_api_v1_auth_sso_complete_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/auth/sso/start": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Sso Start
+         * @description Begin a sign-in at the OpenID Connect provider (`services/oidc.py`).
+         */
+        post: operations["sso_start_api_v1_auth_sso_start_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -2852,6 +2912,20 @@ export interface components {
          * @enum {string}
          */
         ShapeType: "rectangle" | "rotated_rectangle" | "polygon" | "polyline" | "points" | "ellipse" | "mask" | "skeleton" | "cuboid";
+        /**
+         * SignInOptions
+         * @description How a person may sign in here, for the sign-in page to offer exactly that.
+         */
+        SignInOptions: {
+            /** Password */
+            password: boolean;
+            /** Registration */
+            registration: boolean;
+            /** Sso */
+            sso: boolean;
+            /** Sso Name */
+            sso_name?: string | null;
+        };
         /** SkeletonElement */
         SkeletonElement: {
             /**
@@ -2899,6 +2973,28 @@ export interface components {
             outside: boolean;
             /** Points */
             points: number[];
+        };
+        /** SsoCompleteRequest */
+        SsoCompleteRequest: {
+            /** Code */
+            code: string;
+            /** State */
+            state: string;
+        };
+        /** SsoStartRequest */
+        SsoStartRequest: {
+            /**
+             * Return To
+             * @default /
+             */
+            return_to: string;
+        };
+        /** SsoStarted */
+        SsoStarted: {
+            /** Authorization Url */
+            authorization_url: string;
+            /** State */
+            state: string;
         };
         /**
          * SuggestionDecision
@@ -3131,6 +3227,8 @@ export interface components {
             expires_in: number;
             /** Refresh Token */
             refresh_token: string;
+            /** Return To */
+            return_to?: string | null;
             /**
              * Token Type
              * @default bearer
@@ -3582,6 +3680,26 @@ export interface operations {
             };
         };
     };
+    sign_in_options_api_v1_auth_options_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SignInOptions"];
+                };
+            };
+        };
+    };
     change_password_api_v1_auth_password_post: {
         parameters: {
             query?: never;
@@ -3698,6 +3816,72 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content?: never;
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    sso_complete_api_v1_auth_sso_complete_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SsoCompleteRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TokenPair"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    sso_start_api_v1_auth_sso_start_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SsoStartRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SsoStarted"];
+                };
             };
             /** @description Validation Error */
             422: {

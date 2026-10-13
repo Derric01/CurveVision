@@ -57,6 +57,8 @@ app.kubernetes.io/component: {{ .component }}
   valueFrom: {secretKeyRef: {name: {{ include "curvevision.secretName" . }}, key: database-url}}
 - name: CURVEVISION_REDIS_URL
   valueFrom: {secretKeyRef: {name: {{ include "curvevision.secretName" . }}, key: redis-url}}
+- name: CURVEVISION_OIDC_CLIENT_SECRET
+  valueFrom: {secretKeyRef: {name: {{ include "curvevision.secretName" . }}, key: oidc-client-secret, optional: true}}
 - name: CURVEVISION_S3_ACCESS_KEY_ID
   valueFrom: {secretKeyRef: {name: {{ include "curvevision.secretName" . }}, key: s3-access-key-id, optional: true}}
 - name: CURVEVISION_S3_SECRET_ACCESS_KEY

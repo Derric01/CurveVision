@@ -49,6 +49,35 @@ each time; choose it only if an outage of the scanner must not stop uploads. Rai
 Folders imported in place by the desktop application are not scanned: they are already on
 the machine that would be protected.
 
+## Single sign-on
+
+People can sign in through any OpenID Connect provider — Keycloak, Okta, Microsoft Entra
+ID, Google, Authentik, Dex. Register CurveVision with it as a *confidential* client whose
+redirect URI is this deployment's web address plus `/auth/callback`, then:
+
+```bash
+CURVEVISION_OIDC_ENABLED=true
+CURVEVISION_OIDC_ISSUER=https://idp.example.com/realms/team   # .well-known is read from here
+CURVEVISION_OIDC_CLIENT_ID=curvevision
+CURVEVISION_OIDC_CLIENT_SECRET=...
+CURVEVISION_OIDC_REDIRECT_URI=https://curvevision.example.com/auth/callback
+CURVEVISION_OIDC_DISPLAY_NAME="Team SSO"                       # "Sign in with Team SSO"
+```
+
+The sign-in page then offers the provider. Who gets in, and as whom:
+
+* An account is linked by the provider's issuer and its `sub`, which never changes. On a
+  first sign-in, the account with the same email is used **only if the provider says the
+  email is verified**; otherwise a new account is created
+  (`CURVEVISION_OIDC_CREATE_USERS=false` refuses instead).
+* `CURVEVISION_OIDC_ALLOWED_DOMAINS=team.example` admits only those email domains.
+* `CURVEVISION_OIDC_DEFAULT_WORKSPACE=<slug>` puts a new account in that workspace as an
+  annotator, so their first sign-in lands somewhere.
+* `CURVEVISION_OIDC_ONLY=true` turns password sign-in and registration off.
+
+The server image includes what this needs; a pip install needs `curvevision-server[oidc]`.
+The desktop application has no sign-in, and ignores all of this.
+
 ## Kubernetes
 
 A Helm chart is in [`deploy/helm/curvevision`](../deploy/helm/curvevision): the API, the
