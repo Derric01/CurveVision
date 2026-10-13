@@ -1074,6 +1074,11 @@ Iteration 86:
   a native archive into a project with none of its labels. Both failed before the route
   fix and pass after it.
 * `./scripts/check.sh`: all fifteen steps green; 837 server tests.
+* PR #37 on GitHub, `de4bab3`: the LabelMe and Ultralytics workflows green. The WebDriver
+  job on 24.04 failed for the first time — not on anything this iteration touched: check 3
+  asks each window for its address while the shell is closing the local one, and
+  WebKitWebDriver dropped the connection for the dying window. `_shows` took an HTTP error
+  as "not this window" but let a dropped connection end the run; it now takes both.
 
 Iteration 85:
 
@@ -1899,7 +1904,9 @@ Iteration 54:
   moment after the shell closed a window; tauri-driver reported the WebKit driver
   resetting the connection, and the shell printed no panic. On 2.52 it has never
   happened, so the harness runs on 24.04. Unknown: whether the shell itself misbehaves on
-  22.04 when it swaps windows. Worth checking by hand on a 22.04 desktop: connect to a team
+  22.04 when it swaps windows. Iteration 86 saw the same reset once on 2.52, and it was the
+  harness probing the window being closed (now tolerated) — so the 22.04 failures may have
+  been that too; unproven until the harness runs there again. Worth checking by hand on a 22.04 desktop: connect to a team
   server and back a few times.
 * **The native menus are driven by no test.** WebDriver cannot click them; *Use This
   Computer* shares `switch_to_local` with the code the WebDriver harness does exercise.

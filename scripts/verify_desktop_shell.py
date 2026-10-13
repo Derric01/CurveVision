@@ -336,10 +336,13 @@ def _answers(port: int) -> bool:
 
 
 def _shows(wd: WebDriver, handle: str, base: str) -> bool:
+    # The shell closes the local window as the team server's opens, so a handle can vanish
+    # between listing it and asking for its address: WebKitWebDriver answers that with an
+    # error or, as often, by dropping the connection. Either way it is not the window sought.
     try:
         wd.switch_to(handle)
         return wd.url().startswith(base)
-    except RuntimeError:
+    except (RuntimeError, OSError):
         return False
 
 
