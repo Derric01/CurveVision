@@ -64,11 +64,26 @@ class ShapeRecord:
     confidence: float | None = None
     mask: dict[str, Any] | None = None
     elements: list[dict[str, Any]] = field(default_factory=list)
+    #: A track's record only: whether this frame's position was **authored** (a keyframe)
+    #: or interpolated from the keyframes either side. Formats that can say so write it
+    #: (CVAT XML's `keyframe`, the native format); an import keeps a frame that was not a
+    #: keyframe only where interpolation does not reproduce it.
+    keyframe: bool = True
     #: On the way in only: a track's record marking the frame its object **leaves** on, as
     #: CVAT's `outside="1"` does. Its geometry is not a position. A format whose tracks are
     #: interpolated between the frames it lists (`ImportResult.track_gaps`) needs it to say
     #: where an object goes; an export never produces one.
     outside: bool = False
+
+
+@dataclass(slots=True)
+class TagRecord:
+    """A whole-frame tag with everything it carries; `FrameRecord.tags` is just its label."""
+
+    label: str
+    attributes: dict[str, Any] = field(default_factory=dict)
+    source: str = "manual"
+    confidence: float | None = None
 
 
 @dataclass(slots=True)
@@ -78,7 +93,11 @@ class FrameRecord:
     width: int | None = None
     height: int | None = None
     shapes: list[ShapeRecord] = field(default_factory=list)
+    #: The frame's tags by label, which is all most formats can write.
     tags: list[str] = field(default_factory=list)
+    #: The same tags in full, when the producer has them — the export does, a frame built
+    #: by hand need not. When present, ``tags`` lists their labels in the same order.
+    tag_records: list[TagRecord] | None = None
     #: Bytes of the frame's media, present only when the export requested images.
     media: bytes | None = None
     subset: str = "default"
@@ -158,7 +177,8 @@ class ImportResult:
     """What an importer produced. Plain data; the service turns it into rows."""
 
     shapes: list[tuple[int, ShapeRecord]] = field(default_factory=list)
-    tags: list[tuple[int, str]] = field(default_factory=list)
+    #: By label, or in full where the format carries a tag's attributes and provenance.
+    tags: list[tuple[int, str | TagRecord]] = field(default_factory=list)
     new_labels: list[LabelSpec] = field(default_factory=list)
     #: Human-readable notes: files skipped, labels invented, annotations dropped.
     warnings: list[str] = field(default_factory=list)
@@ -172,6 +192,10 @@ class ImportResult:
     #:   them, leaving only where a record says ``outside`` — CVAT XML, whose own reader
     #:   (`load_anno`) treats a track this way.
     track_gaps: Literal["absent", "interpolated"] = "absent"
+    #: Whether each record's ``source`` and ``confidence`` are the annotation's own, to be
+    #: kept: only a format that wrote them from this server's annotations can say so (the
+    #: native format). Everything else is stored as ``imported``, with no confidence.
+    carries_provenance: bool = False
 
 
 @runtime_checkable

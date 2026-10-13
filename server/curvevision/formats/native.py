@@ -4,6 +4,13 @@ Every other format loses something. This one is the escape hatch: a full-fidelit
 document that round-trips every geometry type, attribute, track, tag, group, z-order,
 provenance and confidence value CurveVision can represent.
 
+Until iteration 72 three of those were written and not read back, so a backup restored
+less than it held: provenance and confidence were dropped on import (a model's pending
+suggestion came back as finished work), a tag was written as its label alone, and every
+frame of a track came back as a keyframe. A tag is now an object, `{label, attributes,
+source, confidence}` (a bare label, as older documents have, still reads), and a track's
+shape says whether its frame was a `keyframe`.
+
 Use it for backups, for moving a dataset between CurveVision instances, and as the
 reference when adding a new format (a new format's round-trip test compares against this).
 """
@@ -24,6 +31,7 @@ from curvevision.formats.base import (
     ImportSource,
     LabelSpec,
     ShapeRecord,
+    TagRecord,
 )
 from curvevision.formats.registry import register
 
@@ -60,7 +68,15 @@ class CurveVisionFormat:
                     # Which image this is, by content: what lets a frozen copy of the
                     # annotations find its pictures again (`read_view`).
                     "media_sha256": frame.media_sha256,
-                    "tags": list(frame.tags),
+                    "tags": [
+                        {
+                            "label": tag.label,
+                            "attributes": dict(tag.attributes),
+                            "source": tag.source,
+                            "confidence": tag.confidence,
+                        }
+                        for tag in _tags_of(frame)
+                    ],
                     "shapes": [self._shape_to_json(shape) for shape in frame.shapes],
                 }
             )
@@ -111,12 +127,14 @@ class CurveVisionFormat:
             "confidence": shape.confidence,
             "mask": shape.mask,
             "elements": list(shape.elements),
+            **({"keyframe": shape.keyframe} if shape.track_id is not None else {}),
         }
 
     # ----------------------------------------------------------------------- import
 
     def import_(self, source: ImportSource, context: ImportContext) -> ImportResult:
-        result = ImportResult()
+        # Every source and confidence here was written from an annotation's own.
+        result = ImportResult(carries_provenance=True)
         path = next(
             (name for name in source.names() if name.rsplit("/", 1)[-1] == "dataset.json"),
             None,
@@ -156,7 +174,8 @@ class CurveVisionFormat:
             matched.add(frame)
 
             for tag in frame_doc.get("tags", []):
-                result.tags.append((frame, str(tag)))
+                if (record := _tag_record(tag)) is not None:
+                    result.tags.append((frame, record))
 
             for shape_doc in frame_doc.get("shapes", []):
                 shape = _shape_record(shape_doc)
@@ -193,19 +212,22 @@ def read_view(document: dict[str, Any]) -> DatasetView:
     bytes; `media_sha256` says which image each was, for a caller that can fetch it.
     """
     labels = [spec for label in document.get("labels", []) if (spec := _label_spec(label))]
-    frames = [
-        FrameRecord(
-            index=int(frame.get("index", position)),
-            name=str(frame.get("name", "")),
-            width=frame.get("width"),
-            height=frame.get("height"),
-            subset=str(frame.get("subset") or "default"),
-            tags=[str(tag) for tag in frame.get("tags", [])],
-            shapes=[shape for doc in frame.get("shapes", []) if (shape := _shape_record(doc))],
-            media_sha256=frame.get("media_sha256"),
+    frames: list[FrameRecord] = []
+    for position, frame in enumerate(document.get("frames", [])):
+        tag_records = [tag for doc in frame.get("tags", []) if (tag := _tag_record(doc))]
+        frames.append(
+            FrameRecord(
+                index=int(frame.get("index", position)),
+                name=str(frame.get("name", "")),
+                width=frame.get("width"),
+                height=frame.get("height"),
+                subset=str(frame.get("subset") or "default"),
+                tags=[tag.label for tag in tag_records],
+                tag_records=tag_records,
+                shapes=[shape for doc in frame.get("shapes", []) if (shape := _shape_record(doc))],
+                media_sha256=frame.get("media_sha256"),
+            )
         )
-        for position, frame in enumerate(document.get("frames", []))
-    ]
     return DatasetView(
         name=str(document.get("name", "")),
         labels=labels,
@@ -251,6 +273,29 @@ def _shape_record(shape_doc: dict[str, Any]) -> ShapeRecord | None:
         confidence=shape_doc.get("confidence"),
         mask=shape_doc.get("mask"),
         elements=list(shape_doc.get("elements", [])),
+        keyframe=bool(shape_doc.get("keyframe", True)),
+    )
+
+
+def _tags_of(frame: FrameRecord) -> list[TagRecord]:
+    """A frame's tags in full; one built with labels only gets them with nothing else."""
+    if frame.tag_records is not None:
+        return frame.tag_records
+    return [TagRecord(label=label) for label in frame.tags]
+
+
+def _tag_record(doc: Any) -> TagRecord | None:
+    """A tag as this format writes it, or as a bare label (documents before iteration 72)."""
+    if isinstance(doc, str):
+        return TagRecord(label=doc, source="imported") if doc else None
+    if not isinstance(doc, dict) or not str(doc.get("label") or ""):
+        return None
+    confidence = doc.get("confidence")
+    return TagRecord(
+        label=str(doc["label"]),
+        attributes=dict(doc.get("attributes") or {}),
+        source=str(doc.get("source") or "imported"),
+        confidence=float(confidence) if isinstance(confidence, int | float) else None,
     )
 
 

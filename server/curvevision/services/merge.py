@@ -47,11 +47,15 @@ review, not a duplicate to silently collapse.
 from __future__ import annotations
 
 from collections.abc import Iterable, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
+from typing import TypeVar
 
-from curvevision.formats.base import ShapeRecord
+from curvevision.formats.base import ShapeRecord, TagRecord
 from curvevision.services import matching
 from curvevision.services.comparison import AREA_SHAPES, shape_iou
+
+#: A tag by label, or in full.
+_Tag = TypeVar("_Tag", str, TagRecord)
 
 #: Below this similarity, two shapes on one frame are two objects rather than one. Inherited
 #: from the upstream design as 1 - 0.25: a tuned constant, not a derived one. It is
@@ -175,19 +179,13 @@ def _unify_track_ids(by_frame: dict[int, list[ShapeRecord]], aliases: _TrackAlia
 
 
 def _with_track_id(shape: ShapeRecord, track_id: int) -> ShapeRecord:
-    return ShapeRecord(
-        label=shape.label,
-        shape_type=shape.shape_type,
-        points=list(shape.points),
-        rotation=shape.rotation,
-        occluded=shape.occluded,
-        z_order=shape.z_order,
-        group=shape.group,
+    # `replace`, not a field-by-field copy: one of those fell behind the record when
+    # `keyframe` was added, and silently reset it.
+    return replace(
+        shape,
         track_id=track_id,
+        points=list(shape.points),
         attributes=dict(shape.attributes),
-        source=shape.source,
-        confidence=shape.confidence,
-        mask=shape.mask,
         elements=list(shape.elements),
     )
 
@@ -239,29 +237,33 @@ def merge_frames(
 
 
 def merge_tags(
-    accumulated: dict[int, list[str]],
-    incoming: dict[int, list[str]],
+    accumulated: dict[int, list[_Tag]],
+    incoming: dict[int, list[_Tag]],
     *,
     shared_frames: Iterable[int],
 ) -> int:
     """Fold one job's tags in, dropping a tag a shared frame already carries.
 
     A tag is a label on a whole frame, so "the same tag twice" has no useful reading: two
-    annotators both saying the frame is `daytime` is agreement, not two facts. Returns how
-    many were dropped.
+    annotators both saying the frame is `daytime` is agreement, not two facts. Tags are
+    compared by label, whether given as one or in full. Returns how many were dropped.
     """
+
+    def label(tag: str | TagRecord) -> str:
+        return tag if isinstance(tag, str) else tag.label
+
     shared = set(shared_frames)
     dropped = 0
-    for frame, names in incoming.items():
+    for frame, tags in incoming.items():
         target = accumulated.setdefault(frame, [])
         if frame not in shared:
-            target.extend(names)
+            target.extend(tags)
             continue
-        for name in names:
-            if name in target:
+        for tag in tags:
+            if label(tag) in {label(existing) for existing in target}:
                 dropped += 1
                 continue
-            target.append(name)
+            target.append(tag)
     return dropped
 
 

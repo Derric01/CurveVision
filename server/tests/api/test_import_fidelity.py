@@ -199,12 +199,14 @@ class TestRoundTrips:
         [track] = document["tracks"]
         # Immutable on the track, mutable on each keyframe: as the editor writes them.
         assert track["attributes"] == {"colour": "red"}
+        # On the keyframes it was drawn with, and only those: until iteration 72 every
+        # frame the export listed came back as a keyframe.
         parked = {
             keyframe["frame"]: keyframe["attributes"].get("parked")
             for keyframe in track["shapes"]
             if not keyframe["outside"]
         }
-        assert parked == {0: True, 1: True, 2: False, 3: False}
+        assert parked == {0: True, 2: False}
 
 
 def cvat_archive(xml: str) -> bytes:
@@ -247,10 +249,12 @@ class TestACvatFile:
     ) -> None:
         """Present on 0 and 1, gone on 2 and 3, back on 4 — and still there on 5.
 
-        As CVAT reads it: the `keyframe="0"` box on frame 1 is dropped and interpolated from
-        the keyframes either side (here: held, since the next one is a departure), and after
-        its last keyframe a track nothing closes stays where it was to the end of the job.
-        Until iteration 71 frame 1 became a keyframe and the track was ended after frame 4.
+        As CVAT reads it, after its last keyframe a track nothing closes stays where it was
+        to the end of the job (until iteration 71 it was ended after frame 4). The
+        `keyframe="0"` box on frame 1 is the one place this differs from CVAT, on purpose:
+        it says the car is occluded there, which interpolating from frame 0 does not
+        reproduce, so it is kept as a keyframe rather than dropped. CVAT's reader drops every
+        `keyframe="0"` shape; one interpolation does reproduce is dropped here too.
         """
         result, document = await import_into(
             owner, project, "cvat_xml", cvat_archive(self.XML), frames=6
@@ -259,10 +263,11 @@ class TestACvatFile:
         [track] = document["tracks"]
         assert present_on(track) == [0, 1, 4, 5]
         assert track["attributes"] == {"colour": "black"}
-        assert {s["frame"]: s["outside"] for s in track["shapes"]} == {
-            0: False,
-            2: True,
-            4: False,
+        assert {s["frame"]: (s["outside"], s["occluded"]) for s in track["shapes"]} == {
+            0: (False, False),
+            1: (False, True),
+            2: (True, False),
+            4: (False, False),
         }
         assert result["tracks_imported"] == 1
 

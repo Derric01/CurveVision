@@ -28,6 +28,7 @@ from curvevision.formats.base import (
     ImportSource,
     LabelSpec,
     ShapeRecord,
+    TagRecord,
 )
 from curvevision.formats.io import (
     MemoryExportSink,
@@ -51,6 +52,7 @@ __all__ = [
     "MemoryExportSink",
     "MemoryImportSource",
     "ShapeRecord",
+    "TagRecord",
     "ZipExportSink",
     "ZipImportSource",
     "all_formats",

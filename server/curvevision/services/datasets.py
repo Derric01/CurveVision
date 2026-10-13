@@ -39,6 +39,7 @@ from curvevision.formats import (
     LabelSpec,
     MemoryExportSink,
     ShapeRecord,
+    TagRecord,
     ZipExportSink,
     get_format,
 )
@@ -120,7 +121,7 @@ async def build_dataset_view(
         }
 
         by_frame: dict[int, list[ShapeRecord]] = {}
-        tags_by_frame: dict[int, list[str]] = {}
+        tags_by_frame: dict[int, list[TagRecord]] = {}
 
         # Jobs are folded in one at a time rather than concatenated, because a task with
         # `overlap > 0` hands the same frames to two annotators on purpose and their work on
@@ -129,7 +130,7 @@ async def build_dataset_view(
         track_ids = _TrackIds(await _reserved_object_ids(session, [job.id for job in jobs]))
         for job in jobs:
             job_frames: dict[int, list[ShapeRecord]] = {}
-            job_tags: dict[int, list[str]] = {}
+            job_tags: dict[int, list[TagRecord]] = {}
             await _collect_job_annotations(
                 session, job, label_names, job_frames, job_tags, present_types, track_ids
             )
@@ -166,7 +167,8 @@ async def build_dataset_view(
                         width=blob.width if blob else None,
                         height=blob.height if blob else None,
                         shapes=by_frame.get(frame_index, []),
-                        tags=tags_by_frame.get(frame_index, []),
+                        tags=[tag.label for tag in tags_by_frame.get(frame_index, [])],
+                        tag_records=tags_by_frame.get(frame_index, []),
                         media=media,
                         media_sha256=blob.sha256 if blob else None,
                     )
@@ -274,7 +276,7 @@ async def _collect_job_annotations(
     job: Job,
     label_names: dict[uuid.UUID, str],
     by_frame: dict[int, list[ShapeRecord]],
-    tags_by_frame: dict[int, list[str]],
+    tags_by_frame: dict[int, list[TagRecord]],
     present_types: set[ShapeType],
     track_ids: _TrackIds,
 ) -> None:
@@ -347,6 +349,7 @@ async def _collect_job_annotations(
                     confidence=track.confidence,
                     mask=position.mask,
                     elements=list(position.elements),
+                    keyframe=position.keyframe,
                 )
             )
 
@@ -359,7 +362,14 @@ async def _collect_job_annotations(
             else list(range(job.start_frame, job.stop_frame + 1))
         )
         for frame in frames:
-            tags_by_frame.setdefault(frame, []).append(name)
+            tags_by_frame.setdefault(frame, []).append(
+                TagRecord(
+                    label=name,
+                    attributes=dict(tag.attributes),
+                    source=str(tag.source),
+                    confidence=tag.confidence,
+                )
+            )
 
 
 async def export_dataset(
@@ -510,6 +520,25 @@ async def write_import(
     undeclared: set[str] = set()
     refused: set[str] = set()
 
+    def provenance(source: str, confidence: float | None) -> tuple[AnnotationSource, float | None]:
+        """The record's own provenance where the format carries it; `imported` otherwise.
+
+        A pending model suggestion is `model` with a confidence (accepting one clears it),
+        so restoring a backup as `imported` turned every pending suggestion into finished
+        work. `interpolated` describes an export's frame, never a stored annotation.
+        """
+        if not result.carries_provenance:
+            return AnnotationSource.IMPORTED, None
+        try:
+            kind = AnnotationSource(source)
+        except ValueError:
+            return AnnotationSource.IMPORTED, None
+        if kind is AnnotationSource.INTERPOLATED:
+            return AnnotationSource.IMPORTED, None
+        if isinstance(confidence, int | float) and 0.0 <= float(confidence) <= 1.0:
+            return kind, float(confidence)
+        return kind, None
+
     def kept(label_id: uuid.UUID, label: str, values: dict[str, Any]) -> dict[str, Any]:
         definitions = {definition.name: definition for definition in schema.definitions(label_id)}
         cleaned: dict[str, Any] = {}
@@ -575,6 +604,7 @@ async def write_import(
         elements = resolved(record, label_id)
         if elements is None:
             continue
+        source, confidence = provenance(record.source, record.confidence)
         session.add(
             Shape(
                 job_id=target.id,
@@ -586,7 +616,8 @@ async def write_import(
                 occluded=record.occluded,
                 z_order=record.z_order,
                 group=record.group,
-                source=AnnotationSource.IMPORTED,
+                source=source,
+                confidence=confidence,
                 attributes=kept(uuid.UUID(label_id), record.label, record.attributes),
                 mask=record.mask,
                 elements=elements,
@@ -611,6 +642,7 @@ async def write_import(
             return resolved(record, label_id)
 
         keyframes = _keyframes_of(
+            shape_type,
             records,
             leaving.get((track_id, label), set()),
             gaps_absent=gaps_absent,
@@ -620,32 +652,38 @@ async def write_import(
         )
         if keyframes is None:
             continue
-        group = min(records, key=lambda item: item[0])[1].group
+        first_record = min(records, key=lambda item: item[0])[1]
+        source, confidence = provenance(first_record.source, first_record.confidence)
         for job, part in _by_job(jobs, keyframes, shape_type):
             _write_track(
                 session,
                 job=job,
                 label_id=label_uuid,
                 shape_type=shape_type,
-                group=group,
+                group=first_record.group,
+                source=source,
+                confidence=confidence,
                 keyframes=part,
                 mutable=schema.mutable_attribute_names(label_uuid),
                 actor_id=actor_id,
             )
             written.tracks += 1
 
-    for frame, label_name in result.tags:
+    for frame, tag in result.tags:
+        full = tag if isinstance(tag, TagRecord) else TagRecord(label=tag, source="imported")
         target = _job_for_frame(jobs, frame)
-        label_id = label_ids.get(label_name)
+        label_id = label_ids.get(full.label)
         if target is None or label_id is None:
             continue
+        source, confidence = provenance(full.source, full.confidence)
         session.add(
             Tag(
                 job_id=target.id,
                 label_id=uuid.UUID(label_id),
                 frame=frame,
-                source=AnnotationSource.IMPORTED,
-                attributes={},
+                source=source,
+                confidence=confidence,
+                attributes=kept(uuid.UUID(label_id), full.label, full.attributes),
                 created_by_id=actor_id,
             )
         )
@@ -676,6 +714,7 @@ def _job_for_frame(jobs: list[Job], frame: int) -> Job | None:
 
 
 def _keyframes_of(
+    shape_type: ShapeType,
     records: list[tuple[int, ShapeRecord]],
     leaving: set[int],
     *,
@@ -689,6 +728,11 @@ def _keyframes_of(
     A departure (`outside`) carries the geometry of the keyframe before it, as the editor
     writes one: its own is a stale copy, and need not even read as the track's shape type.
     One before the track's first appearance says nothing and is dropped, as CVAT drops it.
+
+    A frame the file marks as not a keyframe (`ShapeRecord.keyframe`) counts as a frame the
+    object is on, and is stored only where the keyframes around it do not already put it
+    there (`_unreproduced`) — so a track comes back with the keyframes it was exported
+    with, and never at a position other than the one the file gave.
     """
     present: dict[int, Keyframe] = {}
     for frame, record in sorted(records, key=lambda item: item[0]):
@@ -706,6 +750,7 @@ def _keyframes_of(
             attributes=attributes_of(record),
             mask=record.mask,
             elements=joints or [],
+            keyframe=record.keyframe,
         )
     frames = sorted(present)
     if gaps_absent:
@@ -726,9 +771,70 @@ def _keyframes_of(
             keyframes.append(previous)
         elif previous is not None and not keyframes[-1].outside:
             keyframes.append(
-                replace(previous, frame=frame, occluded=False, outside=True, attributes={})
+                replace(
+                    previous,
+                    frame=frame,
+                    occluded=False,
+                    outside=True,
+                    keyframe=True,
+                    attributes={},
+                )
             )
-    return keyframes
+    return _unreproduced(keyframes, shape_type)
+
+
+#: How far a frame that was not a keyframe may sit from where interpolation puts it and
+#: still be dropped as reproduced: CVAT XML writes coordinates to two decimal places.
+_REPRODUCED_WITHIN = 0.02
+
+
+def _unreproduced(keyframes: list[Keyframe], shape_type: ShapeType) -> list[Keyframe]:
+    """The keyframes, less every frame not marked one that interpolation reproduces.
+
+    A frame marked as interpolated is not trusted to be: it is dropped only where the
+    keyframes kept around it put the object at the same place, in the same state, and kept
+    — as a keyframe — wherever they do not (a tool that interpolates differently, a run's
+    first frame). Keeping one changes what the frames on either side interpolate to, so
+    the pass repeats until nothing more is kept.
+    """
+    kept = [kf for kf in keyframes if kf.keyframe or kf.outside]
+    pending = [kf for kf in keyframes if not kf.keyframe and not kf.outside]
+    changed = True
+    while changed and pending:
+        changed = False
+        for candidate in list(pending):
+            predicted = interpolate_track(kept, shape_type, candidate.frame) if kept else None
+            if predicted is not None and _same_place(predicted, candidate):
+                continue
+            pending.remove(candidate)
+            kept.append(replace(candidate, keyframe=True))
+            kept.sort(key=lambda kf: kf.frame)
+            changed = True
+    return kept
+
+
+def _same_place(a: Keyframe, b: Keyframe) -> bool:
+    def close(left: list[float], right: list[float]) -> bool:
+        return len(left) == len(right) and all(
+            abs(x - y) <= _REPRODUCED_WITHIN for x, y in zip(left, right, strict=True)
+        )
+
+    turn = abs(a.rotation - b.rotation) % 360.0
+    return (
+        close(a.points, b.points)
+        and min(turn, 360.0 - turn) <= _REPRODUCED_WITHIN
+        and a.occluded == b.occluded
+        and a.z_order == b.z_order
+        and a.attributes == b.attributes
+        and a.mask == b.mask
+        and len(a.elements) == len(b.elements)
+        and all(
+            close(list(x.get("points") or []), list(y.get("points") or []))
+            and bool(x.get("occluded")) == bool(y.get("occluded"))
+            and bool(x.get("outside")) == bool(y.get("outside"))
+            for x, y in zip(a.elements, b.elements, strict=True)
+        )
+    )
 
 
 def _by_job(
@@ -747,12 +853,13 @@ def _by_job(
     for job in jobs:
         start, stop = job.start_frame, job.stop_frame
         part = [kf for kf in keyframes if start <= kf.frame <= stop]
-        while part and part[0].outside:
-            part.pop(0)
         if not part or part[0].frame != start:
             entering = interpolate_track(keyframes, shape_type, start)
             if entering is not None:
                 part.insert(0, replace(entering, frame=start, keyframe=True))
+        # Only now: a departure after the shape it enters with is not a leading one.
+        while part and part[0].outside:
+            part.pop(0)
         following = next((kf for kf in keyframes if kf.frame > stop), None)
         if part and part[-1].frame != stop and following is not None and not following.outside:
             through = interpolate_track(keyframes, shape_type, stop)
@@ -770,6 +877,8 @@ def _write_track(
     label_id: uuid.UUID,
     shape_type: ShapeType,
     group: int | None,
+    source: AnnotationSource,
+    confidence: float | None,
     keyframes: list[Keyframe],
     mutable: set[str],
     actor_id: uuid.UUID,
@@ -782,7 +891,8 @@ def _write_track(
         label_id=label_id,
         shape_type=shape_type,
         group=group,
-        source=AnnotationSource.IMPORTED,
+        source=source,
+        confidence=confidence,
         # What does not vary per frame lives on the track, as the editor writes it.
         attributes={k: v for k, v in first.attributes.items() if k not in mutable},
         created_by_id=actor_id,

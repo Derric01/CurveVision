@@ -1,6 +1,6 @@
 # Iteration archive
 
-> The narrative record of iterations **1–65**, moved out of
+> The narrative record of iterations **1–66**, moved out of
 > [`handoff.md`](../../handoff.md) so that orienting on this project costs a few hundred
 > lines rather than four thousand.
 >
@@ -15,6 +15,34 @@
 > window, append it to the top of this file rather than deleting it.
 
 ---
+
+## Iteration 66
+
+### 66 — every export held to its reader; a workspace run from the application
+
+Asked for directly: "finish everything in this iteration", with the export bar from 65. One
+iteration of five parts, said up front, with three things excluded and said so: the
+YOLO-World server (a separate, GPL repository this session cannot create), signed
+installers (certificates the project does not have) and a real-key AI trial (the user's
+keys).
+
+Exports first, against readers rather than round trips: Datumaro 1.13 for VOC, KITTI, MOT,
+segmentation and CVAT XML; then CVAT's own XML reader (`dataset_manager/formats/cvat.py`,
+run against CVAT's Datumaro fork with its Django imports stubbed) once Datumaro was found
+not to read skeletons at all. Ultralytics would not install, so its loader was read and its
+rules restated (`img2label_paths`, `verify_image_label`, `YOLODataset.get_labels`).
+Reading `verify_image_label` is what found the mixed-row corruption; no reader that was
+installed would have.
+
+Then the application. Reading the member service before building its page found the
+escalation; reading the version service before building its panel found that "immutable"
+releases froze nothing; tracing what a task delete leaves behind found the collector nothing
+called. Each was fixed with a failing test first, and each is the server work a panel would
+otherwise have shipped to more people. CVAT was read for the member rule
+(`organizations/rules/memberships.rego`) and its XML dumper's conventions; neither is
+adapted code, and both are in the notices.
+
+Verified: see *Verification performed*.
 
 ## Iteration 65
 

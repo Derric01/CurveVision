@@ -314,8 +314,11 @@ class CvatXmlFormat:
             label = entries[0][1].label
             body: list[str] = []
             for position, (frame_index, shape) in enumerate(entries):
+                # Which frames were authored, as CVAT's own dumper says: an interpolated
+                # frame is `keyframe="0"`. Until iteration 72 every frame was "1", and CVAT
+                # opened the track with a keyframe on each.
                 written = self._shape_element(
-                    shape, indent="    ", frame=frame_index, keyframe=True
+                    shape, indent="    ", frame=frame_index, keyframe=shape.keyframe
                 )
                 if not written:
                     continue
@@ -490,12 +493,14 @@ class CvatXmlFormat:
                 matched.add(frame)
 
         # --- "for video": keyframes nested under <track>
-        # As CVAT's own reader (`load_anno`) takes them: only the shapes marked `keyframe`
-        # are kept, a frame between two of them is interpolated rather than empty, and an
-        # `outside` keyframe is where the object leaves until the next one. CVAT writes every
-        # frame of a track, interpolated ones with `keyframe="0"`; a file written by hand or
-        # by another tool lists only its keyframes, and reading a gap in one as the object
-        # being gone (until iteration 71) emptied every frame between them.
+        # As CVAT's own reader (`load_anno`) takes them: a frame between two keyframes is
+        # interpolated rather than empty, and an `outside` keyframe is where the object
+        # leaves until the next one. A file written by hand or by another tool lists only
+        # its keyframes, and reading a gap in one as the object being gone (until iteration
+        # 71) emptied every frame between them. CVAT writes the interpolated frames too,
+        # marked `keyframe="0"`; CVAT's reader drops them, and these are passed on marked as
+        # such, for the import to drop where interpolation here reproduces them and keep
+        # where it does not (`services.datasets._unreproduced`).
         result.track_gaps = "interpolated"
         for track in root.findall("track"):
             label = track.get("label", "")
@@ -504,8 +509,7 @@ class CvatXmlFormat:
             except ValueError:
                 track_id = 0
             for child in track:
-                if child.get("keyframe", "1") != "1":
-                    continue  # interpolated from the keyframes either side, as CVAT does
+                keyframe = child.get("keyframe", "1") == "1"
                 try:
                     frame = int(child.get("frame", "-1"))
                 except ValueError:
@@ -516,6 +520,8 @@ class CvatXmlFormat:
                     )
                     continue
                 if child.get("outside") == "1":
+                    if not keyframe:
+                        continue  # a frame of an absence CVAT wrote out: nothing is there
                     # The object leaving: where a run ends, not a position. Its geometry is
                     # a stale copy, kept only because a track keyframe carries some.
                     # The service attaches it to its track by id and label, whatever its
@@ -530,7 +536,7 @@ class CvatXmlFormat:
                     continue
                 if not ensure_label(shape.label, f"{name}: track {track_id}"):
                     continue
-                result.shapes.append((frame, replace(shape, track_id=track_id)))
+                result.shapes.append((frame, replace(shape, track_id=track_id, keyframe=keyframe)))
                 matched.add(frame)
 
         result.frames_matched = len(matched)

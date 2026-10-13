@@ -257,6 +257,41 @@ class TestCvatXml:
             (5, "1", "1"),
         ]
 
+    def test_a_frame_between_keyframes_is_written_as_no_keyframe(self) -> None:
+        """As CVAT's dumper writes it, and as CVAT's reader needs it: a frame marked
+        `keyframe="1"` becomes a keyframe there, so writing every frame that way (until
+        iteration 72) opened each exported track in CVAT with a keyframe on every frame."""
+        keyed = {0, 3}
+        view = DatasetView(
+            name="keys",
+            labels=labels(),
+            frames=iter(
+                FrameRecord(
+                    index=index,
+                    name=f"frame_{index:03d}.jpg",
+                    width=WIDTH,
+                    height=HEIGHT,
+                    shapes=[
+                        ShapeRecord(
+                            label="car",
+                            shape_type=ShapeType.RECTANGLE,
+                            points=[10.0 * index, 20.0, 10.0 * index + 40, 50.0],
+                            track_id=7,
+                            keyframe=index in keyed,
+                        )
+                    ],
+                )
+                for index in range(4)
+            ),
+        )
+        [track] = self.root(view).iter("track")
+        assert [(box.get("frame"), box.get("keyframe")) for box in track] == [
+            ("0", "1"),
+            ("1", "0"),
+            ("2", "0"),
+            ("3", "1"),
+        ]
+
 
 # ----------------------------------------------------------------------- Ultralytics YOLO
 

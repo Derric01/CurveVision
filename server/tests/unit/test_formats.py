@@ -21,6 +21,7 @@ from curvevision.formats import (
     MemoryExportSink,
     MemoryImportSource,
     ShapeRecord,
+    TagRecord,
     all_formats,
     get_format,
 )
@@ -341,7 +342,7 @@ class TestNativeFormat:
         native.export(dataset, sink)
         result = native.import_(MemoryImportSource(sink.files), import_context())
 
-        assert result.tags == [(0, "daytime")]
+        assert result.tags == [(0, TagRecord(label="daytime"))]
         _, restored = result.shapes[0]
         assert restored.shape_type is ShapeType.POLYLINE
         assert restored.points == original.points

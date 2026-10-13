@@ -5,9 +5,9 @@
 > [`AGENTS.md`](./AGENTS.md) first; it is the working contract. Update this file after every
 > iteration, including the ones that mostly failed.
 >
-> **Last updated:** 2026-10-12 (iteration 71) · branch `claude/start-work-yx080h` · PRs
+> **Last updated:** 2026-10-13 (iteration 72) · branch `claude/start-work-yx080h` · PRs
 > [#1](https://github.com/Derric01/CurveVision/pull/1)–[#34](https://github.com/Derric01/CurveVision/pull/34)
-> **all merged**, #34 carrying iterations 67–69. Iterations 70 and 71 are pushed on top of
+> **all merged**, #34 carrying iterations 67–69. Iterations 70–72 are pushed on top of
 > that merge with no PR yet.
 >
 > *Two things worth knowing about this repository's PR rhythm, which replace the
@@ -22,7 +22,7 @@
 > **Keep the session short.** One iteration, then commit, push, update this file and report —
 > `AGENTS.md` § *Continue* and the `start-work` skill both say so now, because they did not
 > before and a single session ran six iterations and roughly a third of a week's budget. The
-> concrete costs, in rough order: re-reading this file (iterations 1–65 now live in
+> concrete costs, in rough order: re-reading this file (iterations 1–66 now live in
 > [`docs/iterations/ARCHIVE.md`](./docs/iterations/ARCHIVE.md), which cut it from 3,800
 > lines to 1,000 — keep it that way); `python desktop/sidecar/build.py`, which is a
 > PyInstaller run of a minute or two and is needed *again* for every sabotage-and-restore
@@ -45,7 +45,7 @@ shapes (detection/segmentation, OBB, pose, classification), each declaring in it
 The desktop shape works: a packaged single-executable server, a Tauri shell that supervises
 it, and folders annotated in place without copying a byte.
 
-**The tree is green.** `./scripts/check.sh` passes all thirteen steps: 716 server tests, 16
+**The tree is green.** `./scripts/check.sh` passes all thirteen steps: 725 server tests, 16
 SDK, 756 web, and `scripts/` is lint-clean under its own `ruff.toml`. Thirty-two browser
 harnesses drive the application in a real Chromium, nightly and on every push to `main` —
 thirty-one against the packaged desktop server, and `verify_workspace.py` against the real
@@ -62,6 +62,11 @@ real one: **a box drawn in the editor lost its selection when its first autosave
 whoever was filling it in, within four seconds of drawing. The selection now follows the
 box to its saved id; the harnesses save through one helper that treats "autosave already
 did it" as done; and the deselection is checked on purpose rather than by luck.
+
+**A backup restores what it holds** (iteration 72): the native format's import keeps each
+annotation's provenance and confidence — a pending model suggestion is still one after a
+restore — and each tag's attributes, and a track exported to the native format or CVAT XML
+comes back with the keyframes it was drawn with rather than one on every frame.
 
 **A CVAT XML track is read the way CVAT reads it** (iteration 71): keyframes, with the
 frames between them interpolated and `outside` as the only departure, split across jobs
@@ -499,24 +504,23 @@ was the last unconnected piece of the desktop application.
 
 ## Next best action
 
-*CVAT XML tracks read as CVAT reads them was iteration 71; the nightly browser run green
-on GitHub again, 70; Ultralytics reading and training on every YOLO export, 67.*
+*A backup that restores what it holds, and tracks that keep their keyframes through CVAT
+XML and the native format, was iteration 72; CVAT XML tracks read as CVAT reads them, 71;
+the nightly browser run green on GitHub again, 70.*
 
-**`.github/workflows/ultralytics.yml` has run green on GitHub** (on #34 and on `main`), so
-the item that stood here is done. This iteration changes `server/curvevision/formats/`,
-which triggers it again: check that run, and `browser.yml`'s next, on GitHub.
+**CI on GitHub**: `ci.yml` and `ultralytics.yml` ran green on iteration 71's commit
+(dispatched; on this branch they otherwise run only for a PR). Dispatch them, and
+`browser.yml`, on whatever this iteration pushed — iteration 72 changes the formats again.
 
-**Then, with no dependency on the user: write CVAT's `keyframe` flag truthfully.** Found
-doing 71. A CVAT XML export lists every frame of a track with `keyframe="1"`, because a
-format is handed a track already materialised frame by frame and does not know which
-frames were authored. CVAT reads every one of them as a keyframe, so a track exported from
-here and opened in CVAT has a keyframe on every frame: right positions, but moving it means
-moving every frame. CVAT's own dumper writes interpolated frames with `keyframe="0"`. The
-fix is to carry `keyframe` on the per-frame `ShapeRecord` from `_collect_job_annotations`
-(it knows), write it, and pin it in `test_export_conformance.py`. Re-import already drops
-`keyframe="0"` frames as CVAT does (iteration 71), so the round trip would then keep the
-authored keyframes exactly.
-
+**Then, with no dependency on the user: an edit to a new object during its first save is
+dropped** (*Known issues*). Iteration 70 made the attributes panel stay up through a new
+box's first autosave, which makes typing into it right after drawing the normal case —
+and `record` drops an update for a `pending` object not in `created`, so keystrokes made
+while that save is in flight, or before the reload swaps the server id in, are lost (the
+reload then shows the saved value). Reproduce it in `verify_attribute_values.py` by typing
+during the in-flight window (throttle the PATCH with `page.route`), then fix it in
+`useAutosave.ts`: the `local` map already knows the object's client id, which is what the
+reload half needs; the in-flight half needs the update queued behind the create.
 
 **First, if a key is available: try iteration 63 against the real services.** Add Claude,
 OpenAI and one OpenRouter vision model on the Models page with real keys, run each on a few
@@ -1037,6 +1041,31 @@ being updated and this one was not. Check it against* Completed *before trusting
 
 ## Verification performed
 
+Iteration 72:
+
+* `tests/api/test_lossless_round_trip.py`, eight tests through the API — draw, export,
+  import into a second project, read back: a manual shape, a pending suggestion
+  (`model`, 0.7) and an accepted one (`model`, none) each come back as they were; a tag
+  with its attributes and provenance; a rectangle track with keyframes on 0 and 3 and a
+  departure on 5, and a polygon that gains a vertex between keyframes on 0 and 4, each
+  with exactly those keyframes, through the native format and through CVAT XML (whose two
+  decimals the reproduction tolerance absorbs); a `keyframe="0"` frame interpolation does
+  not reproduce kept as a keyframe; an import from CVAT XML still claiming no provenance.
+  **Seven fail against the code before this iteration**; the eighth is a guard, and held
+  before too.
+* `test_export_conformance.py` pins CVAT XML's `keyframe="0"` on a frame between keyframes.
+* `test_import_fidelity.py`: three expectations changed, each because the old one encoded
+  the loss — keyframes on every frame of a round trip (now the drawn ones), and the CVAT
+  file's `keyframe="0"` frame that says `occluded="1"` (now kept, where CVAT drops it: see
+  the test's docstring). Writing the job-split test's new path found a real defect, fixed:
+  a departure right after a part's entering shape was stripped as a leading one.
+* `merge._with_track_id` rebuilt a record field by field and would have reset `keyframe`;
+  it is `dataclasses.replace` now.
+* `ci.yml` and `ultralytics.yml` dispatched on iteration 71's commit: both green on GitHub.
+* Rebuilt sidecar: `verify_annotation_import`, `verify_cuboid`, `verify_tracked_skeleton`
+  and `verify_track_timeline` pass.
+* Full `./scripts/check.sh`: green (725 server collected, 756 web).
+
 Iteration 71:
 
 * **CVAT read first**: `load_anno` in `cvat/apps/dataset_manager/formats/cvat.py` (only
@@ -1399,6 +1428,12 @@ Iteration 54:
 
 ## Bugs fixed
 
+* **Restoring a native backup turned every pending model suggestion into finished work**
+  (iteration 72): the format wrote each annotation's `source` and `confidence` and the
+  import ignored both, storing everything as `imported`. A tag lost its attributes too.
+* **Every track exported to CVAT XML or the native format came back with a keyframe on
+  every frame** (iteration 72), in this application and in CVAT: neither export said which
+  frames were authored.
 * **A CVAT XML track with sparse keyframes came back empty between them** (iteration 71):
   the import read a frame a track did not list as the object being gone, where CVAT reads
   it as interpolated. A file written by hand, by a script or by another tool — anything
@@ -1537,8 +1572,6 @@ Iteration 54:
 
 ## Known issues
 
-* **The Ultralytics workflow has not yet run on GitHub** (iteration 67). Verified locally;
-  see *Next best action*.
 * **YOLO Pose writes `flip_idx` only when joint names say left and right** (iteration 67).
   A skeleton named `hand1`/`hand2` gets none, and Ultralytics then trains without flip
   augmentation — slower to generalise, never wrong. Naming joints `left_…`/`right_…` fixes it.
@@ -1562,13 +1595,15 @@ Iteration 54:
   reported as a 502 that says so. Run it on a frame range.
 * **Boxes only** from hosted models: no masks, polygons, keypoints or whole-frame tags yet.
 
-* **An imported track has a keyframe on every frame the file lists**, not only on the
-  frames somebody keyed: no format here carries which frames were keyframes (CVAT XML's
-  `keyframe` attribute is not read), so the timeline shows a dense lane. The positions are
-  right; editing one frame edits that keyframe only.
-* **An import does not carry provenance in**: everything it writes is `source: "imported"`,
-  so a native backup restores model suggestions as imported annotations, without their
-  confidence. Tags come in without attributes (`ImportResult.tags` has no field for them).
+* **A MOTChallenge track comes back with a keyframe on every frame it lists**: the format
+  has no way to say which frames were keyed. CVAT XML and the native format do, and keep
+  them (iteration 72). The positions are right either way.
+* **Only the native format brings provenance in**: an import from any other format stores
+  `source: "imported"` with no confidence, because nothing else wrote its `source` from an
+  annotation of this server's. Tag attributes likewise come in only from the native format.
+* **A job-wide tag (one with no frame) is exported onto every frame of its job**, by every
+  format, so an import brings it back as one tag per frame. No export format here has a
+  place for a tag that belongs to no frame.
 
 * **A model's API key is stored as given**, in `model_registrations.config`, as a webhook's
   signing secret is in `webhooks.secret`. Neither is returned by the API; anyone who can
@@ -1734,6 +1769,21 @@ Iteration 54:
 
 ## Last iteration
 
+### 72 — a backup that restores what it holds; tracks that keep their keyframes
+
+Asked for a larger piece of work, so two items from *Known issues* that are one subject:
+what survives a round trip. The native format calls itself lossless, and its import
+dropped three things it wrote — provenance (so pending suggestions came back as finished
+work), tag attributes, and which frames were keyframes; CVAT XML lost the keyframes too,
+which was the next best action. Formats now say which frames were authored, and the import
+keeps a frame marked as interpolated only where its own interpolation disagrees — so it is
+lossless whatever tool wrote the file, not only when the tools agree. Provenance is kept
+only from the one format that wrote it from this server's annotations.
+
+Verified: see *Verification performed*.
+
+## Iteration 71
+
 ### 71 — a CVAT XML track read the way CVAT reads it
 
 The oldest item in *Next best action* with no dependency on the user, found during 68. The
@@ -1809,37 +1859,9 @@ and the OBB/pose split; orienting found iteration 66's harness missing from CI.
 
 Verified: see *Verification performed*.
 
-## Iteration 66
-
-### 66 — every export held to its reader; a workspace run from the application
-
-Asked for directly: "finish everything in this iteration", with the export bar from 65. One
-iteration of five parts, said up front, with three things excluded and said so: the
-YOLO-World server (a separate, GPL repository this session cannot create), signed
-installers (certificates the project does not have) and a real-key AI trial (the user's
-keys).
-
-Exports first, against readers rather than round trips: Datumaro 1.13 for VOC, KITTI, MOT,
-segmentation and CVAT XML; then CVAT's own XML reader (`dataset_manager/formats/cvat.py`,
-run against CVAT's Datumaro fork with its Django imports stubbed) once Datumaro was found
-not to read skeletons at all. Ultralytics would not install, so its loader was read and its
-rules restated (`img2label_paths`, `verify_image_label`, `YOLODataset.get_labels`).
-Reading `verify_image_label` is what found the mixed-row corruption; no reader that was
-installed would have.
-
-Then the application. Reading the member service before building its page found the
-escalation; reading the version service before building its panel found that "immutable"
-releases froze nothing; tracing what a task delete leaves behind found the collector nothing
-called. Each was fixed with a failing test first, and each is the server work a panel would
-otherwise have shipped to more people. CVAT was read for the member rule
-(`organizations/rules/memberships.rego`) and its XML dumper's conventions; neither is
-adapted code, and both are in the notices.
-
-Verified: see *Verification performed*.
-
 ## Earlier iterations
 
-Iterations **1–65** are in [`docs/iterations/ARCHIVE.md`](./docs/iterations/ARCHIVE.md) —
+Iterations **1–66** are in [`docs/iterations/ARCHIVE.md`](./docs/iterations/ARCHIVE.md) —
 moved there so that orienting costs a few hundred lines rather than four thousand. Read them
 when `git log` points you at an iteration number, or when you are about to build something
 and want to know whether it was already tried and rejected. The lessons from them that are
