@@ -5,9 +5,9 @@
 > [`AGENTS.md`](./AGENTS.md) first; it is the working contract. Update this file after every
 > iteration, including the ones that mostly failed.
 >
-> **Last updated:** 2026-10-13 (iteration 74) · branch `claude/start-work-yx080h` · PRs
+> **Last updated:** 2026-10-13 (iteration 75) · branch `claude/start-work-yx080h` · PRs
 > [#1](https://github.com/Derric01/CurveVision/pull/1)–[#34](https://github.com/Derric01/CurveVision/pull/34)
-> **all merged**, #34 carrying iterations 67–69. Iterations 70–74 are pushed on top of
+> **all merged**, #34 carrying iterations 67–69. Iterations 70–75 are pushed on top of
 > that merge with no PR yet.
 >
 > *Two things worth knowing about this repository's PR rhythm, which replace the
@@ -22,7 +22,7 @@
 > **Keep the session short.** One iteration, then commit, push, update this file and report —
 > `AGENTS.md` § *Continue* and the `start-work` skill both say so now, because they did not
 > before and a single session ran six iterations and roughly a third of a week's budget. The
-> concrete costs, in rough order: re-reading this file (iterations 1–68 now live in
+> concrete costs, in rough order: re-reading this file (iterations 1–69 now live in
 > [`docs/iterations/ARCHIVE.md`](./docs/iterations/ARCHIVE.md), which cut it from 3,800
 > lines to 1,000 — keep it that way); `python desktop/sidecar/build.py`, which is a
 > PyInstaller run of a minute or two and is needed *again* for every sabotage-and-restore
@@ -45,7 +45,7 @@ shapes (detection/segmentation, OBB, pose, classification), each declaring in it
 The desktop shape works: a packaged single-executable server, a Tauri shell that supervises
 it, and folders annotated in place without copying a byte.
 
-**The tree is green.** `./scripts/check.sh` passes all thirteen steps: 725 server tests, 16
+**The tree is green.** `./scripts/check.sh` passes all thirteen steps: 726 server tests, 16
 SDK, 765 web, and `scripts/` is lint-clean under its own `ruff.toml`. Thirty-two browser
 harnesses drive the application in a real Chromium, nightly and on every push to `main` —
 thirty-one against the packaged desktop server, and `verify_workspace.py` against the real
@@ -504,7 +504,7 @@ was the last unconnected piece of the desktop application.
 
 ## Next best action
 
-*Submit checks what its own save achieved, iteration 74. No edit made during a save is lost any more — to a new object while its first save is in
+*A default the server fills in is stored typed, iteration 75; Submit checks what its own save achieved, 74. No edit made during a save is lost any more — to a new object while its first save is in
 flight, or to any object while a save that then fails is — and the editor always fits the
 frame it opens on, iteration 73; a backup that
 restores what it holds, and tracks that keep their keyframes through CVAT XML and the
@@ -514,13 +514,16 @@ native format, 72; CVAT XML tracks read as CVAT reads them, 71.*
 when dispatched (or for a PR). All three were green on iteration 72's commit; dispatch them
 on whatever is pushed next.
 
-**Then, with no dependency on the user: a default the server fills in is stored as a
-string** (*Known issues*). `validate_attributes` writes `definition.default_value` as
-given, so a checkbox default lands as `"false"` and a number's as `"3"` whenever the server
-fills it — from the SDK, the CLI, an import or a model — while the editor sends it typed.
-It shows in every export until the annotation is next saved from the editor. Coerce it
-through the same conversion a submitted value goes through, and add the case to
-`TestEditingAttributes` and an export test.
+**Then, with no dependency on the user: production hardening, Phase 12.** Two of its
+markers are not what the code is. *Rate limiting* says "Redis token bucket, per-token and
+per-IP — In Progress"; what exists is `SlidingWindowLimiter` in `api/middleware.py`, one
+per process, so a server run as several instances lets a client through N times the limit.
+Add a Redis-backed limiter, chosen by configuration, sharing the in-process one's interface
+and keys, tested against a real Redis (one is installed in this container; add a `redis`
+service to `ci.yml` as the PostgreSQL one is). *CSRF* says a cookie refresh flow uses
+`SameSite=Strict` plus a double-submit token — but no cookie carries authentication
+anywhere (the refresh token travels in the JSON body; the web client sends a bearer
+header), so the honest marker is "not applicable", with that reason.
 
 **First, if a key is available: try iteration 63 against the real services.** Add Claude,
 OpenAI and one OpenRouter vision model on the Models page with real keys, run each on a few
@@ -1041,6 +1044,13 @@ being updated and this one was not. Check it against* Completed *before trusting
 
 ## Verification performed
 
+Iteration 75:
+
+* `test_label_schema.py::TestEditingAttributes::test_a_default_the_server_fills_in_is_stored_as_its_type`:
+  a checkbox, number, select and text default filled in by the server come back as
+  `False`, `3.0`, `"led"`, `"none"`; it failed first with `'false'`. Full server suite:
+  725 passed, 1 skipped (the PostgreSQL variant without its URL).
+
 Iteration 74:
 
 * `verify_save_refusals.py` claims 9 and 10: Submit pressed while its save fails (a 500
@@ -1466,6 +1476,9 @@ Iteration 54:
 
 ## Bugs fixed
 
+* **A default the server filled in was stored as a string** (iteration 75): a checkbox's
+  `"false"`, a number's `"3"`, whenever an annotation came from the SDK, the CLI, an import
+  or a model — and every export carried the string.
 * **Submit handed a job to review without work the annotator could still see** (iteration
   74): when the save Submit runs first failed outright, or was refused, or was still in
   flight from the periodic autosave (`flush` returned at once rather than waiting), the job
@@ -1688,11 +1701,8 @@ Iteration 54:
   that one step this session (twice in about twenty runs); the drag-undo, saved-shape and
   track steps have the same exposure over shorter windows and were not seen to fail. The
   guard there is the pattern to copy if they are.
-* **A default is recorded as a string** when the *server* fills it in —
-  `validate_attributes` writes `definition.default_value` uncoerced, so a checkbox default
-  lands as `"false"` from the SDK, the CLI or an import, while the editor now sends it
-  typed (iteration 55). The next save of that annotation coerces it. Harmless to saving,
-  visible in exports.
+* **Defaults recorded as strings before iteration 75 stay strings** until the annotation's
+  next save, which coerces them; no migration rewrites them.
 * **A rename or removal of an attribute with a default is refused as soon as the label is
   used**, because a default is recorded on every annotation saved with the label. That is
   the stated cost of refusing rather than rewriting (see *Decisions*), and the form says so.
@@ -1810,6 +1820,18 @@ Iteration 54:
 
 ## Last iteration
 
+### 75 — a default the server fills in is stored typed
+
+The next best action, and small: the server wrote a default as the string a label stores
+it as, and a default nobody overrode is in most annotations made outside the editor. It
+now goes through the same coercion a submitted value does; a default from before defaults
+were checked, that its attribute would refuse, is written as before rather than failing the
+save.
+
+Verified: see *Verification performed*.
+
+## Iteration 74
+
 ### 74 — Submit checks what its own save achieved
 
 The next best action. Submit's guard read what was refused *before* the press; nothing
@@ -1892,22 +1914,9 @@ this file makes about them is true again, checked where it is made.
 
 Verified: see *Verification performed*.
 
-## Iteration 69
-
-### 69 — old skeleton joints repaired, and every joint typed
-
-The handoff's next action with no dependency on the user. One decision the handoff left
-open — what to do with a skeleton whose label has no joints — was settled by the import's
-own behaviour since iteration 60: the label gains the joints its skeletons named. Deleting
-or emptying them would lose annotation to fix a schema. PostgreSQL 16 turned out to be
-installed in this container, so the migration was run against it rather than left to CI,
-and it failed there first.
-
-Verified: see *Verification performed*.
-
 ## Earlier iterations
 
-Iterations **1–68** are in [`docs/iterations/ARCHIVE.md`](./docs/iterations/ARCHIVE.md) —
+Iterations **1–69** are in [`docs/iterations/ARCHIVE.md`](./docs/iterations/ARCHIVE.md) —
 moved there so that orienting costs a few hundred lines rather than four thousand. Read them
 when `git log` points you at an iteration number, or when you are about to build something
 and want to know whether it was already tried and rejected. The lessons from them that are

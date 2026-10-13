@@ -1,6 +1,6 @@
 # Iteration archive
 
-> The narrative record of iterations **1–68**, moved out of
+> The narrative record of iterations **1–69**, moved out of
 > [`handoff.md`](../../handoff.md) so that orienting on this project costs a few hundred
 > lines rather than four thousand.
 >
@@ -15,6 +15,19 @@
 > window, append it to the top of this file rather than deleting it.
 
 ---
+
+## Iteration 69
+
+### 69 — old skeleton joints repaired, and every joint typed
+
+The handoff's next action with no dependency on the user. One decision the handoff left
+open — what to do with a skeleton whose label has no joints — was settled by the import's
+own behaviour since iteration 60: the label gains the joints its skeletons named. Deleting
+or emptying them would lose annotation to fix a schema. PostgreSQL 16 turned out to be
+installed in this container, so the migration was run against it rather than left to CI,
+and it failed there first.
+
+Verified: see *Verification performed*.
 
 ## Iteration 68
 
