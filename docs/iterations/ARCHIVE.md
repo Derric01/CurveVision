@@ -1,6 +1,6 @@
 # Iteration archive
 
-> The narrative record of iterations **1–66**, moved out of
+> The narrative record of iterations **1–67**, moved out of
 > [`handoff.md`](../../handoff.md) so that orienting on this project costs a few hundred
 > lines rather than four thousand.
 >
@@ -15,6 +15,21 @@
 > window, append it to the top of this file rather than deleting it.
 
 ---
+
+## Iteration 67
+
+### 67 — Ultralytics itself reads and trains on every YOLO export
+
+The next best action from 66, which had expected to find little. PyTorch's own index is
+blocked from this container, so PyTorch came from PyPI (its CUDA build, 4 GB, run on CPU)
+into a scratch environment — the workflow uses the CPU index, which a runner can reach.
+The script was written to compare Ultralytics' loaded labels against values computed from
+the source geometry, not with the exporter's helpers, and its first run failed on
+`path: .`: the restated rules in the unit suite had made the same assumption as the
+exporter. Reading the variants before Ultralytics could run found the missing `flip_idx`
+and the OBB/pose split; orienting found iteration 66's harness missing from CI.
+
+Verified: see *Verification performed*.
 
 ## Iteration 66
 

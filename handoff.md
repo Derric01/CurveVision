@@ -5,9 +5,9 @@
 > [`AGENTS.md`](./AGENTS.md) first; it is the working contract. Update this file after every
 > iteration, including the ones that mostly failed.
 >
-> **Last updated:** 2026-10-13 (iteration 72) · branch `claude/start-work-yx080h` · PRs
+> **Last updated:** 2026-10-13 (iteration 73) · branch `claude/start-work-yx080h` · PRs
 > [#1](https://github.com/Derric01/CurveVision/pull/1)–[#34](https://github.com/Derric01/CurveVision/pull/34)
-> **all merged**, #34 carrying iterations 67–69. Iterations 70–72 are pushed on top of
+> **all merged**, #34 carrying iterations 67–69. Iterations 70–73 are pushed on top of
 > that merge with no PR yet.
 >
 > *Two things worth knowing about this repository's PR rhythm, which replace the
@@ -22,7 +22,7 @@
 > **Keep the session short.** One iteration, then commit, push, update this file and report —
 > `AGENTS.md` § *Continue* and the `start-work` skill both say so now, because they did not
 > before and a single session ran six iterations and roughly a third of a week's budget. The
-> concrete costs, in rough order: re-reading this file (iterations 1–66 now live in
+> concrete costs, in rough order: re-reading this file (iterations 1–67 now live in
 > [`docs/iterations/ARCHIVE.md`](./docs/iterations/ARCHIVE.md), which cut it from 3,800
 > lines to 1,000 — keep it that way); `python desktop/sidecar/build.py`, which is a
 > PyInstaller run of a minute or two and is needed *again* for every sabotage-and-restore
@@ -46,7 +46,7 @@ The desktop shape works: a packaged single-executable server, a Tauri shell that
 it, and folders annotated in place without copying a byte.
 
 **The tree is green.** `./scripts/check.sh` passes all thirteen steps: 725 server tests, 16
-SDK, 756 web, and `scripts/` is lint-clean under its own `ruff.toml`. Thirty-two browser
+SDK, 762 web, and `scripts/` is lint-clean under its own `ruff.toml`. Thirty-two browser
 harnesses drive the application in a real Chromium, nightly and on every push to `main` —
 thirty-one against the packaged desktop server, and `verify_workspace.py` against the real
 server too — and **all thirty-two pass on GitHub's runners** (iteration 70, run
@@ -504,23 +504,23 @@ was the last unconnected piece of the desktop application.
 
 ## Next best action
 
-*A backup that restores what it holds, and tracks that keep their keyframes through CVAT
-XML and the native format, was iteration 72; CVAT XML tracks read as CVAT reads them, 71;
-the nightly browser run green on GitHub again, 70.*
+*No edit made during a save is lost any more — to a new object while its first save is in
+flight, or to any object while a save that then fails is — and the editor always fits the
+frame it opens on, iteration 73; a backup that
+restores what it holds, and tracks that keep their keyframes through CVAT XML and the
+native format, 72; CVAT XML tracks read as CVAT reads them, 71.*
 
-**CI on GitHub**: `ci.yml` and `ultralytics.yml` ran green on iteration 71's commit
-(dispatched; on this branch they otherwise run only for a PR). Dispatch them, and
-`browser.yml`, on whatever this iteration pushed — iteration 72 changes the formats again.
+**CI on GitHub**: on this branch `ci.yml`, `ultralytics.yml` and `browser.yml` run only
+when dispatched (or for a PR). All three were green on iteration 72's commit; dispatch them
+on whatever is pushed next.
 
-**Then, with no dependency on the user: an edit to a new object during its first save is
-dropped** (*Known issues*). Iteration 70 made the attributes panel stay up through a new
-box's first autosave, which makes typing into it right after drawing the normal case —
-and `record` drops an update for a `pending` object not in `created`, so keystrokes made
-while that save is in flight, or before the reload swaps the server id in, are lost (the
-reload then shows the saved value). Reproduce it in `verify_attribute_values.py` by typing
-during the in-flight window (throttle the PATCH with `page.route`), then fix it in
-`useAutosave.ts`: the `local` map already knows the object's client id, which is what the
-reload half needs; the in-flight half needs the update queued behind the create.
+**Then, with no dependency on the user: Submit can go ahead while a refusal is arriving**
+(*Known issues*). Submitting a job for review flushes first, and the guard reads what is
+held back *before* Submit is pressed; `flush` does not report what it set aside, so a
+refusal arriving in Submit's own flush lets a job with an unsaved object go to review. Make
+`flush` return what it held back (the `held` map after the loop), have Submit read that,
+and add the case to `verify_save_refusals.py` by refusing the flush Submit triggers
+(`page.route` answering 422 with a `refused` entry, as the server does).
 
 **First, if a key is available: try iteration 63 against the real services.** Add Claude,
 OpenAI and one OpenRouter vision model on the Models page with real keys, run each on a few
@@ -1041,6 +1041,33 @@ being updated and this one was not. Check it against* Completed *before trusting
 
 ## Verification performed
 
+Iteration 73:
+
+* **Reproduced in a browser first.** `verify_attribute_values.py` claim 2b holds the new
+  box's first save open (`page.route`), types into its panel, then lets the save through:
+  against the editor before this iteration (fix stashed, web and sidecar rebuilt) the box
+  saved as `{}`. Claim 2c holds a save of an existing box open, types again, fails the held
+  request with a 500, and lets the retry through: against the editor with only the first
+  fix it fails, the retry sending the older value. Both pass with the fixes.
+* **An intermittent harness failure was the app's.** `verify_attribute_editor.py`'s last
+  step failed once in four local runs, saying (thanks to iteration 70's diagnostics) that
+  the box was never selected; its screenshot showed the frame unfitted, at 100% in the
+  corner. `engine.test.ts` pins the cause — a fit asked of a canvas with no size yet — and
+  fails without the fix (`fitWhenSized`); with it, eight runs out of eight pass.
+* `drafts.test.ts`: four tests of `savedForm`, the one rule both fixes share — an edit to
+  a drawn object goes under the server id once its first save has answered, and is the
+  creation itself until then — including the crash copy, which keeps it either way.
+* Against the rebuilt sidecar, every harness that saves from the editor:
+  `verify_attribute_values`, `verify_crash_recovery`, `verify_save_refusals`,
+  `verify_attribute_editor`, `verify_tool_sync`, `verify_mask_brush`,
+  `verify_track_canvas_edit`, `verify_keyframe_editing`, `verify_cuboid`,
+  `verify_scissors`, `verify_skeleton_tool`, `verify_tracked_skeleton`,
+  `verify_auto_annotate`, `verify_shape_frame` all pass; then **all 32 harnesses in
+  `browser.yml`, against the final build: 32 passing.**
+* Iteration 72's commit on GitHub: `ci.yml`, `ultralytics.yml` and all 32 browser
+  harnesses green (dispatched).
+* Full `./scripts/check.sh`: green (725 server collected, 762 web).
+
 Iteration 72:
 
 * `tests/api/test_lossless_round_trip.py`, eight tests through the API — draw, export,
@@ -1428,6 +1455,18 @@ Iteration 54:
 
 ## Bugs fixed
 
+* **Typing into a new box's attributes while its first save was in flight was lost**
+  (iteration 73): autosave dropped any edit to a drawn object not queued to be created,
+  which is where it is while its creation is on the wire and until the reload swaps its
+  server id in. Iteration 70 made that window the normal one, by keeping the panel up.
+* **A save that failed put its batch back over the edits made while it was in flight**
+  (iteration 73), so the retry sent the older value (found by reading in iteration 53).
+* **The editor sometimes opened a frame at 100% in the top-left corner** instead of fitted
+  (iteration 73): when the image loaded before the canvas' first resize, the fit was asked
+  of a 0x0 viewport, did nothing, and nothing asked again. It was the intermittent "the
+  box was never selected" in `verify_attribute_editor.py` one run in four locally, since
+  every harness clicks where a fitted image would be — and very likely iteration 70's CI
+  failure of the same step, which predates the diagnostics that would say so.
 * **Restoring a native backup turned every pending model suggestion into finished work**
   (iteration 72): the format wrote each annotation's `source` and `confidence` and the
   import ignored both, storing everything as `imported`. A tag lost its attributes too.
@@ -1625,12 +1664,6 @@ Iteration 54:
 * **A desktop relaunch that starts before the last server has let go of its port** takes
   another port, and so another origin, for that launch; the remembered port is kept, so the
   next launch is back on it.
-* **An edit to a new object made during its first save, or before the reload after it, is
-  dropped.** `record` skips an update for a `pending` object not in `created`, which is
-  where a new object is while its save is in flight and until the reload swaps its server
-  id in. Typing into the attribute panel right after drawing can lose keystrokes that way;
-  the reload then shows the saved value. Found by reading in iteration 55; the `local` map
-  added for deletions could carry the reload half, the in-flight half needs more.
 * **A refusal of an entry autosave cannot set aside still puts the batch back whole** —
   anything outside `created_shapes`, `updated_shapes` and `updated_tracks`. After iteration
   55 nothing autosave sends is known to hit this, but the fallback is the old behaviour.
@@ -1652,11 +1685,6 @@ Iteration 54:
   the stated cost of refusing rather than rewriting (see *Decisions*), and the form says so.
 * **The PostgreSQL run of the attribute tests is manual.** CI's Postgres job only migrates;
   the whole suite runs on SQLite.
-* **A failed flush restores the older copy of a shape over a newer edit.** When a flush
-  fails, autosave puts its batch back with `Map.set`, overwriting an edit to the same shape
-  made while the request was in flight — the next retry sends the older geometry. Found by
-  reading, iteration 53; track edits restored in the same place do keep the newer one. Narrow
-  (an edit during a failing request), not fixed.
 * **An undo on an empty stack still re-emits the frame**, so Ctrl+Z after a save writes a
   no-op update of every shape on screen and bumps `annotation_version`. Harmless; found while
   tracing a harness.
@@ -1769,6 +1797,27 @@ Iteration 54:
 
 ## Last iteration
 
+### 73 — no edit made during a save is lost
+
+The next best action, found by reading in iteration 55 and made the common case by
+iteration 70, which kept a new box's attributes panel up through its first save: an edit
+to a drawn object was dropped unless the object was queued to be created, which it is not
+while its creation is on the wire. Reproduced in a browser by holding that request open,
+then fixed with one rule (`savedForm`): such an edit is queued under the local id, and
+resolved when sent, shown or copied — under the server id once the first save has
+answered, as the creation itself until then. Its neighbour in *Known issues*, the same
+loss on a save that fails, was one line in the same function and is fixed and driven too.
+
+A third defect turned up while verifying: `verify_attribute_editor.py` failed one run in
+four locally, its diagnostics saying the box was never selected, and its screenshot showing
+why — the frame never fitted, because its image arrived before the canvas had a size. That
+is very likely iteration 70's CI failure of the same step too (it predates the diagnostics).
+The engine now fits on the first resize instead.
+
+Verified: see *Verification performed*.
+
+## Iteration 72
+
 ### 72 — a backup that restores what it holds; tracks that keep their keyframes
 
 Asked for a larger piece of work, so two items from *Known issues* that are one subject:
@@ -1844,24 +1893,9 @@ left as found: the CVAT gap divergence above, and the old joints migration below
 
 Verified: see *Verification performed*.
 
-## Iteration 67
-
-### 67 — Ultralytics itself reads and trains on every YOLO export
-
-The next best action from 66, which had expected to find little. PyTorch's own index is
-blocked from this container, so PyTorch came from PyPI (its CUDA build, 4 GB, run on CPU)
-into a scratch environment — the workflow uses the CPU index, which a runner can reach.
-The script was written to compare Ultralytics' loaded labels against values computed from
-the source geometry, not with the exporter's helpers, and its first run failed on
-`path: .`: the restated rules in the unit suite had made the same assumption as the
-exporter. Reading the variants before Ultralytics could run found the missing `flip_idx`
-and the OBB/pose split; orienting found iteration 66's harness missing from CI.
-
-Verified: see *Verification performed*.
-
 ## Earlier iterations
 
-Iterations **1–66** are in [`docs/iterations/ARCHIVE.md`](./docs/iterations/ARCHIVE.md) —
+Iterations **1–67** are in [`docs/iterations/ARCHIVE.md`](./docs/iterations/ARCHIVE.md) —
 moved there so that orienting costs a few hundred lines rather than four thousand. Read them
 when `git log` points you at an iteration number, or when you are about to build something
 and want to know whether it was already tried and rejected. The lessons from them that are

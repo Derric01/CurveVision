@@ -15,6 +15,13 @@ Claims, each asserted against the **API**:
    attributes are still on screen after its first autosave lands. Until iteration 70 that
    save deselected it (the reload brings it back under the server's id), so the panel
    vanished under whoever was filling it in; CI's timing found it every night.
+2b. A value typed **while that first save is in flight** is saved too. Until iteration 73
+   autosave dropped any edit to a drawn object that was not queued to be created — which
+   is where it is while its creation is on the wire — so the keystrokes were lost. The
+   harness holds the request open to make the window as wide as a slow network does.
+2c. When a save **fails**, a value typed while it was in flight is the one retried. Until
+   iteration 73 the failed batch was put back over the newer edit, so the retry sent the
+   value from before it.
 3. On a **tracked** object, a mutable value set on an interpolated frame lands on a new
    keyframe at that frame — not on the track, and not on the keyframes around it — while
    an immutable one lands on the track.
@@ -35,7 +42,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent))
 
-from screenshot import api, canvas_point, find_chromium, start_server
+from screenshot import api, canvas_point, find_chromium, save_now, start_server
 from verify_label_schema import IMAGE_HEIGHT, IMAGE_WIDTH, png_bytes
 
 FRAMES = 5
@@ -174,6 +181,74 @@ def main() -> int:
                 check(len(fresh) == 1 and fresh[0]["attributes"].get("note") == "new",
                       "a box drawn a moment ago can be given a value before any save",
                       f"the new box saved as {[s['attributes'] for s in fresh]}")
+
+                # -------------------------- 2b: typed while its first save is in flight
+                known = {s["id"] for s in document()["shapes"]}
+                on_the_wire: list = []
+
+                def hold(route) -> None:
+                    if route.request.method == "PATCH":
+                        on_the_wire.append(route)
+                    else:
+                        route.continue_()
+
+                page.route("**/annotations", hold)
+                page.get_by_title("Rectangle (R)").click()
+                page.mouse.move(*at(110, 95))
+                page.mouse.down()
+                page.mouse.move(*at(170, 140), steps=6)
+                page.mouse.up()
+                page.wait_for_timeout(300)
+                save_button = page.get_by_text("Save", exact=True)
+                if save_button.is_enabled():
+                    save_button.click()
+                for _ in range(60):  # the click, or the four-second autosave, sends it
+                    if on_the_wire:
+                        break
+                    page.wait_for_timeout(100)
+                typed = panel.count() == 1 and bool(on_the_wire)
+                if typed:
+                    attribute("note").locator("input").fill("typed in flight")
+                for route in on_the_wire:
+                    route.continue_()
+                page.unroute("**/annotations")
+                page.wait_for_timeout(1500)
+                save_now(page, 1500)
+                latest = [s for s in document()["shapes"] if s["id"] not in known]
+                check(typed and len(latest) == 1
+                      and latest[0]["attributes"].get("note") == "typed in flight",
+                      "a value typed while the box's first save is in flight is saved",
+                      f"typed into a panel: {typed}; the box saved as "
+                      f"{[s['attributes'] for s in latest]}")
+
+                # ---------------- 2c: typed during a save that fails, then retried
+                on_the_wire.clear()
+                page.route("**/annotations", hold)
+                page.get_by_title("Select (V)").click()
+                page.locator(f"[data-object-id='{shape_id}']").click()
+                page.wait_for_timeout(200)
+                editable = panel.count() == 1
+                if editable:
+                    attribute("note").locator("input").fill("before the failure")
+                    save_button.click()
+                for _ in range(60):
+                    if on_the_wire:
+                        break
+                    page.wait_for_timeout(100)
+                failing = bool(on_the_wire)
+                if editable and failing:
+                    attribute("note").locator("input").fill("typed during the failure")
+                for route in on_the_wire:
+                    route.fulfill(status=500, body="")
+                page.unroute("**/annotations")
+                page.wait_for_timeout(500)
+                save_now(page, 1500)
+                retried = next((s for s in document()["shapes"] if s["id"] == shape_id), {})
+                check(editable and failing
+                      and retried.get("attributes", {}).get("note") == "typed during the failure",
+                      "after a failed save, the retry sends the value typed during it",
+                      f"panel {editable}, save held {failing}; the box's note is "
+                      f"{retried.get('attributes', {}).get('note')!r}")
 
                 # --------------------------------------------- 3: a tracked object
                 for _ in range(2):

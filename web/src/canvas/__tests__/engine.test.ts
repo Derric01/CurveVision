@@ -305,3 +305,47 @@ describe('AnnotationEngine: the attribute values a new object starts with', () =
     expect(drawWith(label())[0]?.attributes).toEqual({});
   });
 });
+
+describe('AnnotationEngine: fitting a frame that arrives before the canvas has a size', () => {
+  beforeEach(stubAnimationFrame);
+  afterEach(() => vi.unstubAllGlobals());
+
+  /** Layers `resize` can size: it sets each canvas' pixels and style, then its transform. */
+  function sizeableLayers(): RendererLayers {
+    const layer = () =>
+      ({
+        canvas: { width: 0, height: 0, style: {} },
+        setTransform: () => {},
+      }) as unknown as CanvasRenderingContext2D;
+    return { media: layer(), shapes: layer(), overlay: layer() };
+  }
+
+  /**
+   * The regression this pins. A frame's image can load before the canvas' first resize
+   * reports its size, and `fitToImage` cannot fit into a 0x0 viewport — so it did nothing,
+   * the resize that followed did not fit either, and the editor opened at 100% in the
+   * top-left corner. Every browser harness clicks where a fitted image would be, so this
+   * was the intermittent "the box was never selected" in `verify_attribute_editor.py`,
+   * about one run in four locally (iteration 73).
+   */
+  it('fits it on the first resize that gives the canvas a size', () => {
+    const engine = new AnnotationEngine({ layers: sizeableLayers(), listeners: {} });
+    engine.setMedia({ width: 320, height: 240, image: null });
+    expect(engine.viewport.scale).toBe(1);
+
+    engine.resize(1000, 800);
+
+    expect(engine.viewport.scale).toBeCloseTo((1000 / 320) * 0.96);
+  });
+
+  it('fits only once: a later resize keeps the annotator’s own zoom', () => {
+    const engine = new AnnotationEngine({ layers: sizeableLayers(), listeners: {} });
+    engine.setMedia({ width: 320, height: 240, image: null });
+    engine.resize(1000, 800);
+    const fitted = engine.viewport.scale;
+
+    engine.resize(1200, 800);
+
+    expect(engine.viewport.scale).toBe(fitted);
+  });
+});

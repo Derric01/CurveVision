@@ -25,6 +25,7 @@ import {
   loadDraft,
   planRestore,
   restoreSize,
+  savedForm,
   trackKey,
   writeDraft,
   type Draft,
@@ -354,7 +355,10 @@ export function useAutosave(
         // An object created but not yet saved stays in `created`: sending it as an update
         // would reference a server id that does not exist.
         if (current.created.has(annotation.id)) current.created.set(annotation.id, annotation);
-        else if (annotation.pending) continue;
+        // Drawn here, and its first save is in flight — or has landed, and the reload has
+        // not swapped its server id in yet. Queued under the id the canvas knows, and sent
+        // under the one the server does (`toSend`). Until iteration 73 this was dropped.
+        else if (annotation.pending) current.updated.set(annotation.id, annotation);
         else if (annotation.trackId) {
           const edit = asCanvasEdit({ ...annotation, trackId: annotation.trackId });
           current.tracks.set(`${edit.trackId}@${edit.frame}`, edit);
@@ -441,9 +445,36 @@ export function useAutosave(
     [publishRefused],
   );
 
+  /**
+   * Resolve every edit queued under a drawn object's local id, now that its first save has
+   * answered: under the server id if that save landed, folded back into the creation if it
+   * did not. A refusal of that creation is released, as any edit to a refused object is —
+   * the edit is presumably the fix.
+   */
+  const toSend = useCallback(
+    (current: PendingBatch) => {
+      let released = false;
+      for (const [id, annotation] of [...current.updated]) {
+        const saved = savedForm(annotation, local.current);
+        if (saved === annotation) continue;
+        current.updated.delete(id);
+        if (saved) {
+          // An edit made since the reload, under the server id, is the newer one.
+          if (!current.updated.has(saved.id)) current.updated.set(saved.id, saved);
+          continue;
+        }
+        if (release(id)) released = true;
+        current.created.set(id, annotation);
+      }
+      if (released) publishRefused();
+    },
+    [release, publishRefused],
+  );
+
   /** One request. True when entries were set aside and the rest should be tried now. */
   const flushOnce = useCallback(async (): Promise<boolean> => {
     const current = batch.current;
+    toSend(current);
     batch.current = emptyBatch();
     inFlight.current = current;
     updateCount();
@@ -496,7 +527,12 @@ export function useAutosave(
         }
         restored.created.set(id, annotation);
       }
-      for (const [id, annotation] of current.updated) restored.updated.set(id, annotation);
+      // A newer edit to the same shape, made while this flush was in flight, wins — as it
+      // does for tracks below. Until iteration 73 the older copy overwrote it, and the retry
+      // sent that.
+      for (const [id, annotation] of current.updated) {
+        if (!restored.updated.has(id)) restored.updated.set(id, annotation);
+      }
       for (const id of current.deleted) restored.deleted.add(id);
       // A newer edit to the same track and frame, made while this flush was in flight, wins.
       for (const [key, edit] of current.tracks) {
@@ -521,7 +557,7 @@ export function useAutosave(
       }
       return false;
     }
-  }, [jobId, onSaved, updateCount, setAside, copyNow]);
+  }, [jobId, onSaved, updateCount, setAside, copyNow, toSend]);
 
   const flush = useCallback(async () => {
     if (flushing.current) return;
@@ -543,7 +579,10 @@ export function useAutosave(
     const queues = inFlight.current ? [inFlight.current, current] : [current];
     const annotations = queues.flatMap((queue) => [
       ...queue.created.values(),
-      ...queue.updated.values(),
+      // Under the id the reloaded frame shows it by, where its first save has answered.
+      ...[...queue.updated.values()].map(
+        (annotation) => savedForm(annotation, local.current) ?? annotation,
+      ),
     ]);
     const tracks = queues.flatMap((queue) => [...queue.tracks.values()]);
     for (const refusal of held.current.values()) {
