@@ -221,6 +221,7 @@ def main() -> int:
         driver = subprocess.Popen(["tauri-driver", "--port", str(port)], env=env,
                                   stdout=driver_log, stderr=subprocess.STDOUT)
         wd = WebDriver(port)
+        crashed = False
         try:
             until(lambda: _answers(port), timeout=30)
 
@@ -257,7 +258,7 @@ def main() -> int:
             wd.switch_to(team_handle)
             closed = until(lambda: len(wd.handles()) == 1, 20)
             check(bool(closed), "the team server opens in a window of its own, replacing this one",
-                  f"windows afterwards: {wd.handles()}")
+                  "the local window stayed open beside the team server's")
             wd.wait_for("input[name=identifier]")
             leaked = wd.run("return window.__CURVEVISION__ || null")
             check(leaked is None, "the team server's page is its own sign-in, given nothing",
@@ -307,6 +308,9 @@ def main() -> int:
                   "the webview keeps IndexedDB from one launch to the next",
                   f"wrote {stored_mark!r}; two launches later read {read_back!r}")
             wd.quit()
+        except Exception:
+            crashed = True
+            raise
         finally:
             with contextlib.suppress(Exception):
                 wd.quit()
@@ -315,9 +319,11 @@ def main() -> int:
             xvfb.terminate()
             team.terminate()
             team.wait(timeout=20)
-            if failures:
+            if failures or crashed:
                 print("\n--- tauri-driver and application output (tail) ---")
-                print("\n".join((home / "driver.log").read_text().splitlines()[-40:]))
+                lines = (home / "driver.log").read_text(errors="replace").splitlines()
+                # The server's request log would push everything else out of the tail.
+                print("\n".join([line for line in lines if "curvevision.access" not in line][-60:]))
     return _finish(failures)
 
 

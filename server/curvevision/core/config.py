@@ -7,12 +7,19 @@ what stops secrets leaking into import-time state.
 
 from __future__ import annotations
 
+import json
 import secrets
 from functools import lru_cache
-from typing import Literal
+from typing import Annotated, Literal
 
 from pydantic import Field, field_validator, model_validator
-from pydantic_settings import BaseSettings, SettingsConfigDict
+from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
+
+#: A list setting, written in the environment as comma-separated text
+#: (`CURVEVISION_CORS_ORIGINS=https://a.example,https://b.example`) or as a JSON list.
+#: `NoDecode`, because pydantic-settings otherwise decodes a list-typed variable as JSON
+#: before any validator runs, and every deployment that set one as text failed to start.
+CommaSeparated = Annotated[tuple[str, ...], NoDecode]
 
 Environment = Literal["development", "test", "staging", "production"]
 
@@ -76,7 +83,7 @@ class Settings(BaseSettings):
     frames_per_chunk: int = 36
     thumbnail_max_edge: int = 320
     max_upload_bytes: int = 5 * 1024 * 1024 * 1024
-    allowed_image_extensions: tuple[str, ...] = (
+    allowed_image_extensions: CommaSeparated = (
         ".jpg",
         ".jpeg",
         ".png",
@@ -85,7 +92,7 @@ class Settings(BaseSettings):
         ".tif",
         ".tiff",
     )
-    allowed_video_extensions: tuple[str, ...] = (".mp4", ".mov", ".mkv", ".avi", ".webm")
+    allowed_video_extensions: CommaSeparated = (".mp4", ".mov", ".mkv", ".avi", ".webm")
 
     #: Scanning uploads for malware before they are stored (`media/scanning.py`). ``none``
     #: by default; ``clamd`` sends each upload to ClamAV and refuses what it flags.
@@ -118,7 +125,7 @@ class Settings(BaseSettings):
     #: by verified email) or an existing link can sign in this way.
     oidc_create_users: bool = True
     #: Only these email domains may sign in (comma-separated); empty allows any.
-    oidc_allowed_domains: tuple[str, ...] = ()
+    oidc_allowed_domains: CommaSeparated = ()
     #: A workspace (by slug) a newly created account joins, as an annotator.
     oidc_default_workspace: str = ""
     #: Disable the password sign-in form, when every person signs in through the provider.
@@ -126,7 +133,7 @@ class Settings(BaseSettings):
 
     # --- api ----------------------------------------------------------------------
     api_prefix: str = "/api/v1"
-    cors_origins: tuple[str, ...] = ("http://localhost:5173", "http://127.0.0.1:5173")
+    cors_origins: CommaSeparated = ("http://localhost:5173", "http://127.0.0.1:5173")
     default_page_size: int = 50
     max_page_size: int = 500
     rate_limit_per_minute: int = 600
@@ -161,6 +168,8 @@ class Settings(BaseSettings):
     @classmethod
     def _split_csv(cls, value: object) -> object:
         if isinstance(value, str):
+            if value.lstrip().startswith("["):
+                return json.loads(value)
             return tuple(part.strip() for part in value.split(",") if part.strip())
         return value
 
