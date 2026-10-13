@@ -53,6 +53,7 @@ Full license texts for permissive licenses used here are reproduced under
 | [pydantic-settings](https://github.com/pydantic/pydantic-settings) | MIT | Pydantic Services Inc. | Configuration |
 | [SQLAlchemy](https://github.com/sqlalchemy/sqlalchemy) | MIT | Michael Bayer and contributors | ORM and Core |
 | [Alembic](https://github.com/sqlalchemy/alembic) | MIT | Michael Bayer and contributors | Database migrations |
+| [aiosqlite](https://github.com/omnilib/aiosqlite) | MIT | Amethyst Reese | SQLite driver: the default database, and the one every desktop installation uses |
 | [greenlet](https://github.com/python-greenlet/greenlet) | MIT / PSF | Armin Rigo, Christian Tismer and contributors | Required by SQLAlchemy's async support |
 | [argon2-cffi](https://github.com/hynek/argon2-cffi) | MIT | Hynek Schlawack | Argon2id password hashing |
 | [PyJWT](https://github.com/jpadilla/pyjwt) | MIT | José Padilla | JSON Web Tokens |
