@@ -21,7 +21,9 @@ what was until now only claimed:
 5. signing in there works;
 6. the choice is remembered — written to the application's config folder, and the next
    launch opens the team server directly;
-7. quitting the application stops the server it started.
+7. quitting the application stops the server it started;
+8. the webview keeps what a page stores (IndexedDB) from one launch to the next — the
+   property the editor's crash recovery rests on (`features/editor/drafts.ts`).
 
 Not covered: the native menu (File ▸ Use This Computer), which WebDriver cannot click; its
 handler shares `switch_to_local` with the code exercised here.
@@ -127,6 +129,33 @@ class WebDriver:
         return str(self.call("GET", self.s(f"/element/{self.wait_for(css)}/text")))
 
 
+# A database of the harness's own, beside the editor's (`curvevision-drafts`): the property
+# under test is the origin's storage surviving a relaunch, not the editor's use of it.
+MARK_WRITE = """
+const [value, done] = [arguments[0], arguments[arguments.length - 1]];
+const open = indexedDB.open('curvevision-harness', 1);
+open.onupgradeneeded = () => open.result.createObjectStore('marks');
+open.onerror = () => done('could not open: ' + open.error);
+open.onsuccess = () => {
+  const tx = open.result.transaction('marks', 'readwrite');
+  tx.objectStore('marks').put(value, 'mark');
+  tx.oncomplete = () => done('stored');
+  tx.onerror = () => done('could not write: ' + tx.error);
+};
+"""
+MARK_READ = """
+const done = arguments[arguments.length - 1];
+const open = indexedDB.open('curvevision-harness', 1);
+open.onupgradeneeded = () => open.result.createObjectStore('marks');
+open.onerror = () => done('could not open: ' + open.error);
+open.onsuccess = () => {
+  const get = open.result.transaction('marks').objectStore('marks').get('mark');
+  get.onsuccess = () => done(get.result ?? null);
+  get.onerror = () => done('could not read: ' + get.error);
+};
+"""
+
+
 def until(condition: Any, timeout: float = 30) -> Any:
     deadline = time.time() + timeout
     while time.time() < deadline:
@@ -213,6 +242,9 @@ def main() -> int:
                   "invoke() crosses the IPC bridge and the shell answers",
                   f"invoke('connection') gave {answered}")
 
+            # Kept for check 8: written now, read back two launches later.
+            stored_mark = wd.run_async(MARK_WRITE, "launch one")
+
             # ------------------------------------------------------------ 3
             wd.click("a[href='/team-server']")
             wd.type("input[name=team-server-address]", team_base)
@@ -263,6 +295,17 @@ def main() -> int:
             reopened = until(lambda: wd.url().startswith(team_base), 60)
             check(bool(reopened), "the next launch opens the team server directly",
                   f"the next launch opened {wd.url()}")
+            wd.quit()
+
+            # ------------------------------------------------------------ 8
+            # Back to this computer for the next launch, as Use This Computer leaves it.
+            remembered.write_text(json.dumps({"team_server": None}))
+            wd.start(application)
+            until(lambda: wd.run("return window.__CURVEVISION__ || null"), 60)
+            read_back = wd.run_async(MARK_READ)
+            check(stored_mark == "stored" and read_back == "launch one",
+                  "the webview keeps IndexedDB from one launch to the next",
+                  f"wrote {stored_mark!r}; two launches later read {read_back!r}")
             wd.quit()
         finally:
             with contextlib.suppress(Exception):

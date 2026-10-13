@@ -522,9 +522,8 @@ are recorded under *Verification performed* for iteration 85's commit.
 certificates, an npm token, real AI keys. What remains with no dependency on the user, in
 order:
 
-1. **The desktop webview's storage across launches** (*Known issues*): now testable, with
-   `scripts/verify_desktop_shell.py`'s WebDriver session — write an autosave draft, quit,
-   relaunch, and read it back. Crash recovery in the desktop shape rests on it.
+1. ~~The desktop webview's storage across launches~~ — done for Linux in iteration 85
+   (check 8 of `verify_desktop_shell.py`); Windows and macOS have no WebDriver bridge.
 2. **The native menu** (*Use This Computer*, *Open Folder…*) is the one part of the shell no
    test reaches: WebDriver cannot click a native menu. An `xdotool` keystroke under Xvfb
    might; worth an hour, not more.
@@ -1071,11 +1070,14 @@ Iteration 85:
 * `scripts/verify_team_server.py`, 11 checks, against the packaged server and a team server.
   Sabotaged (the desktop installation accepted; the typed address handed to the shell):
   3 checks failed, then green again after restoring and rebuilding.
-* `scripts/verify_desktop_shell.py`, 9 checks, the **built shell** over WebDriver under
+* `scripts/verify_desktop_shell.py`, 10 checks, the **built shell** over WebDriver under
   Xvfb. First run: `invoke('connection')` refused, "not allowed" — the bug this iteration
   fixed. After the fix, all nine pass. Sabotaged (the capability granted to the team window
   too; a payload injected into it): the two isolation checks failed, and the output showed
   the team server's page reading this computer's token through the shell.
+* Check 8, added after: IndexedDB written in the first launch and read back in the third,
+  on this computer's origin. Sabotaged (the webview's data folder removed between
+  launches): that check failed, and only that one.
 
 Iteration 84:
 
@@ -1851,12 +1853,12 @@ Iteration 54:
 * **The Models page opens on the first workspace** when there are several, not on the one
   last used; a picker switches it.
 
-* **The Tauri webviews' storage across launches is not verified.** Recovery in the
+* **The webviews' storage across launches is verified on Linux only.** Recovery in the
   desktop shape rests on the webview keeping IndexedDB for an origin from one launch to the
-  next — the default for WebView2, WKWebView and Tauri's WebKitGTK setup. Everything up to
-  that is verified with the packaged server and a persistent Chromium profile. *Since
-  iteration 85 the real webview can be driven (`scripts/verify_desktop_shell.py`), so this
-  is now a test to write — first under* Next best action.
+  next. `scripts/verify_desktop_shell.py` (check 8) proves it for WebKitGTK in the built
+  application, and fails when the webview's data folder is removed between launches;
+  WebView2 (Windows) and WKWebView (macOS) have no WebDriver bridge in Tauri and remain
+  the platform default, unverified here.
 * **The native menus are driven by no test.** WebDriver cannot click them; *Use This
   Computer* shares `switch_to_local` with the code the WebDriver harness does exercise.
 * **The desktop installers are unsigned** (iteration 84): macOS asks the person to open the
