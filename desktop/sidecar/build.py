@@ -115,8 +115,14 @@ def smoke_test(binary: Path) -> None:
     with tempfile.TemporaryDirectory(prefix="curvevision-smoke-") as raw:
         data_dir = Path(raw) / "CurveVision"
         started = time.perf_counter()
+        # Started, and stopped, the way the desktop shell does it: the server watches its
+        # standard input and stops at end-of-file. Terminating it instead is not the same
+        # on Windows, where a one-file PyInstaller executable is a bootloader with the
+        # server as its child: killing the bootloader orphans the server, which goes on
+        # holding the database open.
         process = subprocess.Popen(
-            [str(binary), "--data-dir", str(data_dir)],
+            [str(binary), "--data-dir", str(data_dir), "--exit-with-parent"],
+            stdin=subprocess.PIPE,
             stdout=subprocess.PIPE,
             stderr=subprocess.STDOUT,
             text=True,
@@ -145,14 +151,32 @@ def smoke_test(binary: Path) -> None:
                 (data_dir / "curvevision.db").is_file(),
                 "the database was not created in the data directory",
             )
-        finally:
-            process.terminate()
-            try:
-                process.wait(timeout=20)
-            except subprocess.TimeoutExpired:  # pragma: no cover - defensive
-                process.kill()
+        except BaseException:
+            _stop(process)
+            raise
+        problem = _stop(process)
+        _check(problem is None, problem or "")
 
-    print("  smoke test passed: migrated, provisioned, served, and refused an anonymous call")
+    print(
+        "  smoke test passed: migrated, provisioned, served, refused an anonymous call, "
+        "and stopped when its parent went away"
+    )
+
+
+def _stop(process: subprocess.Popen[str]) -> str | None:
+    """Stop the server as the shell does — end-of-file on its input — and say what went wrong."""
+    assert process.stdin is not None
+    process.stdin.close()
+    try:
+        status = process.wait(timeout=30)
+    except subprocess.TimeoutExpired:
+        process.kill()
+        process.wait()
+        return (
+            "the server ignored end-of-file on its standard input, so closing the desktop "
+            "application would leave it running"
+        )
+    return None if status == 0 else f"the server exited with status {status} when asked to stop"
 
 
 def _await_handshake(process: subprocess.Popen[str], timeout: float = 120.0) -> dict[str, str]:

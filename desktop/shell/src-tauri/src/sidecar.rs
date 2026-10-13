@@ -47,10 +47,32 @@ impl Sidecar {
             Err(poisoned) => poisoned.into_inner(),
         };
         if let Some(mut child) = guard.take() {
-            let _ = child.kill();
-            let _ = child.wait();
+            stop(&mut child, SHUTDOWN_GRACE);
         }
     }
+}
+
+/// How long the server gets to stop by itself before it is killed.
+const SHUTDOWN_GRACE: Duration = Duration::from_secs(10);
+
+/// Stop the server: end-of-file on its standard input first, which it answers by shutting
+/// down cleanly, then a kill if it has not gone within `grace`.
+///
+/// The order matters most on Windows. A one-file PyInstaller executable is a bootloader
+/// with the real server as its child, and killing the bootloader leaves that child running
+/// with the database open; end-of-file reaches the child, because it reads the same pipe.
+fn stop(child: &mut Child, grace: Duration) {
+    drop(child.stdin.take());
+    let deadline = Instant::now() + grace;
+    while Instant::now() < deadline {
+        match child.try_wait() {
+            Ok(Some(_)) => return,
+            Ok(None) => std::thread::sleep(Duration::from_millis(50)),
+            Err(_) => break,
+        }
+    }
+    let _ = child.kill();
+    let _ = child.wait();
 }
 
 impl Drop for Sidecar {
@@ -216,6 +238,34 @@ mod tests {
             started.elapsed() < HANDSHAKE_TIMEOUT,
             "waited for the full timeout"
         );
+    }
+
+    /// `cat` stops at end-of-file, as the server does: it must be allowed to, not killed.
+    #[cfg(unix)]
+    #[test]
+    fn a_child_that_stops_at_end_of_file_is_not_killed() {
+        let mut child = Command::new("cat")
+            .stdin(Stdio::piped())
+            .stdout(Stdio::null())
+            .spawn()
+            .expect("cat");
+        stop(&mut child, Duration::from_secs(10));
+        assert!(child.wait().expect("reaped").success());
+    }
+
+    /// `sleep` ignores its input: after the grace period it is killed, not waited on forever.
+    #[cfg(unix)]
+    #[test]
+    fn a_child_that_ignores_end_of_file_is_killed_after_the_grace_period() {
+        let mut child = Command::new("sleep")
+            .arg("30")
+            .stdin(Stdio::piped())
+            .spawn()
+            .expect("sleep");
+        let started = Instant::now();
+        stop(&mut child, Duration::from_millis(300));
+        assert!(started.elapsed() < Duration::from_secs(5));
+        assert!(!child.wait().expect("reaped").success());
     }
 
     #[test]
