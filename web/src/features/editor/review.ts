@@ -40,6 +40,33 @@ export function canSubmit(state: JobState | undefined): boolean {
   return state === 'new' || state === 'in_progress' || state === 'rejected';
 }
 
+/** What a save left behind: objects the server refused, and work it could not send. */
+export interface FlushOutcome {
+  refused: number;
+  unsaved: number;
+}
+
+/**
+ * Why a job cannot be handed to its reviewer now, from the save Submit runs first; `null`
+ * when nothing stands in the way.
+ *
+ * Submit's button is disabled while anything is held back, but it reads that before it is
+ * pressed: a refusal arriving in Submit's own save, or a save that failed outright (the
+ * network, the server), went on to submit a job missing objects the annotator could still
+ * see. Until iteration 74 nothing checked what that save achieved.
+ */
+export function submitBlocker(outcome: FlushOutcome): string | null {
+  if (outcome.refused > 0) {
+    return outcome.refused === 1
+      ? 'One object was not saved. Fix it before submitting.'
+      : `${outcome.refused} objects were not saved. Fix them before submitting.`;
+  }
+  if (outcome.unsaved > 0) {
+    return 'Not everything could be saved, so the job was not submitted. Save again, then submit.';
+  }
+  return null;
+}
+
 /**
  * Whether Reject may be pressed.
  *

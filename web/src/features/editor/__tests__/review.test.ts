@@ -13,7 +13,13 @@
 
 import { describe, expect, it } from 'vitest';
 import type { JobState } from '@/api/types';
-import { canReject, canSubmit, describeReviewOutcome, isReviewable } from '../review';
+import {
+  canReject,
+  canSubmit,
+  describeReviewOutcome,
+  isReviewable,
+  submitBlocker,
+} from '../review';
 
 const EVERY_STATE: JobState[] = ['new', 'in_progress', 'submitted', 'accepted', 'rejected'];
 
@@ -73,5 +79,22 @@ describe('describeReviewOutcome', () => {
     // Not a state the endpoint returns; it exists so a server that changed under us reads
     // as something odd rather than as a confident lie about what happened.
     expect(describeReviewOutcome('in_progress')).toBe('The job is now in progress.');
+  });
+});
+
+describe('submitBlocker', () => {
+  it('lets a job go once its save left nothing behind', () => {
+    expect(submitBlocker({ refused: 0, unsaved: 0 })).toBeNull();
+  });
+
+  it('stops it while the save it ran first left an object refused', () => {
+    expect(submitBlocker({ refused: 1, unsaved: 0 })).toBe(
+      'One object was not saved. Fix it before submitting.',
+    );
+    expect(submitBlocker({ refused: 3, unsaved: 2 })).toContain('3 objects were not saved');
+  });
+
+  it('stops it when that save failed and the work is still queued', () => {
+    expect(submitBlocker({ refused: 0, unsaved: 4 })).toContain('was not submitted');
   });
 });

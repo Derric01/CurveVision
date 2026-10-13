@@ -5,9 +5,9 @@
 > [`AGENTS.md`](./AGENTS.md) first; it is the working contract. Update this file after every
 > iteration, including the ones that mostly failed.
 >
-> **Last updated:** 2026-10-13 (iteration 73) · branch `claude/start-work-yx080h` · PRs
+> **Last updated:** 2026-10-13 (iteration 74) · branch `claude/start-work-yx080h` · PRs
 > [#1](https://github.com/Derric01/CurveVision/pull/1)–[#34](https://github.com/Derric01/CurveVision/pull/34)
-> **all merged**, #34 carrying iterations 67–69. Iterations 70–73 are pushed on top of
+> **all merged**, #34 carrying iterations 67–69. Iterations 70–74 are pushed on top of
 > that merge with no PR yet.
 >
 > *Two things worth knowing about this repository's PR rhythm, which replace the
@@ -22,7 +22,7 @@
 > **Keep the session short.** One iteration, then commit, push, update this file and report —
 > `AGENTS.md` § *Continue* and the `start-work` skill both say so now, because they did not
 > before and a single session ran six iterations and roughly a third of a week's budget. The
-> concrete costs, in rough order: re-reading this file (iterations 1–67 now live in
+> concrete costs, in rough order: re-reading this file (iterations 1–68 now live in
 > [`docs/iterations/ARCHIVE.md`](./docs/iterations/ARCHIVE.md), which cut it from 3,800
 > lines to 1,000 — keep it that way); `python desktop/sidecar/build.py`, which is a
 > PyInstaller run of a minute or two and is needed *again* for every sabotage-and-restore
@@ -46,7 +46,7 @@ The desktop shape works: a packaged single-executable server, a Tauri shell that
 it, and folders annotated in place without copying a byte.
 
 **The tree is green.** `./scripts/check.sh` passes all thirteen steps: 725 server tests, 16
-SDK, 762 web, and `scripts/` is lint-clean under its own `ruff.toml`. Thirty-two browser
+SDK, 765 web, and `scripts/` is lint-clean under its own `ruff.toml`. Thirty-two browser
 harnesses drive the application in a real Chromium, nightly and on every push to `main` —
 thirty-one against the packaged desktop server, and `verify_workspace.py` against the real
 server too — and **all thirty-two pass on GitHub's runners** (iteration 70, run
@@ -504,7 +504,7 @@ was the last unconnected piece of the desktop application.
 
 ## Next best action
 
-*No edit made during a save is lost any more — to a new object while its first save is in
+*Submit checks what its own save achieved, iteration 74. No edit made during a save is lost any more — to a new object while its first save is in
 flight, or to any object while a save that then fails is — and the editor always fits the
 frame it opens on, iteration 73; a backup that
 restores what it holds, and tracks that keep their keyframes through CVAT XML and the
@@ -514,13 +514,13 @@ native format, 72; CVAT XML tracks read as CVAT reads them, 71.*
 when dispatched (or for a PR). All three were green on iteration 72's commit; dispatch them
 on whatever is pushed next.
 
-**Then, with no dependency on the user: Submit can go ahead while a refusal is arriving**
-(*Known issues*). Submitting a job for review flushes first, and the guard reads what is
-held back *before* Submit is pressed; `flush` does not report what it set aside, so a
-refusal arriving in Submit's own flush lets a job with an unsaved object go to review. Make
-`flush` return what it held back (the `held` map after the loop), have Submit read that,
-and add the case to `verify_save_refusals.py` by refusing the flush Submit triggers
-(`page.route` answering 422 with a `refused` entry, as the server does).
+**Then, with no dependency on the user: a default the server fills in is stored as a
+string** (*Known issues*). `validate_attributes` writes `definition.default_value` as
+given, so a checkbox default lands as `"false"` and a number's as `"3"` whenever the server
+fills it — from the SDK, the CLI, an import or a model — while the editor sends it typed.
+It shows in every export until the annotation is next saved from the editor. Coerce it
+through the same conversion a submitted value goes through, and add the case to
+`TestEditingAttributes` and an export test.
 
 **First, if a key is available: try iteration 63 against the real services.** Add Claude,
 OpenAI and one OpenRouter vision model on the Models page with real keys, run each on a few
@@ -1041,6 +1041,17 @@ being updated and this one was not. Check it against* Completed *before trusting
 
 ## Verification performed
 
+Iteration 74:
+
+* `verify_save_refusals.py` claims 9 and 10: Submit pressed while its save fails (a 500
+  injected with `page.route`), and pressed while a save the server refuses is held on the
+  wire. **Against the iteration-73 editor both submitted the job** (`new → submitted`,
+  `in_progress → submitted`; claim 10 puts the job back first so it is checked on its own);
+  both pass now, the job's state read from the API.
+* `review.test.ts`: `submitBlocker`, the rule Submit applies, three tests.
+* Rebuilt sidecar: `verify_save_refusals`, `verify_job_review`, `verify_attribute_values`,
+  `verify_crash_recovery` pass. Full `./scripts/check.sh` green.
+
 Iteration 73:
 
 * **Reproduced in a browser first.** `verify_attribute_values.py` claim 2b holds the new
@@ -1455,6 +1466,10 @@ Iteration 54:
 
 ## Bugs fixed
 
+* **Submit handed a job to review without work the annotator could still see** (iteration
+  74): when the save Submit runs first failed outright, or was refused, or was still in
+  flight from the periodic autosave (`flush` returned at once rather than waiting), the job
+  was submitted anyway. Submit now refuses, saying why, unless that save left nothing.
 * **Typing into a new box's attributes while its first save was in flight was lost**
   (iteration 73): autosave dropped any edit to a drawn object not queued to be created,
   which is where it is while its creation is on the wire and until the reload swaps its
@@ -1673,8 +1688,6 @@ Iteration 54:
   that one step this session (twice in about twenty runs); the drag-undo, saved-shape and
   track steps have the same exposure over shorter windows and were not seen to fail. The
   guard there is the pattern to copy if they are.
-* **Submit can still go ahead when a refusal arrives during its own flush**: the guard reads
-  what is held before Submit is pressed, and `flush` does not report what it held back.
 * **A default is recorded as a string** when the *server* fills it in —
   `validate_attributes` writes `definition.default_value` uncoerced, so a checkbox default
   lands as `"false"` from the SDK, the CLI or an import, while the editor now sends it
@@ -1797,6 +1810,19 @@ Iteration 54:
 
 ## Last iteration
 
+### 74 — Submit checks what its own save achieved
+
+The next best action. Submit's guard read what was refused *before* the press; nothing
+read what the save Submit runs first achieved — and that save returned at once whenever
+the periodic autosave was already running. Reproduced in a browser both ways (a failing
+save, and a refused one held in flight), then: `flush` waits for a flush in progress and
+returns what it left (refused, still queued), and Submit refuses with the reason unless
+both are zero.
+
+Verified: see *Verification performed*.
+
+## Iteration 73
+
 ### 73 — no edit made during a save is lost
 
 The next best action, found by reading in iteration 55 and made the common case by
@@ -1879,23 +1905,9 @@ and it failed there first.
 
 Verified: see *Verification performed*.
 
-## Iteration 68
-
-### 68 — skeletons that move, and tracked skeletons that work
-
-Chosen over the joints migration because it was live: CVAT tracks skeletons and the CVAT
-XML import keeps tracks, so a tracked skeleton could reach the editor and be broken there.
-Reading the select tool to see how a tracked skeleton would be edited found the larger
-defect — no skeleton, tracked or not, could be moved after it was placed — and reading the
-track serialiser found the data loss. CVAT was read for the rule (`dataset_manager/
-annotation.py`: each joint a sub-track, interpolated linearly); no code adapted. Two things
-left as found: the CVAT gap divergence above, and the old joints migration below it.
-
-Verified: see *Verification performed*.
-
 ## Earlier iterations
 
-Iterations **1–67** are in [`docs/iterations/ARCHIVE.md`](./docs/iterations/ARCHIVE.md) —
+Iterations **1–68** are in [`docs/iterations/ARCHIVE.md`](./docs/iterations/ARCHIVE.md) —
 moved there so that orienting costs a few hundred lines rather than four thousand. Read them
 when `git log` points you at an iteration number, or when you are about to build something
 and want to know whether it was already tried and rejected. The lessons from them that are

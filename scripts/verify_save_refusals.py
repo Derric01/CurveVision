@@ -26,6 +26,12 @@ Claims, each about what was saved asserted against the **API**:
    knows the box by a local id the server cannot parse; the deletion went out under it, as
    a 422 naming no entry, and every save after it failed the same way. The reload is held
    back here so that window is wide rather than a few milliseconds a timer has to hit.
+9. Submit **does not** submit when the save it runs first fails outright, and says so.
+10. Nor when that save is refused — pressed while the save is still on the wire, so the
+   button's own guard (which reads what is refused *before* the press) cannot catch it.
+   Until iteration 74 both handed the reviewer a job without the work the annotator could
+   still see: Submit did not look at what its save achieved, and a save already running
+   made it not wait at all.
 
 Needs the packaged server (`python desktop/sidecar/build.py`, itself needing
 `npm --prefix web run build` first) and a Chromium Playwright can drive; set
@@ -276,6 +282,72 @@ def main() -> int:
                       "a box deleted before its save's reload is deleted, and the next one saves",
                       f"signs' left edges went from {before} to {sign_lefts()}; expected the one "
                       "at 250 gone and one at 100 added")
+
+                # -------------------- 9 and 10: Submit looks at what its save achieved
+                def job_state() -> str:
+                    return str(api(base, token, f"/jobs/{job_id}")["state"])
+
+                def submit_error() -> str:
+                    return page.locator("header").locator("xpath=..").inner_text()
+
+                def failing(route) -> None:
+                    if route.request.method == "PATCH":
+                        route.fulfill(status=500, body="")
+                    else:
+                        route.continue_()
+
+                state_before = job_state()
+                page.route(f"**/jobs/{job_id}/annotations", failing)
+                draw("sign", 30, 160)
+                pressed = submit.is_enabled()
+                if pressed:
+                    submit.click()
+                page.wait_for_timeout(1500)
+                page.unroute(f"**/jobs/{job_id}/annotations")
+                check(pressed and job_state() == state_before
+                      and "was not submitted" in submit_error(),
+                      "Submit does not submit when its own save fails, and says so",
+                      f"pressed {pressed}; job went from {state_before} to {job_state()}")
+                save()
+                if job_state() == "submitted":
+                    # Only on the bug: put the job back, so claim 10 is checked on its own.
+                    api(base, token, f"/jobs/{job_id}", {"state": "in_progress"}, method="PATCH")
+                    page.reload(wait_until="networkidle")
+                    page.wait_for_selector("canvas", timeout=60_000)
+                    page.wait_for_timeout(1200)
+                state_before = job_state()
+
+                on_the_wire: list = []
+
+                def hold(route) -> None:
+                    if route.request.method == "PATCH":
+                        on_the_wire.append(route)
+                    else:
+                        route.continue_()
+
+                page.route(f"**/jobs/{job_id}/annotations", hold)
+                draw("car", 150, 20)  # its plate is required and unset: the server refuses
+                save_button = page.get_by_text("Save", exact=True)
+                if save_button.is_enabled():
+                    save_button.click()
+                for _ in range(60):
+                    if on_the_wire:
+                        break
+                    page.wait_for_timeout(100)
+                pressed = bool(on_the_wire) and submit.is_enabled()
+                if pressed:
+                    submit.click()
+                page.wait_for_timeout(300)
+                for held_route in on_the_wire:
+                    held_route.continue_()
+                page.unroute(f"**/jobs/{job_id}/annotations")
+                page.wait_for_timeout(2000)
+                check(pressed and job_state() == state_before
+                      and "not saved" in submit_error(),
+                      "Submit pressed during a save that is refused waits for it, and does not "
+                      "submit",
+                      f"pressed during the save {pressed}; job went from {state_before} to "
+                      f"{job_state()}")
 
                 check(not raised, "the whole loop raises nothing", f"page error: {raised}")
                 browser.close()

@@ -1,6 +1,6 @@
 # Iteration archive
 
-> The narrative record of iterations **1–67**, moved out of
+> The narrative record of iterations **1–68**, moved out of
 > [`handoff.md`](../../handoff.md) so that orienting on this project costs a few hundred
 > lines rather than four thousand.
 >
@@ -15,6 +15,20 @@
 > window, append it to the top of this file rather than deleting it.
 
 ---
+
+## Iteration 68
+
+### 68 — skeletons that move, and tracked skeletons that work
+
+Chosen over the joints migration because it was live: CVAT tracks skeletons and the CVAT
+XML import keeps tracks, so a tracked skeleton could reach the editor and be broken there.
+Reading the select tool to see how a tracked skeleton would be edited found the larger
+defect — no skeleton, tracked or not, could be moved after it was placed — and reading the
+track serialiser found the data loss. CVAT was read for the rule (`dataset_manager/
+annotation.py`: each joint a sub-track, interpolated linearly); no code adapted. Two things
+left as found: the CVAT gap divergence above, and the old joints migration below it.
+
+Verified: see *Verification performed*.
 
 ## Iteration 67
 

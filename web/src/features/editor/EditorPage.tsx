@@ -63,7 +63,7 @@ import { cuboidHint } from './cuboidHint';
 import { AutoAnnotatePanel } from './AutoAnnotatePanel';
 import { SuggestionsPanel } from './SuggestionsPanel';
 import { ReviewPanel } from './ReviewPanel';
-import { canSubmit } from './review';
+import { canSubmit, submitBlocker } from './review';
 import { useAutosave, type Recovered, type Refusal } from './useAutosave';
 import { AttributesPanel } from './AttributesPanel';
 import { attributesFor, mutableNames } from './attributeValues';
@@ -227,7 +227,8 @@ export function EditorPage() {
 
   const submitJob = useMutation({
     mutationFn: async () => {
-      await autosave.flush();
+      const blocker = submitBlocker(await autosave.flush());
+      if (blocker) throw new Error(blocker);
       return api.updateJob(jobId, { state: 'submitted' });
     },
     onSuccess: () => void queryClient.invalidateQueries({ queryKey: ['job', jobId] }),

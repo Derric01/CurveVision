@@ -33,6 +33,7 @@ import {
 } from './drafts';
 import { applyCanvasEdits, type CanvasEdit } from './keyframes';
 import { refusedEntries } from './refusals';
+import type { FlushOutcome } from './review';
 
 const FLUSH_INTERVAL_MS = 4_000;
 /** How long an edit waits before the copy in the browser is rewritten: a drag is many edits. */
@@ -191,8 +192,11 @@ export interface AutosaveApi {
     /** Tracks deleted from the canvas: the whole object, on every frame. */
     deletedTrackIds?: string[];
   }) => void;
-  /** Flush now; awaited by the "save" button and by job submission. */
-  flush: () => Promise<void>;
+  /**
+   * Flush now — after any flush already running — and say what is left: objects refused,
+   * and work that could not be sent. Awaited by the Save button and by job submission.
+   */
+  flush: () => Promise<FlushOutcome>;
   /** Objects the server refused, by canvas id, held until they are edited again. */
   refused: ReadonlyMap<string, Refusal>;
   /**
@@ -224,7 +228,8 @@ export function useAutosave(
   mutableRef.current = mutableAttributes;
   const batch = useRef<PendingBatch>(emptyBatch());
   const versionRef = useRef(version);
-  const flushing = useRef(false);
+  /** The flush running now, which another waits for rather than skipping. */
+  const running = useRef<Promise<void> | null>(null);
   /** The batch a request is carrying: unsaved until its answer arrives, so kept too. */
   const inFlight = useRef<PendingBatch | null>(null);
   const held = useRef(new Map<string, Refused>());
@@ -559,17 +564,24 @@ export function useAutosave(
     }
   }, [jobId, onSaved, updateCount, setAside, copyNow, toSend]);
 
-  const flush = useCallback(async () => {
-    if (flushing.current) return;
-    flushing.current = true;
-    try {
+  const flush = useCallback(async (): Promise<FlushOutcome> => {
+    // One at a time — two would send the same version twice — but a caller arriving while
+    // one runs waits for it and then sends what was queued behind it. Returning at once
+    // (until iteration 74) let Submit go ahead while the periodic save was in flight.
+    while (running.current) await running.current;
+    const run = (async () => {
       // Each pass that goes round again has held back at least one entry, so this ends.
       while (!isEmpty(batch.current) && (await flushOnce())) {
         /* the rest of the batch, without what was refused */
       }
+    })();
+    running.current = run;
+    try {
+      await run;
     } finally {
-      flushing.current = false;
+      running.current = null;
     }
+    return { refused: held.current.size, unsaved: sizeOf(batch.current) };
   }, [flushOnce]);
 
   const unsavedOn = useCallback((frame: number): UnsavedFrame => {
