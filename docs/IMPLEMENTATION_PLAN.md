@@ -532,10 +532,10 @@ class DatasetFormat(Protocol):
 `DatasetView` is a read-only, streaming projection over jobs/frames/annotations, so exporting
 a 500k-image dataset never materialises it in memory.
 
-Shipped, eleven: **CurveVision JSON** (lossless native), **CVAT XML 1.1**, **COCO**
+Shipped, twelve: **CurveVision JSON** (lossless native), **CVAT XML 1.1**, **COCO**
 (instances + keypoints), **YOLO** (detection + segmentation), **YOLO OBB**, **YOLO Pose**,
-**YOLO Classification**, **Pascal VOC**, **KITTI**, **MOTChallenge**, and **segmentation
-mask** (indexed PNG). Each declares its capabilities, and the export API warns which
+**YOLO Classification**, **Pascal VOC**, **KITTI**, **MOTChallenge**, **LabelMe (JSON)**, and
+**segmentation mask** (indexed PNG). Each declares its capabilities, and the export API warns which
 annotations will be dropped *before* running (e.g. polylines are not representable in COCO
 instances).
 
@@ -562,7 +562,15 @@ found that every `data.yaml` failed unless training started inside the export (`
 resolves against the working directory); pose now writes `flip_idx` from joint names.
 The workflow has run locally, not yet on a GitHub runner.
 
-Planned: LabelMe, Open Images, TFRecord, Datumaro bridge.
+**LabelMe (JSON)** (iteration 86): the labelme tool's per-image files, both ways — boxes,
+rotated boxes as `oriented_rectangle`, polygons, polylines, points, circles, masks (a PNG of
+the shape's own box), checkbox attributes as shape flags, tags as image flags. Written from
+the format, since labelme is GPL-3.0; held to labelme itself by
+`scripts/verify_labelme.py` (`.github/workflows/labelme.yml`), which opens an export with
+labelme's own loader, draws every shape with its rasteriser and compares the pixels, and
+imports a file written by labelme's own writer. Not *LabelMe 3.0*, the MIT CSAIL XML.
+
+Planned: Open Images, TFRecord, Cityscapes, Datumaro bridge.
 
 ---
 

@@ -1,6 +1,6 @@
 # Iteration archive
 
-> The narrative record of iterations **1–79**, moved out of
+> The narrative record of iterations **1–80**, moved out of
 > [`handoff.md`](../../handoff.md) so that orienting on this project costs a few hundred
 > lines rather than four thousand.
 >
@@ -13,6 +13,22 @@
 >
 > Newest first, as in `handoff.md`. When an iteration drops out of `handoff.md`'s recent
 > window, append it to the top of this file rather than deleting it.
+
+---
+
+## Iteration 80
+
+### 80 — a Helm chart
+
+The next 1.0 item. `deploy/helm/curvevision`: the API, workers and web application, a
+migration Job as a pre-install/pre-upgrade hook (migrating in every replica at start would
+race), probes on the health check, non-root pods, an optional ingress; PostgreSQL, Redis and
+S3 are the operator's. The web image hard-coded its API as `api:8000`, which only Compose
+can provide; its nginx config is a template now, filled from the environment. The API trusts
+forwarded client addresses in the chart, without which every anonymous visitor would share
+the proxy's rate limit.
+
+Verified: see *Verification performed*.
 
 ---
 

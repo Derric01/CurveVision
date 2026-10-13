@@ -93,14 +93,16 @@ async def import_annotations(
     # Create any labels the file referenced that the project does not have yet.
     label_ids = dict(context.known_labels)
     if create_missing_labels and result.new_labels:
-        from curvevision.schemas.project import LabelIn
+        from curvevision.schemas.project import AttributeIn, LabelIn
         from curvevision.services import projects as project_service
 
         for spec in result.new_labels:
             if spec.name in label_ids:
                 continue
             # With its joints, for a skeleton: without them, the label exists and none of
-            # its imported skeletons has a joint to be stored under.
+            # its imported skeletons has a joint to be stored under. And with the attributes
+            # the file declares for it: the import keeps only declared attributes, so a label
+            # made without them dropped every value it had just been given (iteration 86).
             label = await project_service.create_label(
                 session,
                 scope.project,
@@ -109,6 +111,15 @@ async def import_annotations(
                     color=spec.color,
                     children=[LabelIn(name=keypoint) for keypoint in spec.keypoints],
                     skeleton_edges=[list(edge) for edge in spec.skeleton_edges],
+                    attributes=[
+                        AttributeIn(
+                            name=attribute.name,
+                            attribute_type=attribute.attribute_type,
+                            values=list(attribute.values),
+                            mutable=attribute.mutable,
+                        )
+                        for attribute in spec.attributes
+                    ],
                 ),
             )
             label_ids[spec.name] = str(label.id)

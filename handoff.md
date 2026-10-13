@@ -5,10 +5,11 @@
 > [`AGENTS.md`](./AGENTS.md) first; it is the working contract. Update this file after every
 > iteration, including the ones that mostly failed.
 >
-> **Last updated:** 2026-10-13 (iteration 85) · branch `claude/start-work-yx080h` · PRs
+> **Last updated:** 2026-10-13 (iteration 86) · branch `claude/start-work-yx080h` · PRs
 > [#1](https://github.com/Derric01/CurveVision/pull/1)–[#35](https://github.com/Derric01/CurveVision/pull/35)
-> **all merged**, #35 carrying iterations 70–82. Iterations 83–85 are
-> [#36](https://github.com/Derric01/CurveVision/pull/36).
+> **all merged**, #35 carrying iterations 70–82 and #36 the start of 84. The rest of 84,
+> and 85–86, are [#37](https://github.com/Derric01/CurveVision/pull/37) — green on GitHub
+> at `a45d734` (all 13 jobs), before iteration 86 was pushed.
 >
 > *Two things worth knowing about this repository's PR rhythm, which replace the
 > PR-by-PR changelog that used to sit here and had stopped helping anybody.* **PRs are
@@ -22,7 +23,7 @@
 > **Keep the session short.** One iteration, then commit, push, update this file and report —
 > `AGENTS.md` § *Continue* and the `start-work` skill both say so now, because they did not
 > before and a single session ran six iterations and roughly a third of a week's budget. The
-> concrete costs, in rough order: re-reading this file (iterations 1–79 now live in
+> concrete costs, in rough order: re-reading this file (iterations 1–80 now live in
 > [`docs/iterations/ARCHIVE.md`](./docs/iterations/ARCHIVE.md), which cut it from 3,800
 > lines to 1,000 — keep it that way); `python desktop/sidecar/build.py`, which is a
 > PyInstaller run of a minute or two and is needed *again* for every sabotage-and-restore
@@ -36,7 +37,7 @@
 
 CurveVision is a working annotation platform in **two shapes from one codebase**: a desktop
 application and a server. The manual annotation path is complete end to end — create a
-project and label schema, add media, draw, review, export to any of eleven formats — and
+project and label schema, add media, draw, review, export to any of twelve formats — and
 is tested. The exporters cover COCO, CVAT XML, Pascal VOC, KITTI, MOTChallenge, indexed
 segmentation masks, the lossless native format, and the Ultralytics YOLO family in four
 shapes (detection/segmentation, OBB, pose, classification), each declaring in its
@@ -48,7 +49,7 @@ Windows (unsigned), and a switch to a team's shared server. Since iteration 85 t
 application is driven in CI over WebDriver — which found that the shell had never granted
 its commands, so the native pickers had never worked in a built app until then.
 
-**The tree is green.** `./scripts/check.sh` passes all fifteen steps: 803 server tests (the
+**The tree is green.** `./scripts/check.sh` passes all fifteen steps: 837 server tests (the
 PostgreSQL and S3 ones skip without a server; CI provides both), 16 SDK, 771 web, and
 `scripts/` is lint-clean under its own `ruff.toml`. Thirty-four browser harnesses drive the application in a real Chromium, nightly and on every push to `main` —
 thirty-one against the packaged desktop server, and `verify_workspace.py` against the real
@@ -518,9 +519,10 @@ archive.*
 the desktop and on tags; `browser.yml` and `ultralytics.yml` only when dispatched. All
 are recorded under *Verification performed* for iteration 85's commit.
 
-**The 1.0 list in `docs/ROADMAP.md` is done** except what needs someone else: signing
-certificates, an npm token, real AI keys. What remains with no dependency on the user, in
-order:
+**The 1.0 list in `docs/ROADMAP.md` is done** except what needs someone else (signing
+certificates, an npm token, real AI keys, an external security review) and three formats —
+Open Images, TFRecord, Cityscapes — after LabelMe in iteration 86, plus SAML and a
+Datumaro bridge. What remains with no dependency on the user, in order:
 
 1. ~~The desktop webview's storage across launches~~ — done for Linux in iteration 85
    (check 8 of `verify_desktop_shell.py`); Windows and macOS have no WebDriver bridge.
@@ -531,7 +533,11 @@ order:
    made on install, as Compose does. Deliberately not done yet: with an IAM policy that
    allows objects but not `s3:ListBucket`, `HeadBucket` fails and the install would too —
    it needs an opt-out value first.
-4. **Auto-update** — Tauri's updater, which needs a key pair the maintainers hold; the
+4. **The next formats on the 1.0 list**: Cityscapes (polygons per image as JSON, plus
+   label-ID PNGs — close to what LabelMe and the segmentation exporter already do), then
+   Open Images (CSV boxes and masks), then TFRecord (needs a protobuf writer; check
+   Datumaro's first). Hold each to its own reader, as LabelMe is to labelme.
+5. **Auto-update** — Tauri's updater, which needs a key pair the maintainers hold; the
    wiring can be built and tested with a throwaway key.
 
 **First, if a key is available: try iteration 63 against the real services.** Add Claude,
@@ -1053,6 +1059,21 @@ being updated and this one was not. Check it against* Completed *before trusting
 ---
 
 ## Verification performed
+
+Iteration 86:
+
+* `tests/unit/test_formats_labelme.py`, 18 tests: each geometry in labelme's terms both
+  ways, a rotated box as its real corners and back, an ellipse that is not a circle as the
+  polygon tracing it, several points as one group, flags, description and tags, masks pixel
+  for pixel, and what cannot be read reported while the rest imports.
+* `scripts/verify_labelme.py` with labelme 6.3.1, 14 checks — every one passing. Sabotaged
+  (the circle written at twice its radius; the mask PNG reversed): each caught, the second
+  only after the test mask was made asymmetric — the first one was symmetric under a 180°
+  turn, so a reversed mask passed for it.
+* `tests/api/test_import_fidelity.py`: a labelme archive through the real import route, and
+  a native archive into a project with none of its labels. Both failed before the route
+  fix and pass after it.
+* `./scripts/check.sh`: all fifteen steps green; 837 server tests.
 
 Iteration 85:
 
@@ -2021,6 +2042,27 @@ Iteration 54:
 
 ## Last iteration
 
+### 86 — LabelMe (JSON), both ways; labels an import creates keep their attributes
+
+The first of the 1.0 list's additional formats, and the one most individual annotators
+already have on disk: the `labelme` tool's JSON beside each image. Import and export of
+boxes, rotated boxes (`oriented_rectangle`), polygons, polylines, points, circles and masks
+(a PNG of the shape's own box), checkbox attributes as shape flags, a `description`, groups,
+and tags as the image's flags. labelme is GPL-3.0, so it was written from the format —
+labelme's loader read for its rules, nothing copied — and is held to labelme itself:
+`scripts/verify_labelme.py` (`.github/workflows/labelme.yml`) opens an export with labelme's
+`LabelFile`, draws every shape with its rasteriser and compares the pixels with the source
+geometry, then imports a file written by labelme's own writer. Not LabelMe 3.0 (MIT XML).
+
+The API-level test found a bug older than the format: **labels an import created were
+created without the attributes the file declared**, and since an import keeps only declared
+attributes, every value on them was dropped — for the "lossless" native format too, into
+any project that lacked its labels. The import route now creates them with their attributes.
+
+Verified: see *Verification performed*.
+
+## Iteration 85
+
 ### 85 — the desktop app on a team server; the shell's commands granted at last
 
 The last desktop item that needed nobody's certificates. *File ▸ Connect to a Team
@@ -2136,23 +2178,9 @@ server what to offer.
 
 Verified: see *Verification performed*.
 
-## Iteration 80
-
-### 80 — a Helm chart
-
-The next 1.0 item. `deploy/helm/curvevision`: the API, workers and web application, a
-migration Job as a pre-install/pre-upgrade hook (migrating in every replica at start would
-race), probes on the health check, non-root pods, an optional ingress; PostgreSQL, Redis and
-S3 are the operator's. The web image hard-coded its API as `api:8000`, which only Compose
-can provide; its nginx config is a template now, filled from the environment. The API trusts
-forwarded client addresses in the chart, without which every anonymous visitor would share
-the proxy's rate limit.
-
-Verified: see *Verification performed*.
-
 ## Earlier iterations
 
-Iterations **1–79** are in [`docs/iterations/ARCHIVE.md`](./docs/iterations/ARCHIVE.md) —
+Iterations **1–80** are in [`docs/iterations/ARCHIVE.md`](./docs/iterations/ARCHIVE.md) —
 moved there so that orienting costs a few hundred lines rather than four thousand. Read them
 when `git log` points you at an iteration number, or when you are about to build something
 and want to know whether it was already tried and rejected. The lessons from them that are

@@ -292,3 +292,42 @@ def enclosing_box(points: list[float], rotation: float = 0.0) -> list[float]:
     corners = rotated_corners(points, rotation)
     xs, ys = corners[0::2], corners[1::2]
     return [min(xs), min(ys), max(xs), max(ys)]
+
+
+def quad_to_shape(pixels: list[float], label: str) -> ShapeRecord:
+    """A quadrilateral as a rotated rectangle when it is one, else as a polygon."""
+    import math
+
+    corners = [(pixels[i], pixels[i + 1]) for i in range(0, 8, 2)]
+    # Side lengths and the angle of the first edge.
+    sides = [math.dist(corners[i], corners[(i + 1) % 4]) for i in range(4)]
+    opposite_equal = abs(sides[0] - sides[2]) <= max(1e-6, 0.02 * max(sides[0], sides[2])) and abs(
+        sides[1] - sides[3]
+    ) <= max(1e-6, 0.02 * max(sides[1], sides[3]))
+
+    # Right angles: adjacent edges' dot product near zero.
+    def edge(i: int) -> tuple[float, float]:
+        a, b = corners[i], corners[(i + 1) % 4]
+        return (b[0] - a[0], b[1] - a[1])
+
+    square = True
+    for i in range(4):
+        ex, ey = edge(i)
+        fx, fy = edge((i + 1) % 4)
+        length = math.hypot(ex, ey) * math.hypot(fx, fy)
+        if length == 0 or abs((ex * fx + ey * fy) / length) > 0.02:
+            square = False
+            break
+
+    if opposite_equal and square:
+        cx = sum(x for x, _ in corners) / 4
+        cy = sum(y for _, y in corners) / 4
+        angle = math.degrees(math.atan2(edge(0)[1], edge(0)[0]))
+        half_w, half_h = sides[0] / 2, sides[1] / 2
+        return ShapeRecord(
+            label=label,
+            shape_type=ShapeType.ROTATED_RECTANGLE,
+            points=[cx - half_w, cy - half_h, cx + half_w, cy + half_h],
+            rotation=round(angle, 4),
+        )
+    return ShapeRecord(label=label, shape_type=ShapeType.POLYGON, points=list(pixels))

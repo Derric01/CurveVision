@@ -208,6 +208,30 @@ class TestRoundTrips:
         }
         assert parked == {0: True, 2: False}
 
+    async def test_a_native_archive_into_a_project_without_its_labels_keeps_its_attributes(
+        self, owner: ApiActor, organization: dict[str, Any]
+    ) -> None:
+        """The labels an import creates carry the attributes the file declares. Until
+        iteration 86 they were created bare, and the import — which keeps only declared
+        attributes — then dropped every value: "lossless" lost them all."""
+        archive = await self.draw_and_export(owner, organization, "curvevision")
+        bare = await owner.post(
+            "/api/v1/projects",
+            json={"organization_id": organization["id"], "slug": "bare", "name": "Bare"},
+        )
+        assert bare.status_code == 201, bare.text
+
+        _result, document = await import_into(owner, bare.json(), "curvevision", archive, frames=6)
+
+        labels = (await owner.get(f"/api/v1/projects/{bare.json()['id']}/labels")).json()
+        car = next(label for label in labels if label["name"] == "car")
+        assert {a["name"]: a["attribute_type"] for a in car["attributes"]} == {
+            "colour": "select",
+            "parked": "checkbox",
+        }
+        [shape] = document["shapes"]
+        assert shape["attributes"] == {"colour": "blue", "parked": True}
+
 
 def cvat_archive(xml: str) -> bytes:
     buffer = io.BytesIO()
@@ -471,3 +495,66 @@ class TestATrackWithAGap:
 
         [track] = document["tracks"]
         assert present_on(track) == [0, 1, 4, 5]
+
+
+async def test_labelme_files_arrive_with_their_flags_groups_and_tags(
+    owner: ApiActor, organization: dict[str, Any]
+) -> None:
+    """LabelMe (iteration 86), through the real import route: a checkbox the project
+    declares keeps its flag, a label it does not have is made with the flags the file gives
+    it, and the image's flag is a tag."""
+    import json
+
+    project = await street_project(owner, organization, "labelme-import")
+    archive = io.BytesIO()
+    with zipfile.ZipFile(archive, "w") as bundle:
+        bundle.writestr(
+            "f0.json",
+            json.dumps(
+                {
+                    "version": "5.5.0",
+                    "flags": {"daytime": True},
+                    "imagePath": "f0.png",
+                    "imageData": None,
+                    "shapes": [
+                        {
+                            "label": "car",
+                            "points": [[10, 10], [50, 50]],
+                            "shape_type": "rectangle",
+                            "group_id": 2,
+                            "flags": {"parked": True},
+                            "description": "",
+                        },
+                        {
+                            "label": "tree",
+                            "points": [[1, 1], [9, 1], [5, 9]],
+                            "shape_type": "polygon",
+                            "group_id": None,
+                            "flags": {"bare": True},
+                            "description": "an oak",
+                        },
+                    ],
+                }
+            ),
+        )
+
+    summary, document = await import_into(owner, project, "labelme", archive.getvalue(), frames=2)
+
+    labels = {
+        label["name"]: label
+        for label in (await owner.get(f"/api/v1/projects/{project['id']}/labels")).json()
+    }
+    assert {"car", "tree", "daytime"} <= set(labels)
+    assert {(a["name"], a["attribute_type"]) for a in labels["tree"]["attributes"]} == {
+        ("bare", "checkbox"),
+        ("description", "text"),
+    }
+    by_label = {shape["label_id"]: shape for shape in document["shapes"]}
+    car = by_label[labels["car"]["id"]]
+    assert car["points"] == BOX_AT_0
+    assert car["group"] == 2
+    assert car["attributes"]["parked"] is True
+    tree = by_label[labels["tree"]["id"]]
+    assert tree["attributes"] == {"bare": True, "description": "an oak"}
+    assert [tag["label_id"] for tag in document["tags"]] == [labels["daytime"]["id"]]
+    assert summary

@@ -8,6 +8,7 @@ from curvevision.formats import (  # noqa: F401
     coco,
     cvat_xml,
     kitti,
+    labelme,
     mot,
     native,
     registry,
