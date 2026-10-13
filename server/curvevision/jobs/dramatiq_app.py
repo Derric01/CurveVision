@@ -24,6 +24,24 @@ def configure_broker(redis_url: str) -> None:
     _configured = True
 
 
+_traced = False
+
+
+def _trace_this_worker() -> None:
+    """Turn tracing on in a worker process once, when its settings ask for it: the API
+    process does it in `create_app`, which a worker never calls."""
+    global _traced
+    if _traced:
+        return
+    from curvevision.core import tracing
+    from curvevision.core.config import get_settings
+    from curvevision.core.db import get_engine
+
+    tracing.configure(get_settings())
+    tracing.instrument_engine(get_engine())
+    _traced = True
+
+
 try:  # pragma: no cover - depends on the optional worker extra
     import dramatiq
 
@@ -37,6 +55,7 @@ try:  # pragma: no cover - depends on the optional worker extra
         """
         from curvevision.jobs.runner import run_task
 
+        _trace_this_worker()
         asyncio.run(run_task(task_id))
 
 except ImportError:  # pragma: no cover - the API image does not need dramatiq

@@ -1,6 +1,6 @@
 # Iteration archive
 
-> The narrative record of iterations **1–71**, moved out of
+> The narrative record of iterations **1–72**, moved out of
 > [`handoff.md`](../../handoff.md) so that orienting on this project costs a few hundred
 > lines rather than four thousand.
 >
@@ -15,6 +15,21 @@
 > window, append it to the top of this file rather than deleting it.
 
 ---
+
+## Iteration 72
+
+### 72 — a backup that restores what it holds; tracks that keep their keyframes
+
+Asked for a larger piece of work, so two items from *Known issues* that are one subject:
+what survives a round trip. The native format calls itself lossless, and its import
+dropped three things it wrote — provenance (so pending suggestions came back as finished
+work), tag attributes, and which frames were keyframes; CVAT XML lost the keyframes too,
+which was the next best action. Formats now say which frames were authored, and the import
+keeps a frame marked as interpolated only where its own interpolation disagrees — so it is
+lossless whatever tool wrote the file, not only when the tools agree. Provenance is kept
+only from the one format that wrote it from this server's annotations.
+
+Verified: see *Verification performed*.
 
 ## Iteration 71
 

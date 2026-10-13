@@ -248,7 +248,9 @@ already the seam.
 * `structlog`-style JSON logging with a request-scoped `request_id` bound to every line.
 * Prometheus metrics at `/metrics` (request latency histograms, job queue depth, annotation
   write counters).
-* OpenTelemetry tracing: **Planned**, with the instrumentation seam in `core/observability`.
+* OpenTelemetry tracing — **Done** (iteration 78), `core/tracing.py`: requests, SQL,
+  outbound HTTP and background jobs, to an OTLP/HTTP collector, log lines carrying the trace
+  id. Optional (`tracing` extra) and off by default.
 
 ### 0.11 CI/CD
 
@@ -885,7 +887,7 @@ Benchmarks live in `server/tests/benchmarks/` (annotation write/read at 1k/10k/1
   scanning through ClamAV (`content_scanner = "clamd"`, off by default, failing closed),
   tested against a real clamd in CI. (Until iteration 77 this line said a `ContentScanner`
   hook existed; it did not.)
-* Structured logging and metrics — **Done**; tracing — **Planned**.
+* Structured logging, metrics and tracing — **Done** (tracing: iteration 78).
 * Migrations — **Done**; backup/DR runbook — see [OPERATIONS.md](./OPERATIONS.md).
 
 ---

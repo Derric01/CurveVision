@@ -12,6 +12,7 @@ from typing import Any
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from curvevision.core import tracing
 from curvevision.core.db import get_sessionmaker, utcnow
 from curvevision.core.logging import get_logger
 from curvevision.domain.enums import BackgroundTaskState
@@ -50,7 +51,8 @@ async def run_task(task_id: str) -> dict[str, Any]:
         kind = task.kind
 
     try:
-        result = await handler(payload)
+        async with tracing.span(f"job {kind}", **{"curvevision.task_id": task_id}):
+            result = await handler(payload)
     except Exception as exc:
         logger.exception("background task failed", extra={"task_id": task_id, "kind": kind})
         async with factory() as session:

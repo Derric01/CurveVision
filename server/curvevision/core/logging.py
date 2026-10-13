@@ -36,6 +36,11 @@ class JSONFormatter(logging.Formatter):
             payload["request_id"] = rid
         if (pid := principal_id_var.get()) is not None:
             payload["principal_id"] = pid
+        # Imported here: `core.tracing` logs through this module.
+        from curvevision.core import tracing
+
+        if (ids := tracing.current_ids()) is not None:
+            payload["trace_id"], payload["span_id"] = ids
         for key, value in record.__dict__.items():
             if key not in _RESERVED and not key.startswith("_"):
                 payload[key] = value

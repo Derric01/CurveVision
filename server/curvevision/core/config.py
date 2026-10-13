@@ -115,6 +115,16 @@ class Settings(BaseSettings):
     log_level: str = "INFO"
     log_format: Literal["json", "console"] = "json"
     metrics_enabled: bool = True
+    #: OpenTelemetry tracing (`core/tracing.py`), to an OTLP/HTTP collector. Needs the
+    #: `tracing` extra.
+    tracing_enabled: bool = False
+    tracing_service_name: str = "curvevision-server"
+    #: e.g. ``http://otel-collector:4318/v1/traces``; unset, the standard
+    #: ``OTEL_EXPORTER_OTLP_ENDPOINT`` (or its default, localhost:4318) applies.
+    tracing_otlp_endpoint: str | None = None
+    #: The share of traces kept, from 0 to 1. A request arriving inside a sampled trace is
+    #: always kept, whatever this says.
+    tracing_sample_ratio: float = Field(default=1.0, ge=0.0, le=1.0)
 
     @field_validator(
         "cors_origins", "allowed_image_extensions", "allowed_video_extensions", mode="before"

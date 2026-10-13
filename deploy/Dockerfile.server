@@ -16,7 +16,7 @@ COPY server/curvevision ./curvevision
 
 RUN python -m venv /opt/venv
 ENV PATH="/opt/venv/bin:$PATH"
-RUN pip install --upgrade pip && pip install ".[postgres,s3,media,worker]"
+RUN pip install --upgrade pip && pip install ".[postgres,s3,media,worker,tracing]"
 
 # ---- runtime -----------------------------------------------------------------
 FROM python:3.11-slim AS runtime

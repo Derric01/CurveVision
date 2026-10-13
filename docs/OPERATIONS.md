@@ -109,6 +109,24 @@ Logs are JSON, one line per request, each carrying the `request_id` also returne
 `X-Request-ID`. A user reporting "it failed at 14:32" plus that header takes you straight
 to the cause.
 
+### Tracing
+
+OpenTelemetry traces go to any OTLP/HTTP collector — Jaeger, Grafana Tempo, Honeycomb, the
+OpenTelemetry Collector:
+
+```bash
+CURVEVISION_TRACING_ENABLED=true
+CURVEVISION_TRACING_OTLP_ENDPOINT=http://otel-collector:4318/v1/traces  # or OTEL_EXPORTER_OTLP_ENDPOINT
+CURVEVISION_TRACING_SAMPLE_RATIO=0.1   # keep one trace in ten; 1.0 keeps all
+```
+
+One trace per request, named by its route template (`PATCH /api/v1/jobs/{job_id}/annotations`),
+with its SQL statements, its outbound HTTP calls (model servers, hosted models, webhooks)
+and any background job it ran inline as spans inside it. A job a worker runs is its own
+trace. `/metrics` and the health check are not traced. While tracing is on, every JSON log
+line written inside a span carries its `trace_id` and `span_id`. The server image includes
+the `tracing` extra; a pip install needs `curvevision-server[tracing]`.
+
 ## Capacity
 
 Rough starting points, not promises — measure your own workload:

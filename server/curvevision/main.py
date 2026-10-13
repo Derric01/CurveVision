@@ -15,8 +15,9 @@ from curvevision import __version__
 from curvevision.api.errors import install_error_handlers
 from curvevision.api.middleware import install_security_middleware
 from curvevision.api.router import api_router
+from curvevision.core import tracing
 from curvevision.core.config import Settings, configure_settings, get_settings
-from curvevision.core.db import configure_engine, dispose_engine
+from curvevision.core.db import configure_engine, dispose_engine, get_engine
 from curvevision.core.logging import configure_logging, get_logger
 from curvevision.core.observability import install_middleware, metrics_response
 
@@ -39,6 +40,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     # environment names -- neither in a request handler nor in a background job.
     configure_settings(settings)
     configure_engine(settings)
+    tracing.instrument_engine(get_engine())
     logger = get_logger(__name__)
     logger.info(
         "CurveVision starting",
@@ -61,6 +63,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     if (close := getattr(getattr(app.state, "rate_limiter", None), "aclose", None)) is not None:
         await close()
     await dispose_engine()
+    tracing.shutdown()
     configure_settings(None)
     logger.info("CurveVision stopped")
 
@@ -91,6 +94,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     )
     install_security_middleware(app, settings)
     install_middleware(app)
+    if (provider := tracing.configure(settings)) is not None:
+        tracing.instrument_app(app, provider)
     install_error_handlers(app)
     app.include_router(api_router, prefix=settings.api_prefix)
 
