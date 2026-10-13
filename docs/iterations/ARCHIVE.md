@@ -1,6 +1,6 @@
 # Iteration archive
 
-> The narrative record of iterations **1–73**, moved out of
+> The narrative record of iterations **1–74**, moved out of
 > [`handoff.md`](../../handoff.md) so that orienting on this project costs a few hundred
 > lines rather than four thousand.
 >
@@ -15,6 +15,19 @@
 > window, append it to the top of this file rather than deleting it.
 
 ---
+
+## Iteration 74
+
+### 74 — Submit checks what its own save achieved
+
+The next best action. Submit's guard read what was refused *before* the press; nothing
+read what the save Submit runs first achieved — and that save returned at once whenever
+the periodic autosave was already running. Reproduced in a browser both ways (a failing
+save, and a refused one held in flight), then: `flush` waits for a flush in progress and
+returns what it left (refused, still queued), and Submit refuses with the reason unless
+both are zero.
+
+Verified: see *Verification performed*.
 
 ## Iteration 73
 

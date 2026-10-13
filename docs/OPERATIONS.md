@@ -49,6 +49,38 @@ each time; choose it only if an outage of the scanner must not stop uploads. Rai
 Folders imported in place by the desktop application are not scanned: they are already on
 the machine that would be protected.
 
+## Kubernetes
+
+A Helm chart is in [`deploy/helm/curvevision`](../deploy/helm/curvevision): the API, the
+workers and the web application, with a migration Job that runs once before each install
+and upgrade. **PostgreSQL, Redis and S3-compatible storage are yours to provide** — every
+cluster already runs those its own way, and a copy bundled here would be one more thing to
+back up.
+
+```bash
+# No images are published yet: build and push both to a registry your cluster pulls from.
+docker build -f deploy/Dockerfile.server -t registry.example.com/curvevision-server:0.1.0 .
+docker build -f deploy/Dockerfile.web    -t registry.example.com/curvevision-web:0.1.0 .
+docker push registry.example.com/curvevision-server:0.1.0
+docker push registry.example.com/curvevision-web:0.1.0
+
+helm install cv deploy/helm/curvevision \
+  --set image.server.repository=registry.example.com/curvevision-server \
+  --set image.web.repository=registry.example.com/curvevision-web \
+  --set secretKey=$(python3 -c 'import secrets; print(secrets.token_urlsafe(48))') \
+  --set database.url=postgresql+asyncpg://curvevision:PASSWORD@postgres:5432/curvevision \
+  --set redis.url=redis://redis:6379/0 \
+  --set storage.s3.endpointUrl=http://minio:9000 \
+  --set storage.s3.accessKeyId=... --set storage.s3.secretAccessKey=... \
+  --set ingress.enabled=true --set ingress.host=curvevision.example.com
+```
+
+Or keep the credentials in a Secret of your own (`existingSecret`; its keys are listed in
+`values.yaml`). Every API replica counts against one rate limit, in that Redis; malware
+scanning and tracing are `config.contentScanner` and `config.tracing`. The chart is linted
+and its manifests validated against the Kubernetes 1.30 schemas on every CI run; it has
+not yet been installed into a running cluster in CI.
+
 ## Backups
 
 **Back up the database and object storage together.** An annotation row whose media is

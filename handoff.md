@@ -5,9 +5,9 @@
 > [`AGENTS.md`](./AGENTS.md) first; it is the working contract. Update this file after every
 > iteration, including the ones that mostly failed.
 >
-> **Last updated:** 2026-10-13 (iteration 79) · branch `claude/start-work-yx080h` · PRs
+> **Last updated:** 2026-10-13 (iteration 80) · branch `claude/start-work-yx080h` · PRs
 > [#1](https://github.com/Derric01/CurveVision/pull/1)–[#34](https://github.com/Derric01/CurveVision/pull/34)
-> **all merged**, #34 carrying iterations 67–69. Iterations 70–79 are pushed on top of
+> **all merged**, #34 carrying iterations 67–69. Iterations 70–80 are pushed on top of
 > that merge with no PR yet.
 >
 > *Two things worth knowing about this repository's PR rhythm, which replace the
@@ -22,7 +22,7 @@
 > **Keep the session short.** One iteration, then commit, push, update this file and report —
 > `AGENTS.md` § *Continue* and the `start-work` skill both say so now, because they did not
 > before and a single session ran six iterations and roughly a third of a week's budget. The
-> concrete costs, in rough order: re-reading this file (iterations 1–73 now live in
+> concrete costs, in rough order: re-reading this file (iterations 1–74 now live in
 > [`docs/iterations/ARCHIVE.md`](./docs/iterations/ARCHIVE.md), which cut it from 3,800
 > lines to 1,000 — keep it that way); `python desktop/sidecar/build.py`, which is a
 > PyInstaller run of a minute or two and is needed *again* for every sabotage-and-restore
@@ -504,7 +504,7 @@ was the last unconnected piece of the desktop application.
 
 ## Next best action
 
-*Backup and restore, either shape and across databases, iteration 79; OpenTelemetry tracing, 78; uploads scanned by ClamAV, 77; a rate limit shared by every server instance through Redis, and Phase 12's markers made true, iteration 76; a default the server fills in is stored typed, 75; Submit checks what its own save achieved, 74. No edit made during a save is lost any more — to a new object while its first save is in
+*A Helm chart, iteration 80; backup and restore, either shape and across databases, 79; OpenTelemetry tracing, 78; uploads scanned by ClamAV, 77; a rate limit shared by every server instance through Redis, and Phase 12's markers made true, iteration 76; a default the server fills in is stored typed, 75; Submit checks what its own save achieved, 74. No edit made during a save is lost any more — to a new object while its first save is in
 flight, or to any object while a save that then fails is — and the editor always fits the
 frame it opens on, iteration 73; a backup that
 restores what it holds, and tracks that keep their keyframes through CVAT XML and the
@@ -520,7 +520,9 @@ in this order — each self-contained, each a gap a production operator would hi
 1. ~~Content scanning (ClamAV)~~ — done, iteration 77.
 2. ~~OpenTelemetry tracing~~ — done, iteration 78.
 3. ~~Backup and restore tooling~~ — done, iteration 79.
-4. **A Helm chart**, linted in CI.
+4. ~~A Helm chart~~ — done, iteration 80 (linted and schema-validated; not yet installed
+   into a live cluster in CI — a `kind` job with in-cluster PostgreSQL, Redis and MinIO
+   would be the proof, and is worth doing).
 5. **OIDC sign-on** behind the `AuthBackend` seam — the largest.
 6. **A published TypeScript client** from the OpenAPI schema.
 
@@ -1042,6 +1044,21 @@ being updated and this one was not. Check it against* Completed *before trusting
 ---
 
 ## Verification performed
+
+Iteration 80:
+
+* `helm lint`, and `helm template` piped through `kubeconform -strict` against the
+  Kubernetes 1.30 schemas: 9 resources valid with an ingress and the chart's own Secret, 7
+  with `existingSecret`. Without its required values the chart refuses with the value to
+  set. Helm built from source here (`get.helm.sh` is blocked from this container); CI uses
+  `azure/setup-helm` and the same commands, in a new `helm` job.
+* The web image's nginx config became a template (`deploy/nginx.conf.template`); CI's
+  Docker job now loads the built image and checks `nginx -T` proxies to `api:8000` by
+  default and to a release's own API service when told. Not run here: no Docker daemon.
+* **Not verified: an install into a running cluster.** Said so in `OPERATIONS.md` and the
+  roadmap.
+* Iteration 79 on GitHub: CI green, including the new SQLite→PostgreSQL restore step.
+* Full `./scripts/check.sh` green.
 
 Iteration 79:
 
@@ -1887,6 +1904,20 @@ Iteration 54:
 
 ## Last iteration
 
+### 80 — a Helm chart
+
+The next 1.0 item. `deploy/helm/curvevision`: the API, workers and web application, a
+migration Job as a pre-install/pre-upgrade hook (migrating in every replica at start would
+race), probes on the health check, non-root pods, an optional ingress; PostgreSQL, Redis and
+S3 are the operator's. The web image hard-coded its API as `api:8000`, which only Compose
+can provide; its nginx config is a template now, filled from the environment. The API trusts
+forwarded client addresses in the chart, without which every anonymous visitor would share
+the proxy's rate limit.
+
+Verified: see *Verification performed*.
+
+## Iteration 79
+
 ### 79 — backup and restore, either shape, across databases
 
 The next 1.0 item. Backups were two hand-run commands against two systems, for the server
@@ -1951,22 +1982,9 @@ save.
 
 Verified: see *Verification performed*.
 
-## Iteration 74
-
-### 74 — Submit checks what its own save achieved
-
-The next best action. Submit's guard read what was refused *before* the press; nothing
-read what the save Submit runs first achieved — and that save returned at once whenever
-the periodic autosave was already running. Reproduced in a browser both ways (a failing
-save, and a refused one held in flight), then: `flush` waits for a flush in progress and
-returns what it left (refused, still queued), and Submit refuses with the reason unless
-both are zero.
-
-Verified: see *Verification performed*.
-
 ## Earlier iterations
 
-Iterations **1–73** are in [`docs/iterations/ARCHIVE.md`](./docs/iterations/ARCHIVE.md) —
+Iterations **1–74** are in [`docs/iterations/ARCHIVE.md`](./docs/iterations/ARCHIVE.md) —
 moved there so that orienting costs a few hundred lines rather than four thousand. Read them
 when `git log` points you at an iteration number, or when you are about to build something
 and want to know whether it was already tried and rejected. The lessons from them that are

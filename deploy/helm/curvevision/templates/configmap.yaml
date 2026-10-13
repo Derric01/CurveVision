@@ -1,0 +1,35 @@
+{{- include "curvevision.validate" . }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "curvevision.fullname" . }}-config
+  labels:
+    {{- include "curvevision.labels" . | nindent 4 }}
+data:
+  CURVEVISION_ENVIRONMENT: {{ .Values.config.environment | quote }}
+  CURVEVISION_LOG_LEVEL: {{ .Values.config.logLevel | quote }}
+  CURVEVISION_LOG_FORMAT: "json"
+  CURVEVISION_JOB_QUEUE_BACKEND: "dramatiq"
+  CURVEVISION_STORAGE_BACKEND: "s3"
+  CURVEVISION_S3_BUCKET: {{ .Values.storage.s3.bucket | quote }}
+  {{- with .Values.storage.s3.endpointUrl }}
+  CURVEVISION_S3_ENDPOINT_URL: {{ . | quote }}
+  {{- end }}
+  {{- with .Values.storage.s3.region }}
+  CURVEVISION_S3_REGION: {{ . | quote }}
+  {{- end }}
+  CURVEVISION_S3_FORCE_PATH_STYLE: {{ .Values.storage.s3.forcePathStyle | quote }}
+  CURVEVISION_CORS_ORIGINS: {{ .Values.config.corsOrigins | quote }}
+  CURVEVISION_RATE_LIMIT_PER_MINUTE: {{ .Values.config.rateLimitPerMinute | quote }}
+  # Every API replica counts against one limit.
+  CURVEVISION_RATE_LIMIT_BACKEND: "redis"
+  CURVEVISION_CONTENT_SCANNER: {{ .Values.config.contentScanner | quote }}
+  {{- with .Values.config.clamdHost }}
+  CURVEVISION_CLAMD_HOST: {{ . | quote }}
+  {{- end }}
+  CURVEVISION_CLAMD_PORT: {{ .Values.config.clamdPort | quote }}
+  CURVEVISION_TRACING_ENABLED: {{ .Values.config.tracing.enabled | quote }}
+  {{- with .Values.config.tracing.otlpEndpoint }}
+  CURVEVISION_TRACING_OTLP_ENDPOINT: {{ . | quote }}
+  {{- end }}
+  CURVEVISION_TRACING_SAMPLE_RATIO: {{ .Values.config.tracing.sampleRatio | quote }}

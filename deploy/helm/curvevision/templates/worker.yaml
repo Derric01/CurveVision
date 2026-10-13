@@ -1,0 +1,49 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "curvevision.fullname" . }}-worker
+  labels:
+    {{- include "curvevision.labels" . | nindent 4 }}
+    app.kubernetes.io/component: worker
+spec:
+  replicas: {{ .Values.worker.replicas }}
+  selector:
+    matchLabels:
+      {{- include "curvevision.selector" (dict "root" . "component" "worker") | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "curvevision.selector" (dict "root" . "component" "worker") | nindent 8 }}
+      annotations:
+        checksum/config: {{ include (print $.Template.BasePath "/configmap.yaml") . | sha256sum }}
+    spec:
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+      containers:
+        - name: worker
+          image: {{ include "curvevision.serverImage" . }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          command:
+            - curvevision-server
+            - worker
+            - --queues
+            {{- range .Values.worker.queues }}
+            - {{ . | quote }}
+            {{- end }}
+          envFrom:
+            - configMapRef: {name: {{ include "curvevision.fullname" . }}-config}
+          env:
+            {{- include "curvevision.serverEnv" . | nindent 12 }}
+            {{- with .Values.worker.extraEnv }}
+            {{- toYaml . | nindent 12 }}
+            {{- end }}
+          resources:
+            {{- toYaml .Values.worker.resources | nindent 12 }}
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities: {drop: [ALL]}

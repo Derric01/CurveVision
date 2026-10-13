@@ -148,7 +148,7 @@ curvevision/
 ├─ desktop/                  # the desktop shape of the same application
 │  ├─ sidecar/               # PyInstaller build: server + web bundle, one executable
 │  └─ shell/                 # Tauri v2 shell (Rust): supervises it, opens the window
-├─ deploy/                   # docker compose, Dockerfiles, helm (Planned)
+├─ deploy/                   # docker compose, Dockerfiles, nginx template, Helm chart
 ├─ docs/
 └─ scripts/                  # dev scripts
 ```

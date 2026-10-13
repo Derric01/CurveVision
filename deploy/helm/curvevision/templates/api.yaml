@@ -1,0 +1,78 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "curvevision.fullname" . }}-api
+  labels:
+    {{- include "curvevision.labels" . | nindent 4 }}
+    app.kubernetes.io/component: api
+spec:
+  replicas: {{ .Values.api.replicas }}
+  selector:
+    matchLabels:
+      {{- include "curvevision.selector" (dict "root" . "component" "api") | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "curvevision.selector" (dict "root" . "component" "api") | nindent 8 }}
+      annotations:
+        # A changed setting rolls the pods; a ConfigMap alone would not.
+        checksum/config: {{ include (print $.Template.BasePath "/configmap.yaml") . | sha256sum }}
+    spec:
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+      containers:
+        - name: api
+          image: {{ include "curvevision.serverImage" . }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          # Migrations are the pre-install/pre-upgrade Job's, not every replica's. The client
+          # address comes from the proxy in front (the web pods, an ingress): this Service is
+          # reachable only inside the cluster, so the forwarded address is trusted — without
+          # it, every anonymous visitor would share the proxy's address, and its rate limit.
+          command: [uvicorn, curvevision.main:app, --host, 0.0.0.0, --port, "8000",
+                    --workers, {{ .Values.api.workers | quote }},
+                    --proxy-headers, --forwarded-allow-ips, "*"]
+          ports:
+            - {name: http, containerPort: 8000}
+          envFrom:
+            - configMapRef: {name: {{ include "curvevision.fullname" . }}-config}
+          env:
+            {{- include "curvevision.serverEnv" . | nindent 12 }}
+            {{- with .Values.api.extraEnv }}
+            {{- toYaml . | nindent 12 }}
+            {{- end }}
+          # The health check touches the database, so a replica that cannot reach it is
+          # taken out of the Service rather than answering 500s.
+          readinessProbe:
+            httpGet: {path: /api/v1/health, port: http}
+            periodSeconds: 10
+            timeoutSeconds: 5
+          livenessProbe:
+            httpGet: {path: /api/v1/health, port: http}
+            initialDelaySeconds: 30
+            periodSeconds: 30
+            timeoutSeconds: 5
+            failureThreshold: 5
+          resources:
+            {{- toYaml .Values.api.resources | nindent 12 }}
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities: {drop: [ALL]}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "curvevision.fullname" . }}-api
+  labels:
+    {{- include "curvevision.labels" . | nindent 4 }}
+    app.kubernetes.io/component: api
+spec:
+  type: ClusterIP
+  selector:
+    {{- include "curvevision.selector" (dict "root" . "component" "api") | nindent 4 }}
+  ports:
+    - {name: http, port: 8000, targetPort: http}

@@ -270,8 +270,45 @@ jobs:
           context: .
           file: deploy/Dockerfile.web
           push: false
+          load: true
+          tags: curvevision-web:ci
           cache-from: type=gha
           cache-to: type=gha,mode=max
+
+      # nginx renders its config from a template at start: the API it proxies to is
+      # `api:8000` under Compose and the release's own service under the Helm chart.
+      - name: The web image proxies to the API it is told to
+        run: |
+          docker run --rm --add-host api:127.0.0.1 curvevision-web:ci nginx -T \
+            | grep -F 'proxy_pass http://api:8000;'
+          docker run --rm --add-host demo-curvevision-api:127.0.0.1 \
+            -e CURVEVISION_API_UPSTREAM=demo-curvevision-api:8000 curvevision-web:ci nginx -T \
+            | grep -F 'proxy_pass http://demo-curvevision-api:8000;'
+
+  helm:
+    name: Helm chart renders valid manifests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: azure/setup-helm@v4
+        with:
+          version: v3.16.2
+
+      - name: Lint, render and validate against the Kubernetes schemas
+        working-directory: deploy/helm
+        run: |
+          curl -sSfL https://github.com/yannh/kubeconform/releases/download/v0.6.7/kubeconform-linux-amd64.tar.gz \
+            | tar xz kubeconform
+          set -- --set secretKey=s --set database.url=postgresql+asyncpg://u:p@db/cv \
+                 --set redis.url=redis://r:6379/0
+          helm lint curvevision "$@"
+          helm template demo curvevision "$@" --set ingress.enabled=true \
+            | ./kubeconform -strict -summary -kubernetes-version 1.30.0 -
+          helm template demo curvevision --set existingSecret=mine \
+            | ./kubeconform -strict -summary -kubernetes-version 1.30.0 -
+          # Without its required values the chart refuses, and says which.
+          ! helm template demo curvevision 2> refused.txt
+          grep -q "Set secretKey" refused.txt
 
   licenses:
     name: Third-party notices are current

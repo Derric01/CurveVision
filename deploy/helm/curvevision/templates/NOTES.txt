@@ -1,0 +1,13 @@
+CurveVision {{ .Chart.AppVersion }} is installed as {{ include "curvevision.fullname" . }}.
+
+{{- if .Values.ingress.enabled }}
+Open https://{{ .Values.ingress.host }}/ and register the first account.
+{{- else }}
+Reach it with:
+  kubectl port-forward svc/{{ include "curvevision.fullname" . }}-web 8080:80
+and open http://localhost:8080/ to register the first account.
+{{- end }}
+
+Back up the database and storage together, with one command:
+  kubectl exec deploy/{{ include "curvevision.fullname" . }}-api -- curvevision-server backup /tmp/cv.tar
+(then copy it out with kubectl cp). docs/OPERATIONS.md has the rest.

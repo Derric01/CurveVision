@@ -87,7 +87,7 @@ Beta named is finished, and the label waits for use.
 | OpenTelemetry tracing | **Done** — requests, SQL, outbound HTTP and jobs, to any OTLP collector |
 | Content scanning (ClamAV) | **Done** — `content_scanner = "clamd"`, tested against a real clamd in CI |
 | OIDC / SAML single sign-on | **Planned** — the `AuthBackend` seam exists |
-| Kubernetes Helm chart | **Planned** |
+| Kubernetes Helm chart | **Done** — `deploy/helm/curvevision`, linted and schema-validated in CI; not yet installed into a live cluster in CI |
 | Backup and restore tooling | **Done** — `curvevision-server backup` / `restore`, either shape, across databases, restored in CI |
 | Published TypeScript client package | **Planned** |
 | Additional formats: LabelMe, Open Images, TFRecord, Cityscapes | **Planned** — KITTI, MOTChallenge, CVAT XML and segmentation masks shipped ahead of this list |
