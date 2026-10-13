@@ -131,17 +131,20 @@ does both, into one archive:
 
 ```bash
 docker compose exec api curvevision-server backup /backups/cv-$(date +%F).tar
+docker compose cp api:/backups/cv-$(date +%F).tar .     # then copy it off the machine
 ```
 
 Every row of every table, as JSON, and every stored object a row refers to — images,
 video, thumbnails, frame chunks, each released dataset version's frozen copy — with its
 SHA-256. Because the rows are not a database dump, **an archive restores into either
 database**: a desktop installation's SQLite into a team server's PostgreSQL is the same
-command. Mount `/backups` as a volume, and copy the archive off the machine.
+command. `/backups` is a named volume (`backups`), so archives survive the containers; copy
+them off the machine all the same.
 
 ```bash
 # Restore, into a NEW installation: migrations are run first, and a database with any
 # rows in it, or at another schema revision, is refused rather than merged into.
+docker compose cp cv-2026-01-15.tar api:/backups/
 docker compose exec api curvevision-server restore /backups/cv-2026-01-15.tar
 ```
 
@@ -200,17 +203,20 @@ the old file fails — and the new `s3` service cannot read MinIO's on-disk form
 data across with a backup, which holds the database and every stored object together:
 
 ```bash
-# 1. With the old stack still running, and before pulling this version:
-docker compose exec api curvevision-server backup /backups/before-s3.tar
+# 1. With the old stack still running, and before pulling this version. (/tmp, because
+#    the old stack's ./backups mount was not writable by the server's user.)
+docker compose exec api curvevision-server backup /tmp/before-s3.tar
+docker compose cp api:/tmp/before-s3.tar .
 docker compose down
 
-# 2. Once backups/before-s3.tar is safely copied somewhere, start from an empty database
+# 2. Once before-s3.tar is safely copied somewhere, start from an empty database
 #    (a restore refuses to merge into one with rows in it):
 docker volume rm curvevision_postgres-data
 git pull
 docker compose up -d --build
 
 # 3. Restore into the new, empty installation:
+docker compose cp before-s3.tar api:/backups/
 docker compose exec api curvevision-server restore /backups/before-s3.tar
 ```
 

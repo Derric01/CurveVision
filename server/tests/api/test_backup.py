@@ -310,3 +310,36 @@ async def test_the_commands_back_up_and_restore_a_desktop_installation(
     configure_settings(restored)
     token = await desktop.provision(restored)
     assert await with_api(restored, token, lambda c: snapshot(c, seeded)) == before
+
+
+def test_the_command_works_in_a_process_of_its_own(source: Any, tmp_path: Path) -> None:
+    """As an operator runs it: a fresh interpreter, which has imported no model yet.
+
+    In the test process every model is already registered, so the in-process test above
+    could not see that `backup` looked tables up in a metadata only partly filled — every
+    real `curvevision-server backup` failed with `KeyError: 'media_blobs'` until iteration 85,
+    found by the first CI job to run it inside a deployment.
+    """
+    import subprocess
+    import sys
+
+    written = tmp_path / "fresh.tar"
+    done = subprocess.run(
+        [
+            sys.executable,
+            "-c",
+            "import sys; from curvevision import cli; sys.exit(cli.main(sys.argv[1:]))",
+            "backup",
+            str(written),
+            "--desktop",
+            str(tmp_path / "source"),
+        ],
+        capture_output=True,
+        text=True,
+        timeout=120,
+        check=False,
+    )
+
+    assert done.returncode == 0, done.stderr
+    assert "Backed up" in done.stdout
+    assert backup.read_manifest(written)["format"]

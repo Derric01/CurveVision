@@ -54,8 +54,8 @@ import sqlalchemy as sa
 from sqlalchemy.ext.asyncio import AsyncConnection, AsyncEngine
 
 from curvevision import __version__
-from curvevision.core.db import Base
 from curvevision.core.types import GUID, UTCDateTime
+from curvevision.domain import Base  # every model registered: a CLI process imports none
 from curvevision.storage import Storage
 from curvevision.storage.base import ObjectNotFoundError
 

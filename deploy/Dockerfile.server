@@ -32,7 +32,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && rm -rf /var/lib/apt/lists/*
 
 # Never run as root: a container escape should not start from uid 0.
-RUN useradd --create-home --uid 10001 curvevision
+RUN useradd --create-home --uid 10001 curvevision \
+    && mkdir /backups && chown curvevision:curvevision /backups
 COPY --from=builder /opt/venv /opt/venv
 
 WORKDIR /app

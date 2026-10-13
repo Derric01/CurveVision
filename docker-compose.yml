@@ -116,9 +116,12 @@ services:
     command: >
       /bin/sh -c "alembic upgrade head &&
       uvicorn curvevision.main:app --host 0.0.0.0 --port 8000 --workers ${API_WORKERS:-2}"
-    # Where `curvevision-server backup` writes and `restore` reads (docs/OPERATIONS.md).
+    # Where `curvevision-server backup` writes and `restore` reads (docs/OPERATIONS.md). A
+    # named volume, which takes its owner from the image — the server runs as a non-root
+    # user, and a bind-mounted ./backups was not writable by it. `docker compose cp` moves
+    # archives in and out.
     volumes:
-      - ./backups:/backups
+      - backups:/backups
     restart: unless-stopped
 
   worker:
@@ -160,6 +163,7 @@ services:
     restart: unless-stopped
 
 volumes:
+  backups:
   postgres-data:
   s3-objects:
   s3-meta:

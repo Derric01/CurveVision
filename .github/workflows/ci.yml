@@ -338,7 +338,8 @@ jobs:
           docker compose up -d --build
           python3 scripts/helm_smoke.py http://127.0.0.1:8080
           docker compose exec -T api curvevision-server backup /backups/ci.tar
-          test -s backups/ci.tar
+          docker compose cp api:/backups/ci.tar ci.tar
+          test -s ci.tar
 
       - name: What Compose said, when anything failed
         if: failure()

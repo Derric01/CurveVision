@@ -60,6 +60,9 @@ dev = [
     "pytest>=8.2",
     # The Redis rate limiter's tests run against a real server when one is configured.
     "redis>=5.0",
+    # Background jobs reach the deployment's Redis, and a worker knows every job kind
+    # (tests/api/test_dramatiq_broker.py) — the `worker` extra's package, listed again.
+    "dramatiq[redis]>=1.17",
     # Single sign-on's tests verify real RS256 signatures.
     "pyjwt[crypto]>=2.8",
     # Tracing is optional for a server and tested here, against an in-memory exporter. The
