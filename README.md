@@ -89,8 +89,10 @@ AI-assisted     upload → run your model → accept or correct → review → e
 
 ### The desktop application
 
-There are no signed installers yet — we would rather say so than link a download that does
-not exist. Building it takes three commands:
+There is no signed installer or published release yet — we would rather say so than link a
+download that does not exist. CI builds unsigned installers for Linux, macOS and Windows
+(`.github/workflows/desktop.yml`, kept as workflow artifacts); building one yourself takes
+three commands:
 
 ```bash
 pip install -e 'server[dev,media,desktop]'

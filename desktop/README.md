@@ -71,10 +71,12 @@ Open the printed URL in any browser and you get the complete application.
 | Annotating local folders in place, nothing copied | **Done** |
 | The editor served by the app itself, same-origin with its API | **Done** |
 | Frontend reads the injected connection and skips the sign-in screen | **Done** |
-| Open-folder flow wired to the shell's native picker | **In Progress** — the server endpoint and the shell command exist; the web UI does not call them yet |
-| Signed installers (`.dmg`, `.msi`, `.AppImage`) built per platform in CI | **Planned** |
-| Auto-update | **Planned** |
-| Pointing the desktop app at a shared team server | **Planned** |
+| Open-folder and choose-files flows wired to the shell's native pickers | **Done** — but refused by Tauri in every built application until iteration 85: the shell's commands were never granted (ADR 0008, *Update*). The IPC bridge is now driven in the real application; the native dialog itself is not |
+| The real application driven in CI — shell, webview, server — over WebDriver (`scripts/verify_desktop_shell.py`, Linux) | **Done** |
+| Installers built per platform in CI: `.deb`, `.rpm`, `.AppImage`; `.dmg`; NSIS `.exe` (`.github/workflows/desktop.yml`) | **Done, unsigned** — the `.deb` is installed and the server inside it used on every run |
+| Code signing (Apple Developer ID and notarisation, Windows Authenticode) | **Blocked** — needs the project's own certificates |
+| Auto-update | **Planned** — Tauri's updater needs a signing key pair the maintainers hold |
+| Pointing the desktop app at a shared team server | **Done** — *File ▸ Connect to a Team Server…*; the team server opens in a window with no access to the shell and none of this computer's credentials. *Use This Computer* is not driven by any test: WebDriver cannot click a native menu |
 
 Measurements are from this repository's own Linux build, not targets. They will differ on
 other platforms.

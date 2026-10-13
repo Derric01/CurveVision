@@ -140,9 +140,11 @@ Redis and no object store.
 | The editor served by the app itself, same-origin with its API | **Done** |
 | Frontend reads the injected connection and skips sign-in | **Done** |
 | Open-folder and choose-files flows wired to the shell's native pickers | **Done** — *Add media from this computer* and File ▸ Open Folder… call the folder picker; a second button calls the file picker for individual files, one `local-import` call per file, a failed one reported without aborting the rest |
-| Signed installers for macOS and Windows, built per platform in CI | **Planned** |
+| Installers built per platform in CI (`.deb`, `.rpm`, `.AppImage`, `.dmg`, NSIS `.exe`) | **Done, unsigned** — the `.deb` is installed and its server used on every run |
+| Code signing for macOS and Windows | **Blocked** — needs the project's certificates |
+| The real application driven in CI over WebDriver (Linux) | **Done** — it found that the shell's commands had never been granted, so the native pickers never worked in a built app; fixed in iteration 85 |
 | Auto-update | **Planned** |
-| Pointing the desktop app at a shared team server | **Planned** — the app is already same-origin-agnostic; this is UI work |
+| Pointing the desktop app at a shared team server | **Done** — the team server opens in a window of its own, with no access to the shell and none of this computer's credentials |
 
 Explicitly **not** a second implementation of the product: the shell is ~450 lines of Rust
 whose whole job is starting a child process and opening native dialogs. The editor, the API
@@ -177,8 +179,10 @@ deciding whether to adopt this needs them more than they need the roadmap.
   was measured rather than guessed at, and the worst realistic ground truth finishes in a few
   seconds. The unused `quality` queue would have hidden the real cost, which was a quadratic
   matcher, not the request path.
-* **No signed installers.** The desktop app builds and runs from source; `.dmg`, `.msi` and
-  `.AppImage` need one CI runner per platform and are not built yet.
+* **No signed installers, and no published release.** CI builds an installer per platform
+  (`.deb`, `.rpm`, `.AppImage`, `.dmg`, `.exe`) and keeps them as workflow artifacts, but
+  they are unsigned: macOS makes a person open the app from System Settings, and Windows
+  SmartScreen warns. Signing needs certificates the project does not have.
 * **Young.** This has not been through years of production use across many organisations.
   Anyone choosing an annotation platform for critical work today should weigh that
   seriously — the README says so too, and it is the honest reason to prefer something older

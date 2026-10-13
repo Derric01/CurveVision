@@ -45,6 +45,7 @@ import type {
   Task,
   TaskMediaMeta,
   TaskProgress,
+  TeamServerCheck,
   TokenPair,
   UploadSession,
   User,
@@ -457,6 +458,8 @@ export const api = {
    */
   localImport: (taskId: string, input: { path: string; recursive?: boolean }) =>
     request<LocalImportResult>(`/tasks/${taskId}/local-import`, { method: 'POST', body: input }),
+  checkTeamServer: (address: string) =>
+    request<TeamServerCheck>('/local/team-server-check', { method: 'POST', body: { address } }),
 
   taskJobs: (taskId: string) => request<Job[]>(`/tasks/${taskId}/jobs`),
   taskProgress: (taskId: string) => request<TaskProgress>(`/tasks/${taskId}/progress`),

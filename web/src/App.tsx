@@ -1,8 +1,8 @@
 import { useEffect } from 'react';
-import { Link, Navigate, Route, Routes, useLocation } from 'react-router-dom';
-import { KeyRound, LogOut, Layers, ListChecks, Sparkles, Users } from 'lucide-react';
+import { Link, Navigate, Route, Routes, useLocation, useNavigate } from 'react-router-dom';
+import { Globe, KeyRound, LogOut, Layers, ListChecks, Sparkles, Users } from 'lucide-react';
 import { useSession } from '@/store/session';
-import { desktop } from '@/desktop';
+import { desktop, onTeamServerMenu } from '@/desktop';
 import { Button, Spinner } from '@/ui/primitives';
 import { LoginPage } from '@/features/auth/LoginPage';
 import { SsoCallback } from '@/features/auth/SsoCallback';
@@ -14,6 +14,7 @@ import { EditorPage } from '@/features/editor/EditorPage';
 import { MyWorkPage } from '@/features/tasks/MyWorkPage';
 import { ModelsPage } from '@/features/models/ModelsPage';
 import { WorkspacePage } from '@/features/workspace/WorkspacePage';
+import { TeamServerPage } from '@/features/desktop/TeamServerPage';
 
 function Logo() {
   return (
@@ -58,6 +59,11 @@ function TopBar() {
           <NavLink to="/workspace" icon={desktop ? <KeyRound size={14} /> : <Users size={14} />}>
             {desktop ? 'API tokens' : 'Workspace'}
           </NavLink>
+          {desktop && (
+            <NavLink to="/team-server" icon={<Globe size={14} />}>
+              Team server
+            </NavLink>
+          )}
         </nav>
       </div>
       <div className="flex items-center gap-3">
@@ -144,10 +150,14 @@ function LocalServerUnavailable({
 
 export default function App() {
   const { status, error, restore } = useSession();
+  const navigate = useNavigate();
 
   useEffect(() => {
     void restore();
   }, [restore]);
+
+  // File ▸ Connect to a Team Server… does what the Team server link does.
+  useEffect(() => onTeamServerMenu(() => navigate('/team-server')), [navigate]);
 
   if (status === 'unknown') {
     return (
@@ -185,6 +195,7 @@ export default function App() {
           <Route path="/my-work" element={<MyWorkPage />} />
           <Route path="/models" element={<ModelsPage />} />
           <Route path="/workspace" element={<WorkspacePage />} />
+          {desktop && <Route path="/team-server" element={<TeamServerPage />} />}
           <Route path="/login" element={<Navigate to="/projects" replace />} />
           <Route path="*" element={<Navigate to="/projects" replace />} />
         </Routes>

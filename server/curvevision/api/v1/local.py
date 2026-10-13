@@ -23,12 +23,14 @@ from pathlib import Path
 
 from fastapi import APIRouter
 
-from curvevision.api.deps import SessionDep, SettingsDep, TaskScopeDep
+from curvevision.api.deps import IdentityDep, SessionDep, SettingsDep, TaskScopeDep
 from curvevision.core.config import Settings
 from curvevision.core.errors import NotFoundError, ValidationError
 from curvevision.policy import Action, ResourceType
+from curvevision.schemas.system import TeamServerCheckIn, TeamServerCheckOut
 from curvevision.schemas.task import AssetOut, LocalImportRequest, LocalImportResult
 from curvevision.services import media as media_service
+from curvevision.services import team_server
 
 router = APIRouter(tags=["local"])
 
@@ -83,3 +85,19 @@ async def import_local_path(
         skipped=skipped,
         frame_count=scope.task.frame_count,
     )
+
+
+@router.post("/local/team-server-check", response_model=TeamServerCheckOut)
+async def check_team_server(
+    payload: TeamServerCheckIn, identity: IdentityDep, settings: SettingsDep
+) -> TeamServerCheckOut:
+    """Whether an address is a CurveVision team server the desktop window can switch to.
+
+    Asked by the desktop application before it hands the address to its shell. This server
+    fetches the address's health check, with nothing of this installation's, and answers
+    in a sentence for the person who typed it. On a shared server, fetching an address a
+    client names would be a server-side request forgery, so there the route does not exist.
+    """
+    _require_local_mode(settings)
+    del identity  # Only that there is one: the installation's own credential.
+    return await team_server.check(payload.address)

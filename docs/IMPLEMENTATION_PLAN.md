@@ -833,14 +833,24 @@ Not an add-on: one of the two shapes the product ships in ([Two deployment shape
   does the same. The result is reported honestly — the count imported, and the per-file
   reasons when the server skipped something, which it does rather than failing a folder over
   one corrupt file. `scripts/verify_local_import.py` drives the whole thing in a browser
-  against the packaged server. One seam is genuinely uncovered and says so: `invoke()`
-  across the Tauri IPC bridge, because Playwright drives Chromium and not the webview — see
-  [ADR 0008](./adr/0008-calling-the-desktop-shell.md).
-* **Signed installers** — *Planned*. `.dmg`, `.msi`, `.AppImage` built per platform in CI;
-  PyInstaller does not cross-compile, so this needs one runner per OS.
-* **Auto-update** — *Planned*.
-* **Pointing the desktop app at a shared team server** — *Planned*. The application is
-  already origin-agnostic; this is UI work, not architecture.
+  against the packaged server. The seam that harness cannot reach — `invoke()` across the
+  Tauri IPC bridge — is driven since iteration 85 in the real application over WebDriver
+  (`scripts/verify_desktop_shell.py`, Linux), and its first run found every command refused:
+  the shell had never granted them, so the pickers never worked in a built app. Fixed; see
+  [ADR 0008](./adr/0008-calling-the-desktop-shell.md), *Update*.
+* **Installers** — **Done, unsigned** (iteration 84). `.deb`, `.rpm`, `.AppImage`, `.dmg`
+  and an NSIS `.exe`, each built on its own platform's runner — PyInstaller does not
+  cross-compile — with the packaged server smoke-tested on each and the `.deb` installed and
+  used. **Signing is Blocked**: it needs an Apple Developer ID and a Windows code-signing
+  certificate the project does not have.
+* **Auto-update** — *Planned*. Tauri's updater verifies updates with a key pair the
+  maintainers would hold.
+* **Pointing the desktop app at a shared team server** — **Done** (iteration 85). *File ▸
+  Connect to a Team Server…* checks the address through this computer's server (local mode
+  only: `POST /local/team-server-check`), and the shell opens the team server in a window of
+  its own — no capability, so no access to the shell, and no initialization script, so none
+  of this computer's credentials. The choice is remembered; *File ▸ Use This Computer*
+  switches back.
 
 Explicit non-goal, unchanged: a second implementation of the product. The shell supervises a
 process and opens dialogs. Adding the whole desktop application changed **1,460 lines added

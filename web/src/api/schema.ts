@@ -599,6 +599,31 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/local/team-server-check": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Check Team Server
+         * @description Whether an address is a CurveVision team server the desktop window can switch to.
+         *
+         *     Asked by the desktop application before it hands the address to its shell. This server
+         *     fetches the address's health check, with nothing of this installation's, and answers
+         *     in a sentence for the person who typed it. On a shared server, fetching an address a
+         *     client names would be a server-side request forgery, so there the route does not exist.
+         */
+        post: operations["check_team_server_api_v1_local_team_server_check_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/models": {
         parameters: {
             query?: never;
@@ -3219,6 +3244,28 @@ export interface components {
             name?: string | null;
             status?: components["schemas"]["TaskStatus"] | null;
         };
+        /**
+         * TeamServerCheckIn
+         * @description An address a person typed, to be checked before the desktop window switches to it.
+         */
+        TeamServerCheckIn: {
+            /** Address */
+            address: string;
+        };
+        /**
+         * TeamServerCheckOut
+         * @description Whether an address is a CurveVision team server the desktop window can show.
+         */
+        TeamServerCheckOut: {
+            /** Ok */
+            ok: boolean;
+            /** Reason */
+            reason?: string | null;
+            /** Url */
+            url?: string | null;
+            /** Version */
+            version?: string | null;
+        };
         /** TokenPair */
         TokenPair: {
             /** Access Token */
@@ -4802,6 +4849,41 @@ export interface operations {
                     "application/json": {
                         [key: string]: number;
                     };
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    check_team_server_api_v1_local_team_server_check_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                authorization?: string | null;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["TeamServerCheckIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TeamServerCheckOut"];
                 };
             };
             /** @description Validation Error */

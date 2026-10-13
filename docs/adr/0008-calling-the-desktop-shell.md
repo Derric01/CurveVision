@@ -1,6 +1,6 @@
 # ADR 0008 — How the page calls the desktop shell
 
-**Status:** Accepted · **Date:** 2026-09
+**Status:** Accepted · **Date:** 2026-09 · **Updated:** 2026-10-13 (iteration 85, below)
 
 ## Context
 
@@ -76,3 +76,23 @@ the browser build cannot start throwing from a menu subscription at mount.
   rather than only the convenience object.
 - A way to drive the real webview in CI becomes available — then the seam can be tested
   through, and the argument for keeping it this thin gets stronger, not weaker.
+
+## Update — iteration 85 (2026-10-13)
+
+The second *Revisit if* happened. On Linux the real webview can be driven: `tauri-driver`
+speaks WebDriver and hands the session to WebKitGTK's own driver, which controls the webview
+the application ships. `scripts/verify_desktop_shell.py` runs the built application that
+way, in CI (`.github/workflows/desktop.yml`, Linux job).
+
+Its first run found that **no command the page calls had ever been allowed.** The page is
+served by the local server over `http://127.0.0.1`, which Tauri treats as a remote origin,
+and Tauri lets a remote origin call an application command only when a capability grants
+it; `capabilities/default.json` granted plugin permissions and none of the application's
+own. Every `invoke()` from the page was refused, so the folder and file pickers never worked
+in a built application. The *Consequences* above said IPC was "verified by hand on a real
+desktop". That was not true, and nothing could have shown it until the bridge was driven.
+
+The decision stands: the seam is still the three-function `desktop.ts`, still dynamically
+imported. What changed is how the shell declares its commands — `build.rs` lists them, Tauri
+generates an `allow-…` permission for each, and the capability grants them to the local
+window only — and that the seam is now tested through, on one platform.

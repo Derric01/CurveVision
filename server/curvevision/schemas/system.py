@@ -358,3 +358,20 @@ class GroundTruthJobIn(StrictModel):
     start_frame: int | None = Field(default=None, ge=0)
     stop_frame: int | None = Field(default=None, ge=0)
     assignee_id: uuid.UUID | None = None
+
+
+class TeamServerCheckIn(StrictModel):
+    """An address a person typed, to be checked before the desktop window switches to it."""
+
+    address: str = Field(min_length=1, max_length=2000)
+
+
+class TeamServerCheckOut(StrictModel):
+    """Whether an address is a CurveVision team server the desktop window can show."""
+
+    ok: bool
+    #: The server's origin, after any redirect (`http` to `https`, usually). Set when `ok`.
+    url: str | None = None
+    version: str | None = None
+    #: What is wrong, in a sentence for the person who typed the address. Set unless `ok`.
+    reason: str | None = None

@@ -279,6 +279,19 @@ export interface LocalImportResult {
   frame_count: number;
 }
 
+/**
+ * Whether an address is a CurveVision team server the desktop window can switch to.
+ * Desktop (local) mode only: `POST /local/team-server-check`.
+ */
+export interface TeamServerCheck {
+  ok: boolean;
+  /** The server's origin, after any redirect (http to https, usually). Set when `ok`. */
+  url: string | null;
+  version: string | null;
+  /** What is wrong, in a sentence for the person who typed the address. Set unless `ok`. */
+  reason: string | null;
+}
+
 /** The state of one resumable upload: how much of the declared file has actually landed. */
 export interface UploadSession {
   id: string;

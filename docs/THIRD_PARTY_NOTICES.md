@@ -65,6 +65,7 @@ Full license texts for permissive licenses used here are reproduced under
 | [httpx2](https://github.com/pydantic/httpx2) (via anthropic) | BSD-3-Clause | Encode OSS Ltd. and contributors | HTTP client underneath the Anthropic SDK |
 | [jiter](https://github.com/pydantic/jiter) (via anthropic) | MIT | Samuel Colvin and contributors | JSON parsing for the Anthropic SDK |
 | [docstring-parser](https://github.com/rr-/docstring_parser) (via anthropic) | MIT | Marcin Kurczewski | Used by the Anthropic SDK |
+| [truststore](https://github.com/sethmlarson/truststore) | MIT | Seth Michael Larson and contributors | The operating system's certificate store, for a desktop installation checking a team server |
 | [prometheus-client](https://github.com/prometheus/client_python) | Apache-2.0 | Prometheus authors | Metrics |
 | [asyncpg](https://github.com/MagicStack/asyncpg) | Apache-2.0 | MagicStack Inc. | PostgreSQL driver (`postgres` extra) |
 | [psycopg](https://github.com/psycopg/psycopg) | LGPL-3.0-or-later | Daniele Varrazzo and contributors | PostgreSQL driver, used unmodified as a library (`postgres` extra) |

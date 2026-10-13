@@ -65,6 +65,7 @@ export type Contract = [
   Holds<Reads<Schemas['BackgroundTaskOut'], Api.BackgroundTaskBrief>>,
   Holds<Reads<Schemas['AssetOut'], Api.Asset>>,
   Holds<Reads<Schemas['LocalImportResult'], Api.LocalImportResult>>,
+  Holds<Reads<Schemas['TeamServerCheckOut'], Api.TeamServerCheck>>,
   Holds<Reads<Schemas['UploadSessionOut'], Api.UploadSession>>,
   Holds<Reads<Schemas['JobOut'], Api.Job>>,
   Holds<Reads<Schemas['JobListing'], Api.JobListing>>,

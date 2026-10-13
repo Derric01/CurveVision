@@ -13,6 +13,12 @@ on:
     paths:
       - 'desktop/**'
       - '.github/workflows/desktop.yml'
+      # What the application's own harness exercises across the shell boundary.
+      - 'scripts/verify_desktop_shell.py'
+      - 'web/src/desktop.ts'
+      - 'web/src/features/desktop/**'
+      - 'server/curvevision/desktop.py'
+      - 'server/pyproject.toml'
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -111,6 +117,17 @@ jobs:
           curl -fsS "$url/api/v1/health" | tee /dev/stderr | grep -q '"local_mode":true'
           curl -fsS "$url/" | grep -qi '<html'
           kill "$pid"
+
+      # The application itself — shell, webview and server — driven over WebDriver, which
+      # only Linux offers (WebKitGTK's driver): the IPC bridge, and switching to a team
+      # server in a window that cannot use the shell (scripts/verify_desktop_shell.py).
+      - name: The application, driven over WebDriver
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get install -y webkit2gtk-driver xvfb
+          cargo install tauri-driver --locked
+          python scripts/verify_desktop_shell.py \
+            desktop/shell/src-tauri/target/release/curvevision-desktop
 
       - uses: actions/upload-artifact@v6
         with:

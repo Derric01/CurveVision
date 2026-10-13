@@ -95,6 +95,24 @@ Stating the design so you know what to test *against*, and so operators know wha
 * Errors are RFC 9457 problem documents. Unexpected exceptions return a generic message;
   the detail goes to the structured log, not to the caller.
 
+### The desktop application
+
+* The local server binds to loopback only, and authenticates its window with a token minted
+  at each launch; the previous launch's token is revoked.
+* The routes that read the local disk (`/tasks/{id}/local-import`) or fetch an address a
+  client names (`/local/team-server-check`) exist only in local mode. On a shared server
+  they return 404: there, the first would be arbitrary file disclosure and the second a
+  server-side request forgery.
+* The shell's commands (native dialogs, opening the data folder, switching servers) are
+  granted to the local window only (`desktop/shell/src-tauri/capabilities/default.json`),
+  and Tauri refuses any command from a remote origin no capability names.
+* **A team server is shown in a window of its own** (iteration 85), with no access to the
+  shell and no initialization script, so none of this computer's credentials reach it. The
+  local window's script, which carries the token, also checks the page's origin before
+  handing it over, in case that window is ever navigated elsewhere.
+* The shell stores the chosen team server's address only — origin, never a user name or
+  password — in the application's config folder.
+
 ### Auditing
 
 `AuditEvent` records security-relevant actions — authentication, permission changes, token
