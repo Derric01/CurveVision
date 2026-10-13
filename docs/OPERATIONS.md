@@ -24,7 +24,30 @@ Six services:
 
 Scale `api` and `worker` horizontally; they hold no local state. Redis is deliberately not
 a source of truth: media chunks live in object storage, so losing Redis costs a cache, not
-data.
+data. It also counts the **rate limit** every `api` replica shares
+(`CURVEVISION_RATE_LIMIT_BACKEND=redis`, the compose default); while Redis is down, requests
+are not rate-limited rather than refused ([API.md](./API.md#rate-limiting)).
+
+### Scanning uploads for malware
+
+Off by default. To have ClamAV scan every upload before it is stored:
+
+```bash
+echo CURVEVISION_CONTENT_SCANNER=clamd >> .env
+docker compose --profile scanning up -d
+```
+
+An infected file is refused with a `422` naming what was found; nothing is stored. A file
+that **cannot** be scanned — clamd down, still loading its signatures, or the file past its
+`StreamMaxLength` (25 MB unless configured) — is refused with a `503`: scanning fails
+closed. `CURVEVISION_CONTENT_SCANNER_FAIL_OPEN=true` accepts such files instead, logged
+each time; choose it only if an outage of the scanner must not stop uploads. Raise clamd's
+`StreamMaxLength` for video, or uploads of long videos will be refused. Other settings:
+`CURVEVISION_CLAMD_HOST`, `_PORT` (3310), `_SOCKET` (a Unix socket instead),
+`_TIMEOUT_SECONDS` (30).
+
+Folders imported in place by the desktop application are not scanned: they are already on
+the machine that would be protected.
 
 ## Backups
 

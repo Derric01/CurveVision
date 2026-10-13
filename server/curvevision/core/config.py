@@ -87,6 +87,18 @@ class Settings(BaseSettings):
     )
     allowed_video_extensions: tuple[str, ...] = (".mp4", ".mov", ".mkv", ".avi", ".webm")
 
+    #: Scanning uploads for malware before they are stored (`media/scanning.py`). ``none``
+    #: by default; ``clamd`` sends each upload to ClamAV and refuses what it flags.
+    content_scanner: Literal["none", "clamd"] = "none"
+    clamd_host: str = "127.0.0.1"
+    clamd_port: int = 3310
+    #: A Unix socket instead of `clamd_host`/`clamd_port`, when set.
+    clamd_socket: str | None = None
+    clamd_timeout_seconds: float = 30.0
+    #: Accept an upload that cannot be scanned (clamd down) rather than refuse it. Off: a
+    #: scanner an attacker can disable by overloading it is not a control.
+    content_scanner_fail_open: bool = False
+
     # --- api ----------------------------------------------------------------------
     api_prefix: str = "/api/v1"
     cors_origins: tuple[str, ...] = ("http://localhost:5173", "http://127.0.0.1:5173")

@@ -142,6 +142,41 @@ jobs:
           CURVEVISION_TEST_POSTGRES_URL: postgresql+asyncpg://curvevision:curvevision@localhost:5432/curvevision_test
         run: pytest tests/api/test_joint_repair_migration.py -q
 
+  clamav:
+    name: Content scanning against ClamAV
+    runs-on: ubuntu-latest
+    # The official image ships its signatures; clamd takes a minute or two to load them,
+    # which the health check waits out before the steps start.
+    services:
+      clamav:
+        image: clamav/clamav:stable
+        ports: ['3310:3310']
+        options: >-
+          --health-cmd "clamdcheck.sh"
+          --health-interval 15s
+          --health-timeout 10s
+          --health-retries 40
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.11'
+          cache: pip
+          cache-dependency-path: server/pyproject.toml
+
+      - name: Install
+        working-directory: server
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[dev]"
+
+      - name: Scan with clamd
+        working-directory: server
+        env:
+          CURVEVISION_TEST_CLAMD: 127.0.0.1:3310
+        run: pytest tests/api/test_content_scanning.py -q
+
   sdk:
     name: SDK and CLI
     runs-on: ubuntu-latest

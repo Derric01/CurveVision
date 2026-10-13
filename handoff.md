@@ -5,9 +5,9 @@
 > [`AGENTS.md`](./AGENTS.md) first; it is the working contract. Update this file after every
 > iteration, including the ones that mostly failed.
 >
-> **Last updated:** 2026-10-13 (iteration 76) · branch `claude/start-work-yx080h` · PRs
+> **Last updated:** 2026-10-13 (iteration 77) · branch `claude/start-work-yx080h` · PRs
 > [#1](https://github.com/Derric01/CurveVision/pull/1)–[#34](https://github.com/Derric01/CurveVision/pull/34)
-> **all merged**, #34 carrying iterations 67–69. Iterations 70–76 are pushed on top of
+> **all merged**, #34 carrying iterations 67–69. Iterations 70–77 are pushed on top of
 > that merge with no PR yet.
 >
 > *Two things worth knowing about this repository's PR rhythm, which replace the
@@ -22,7 +22,7 @@
 > **Keep the session short.** One iteration, then commit, push, update this file and report —
 > `AGENTS.md` § *Continue* and the `start-work` skill both say so now, because they did not
 > before and a single session ran six iterations and roughly a third of a week's budget. The
-> concrete costs, in rough order: re-reading this file (iterations 1–70 now live in
+> concrete costs, in rough order: re-reading this file (iterations 1–71 now live in
 > [`docs/iterations/ARCHIVE.md`](./docs/iterations/ARCHIVE.md), which cut it from 3,800
 > lines to 1,000 — keep it that way); `python desktop/sidecar/build.py`, which is a
 > PyInstaller run of a minute or two and is needed *again* for every sabotage-and-restore
@@ -45,7 +45,7 @@ shapes (detection/segmentation, OBB, pose, classification), each declaring in it
 The desktop shape works: a packaged single-executable server, a Tauri shell that supervises
 it, and folders annotated in place without copying a byte.
 
-**The tree is green.** `./scripts/check.sh` passes all thirteen steps: 732 server tests, 16
+**The tree is green.** `./scripts/check.sh` passes all thirteen steps: 745 server tests, 16
 SDK, 765 web, and `scripts/` is lint-clean under its own `ruff.toml`. Thirty-two browser
 harnesses drive the application in a real Chromium, nightly and on every push to `main` —
 thirty-one against the packaged desktop server, and `verify_workspace.py` against the real
@@ -504,7 +504,7 @@ was the last unconnected piece of the desktop application.
 
 ## Next best action
 
-*A rate limit shared by every server instance through Redis, and Phase 12's markers made true, iteration 76; a default the server fills in is stored typed, 75; Submit checks what its own save achieved, 74. No edit made during a save is lost any more — to a new object while its first save is in
+*Uploads scanned by ClamAV, iteration 77; a rate limit shared by every server instance through Redis, and Phase 12's markers made true, iteration 76; a default the server fills in is stored typed, 75; Submit checks what its own save achieved, 74. No edit made during a save is lost any more — to a new object while its first save is in
 flight, or to any object while a save that then fails is — and the editor always fits the
 frame it opens on, iteration 73; a backup that
 restores what it holds, and tracks that keep their keyframes through CVAT XML and the
@@ -517,10 +517,7 @@ on whatever is pushed next.
 **Then, with no dependency on the user: the rest of the 1.0 list in `docs/ROADMAP.md`**,
 in this order — each self-contained, each a gap a production operator would hit:
 
-1. **Content scanning (ClamAV).** `ContentScanner` exists as a hook with no
-   implementation. clamd's `INSTREAM` protocol is a few lines over a socket; implement it
-   behind a setting, refuse an infected upload with a clear problem, test against a real
-   clamd if one can be installed (else a fake speaking the protocol, and say so).
+1. ~~Content scanning (ClamAV)~~ — done, iteration 77.
 2. **OpenTelemetry tracing**, behind the seam in `core/observability`, optional extra.
 3. **Backup and restore tooling** — a documented, tested command for the database and
    the storage, both shapes.
@@ -1046,6 +1043,26 @@ being updated and this one was not. Check it against* Completed *before trusting
 ---
 
 ## Verification performed
+
+Iteration 77:
+
+* `tests/api/test_content_scanning.py`, 13 tests. **Against a real clamd** (ClamAV 1.4,
+  installed here with `apt`; `freshclam` cannot reach `database.clamav.net` from this
+  container, so clamd ran one custom hash signature for the EICAR test file — a real
+  clamd, a real `INSTREAM`, one signature): a clean PNG is clean, EICAR is found and
+  named, a file of several chunks is scanned. Against an in-process stand-in that records
+  the framing: the whole file arrives in length-prefixed chunks after `zINSTREAM\0`, a
+  `FOUND` reply names the signature, an `ERROR` reply is not clean. Through the API with
+  the scanner replaced: infected is a 422 naming the signature and stores nothing,
+  unscannable is a 503 and stores nothing, clean is stored; `fail_open` accepts the
+  unscannable. A clamd that is not there is an error, never a pass.
+* `ci.yml` gains a `clamav` job against the official `clamav/clamav:stable` image with its
+  real signatures — the first run on GitHub is the check that the official EICAR signature
+  is matched too.
+* Iteration 76 on GitHub: CI green, its new *Rate limit shared through Redis* step
+  included.
+* `docker compose config` valid with and without `--profile scanning`.
+* Full `./scripts/check.sh` green.
 
 Iteration 76:
 
@@ -1838,6 +1855,20 @@ Iteration 54:
 
 ## Last iteration
 
+### 77 — uploads scanned by ClamAV
+
+The next item on the 1.0 list, and another false claim: `SECURITY.md` and
+`ARCHITECTURE.md` described a `ContentScanner` hook that did not exist. It does now
+(`media/scanning.py`), with ClamAV behind it through clamd's `INSTREAM` command — no client
+library — called in the one path direct and resumable uploads share. Off by default; when
+on, it fails closed, because a scanner an attacker can switch off by overloading it is not a
+control. Docker Compose gets an opt-in `scanning` profile, and its `api` replicas now share
+iteration 76's Redis rate limit by default.
+
+Verified: see *Verification performed*.
+
+## Iteration 76
+
 ### 76 — a rate limit every instance shares; Phase 12's markers made true
 
 Asked to finish the project quickly: the 1.0 list in `docs/ROADMAP.md` is what is left,
@@ -1911,25 +1942,9 @@ only from the one format that wrote it from this server's annotations.
 
 Verified: see *Verification performed*.
 
-## Iteration 71
-
-### 71 — a CVAT XML track read the way CVAT reads it
-
-The oldest item in *Next best action* with no dependency on the user, found during 68. The
-import read a frame a CVAT track did not list as the object being gone — iteration 62's
-rule, right for MOTChallenge and wrong for CVAT, which interpolates between keyframes. Read
-CVAT's `load_anno` and `_slice_track` first, and followed both: only keyframes are kept,
-gaps interpolate, `outside` keyframes are departures, and a track crossing into another
-job carries its interpolated position across the boundary. The rule is now the format's to
-state (`ImportResult.track_gaps`). Writing the tests turned up the mirror-image defect in
-the export — a gap in a track was never marked `outside`, so CVAT would draw the object
-through it — fixed alongside. A third, smaller one is the next best action.
-
-Verified: see *Verification performed*.
-
 ## Earlier iterations
 
-Iterations **1–70** are in [`docs/iterations/ARCHIVE.md`](./docs/iterations/ARCHIVE.md) —
+Iterations **1–71** are in [`docs/iterations/ARCHIVE.md`](./docs/iterations/ARCHIVE.md) —
 moved there so that orienting costs a few hundred lines rather than four thousand. Read them
 when `git log` points you at an iteration number, or when you are about to build something
 and want to know whether it was already tried and rejected. The lessons from them that are

@@ -1,6 +1,6 @@
 # Iteration archive
 
-> The narrative record of iterations **1–70**, moved out of
+> The narrative record of iterations **1–71**, moved out of
 > [`handoff.md`](../../handoff.md) so that orienting on this project costs a few hundred
 > lines rather than four thousand.
 >
@@ -15,6 +15,22 @@
 > window, append it to the top of this file rather than deleting it.
 
 ---
+
+## Iteration 71
+
+### 71 — a CVAT XML track read the way CVAT reads it
+
+The oldest item in *Next best action* with no dependency on the user, found during 68. The
+import read a frame a CVAT track did not list as the object being gone — iteration 62's
+rule, right for MOTChallenge and wrong for CVAT, which interpolates between keyframes. Read
+CVAT's `load_anno` and `_slice_track` first, and followed both: only keyframes are kept,
+gaps interpolate, `outside` keyframes are departures, and a track crossing into another
+job carries its interpolated position across the boundary. The rule is now the format's to
+state (`ImportResult.track_gaps`). Writing the tests turned up the mirror-image defect in
+the export — a gap in a track was never marked `outside`, so CVAT would draw the object
+through it — fixed alongside. A third, smaller one is the next best action.
+
+Verified: see *Verification performed*.
 
 ## Iteration 70
 

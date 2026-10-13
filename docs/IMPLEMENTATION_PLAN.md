@@ -881,8 +881,10 @@ Benchmarks live in `server/tests/benchmarks/` (annotation write/read at 1k/10k/1
   double-submit token as *In Progress*; no such flow exists, nor is one needed. Iteration 76.)
 * Input validation — **Done** (Pydantic v2 everywhere, geometry validated against frame
   bounds).
-* File validation — **Done**: extension + magic-byte sniffing + size caps; a
-  `ContentScanner` hook exists for ClamAV/vendor scanners (**Planned** implementation).
+* File validation — **Done**: extension + magic-byte sniffing + size caps, and malware
+  scanning through ClamAV (`content_scanner = "clamd"`, off by default, failing closed),
+  tested against a real clamd in CI. (Until iteration 77 this line said a `ContentScanner`
+  hook existed; it did not.)
 * Structured logging and metrics — **Done**; tracing — **Planned**.
 * Migrations — **Done**; backup/DR runbook — see [OPERATIONS.md](./OPERATIONS.md).
 

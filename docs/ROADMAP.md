@@ -85,7 +85,7 @@ Beta named is finished, and the label waits for use.
 | --- | --- |
 | Redis-backed distributed rate limiting | **Done** — `rate_limit_backend = "redis"`, tested against a real Redis in CI |
 | OpenTelemetry tracing | **Planned** — the instrumentation seam exists |
-| Content scanning hook implementation (ClamAV) | **Planned** — the hook exists |
+| Content scanning (ClamAV) | **Done** — `content_scanner = "clamd"`, tested against a real clamd in CI |
 | OIDC / SAML single sign-on | **Planned** — the `AuthBackend` seam exists |
 | Kubernetes Helm chart | **Planned** |
 | Backup and restore tooling | **Planned** |

@@ -266,8 +266,9 @@ imports: the server starts and the full test suite passes without them, degradin
   the plaintext is shown exactly once.
 * Authorization is centralised: one policy table, resolved per request against the loaded
   resource. No permission logic in view bodies.
-* Uploads are validated by extension **and** magic bytes, with a configurable size cap and a
-  `ContentScanner` hook for ClamAV or a vendor scanner.
+* Uploads are validated by extension **and** magic bytes, with a configurable size cap, and
+  optionally scanned by ClamAV (`media/scanning.py`'s `ContentScanner`; failing closed)
+  before they are stored.
 * Security headers, strict CORS allow-list, per-token and per-IP rate limits.
 * `AuditEvent` records security-relevant actions (auth, permission changes, exports,
   deletions) with actor, IP and target.

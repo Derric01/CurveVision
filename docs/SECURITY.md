@@ -125,8 +125,10 @@ Stated plainly, because a security document that only lists strengths is not use
   process; a server run as several instances should set `rate_limit_backend = "redis"`
   ([API.md](./API.md#rate-limiting)), which shares one limit between them. It **fails
   open**: while Redis is unreachable, nothing is rate-limited (and the outage is logged).
-* **No content scanning by default.** A `ContentScanner` hook exists; wiring it to ClamAV or
-  a vendor scanner is planned and currently unimplemented.
+* **No content scanning by default.** ClamAV scanning is built in and off by default
+  (`content_scanner = "clamd"`, [OPERATIONS.md](./OPERATIONS.md#scanning-uploads-for-malware));
+  it fails closed. Another scanner is one class implementing `ContentScanner` in
+  `media/scanning.py`.
 * **No OIDC/SAML.** The `AuthBackend` seam exists; the implementation does not.
 * **No audit-log tamper protection.** Audit events live in the same database as everything
   else; an attacker with database write access can alter them.
