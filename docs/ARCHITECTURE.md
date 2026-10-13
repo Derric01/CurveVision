@@ -370,7 +370,7 @@ to gain code would undo benchmarked decisions.
 | Object storage (Compose) | **Versity Gateway** (Apache-2.0, run as an unmodified service) | A directory served as S3: plain files on disk, simple to back up. Replaced MinIO in October 2026, when MinIO's images stopped being anonymously pullable; any S3 service works instead |
 | Database | **PostgreSQL 16** | Right answer; nothing else considered seriously |
 | Cache/broker | **Redis 7** | Cache + Dramatiq broker; no on-disk store needed since chunks live in object storage |
-| Kubernetes | **Helm chart** (`deploy/helm/curvevision`) | API, workers and web application; PostgreSQL, Redis and S3 are the operator's. Linted and schema-validated in CI |
+| Kubernetes | **Helm chart** (`deploy/helm/curvevision`) | API, workers and web application; PostgreSQL, Redis and S3 are the operator's. Installed into a `kind` cluster and used on every CI run |
 
 ### Where building was justified
 

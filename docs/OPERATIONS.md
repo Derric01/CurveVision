@@ -119,9 +119,13 @@ helm install cv deploy/helm/curvevision \
 
 Or keep the credentials in a Secret of your own (`existingSecret`; its keys are listed in
 `values.yaml`). Every API replica counts against one rate limit, in that Redis; malware
-scanning and tracing are `config.contentScanner` and `config.tracing`. The chart is linted
-and its manifests validated against the Kubernetes 1.30 schemas on every CI run; it has
-not yet been installed into a running cluster in CI.
+scanning and tracing are `config.contentScanner` and `config.tracing`.
+
+Every CI run lints the chart, validates its manifests against the Kubernetes 1.30 schemas,
+and installs it into a `kind` cluster with PostgreSQL, Redis and an S3 service in it
+(`deploy/helm/ci/`): it waits for every pod, uses the release through its web service —
+sign-up, an image uploaded and read back, an annotation exported, a background job run by
+a worker — takes a backup from inside the cluster, and runs `helm upgrade`.
 
 ## Backups
 

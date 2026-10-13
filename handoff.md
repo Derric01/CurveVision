@@ -1056,6 +1056,18 @@ being updated and this one was not. Check it against* Completed *before trusting
 
 Iteration 85:
 
+* PR #37 on GitHub, `50bba3d`: CI green — including the compose stack brought up and used
+  end to end (the first time), the `helm-install` kind job, and the server suite with
+  PostgreSQL and S3; the installers built on macOS, Windows and Linux. The WebDriver
+  harness, then still a step of the 22.04 installer job, failed there as described under
+  iteration 85; its own 24.04 job's result is recorded in the next session's notes if not
+  here.
+* `tests/unit/test_settings_from_environment.py`, `tests/unit/test_s3_presigning.py`,
+  `tests/api/test_dramatiq_broker.py` (fresh interpreters, as the worker and the API
+  start; the enqueue test against real Redis) and the fresh-process backup test in
+  `tests/api/test_backup.py`: each failed before its fix, as the deployment had.
+* `scripts/helm_smoke.py` against a server with a real Dramatiq worker on Redis here: the
+  queued job finished, nothing in the worker's log.
 * `tests/api/test_team_server_check.py`, 26 tests: addresses as a person types them become
   origins, and what is not a web address (or carries a password) is refused before anything
   is fetched; a team server is recognised with its version, a redirect to https is followed
@@ -1095,9 +1107,12 @@ Iteration 84:
 
 Iteration 83:
 
-* `scripts/helm_smoke.py` against a real server here. On GitHub the `helm-install` job's
-  first runs never got past MinIO's images (iteration 84); its result on the gateway is
-  recorded below when the run finishes.
+* `scripts/helm_smoke.py` against a real server here. On GitHub, on `50bba3d`: the
+  `helm-install` job green — every pod ready, the release used through its web service
+  (sign-up, an image uploaded and read back, an annotation exported as COCO, a background
+  job run by a worker), a backup from inside the cluster, `helm upgrade`. It took five
+  runs and found five bugs to get there; see iteration 85's *Deployments that had never
+  started*.
 
 Iteration 82:
 
@@ -1859,6 +1874,12 @@ Iteration 54:
   application, and fails when the webview's data folder is removed between launches;
   WebView2 (Windows) and WKWebView (macOS) have no WebDriver bridge in Tauri and remain
   the platform default, unverified here.
+* **WebDriver on Ubuntu 22.04 (WebKitGTK 2.50) dropped its session** two runs in three, a
+  moment after the shell closed a window; tauri-driver reported the WebKit driver
+  resetting the connection, and the shell printed no panic. On 2.52 it has never
+  happened, so the harness runs on 24.04. Unknown: whether the shell itself misbehaves on
+  22.04 when it swaps windows. Worth checking by hand on a 22.04 desktop: connect to a team
+  server and back a few times.
 * **The native menus are driven by no test.** WebDriver cannot click them; *Use This
   Computer* shares `switch_to_local` with the code the WebDriver harness does exercise.
 * **The desktop installers are unsigned** (iteration 84): macOS asks the person to open the
@@ -2021,6 +2042,30 @@ Tauri, and no capability granted the app's own commands. **The folder and file p
 never worked in a built application**, and ADR 0008 said IPC was "verified by hand". Now
 `build.rs` declares the commands, the capability grants them to the local window only, a
 Rust test pins both, and the harness runs in the installers workflow.
+
+**Deployments that had never started.** Neither Docker Compose nor the Helm chart had ever
+been brought up in CI before this PR. Doing it found, in order, each hiding the next:
+
+1. **Every API and worker process crashed at start**: list settings set as text
+   (`CURVEVISION_CORS_ORIGINS=http://localhost:8080`, as compose and the chart set them)
+   were JSON-decoded by pydantic-settings before any validator saw them. Now `NoDecode`.
+2. **No image could reach a browser**: frames redirected to a presigned URL for
+   `http://s3:9000`, which only the server can resolve. Media is now streamed by the API
+   unless `s3_public_endpoint_url` names an address browsers can reach.
+3. **No background job was ever enqueued or consumed**: `@dramatiq.actor` bound the actor
+   to Dramatiq's default broker, localhost:6379, in both processes.
+4. **A worker failed every job as unknown**: it never imported the job handlers.
+5. **`curvevision-server backup` failed in every real process** (`KeyError: 'media_blobs'`):
+   it read table metadata only the test process had filled. And compose's `./backups`
+   bind mount was not writable by the server's non-root user — now a named volume.
+
+Each has a regression test written first and seen failing; the smoke script now also
+waits for a worker to finish a queued job. On Ubuntu 22.04 the WebDriver harness lost its connection
+in two runs of three, a moment after the shell closed a window: tauri-driver reported its
+upstream — WebKitGTK 2.50's own driver — resetting the connection, and the shell printed
+no panic. It never happened on WebKitGTK 2.52 (24.04, and here). The harness now runs in a
+job of its own on 24.04; whether a 22.04 *user* could meet anything like it is not
+established — see *Known issues*.
 
 Verified: see *Verification performed*.
 
