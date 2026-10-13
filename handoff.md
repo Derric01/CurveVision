@@ -23,7 +23,7 @@
 > **Keep the session short.** One iteration, then commit, push, update this file and report —
 > `AGENTS.md` § *Continue* and the `start-work` skill both say so now, because they did not
 > before and a single session ran six iterations and roughly a third of a week's budget. The
-> concrete costs, in rough order: re-reading this file (iterations 1–81 now live in
+> concrete costs, in rough order: re-reading this file (iterations 1–82 now live in
 > [`docs/iterations/ARCHIVE.md`](./docs/iterations/ARCHIVE.md), which cut it from 3,800
 > lines to 1,000 — keep it that way); `python desktop/sidecar/build.py`, which is a
 > PyInstaller run of a minute or two and is needed *again* for every sabotage-and-restore
@@ -37,7 +37,7 @@
 
 CurveVision is a working annotation platform in **two shapes from one codebase**: a desktop
 application and a server. The manual annotation path is complete end to end — create a
-project and label schema, add media, draw, review, export to any of thirteen formats — and
+project and label schema, add media, draw, review, export to any of fourteen formats — and
 is tested. The exporters cover COCO, CVAT XML, Pascal VOC, KITTI, MOTChallenge, indexed
 segmentation masks, the lossless native format, and the Ultralytics YOLO family in four
 shapes (detection/segmentation, OBB, pose, classification), each declaring in its
@@ -49,7 +49,7 @@ Windows (unsigned), and a switch to a team's shared server. Since iteration 85 t
 application is driven in CI over WebDriver — which found that the shell had never granted
 its commands, so the native pickers had never worked in a built app until then.
 
-**The tree is green.** `./scripts/check.sh` passes all fifteen steps: 858 server tests (the
+**The tree is green.** `./scripts/check.sh` passes all fifteen steps: 874 server tests (the
 PostgreSQL and S3 ones skip without a server; CI provides both), 16 SDK, 771 web, and
 `scripts/` is lint-clean under its own `ruff.toml`. Thirty-four browser harnesses drive the application in a real Chromium, nightly and on every push to `main` —
 thirty-one against the packaged desktop server, and `verify_workspace.py` against the real
@@ -521,7 +521,7 @@ are recorded under *Verification performed* for iteration 85's commit.
 
 **The 1.0 list in `docs/ROADMAP.md` is done** except what needs someone else (signing
 certificates, an npm token, real AI keys, an external security review) and three formats —
-Open Images and TFRecord — after LabelMe in iteration 86 and Cityscapes in 87, plus SAML and a
+TFRecord — after LabelMe in iteration 86, Cityscapes in 87 and Open Images in 88, plus SAML and a
 Datumaro bridge. What remains with no dependency on the user, in order:
 
 1. ~~The desktop webview's storage across launches~~ — done for Linux in iteration 85
@@ -533,9 +533,9 @@ Datumaro bridge. What remains with no dependency on the user, in order:
    made on install, as Compose does. Deliberately not done yet: with an IAM policy that
    allows objects but not `s3:ListBucket`, `HeadBucket` fails and the install would too —
    it needs an opt-out value first.
-4. **The next formats on the 1.0 list**: Open Images (CSV boxes and masks), then TFRecord
-   (needs a protobuf writer; check Datumaro's first). Hold each to its own reader, as
-   LabelMe is to labelme and Cityscapes to cityscapesScripts.
+4. **The last format on the 1.0 list**: TFRecord (the TensorFlow Object Detection API's
+   `tf.train.Example`s; needs a protobuf writer — check Datumaro's first). Hold it to its
+   own reader, as LabelMe is to labelme and Cityscapes to cityscapesScripts.
 5. **Auto-update** — Tauri's updater, which needs a key pair the maintainers hold; the
    wiring can be built and tested with a throwaway key.
 
@@ -1058,6 +1058,24 @@ being updated and this one was not. Check it against* Completed *before trusting
 ---
 
 ## Verification performed
+
+Iteration 88:
+
+* `tests/unit/test_formats_open_images.py`, 15 tests: the files and the class list without a
+  header, a box normalised to six places with its flags (``-1`` for one never recorded), a
+  model's confidence kept, tags as human and machine image labels, a polygon as the mask it
+  covers and the box around it, a mask round-tripping pixel for pixel and arriving once with
+  its box's flags, safe mask names from names that are not file names; and on import the
+  dataset's own files (MIDs, a header, masks at half resolution naming their box), a label
+  verified absent, machine labels, images not in the task as one warning, and what cannot be
+  read reported while the rest imports.
+* `tests/api/test_import_fidelity.py`: an Open Images archive through the real import route,
+  at the size the task knows each image to be.
+* `scripts/verify_open_images.py` with Datumaro 1.13.11: 16 checks, every one passing; four
+  sabotages each caught, and three more against the unit tests (absent labels read as tags,
+  MIDs left as names, masks not scaled), each caught.
+* `./scripts/check.sh`: all fifteen steps green; 874 server tests (10 skip without PostgreSQL or
+  S3), 16 SDK, 771 web.
 
 Iteration 87:
 
@@ -2075,6 +2093,31 @@ Iteration 54:
 
 ## Last iteration
 
+### 88 — Open Images (CSV), both ways, against Datumaro in both directions
+
+The third of the 1.0 list's additional formats: the annotation files Google's Open Images
+ships — class descriptions (V5 without a header, V6 and V7 with one, MIDs such as `/m/0k4j`
+mapped to their display names), boxes normalised to the image with `IsOccluded` as the
+shape's occlusion and the other four flags as checkbox attributes under Datumaro's names,
+human-verified image labels as tags, and masks as one binary PNG each. Two of the dataset's
+conventions matter more than they look: an image label with confidence 0 says the class was
+verified **absent**, so it is not a tag; and the dataset's masks are not at the image's
+resolution, so they are scaled to it, to the nearest pixel, as Datumaro does. Polygons and
+ellipses are written as the masks they cover; every mask is also its box, as in the dataset,
+and a box that a mask names arrives once — as the mask, with the box's flags. `images.meta`
+carries each image's size, so the export reads without its images.
+
+Held to Datumaro both ways: `scripts/verify_open_images.py`
+(`.github/workflows/open_images.yml`) has it read an export with and without the images, and
+imports what its own exporter writes. Passed first time; four sabotages (box coordinates,
+the mask/box merge, the flags, a mirrored mask) each caught. The dataset conventions Datumaro
+does not write — MIDs, absent labels, low-resolution masks — are unit tests, each failing
+under its own sabotage.
+
+Verified: see *Verification performed*.
+
+## Iteration 87
+
 ### 87 — Cityscapes, both ways, drawn exactly as the dataset's own tools draw it
 
 The second of the 1.0 list's additional formats: the `gtFine` layout — per image the
@@ -2210,23 +2253,9 @@ upgrade` so the migration hook runs twice.
 
 Verified: see *Verification performed*.
 
-## Iteration 82
-
-### 82 — a TypeScript client package
-
-The last code item on the 1.0 list. `sdk/typescript` is `@curvevision/client`: a thin
-wrapper over `openapi-fetch` (its only runtime dependency) with every path, body and
-response typed from the server's schema, a bearer token (or a function returning one), and
-problem documents thrown as a typed error. Its types come from the generator the web
-application uses, checked against the server in CI, and its tests run against a real
-server. Not published: that is an outward act under the maintainers' npm account, and a
-manual workflow waits for their token.
-
-Verified: see *Verification performed*.
-
 ## Earlier iterations
 
-Iterations **1–81** are in [`docs/iterations/ARCHIVE.md`](./docs/iterations/ARCHIVE.md) —
+Iterations **1–82** are in [`docs/iterations/ARCHIVE.md`](./docs/iterations/ARCHIVE.md) —
 moved there so that orienting costs a few hundred lines rather than four thousand. Read them
 when `git log` points you at an iteration number, or when you are about to build something
 and want to know whether it was already tried and rejected. The lessons from them that are

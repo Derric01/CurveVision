@@ -1,6 +1,6 @@
 # Iteration archive
 
-> The narrative record of iterations **1–81**, moved out of
+> The narrative record of iterations **1–82**, moved out of
 > [`handoff.md`](../../handoff.md) so that orienting on this project costs a few hundred
 > lines rather than four thousand.
 >
@@ -15,6 +15,20 @@
 > window, append it to the top of this file rather than deleting it.
 
 ---
+
+## Iteration 82
+
+### 82 — a TypeScript client package
+
+The last code item on the 1.0 list. `sdk/typescript` is `@curvevision/client`: a thin
+wrapper over `openapi-fetch` (its only runtime dependency) with every path, body and
+response typed from the server's schema, a bearer token (or a function returning one), and
+problem documents thrown as a typed error. Its types come from the generator the web
+application uses, checked against the server in CI, and its tests run against a real
+server. Not published: that is an outward act under the maintainers' npm account, and a
+manual workflow waits for their token.
+
+Verified: see *Verification performed*.
 
 ## Iteration 81
 

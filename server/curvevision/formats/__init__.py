@@ -12,6 +12,7 @@ from curvevision.formats import (  # noqa: F401
     labelme,
     mot,
     native,
+    open_images,
     registry,
     segmentation,
     voc,

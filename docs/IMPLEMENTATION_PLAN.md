@@ -532,10 +532,10 @@ class DatasetFormat(Protocol):
 `DatasetView` is a read-only, streaming projection over jobs/frames/annotations, so exporting
 a 500k-image dataset never materialises it in memory.
 
-Shipped, thirteen: **CurveVision JSON** (lossless native), **CVAT XML 1.1**, **COCO**
+Shipped, fourteen: **CurveVision JSON** (lossless native), **CVAT XML 1.1**, **COCO**
 (instances + keypoints), **YOLO** (detection + segmentation), **YOLO OBB**, **YOLO Pose**,
 **YOLO Classification**, **Pascal VOC**, **KITTI**, **MOTChallenge**, **LabelMe (JSON)**,
-**Cityscapes**, and **segmentation mask** (indexed PNG). Each declares its capabilities, and the export API warns which
+**Cityscapes**, **Open Images (CSV)**, and **segmentation mask** (indexed PNG). Each declares its capabilities, and the export API warns which
 annotations will be dropped *before* running (e.g. polylines are not representable in COCO
 instances).
 
@@ -581,7 +581,19 @@ image) the mask of exactly its pixels. Held to the dataset's own tools by
 every exported polygons file, and each image must equal its drawing pixel for pixel;
 cityscapesScripts' own instance images are imported; Datumaro reads the export.
 
-Planned: Open Images, TFRecord, Datumaro bridge.
+**Open Images (CSV)** (iteration 88): the dataset's annotation files both ways — class
+descriptions (V5 without a header, V6/V7 with one, MIDs mapped to display names), boxes
+normalised to the image with `IsOccluded` as occlusion and the other four flags as checkbox
+attributes, human-verified image labels as tags (a label verified *absent*, confidence 0, is
+not one; machine labels are predictions and are not read), and masks as one binary PNG each,
+scaled to the image when the dataset's are not at its resolution. Polygons and ellipses are
+written as the masks they cover; every mask is also written as its box, as the dataset does,
+and a box a mask names arrives once, as the mask. `images.meta` carries each image's size,
+so the files are readable without the images. Held to Datumaro by
+`scripts/verify_open_images.py` (`.github/workflows/open_images.yml`): it reads our export
+with and without the images, and we read what its own exporter writes.
+
+Planned: TFRecord, Datumaro bridge.
 
 ---
 

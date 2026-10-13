@@ -497,6 +497,64 @@ class TestATrackWithAGap:
         assert present_on(track) == [0, 1, 4, 5]
 
 
+async def test_open_images_files_arrive_at_the_images_own_size(
+    owner: ApiActor, organization: dict[str, Any]
+) -> None:
+    """Open Images (iteration 88), through the real import route: normalised boxes become
+    pixels at the size the task knows each image to be, a mask at another resolution is
+    scaled to it, and a label the dataset verified absent is not a tag."""
+    from PIL import Image
+
+    small = Image.new("L", (40, 30), 0)
+    for x in (2, 3):
+        for y in (1, 2):
+            small.putpixel((x, y), 255)
+    encoded = io.BytesIO()
+    small.save(encoded, format="PNG")
+
+    project = await street_project(owner, organization, "open-images-import")
+    archive = io.BytesIO()
+    with zipfile.ZipFile(archive, "w") as bundle:
+        bundle.writestr("annotations/class-descriptions.csv", "/m/0k4j,car\n/m/01,daytime\n")
+        bundle.writestr(
+            "annotations/train-annotations-bbox.csv",
+            "ImageID,Source,LabelName,Confidence,XMin,XMax,YMin,YMax,"
+            "IsOccluded,IsTruncated,IsGroupOf,IsDepiction,IsInside\n"
+            "f0,xclick,/m/0k4j,1,0.1,0.5,0.1,0.5,1,-1,-1,-1,-1\n",
+        )
+        bundle.writestr(
+            "annotations/train-annotations-object-segmentation.csv",
+            "MaskPath,ImageID,LabelName,BoxID,BoxXMin,BoxXMax,BoxYMin,BoxYMax,"
+            "PredictedIoU,Clicks\nf1_car_0.png,f1,/m/0k4j,0,,,,,,\n",
+        )
+        bundle.writestr("masks/train/f1_car_0.png", encoded.getvalue())
+        bundle.writestr(
+            "annotations/train-annotations-human-imagelabels.csv",
+            "ImageID,Source,LabelName,Confidence\nf0,verification,/m/01,1\n"
+            "f1,verification,/m/01,0\n",
+        )
+
+    _summary, document = await import_into(
+        owner, project, "open_images", archive.getvalue(), frames=2
+    )
+
+    labels = {
+        label["name"]: label
+        for label in (await owner.get(f"/api/v1/projects/{project['id']}/labels")).json()
+    }
+    by_frame = {shape["frame"]: shape for shape in document["shapes"]}
+    box, mask = by_frame[0], by_frame[1]
+    assert box["points"] == [64, 48, 320, 240]  # of 640 x 480
+    assert box["occluded"] is True
+    assert mask["shape_type"] == "mask" and mask["label_id"] == labels["car"]["id"]
+    # Two by two pixels of a 40 x 30 mask: thirty-two by thirty-two of the 640 x 480 image.
+    assert (mask["mask"]["left"], mask["mask"]["top"]) == (32, 16)
+    assert (mask["mask"]["width"], mask["mask"]["height"]) == (32, 32)
+    assert [(tag["frame"], tag["label_id"]) for tag in document["tags"]] == [
+        (0, labels["daytime"]["id"])
+    ]
+
+
 async def test_cityscapes_label_images_and_polygons_arrive_through_the_import_route(
     owner: ApiActor, organization: dict[str, Any]
 ) -> None:
