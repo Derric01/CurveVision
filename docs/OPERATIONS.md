@@ -51,8 +51,40 @@ the machine that would be protected.
 
 ## Backups
 
-**Back up PostgreSQL and object storage together.** An annotation row whose media is
-missing is not a usable dataset, and neither half alone is worth restoring.
+**Back up the database and object storage together.** An annotation row whose media is
+missing is not a usable dataset, and neither half alone is worth restoring. One command
+does both, into one archive:
+
+```bash
+docker compose exec api curvevision-server backup /backups/cv-$(date +%F).tar
+```
+
+Every row of every table, as JSON, and every stored object a row refers to — images,
+video, thumbnails, frame chunks, each released dataset version's frozen copy — with its
+SHA-256. Because the rows are not a database dump, **an archive restores into either
+database**: a desktop installation's SQLite into a team server's PostgreSQL is the same
+command. Mount `/backups` as a volume, and copy the archive off the machine.
+
+```bash
+# Restore, into a NEW installation: migrations are run first, and a database with any
+# rows in it, or at another schema revision, is refused rather than merged into.
+docker compose exec api curvevision-server restore /backups/cv-2026-01-15.tar
+```
+
+On the desktop, the same commands act on the application's data directory: quit the app,
+then `curvevision-server backup cv.tar --desktop` (or `--desktop /path/to/data`), and
+`restore cv.tar --desktop /new/data`. Folders annotated in place are the user's own files
+and are not copied; the command says how many.
+
+**Test your restore.** An untested backup is a hypothesis. Restore into a scratch instance,
+open a project, and export a dataset — that exercises the database, storage and their
+relationship in one go. (`tests/api/test_backup.py` does exactly that on every CI run, into
+SQLite and into PostgreSQL.)
+
+### For very large installations: the databases' own tools
+
+The archive is written row by row and object by object; with millions of images,
+`pg_dump` and a storage mirror are faster. The same rule applies — both, in this order:
 
 ```bash
 # Database
@@ -66,7 +98,7 @@ Take the object-storage snapshot **after** the database dump. Media is content-a
 and immutable, so a blob written between the two is simply unreferenced — harmless. The
 other order can leave a row pointing at a blob that was never captured.
 
-### Restore
+Restore:
 
 ```bash
 docker compose up -d postgres minio
@@ -74,10 +106,6 @@ docker compose exec -T postgres pg_restore -U curvevision -d curvevision --clean
 docker compose exec -T minio mc mirror --overwrite /backup/curvevision local/curvevision
 docker compose up -d
 ```
-
-**Test your restore.** An untested backup is a hypothesis. Restore into a scratch instance,
-open a project, and export a dataset — that exercises the database, storage and their
-relationship in one go.
 
 ## Upgrading
 

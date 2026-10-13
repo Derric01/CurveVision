@@ -142,6 +142,14 @@ jobs:
           CURVEVISION_TEST_POSTGRES_URL: postgresql+asyncpg://curvevision:curvevision@localhost:5432/curvevision_test
         run: pytest tests/api/test_joint_repair_migration.py -q
 
+      # A backup written from SQLite, the desktop's database, restored into PostgreSQL:
+      # the move from working alone to a team server.
+      - name: Backup restored into PostgreSQL
+        working-directory: server
+        env:
+          CURVEVISION_TEST_POSTGRES_URL: postgresql+asyncpg://curvevision:curvevision@localhost:5432/curvevision_test
+        run: pytest tests/api/test_backup.py -q
+
   clamav:
     name: Content scanning against ClamAV
     runs-on: ubuntu-latest

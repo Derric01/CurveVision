@@ -5,9 +5,9 @@
 > [`AGENTS.md`](./AGENTS.md) first; it is the working contract. Update this file after every
 > iteration, including the ones that mostly failed.
 >
-> **Last updated:** 2026-10-13 (iteration 78) · branch `claude/start-work-yx080h` · PRs
+> **Last updated:** 2026-10-13 (iteration 79) · branch `claude/start-work-yx080h` · PRs
 > [#1](https://github.com/Derric01/CurveVision/pull/1)–[#34](https://github.com/Derric01/CurveVision/pull/34)
-> **all merged**, #34 carrying iterations 67–69. Iterations 70–78 are pushed on top of
+> **all merged**, #34 carrying iterations 67–69. Iterations 70–79 are pushed on top of
 > that merge with no PR yet.
 >
 > *Two things worth knowing about this repository's PR rhythm, which replace the
@@ -22,7 +22,7 @@
 > **Keep the session short.** One iteration, then commit, push, update this file and report —
 > `AGENTS.md` § *Continue* and the `start-work` skill both say so now, because they did not
 > before and a single session ran six iterations and roughly a third of a week's budget. The
-> concrete costs, in rough order: re-reading this file (iterations 1–72 now live in
+> concrete costs, in rough order: re-reading this file (iterations 1–73 now live in
 > [`docs/iterations/ARCHIVE.md`](./docs/iterations/ARCHIVE.md), which cut it from 3,800
 > lines to 1,000 — keep it that way); `python desktop/sidecar/build.py`, which is a
 > PyInstaller run of a minute or two and is needed *again* for every sabotage-and-restore
@@ -45,7 +45,7 @@ shapes (detection/segmentation, OBB, pose, classification), each declaring in it
 The desktop shape works: a packaged single-executable server, a Tauri shell that supervises
 it, and folders annotated in place without copying a byte.
 
-**The tree is green.** `./scripts/check.sh` passes all thirteen steps: 750 server tests, 16
+**The tree is green.** `./scripts/check.sh` passes all thirteen steps: 757 server tests, 16
 SDK, 765 web, and `scripts/` is lint-clean under its own `ruff.toml`. Thirty-two browser
 harnesses drive the application in a real Chromium, nightly and on every push to `main` —
 thirty-one against the packaged desktop server, and `verify_workspace.py` against the real
@@ -504,7 +504,7 @@ was the last unconnected piece of the desktop application.
 
 ## Next best action
 
-*OpenTelemetry tracing, iteration 78; uploads scanned by ClamAV, 77; a rate limit shared by every server instance through Redis, and Phase 12's markers made true, iteration 76; a default the server fills in is stored typed, 75; Submit checks what its own save achieved, 74. No edit made during a save is lost any more — to a new object while its first save is in
+*Backup and restore, either shape and across databases, iteration 79; OpenTelemetry tracing, 78; uploads scanned by ClamAV, 77; a rate limit shared by every server instance through Redis, and Phase 12's markers made true, iteration 76; a default the server fills in is stored typed, 75; Submit checks what its own save achieved, 74. No edit made during a save is lost any more — to a new object while its first save is in
 flight, or to any object while a save that then fails is — and the editor always fits the
 frame it opens on, iteration 73; a backup that
 restores what it holds, and tracks that keep their keyframes through CVAT XML and the
@@ -519,8 +519,7 @@ in this order — each self-contained, each a gap a production operator would hi
 
 1. ~~Content scanning (ClamAV)~~ — done, iteration 77.
 2. ~~OpenTelemetry tracing~~ — done, iteration 78.
-3. **Backup and restore tooling** — a documented, tested command for the database and
-   the storage, both shapes.
+3. ~~Backup and restore tooling~~ — done, iteration 79.
 4. **A Helm chart**, linted in CI.
 5. **OIDC sign-on** behind the `AuthBackend` seam — the largest.
 6. **A published TypeScript client** from the OpenAPI schema.
@@ -1043,6 +1042,22 @@ being updated and this one was not. Check it against* Completed *before trusting
 ---
 
 ## Verification performed
+
+Iteration 79:
+
+* `tests/api/test_backup.py`: a migrated desktop installation seeded through the API (a
+  skeleton label with its joints, images, a model's pending suggestion, a track, a tagged
+  frame, a released version) is backed up, restored into a fresh installation, provisioned,
+  and read back through the API — projects, labels, annotations, both frames' bytes, and an
+  export of the release — **equal to before**. Into SQLite and into **PostgreSQL 16**
+  (installed and started in this container; `ci.yml`'s PostgreSQL job runs it too). Refused:
+  an installation with rows in it, one at another schema revision, an archive with a
+  damaged object, a tar that is not a backup. And the commands themselves, `backup
+  --desktop` and `restore --desktop`, round-trip a desktop data directory and refuse a
+  second restore.
+* Iteration 78 on GitHub: CI green.
+* `docker compose config` valid with the new `/backups` volume.
+* Full `./scripts/check.sh` green.
 
 Iteration 78:
 
@@ -1872,6 +1887,20 @@ Iteration 54:
 
 ## Last iteration
 
+### 79 — backup and restore, either shape, across databases
+
+The next 1.0 item. Backups were two hand-run commands against two systems, for the server
+only, and nothing had ever restored one. `curvevision-server backup` / `restore`
+(`services/backup.py`) write one archive: every row as JSON, in foreign-key order, and every
+stored object a row names, with its SHA-256. Rows as JSON rather than a database dump is
+the design decision: it makes an archive portable between databases, so a desktop user's
+SQLite moves to a team server's PostgreSQL with the same two commands — tested. A restore
+refuses anything but an empty installation at the backup's schema revision.
+
+Verified: see *Verification performed*.
+
+## Iteration 78
+
 ### 78 — OpenTelemetry tracing
 
 The next 1.0 item. `core/tracing.py`: requests (FastAPI), SQL (SQLAlchemy), outbound HTTP
@@ -1935,30 +1964,9 @@ both are zero.
 
 Verified: see *Verification performed*.
 
-## Iteration 73
-
-### 73 — no edit made during a save is lost
-
-The next best action, found by reading in iteration 55 and made the common case by
-iteration 70, which kept a new box's attributes panel up through its first save: an edit
-to a drawn object was dropped unless the object was queued to be created, which it is not
-while its creation is on the wire. Reproduced in a browser by holding that request open,
-then fixed with one rule (`savedForm`): such an edit is queued under the local id, and
-resolved when sent, shown or copied — under the server id once the first save has
-answered, as the creation itself until then. Its neighbour in *Known issues*, the same
-loss on a save that fails, was one line in the same function and is fixed and driven too.
-
-A third defect turned up while verifying: `verify_attribute_editor.py` failed one run in
-four locally, its diagnostics saying the box was never selected, and its screenshot showing
-why — the frame never fitted, because its image arrived before the canvas had a size. That
-is very likely iteration 70's CI failure of the same step too (it predates the diagnostics).
-The engine now fits on the first resize instead.
-
-Verified: see *Verification performed*.
-
 ## Earlier iterations
 
-Iterations **1–72** are in [`docs/iterations/ARCHIVE.md`](./docs/iterations/ARCHIVE.md) —
+Iterations **1–73** are in [`docs/iterations/ARCHIVE.md`](./docs/iterations/ARCHIVE.md) —
 moved there so that orienting costs a few hundred lines rather than four thousand. Read them
 when `git log` points you at an iteration number, or when you are about to build something
 and want to know whether it was already tried and rejected. The lessons from them that are

@@ -1,6 +1,6 @@
 # Iteration archive
 
-> The narrative record of iterations **1–72**, moved out of
+> The narrative record of iterations **1–73**, moved out of
 > [`handoff.md`](../../handoff.md) so that orienting on this project costs a few hundred
 > lines rather than four thousand.
 >
@@ -15,6 +15,27 @@
 > window, append it to the top of this file rather than deleting it.
 
 ---
+
+## Iteration 73
+
+### 73 — no edit made during a save is lost
+
+The next best action, found by reading in iteration 55 and made the common case by
+iteration 70, which kept a new box's attributes panel up through its first save: an edit
+to a drawn object was dropped unless the object was queued to be created, which it is not
+while its creation is on the wire. Reproduced in a browser by holding that request open,
+then fixed with one rule (`savedForm`): such an edit is queued under the local id, and
+resolved when sent, shown or copied — under the server id once the first save has
+answered, as the creation itself until then. Its neighbour in *Known issues*, the same
+loss on a save that fails, was one line in the same function and is fixed and driven too.
+
+A third defect turned up while verifying: `verify_attribute_editor.py` failed one run in
+four locally, its diagnostics saying the box was never selected, and its screenshot showing
+why — the frame never fitted, because its image arrived before the canvas had a size. That
+is very likely iteration 70's CI failure of the same step too (it predates the diagnostics).
+The engine now fits on the first resize instead.
+
+Verified: see *Verification performed*.
 
 ## Iteration 72
 

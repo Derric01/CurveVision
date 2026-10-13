@@ -888,7 +888,10 @@ Benchmarks live in `server/tests/benchmarks/` (annotation write/read at 1k/10k/1
   tested against a real clamd in CI. (Until iteration 77 this line said a `ContentScanner`
   hook existed; it did not.)
 * Structured logging, metrics and tracing — **Done** (tracing: iteration 78).
-* Migrations — **Done**; backup/DR runbook — see [OPERATIONS.md](./OPERATIONS.md).
+* Migrations — **Done**. Backup and restore — **Done** (iteration 79): `curvevision-server
+  backup` / `restore`, one archive of rows and stored objects, for either shape and across
+  databases (SQLite to PostgreSQL), restored and compared through the API in CI; the DR
+  runbook is [OPERATIONS.md](./OPERATIONS.md).
 
 ---
 

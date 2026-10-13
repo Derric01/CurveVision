@@ -88,7 +88,7 @@ Beta named is finished, and the label waits for use.
 | Content scanning (ClamAV) | **Done** — `content_scanner = "clamd"`, tested against a real clamd in CI |
 | OIDC / SAML single sign-on | **Planned** — the `AuthBackend` seam exists |
 | Kubernetes Helm chart | **Planned** |
-| Backup and restore tooling | **Planned** |
+| Backup and restore tooling | **Done** — `curvevision-server backup` / `restore`, either shape, across databases, restored in CI |
 | Published TypeScript client package | **Planned** |
 | Additional formats: LabelMe, Open Images, TFRecord, Cityscapes | **Planned** — KITTI, MOTChallenge, CVAT XML and segmentation masks shipped ahead of this list |
 | Datumaro bridge for the long tail of formats | **Planned** |

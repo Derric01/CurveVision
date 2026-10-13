@@ -51,6 +51,86 @@ async def _list_formats() -> int:
     return 0
 
 
+def _settings_for(desktop: str | None) -> Any:
+    """The installation a backup or restore acts on: the server's environment, or — with
+    `--desktop` — the desktop application's data directory (its default when no path)."""
+    if desktop is None:
+        return get_settings()
+    from pathlib import Path
+
+    from curvevision import desktop as desktop_module
+
+    return desktop_module.local_settings(Path(desktop) if desktop else None)
+
+
+async def _backup(destination: str, desktop: str | None) -> int:
+    from pathlib import Path
+
+    from curvevision.core.db import create_engine
+    from curvevision.services import backup
+    from curvevision.storage import get_storage
+
+    settings = _settings_for(desktop)
+    engine = create_engine(settings)
+    try:
+        report = await backup.write_backup(engine, get_storage(settings), Path(destination))
+    finally:
+        await engine.dispose()
+    rows = sum(report.tables.values())
+    print(
+        f"Backed up {rows} rows in {len(report.tables)} tables and {report.objects} stored "
+        f"objects ({report.object_bytes / 1e6:.1f} MB) to {destination}"
+    )
+    if report.in_place_files:
+        print(
+            f"Not copied: {report.in_place_files} media file(s) annotated in place, which stay "
+            "where they are on this computer. Back those folders up yourself."
+        )
+    if report.missing:
+        print(f"Warning: {len(report.missing)} object(s) the database names were not in storage:")
+        for key in report.missing[:20]:
+            print(f"  {key}")
+    return 0
+
+
+async def _restore(source: str, desktop: str | None) -> int:
+    from pathlib import Path
+
+    from curvevision import desktop as desktop_module
+    from curvevision.core.db import create_engine
+    from curvevision.services import backup
+    from curvevision.storage import get_storage
+
+    settings = _settings_for(desktop)
+    try:
+        manifest = backup.read_manifest(Path(source))
+    except backup.BackupError as exc:
+        print(f"Cannot restore: {exc}", file=sys.stderr)
+        return 1
+    # The schema first, as the server does on start: a restore needs an empty installation
+    # at the backup's revision, and a new one has no schema at all yet.
+    await asyncio.to_thread(desktop_module.migrate, settings)
+    engine = create_engine(settings)
+    try:
+        report = await backup.restore_backup(engine, get_storage(settings), Path(source))
+    except backup.BackupError as exc:
+        print(f"Cannot restore: {exc}", file=sys.stderr)
+        return 1
+    finally:
+        await engine.dispose()
+    rows = sum(report.tables.values())
+    print(
+        f"Restored {rows} rows and {report.objects} stored objects from a backup made "
+        f"{manifest.get('created_at')} by CurveVision {manifest.get('curvevision_version')}."
+    )
+    if report.in_place_files:
+        print(
+            f"{report.in_place_files} media file(s) were annotated in place on the machine the "
+            "backup came from; they open here only if they are at the same paths."
+        )
+    return 0
+
+
 def _run_worker(queues: list[str]) -> int:
     """Start a Dramatiq worker.
 
@@ -84,6 +164,19 @@ def main(argv: list[str] | None = None) -> int:
 
     sub.add_parser("formats", help="List available dataset formats")
 
+    desktop_help = (
+        "act on the desktop application's data instead of the server's environment "
+        "(its default directory, or DIR)"
+    )
+    backup = sub.add_parser("backup", help="Write the whole installation to one archive")
+    backup.add_argument("archive", help="where to write it, e.g. curvevision-2026-10-13.tar")
+    backup.add_argument("--desktop", nargs="?", const="", metavar="DIR", help=desktop_help)
+    restore = sub.add_parser(
+        "restore", help="Restore an archive into an empty installation (migrating it first)"
+    )
+    restore.add_argument("archive")
+    restore.add_argument("--desktop", nargs="?", const="", metavar="DIR", help=desktop_help)
+
     worker = sub.add_parser("worker", help="Run a background worker")
     worker.add_argument(
         "--queues",
@@ -100,6 +193,8 @@ def main(argv: list[str] | None = None) -> int:
             _create_superuser(args.email, args.username, args.password)
         ),
         "formats": lambda: asyncio.run(_list_formats()),
+        "backup": lambda: asyncio.run(_backup(args.archive, args.desktop)),
+        "restore": lambda: asyncio.run(_restore(args.archive, args.desktop)),
         "worker": lambda: _run_worker(args.queues),
     }
     return int(handlers[args.command]())
