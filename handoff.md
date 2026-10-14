@@ -6,9 +6,10 @@
 > iteration, including the ones that mostly failed.
 >
 > **Last updated:** 2026-10-14 (iteration 99) · branch `claude/start-work-yx080h` · PRs
-> [#1](https://github.com/Derric01/CurveVision/pull/1)–[#36](https://github.com/Derric01/CurveVision/pull/36)
-> **all merged**. Iterations 84 (the rest) to 99 are
-> [#37](https://github.com/Derric01/CurveVision/pull/37).
+> [#1](https://github.com/Derric01/CurveVision/pull/1)–[#37](https://github.com/Derric01/CurveVision/pull/37)
+> **all merged**, #37 carrying iterations 84 (the rest) to 98. Iteration 99 is
+> [#38](https://github.com/Derric01/CurveVision/pull/38) — pushed just after #37 merged, so
+> the branch carries a merge of `main` rather than a rewritten history.
 >
 > *Two things worth knowing about this repository's PR rhythm, which replace the
 > PR-by-PR changelog that used to sit here and had stopped helping anybody.* **PRs are
