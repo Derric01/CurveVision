@@ -189,6 +189,8 @@ jobs:
           npm ci --prefix web --no-audit --no-fund
           npm --prefix web run build
           pip install -e "./server[media,desktop]"
+          # The harness signs its own update feed with a throwaway key (scripts/minisign.py).
+          pip install cryptography
           python desktop/sidecar/build.py
           cargo build --manifest-path desktop/shell/src-tauri/Cargo.toml
           cp desktop/sidecar/dist/curvevision-local desktop/shell/src-tauri/target/debug/
