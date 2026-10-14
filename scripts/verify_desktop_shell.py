@@ -193,10 +193,20 @@ open.onsuccess = () => {
 
 
 def until(condition: Any, timeout: float = 30) -> Any:
+    """Poll `condition` until it is truthy, or `timeout` passes (None).
+
+    A poll whose connection WebKitWebDriver drops is a poll that saw nothing yet: the driver
+    does that around windows opening and closing (see *Known issues* in handoff.md), and one
+    such drop used to end the whole run. A session that has really gone keeps failing, and
+    the wait ends as a failed check rather than a crash.
+    """
     deadline = time.time() + timeout
     while time.time() < deadline:
-        if result := condition():
-            return result
+        try:
+            if result := condition():
+                return result
+        except OSError:
+            pass
         time.sleep(0.25)
     return None
 
@@ -315,11 +325,7 @@ def main() -> int:
             )
 
             # ------------------------------------------------------------ 2
-            answered = wd.run_async(
-                "const done = arguments[arguments.length - 1];"
-                "window.__TAURI_INTERNALS__.invoke('connection')"
-                "  .then(c => done({ok: c}), e => done({error: String(e)}));"
-            )
+            answered = invoke(wd, "connection")
             check(
                 answered.get("ok", {}).get("token") == injected.get("token"),
                 "invoke() crosses the IPC bridge and the shell answers",
@@ -375,12 +381,7 @@ def main() -> int:
             )
 
             # ------------------------------------------------------------ 4
-            refused = wd.run_async(
-                "const done = arguments[arguments.length - 1];"
-                "const ipc = window.__TAURI_INTERNALS__;"
-                "if (!ipc) { done({error: 'no IPC at all'}); return; }"
-                "ipc.invoke('connection').then(c => done({ok: c}), e => done({error: String(e)}));"
-            )
+            refused = invoke(wd, "connection")
             check(
                 "ok" not in refused,
                 "a team server's page cannot use the shell: its command is refused",
@@ -504,7 +505,7 @@ def main() -> int:
             restart_driver(updating)
             wd.start(application)
             until(lambda: wd.run("return window.__CURVEVISION__ || null"), 60)
-            status = wd.run_async(INVOKE, "check_for_update")
+            status = invoke(wd, "check_for_update")
             notice = until(
                 lambda: wd.run(
                     "const n = document.querySelector('[data-update-notice]');"
@@ -520,7 +521,7 @@ def main() -> int:
                 f"check_for_update gave {status}; the notice said {notice!r}",
             )
             feed.tamper()
-            refused = wd.run_async(INVOKE, "install_update")
+            refused = invoke(wd, "install_update")
             # "verification failed", not "invalid encoding": the signature was well formed
             # (the shell's Rust test pins that) and the download was not what it signed.
             check(
@@ -529,7 +530,7 @@ def main() -> int:
                 f"install_update gave {refused}",
             )
             feed.sign_with(forger)
-            refused = wd.run_async(INVOKE, "install_update")
+            refused = invoke(wd, "install_update")
             check(
                 "created with a different key" in str(refused.get("error", "")),
                 "one signed by another key is refused too",
@@ -563,12 +564,41 @@ def main() -> int:
 
 
 #: Call a shell command from the page; the result, or the shell's refusal, as data.
-INVOKE = """
-const done = arguments[arguments.length - 1];
-window.__TAURI_INTERNALS__.invoke(arguments[0])
-  .then((value) => done({ok: value === undefined ? null : value}),
-        (error) => done({error: String(error)}));
+# A shell command run by the page, its answer kept for `invoke` to collect.
+START = """
+const [command, ticket] = arguments;
+window.__harness = window.__harness || {};
+if (!window.__TAURI_INTERNALS__) {
+  window.__harness[ticket] = {error: 'no IPC at all'};
+  return;
+}
+window.__TAURI_INTERNALS__.invoke(command)
+  .then((value) => { window.__harness[ticket] = {ok: value === undefined ? null : value}; },
+        (error) => { window.__harness[ticket] = {error: String(error)}; });
 """
+COLLECT = "return (window.__harness || {})[arguments[0]] || null;"
+
+
+def invoke(wd: WebDriver, command: str, timeout: float = 90) -> dict[str, Any]:
+    """Run a shell command from the page and wait for its answer.
+
+    Started by one short request and collected by others, rather than held open in a single
+    asynchronous script for as long as the command takes: WebKitWebDriver dropped the
+    connection of one such script in CI while the updater downloaded and refused an update
+    (iteration 97), and a dropped poll is simply polled again. A session that has really
+    gone answers nothing, and that is reported as the answer.
+    """
+    ticket = f"{command}-{time.time_ns()}"
+    wd.run(START, command, ticket)
+
+    def collected() -> Any:
+        try:
+            return wd.run(COLLECT, ticket)
+        except (OSError, RuntimeError):
+            return None
+
+    answer = until(collected, timeout)
+    return answer if isinstance(answer, dict) else {"error": f"no answer to {command}"}
 
 
 class UpdateFeed:
