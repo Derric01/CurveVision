@@ -38,7 +38,7 @@ jobs:
         working-directory: server
         run: |
           python -m pip install --upgrade pip
-          pip install -e ".[dev]"
+          pip install -e ".[dev,saml]"
 
       - name: Ruff
         working-directory: server
@@ -131,7 +131,7 @@ jobs:
         working-directory: server
         run: |
           python -m pip install --upgrade pip
-          pip install -e ".[dev,postgres,s3]"
+          pip install -e ".[dev,postgres,s3,saml]"
 
       # The unit suite runs on SQLite; this job proves the schema and the
       # Postgres-specific column variants (JSONB, native uuid) actually work.
@@ -201,7 +201,7 @@ jobs:
         working-directory: server
         run: |
           python -m pip install --upgrade pip
-          pip install -e ".[dev]"
+          pip install -e ".[dev,saml]"
 
       - name: Scan with clamd
         working-directory: server

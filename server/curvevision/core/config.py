@@ -137,6 +137,36 @@ class Settings(BaseSettings):
     #: Disable the password sign-in form, when every person signs in through the provider.
     oidc_only: bool = False
 
+    # --- single sign-on (SAML 2.0; `services/saml.py`) ---------------------------------
+    #: Sign-in through a SAML identity provider: Entra ID, Okta, AD FS, Keycloak, Shibboleth,
+    #: Google Workspace... Server shape only. Needs the `saml` extra.
+    saml_enabled: bool = False
+    #: The assertion consumer service the provider posts to: this deployment's API address
+    #: plus ``/api/v1/auth/saml/acs``, registered with the provider exactly so.
+    saml_acs_url: str = ""
+    #: Where the browser is sent once the answer is read: the web address plus
+    #: ``/auth/callback``.
+    saml_callback_url: str = ""
+    #: This service provider's entity ID; empty is the metadata URL beside the ACS.
+    saml_sp_entity_id: str = ""
+    #: The provider's metadata, from which its entity ID, sign-in URL and keys are read...
+    saml_idp_metadata_url: str = ""
+    #: ...or the three of them given directly.
+    saml_idp_entity_id: str = ""
+    saml_idp_sso_url: str = ""
+    #: The provider's signing certificate, PEM or bare base64.
+    saml_idp_x509_cert: str = ""
+    #: The attribute holding the email address; empty tries the usual ones.
+    saml_email_attribute: str = ""
+    #: Trust the email address the provider asserts to link an existing account and make
+    #: new ones — it is the operator's own provider. Off: only existing links sign in.
+    saml_trust_email: bool = True
+    #: The sign-in button's label: "Sign in with <this>".
+    saml_display_name: str = "SAML single sign-on"
+    saml_create_users: bool = True
+    saml_allowed_domains: CommaSeparated = ()
+    saml_default_workspace: str = ""
+
     # --- api ----------------------------------------------------------------------
     api_prefix: str = "/api/v1"
     cors_origins: CommaSeparated = ("http://localhost:5173", "http://127.0.0.1:5173")
@@ -169,6 +199,7 @@ class Settings(BaseSettings):
         "allowed_image_extensions",
         "allowed_video_extensions",
         "oidc_allowed_domains",
+        "saml_allowed_domains",
         mode="before",
     )
     @classmethod

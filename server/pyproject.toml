@@ -44,6 +44,9 @@ worker = ["dramatiq[redis]>=1.17", "redis>=5.0"]
 redis = ["redis>=5.0"]
 # Single sign-on through an OpenID Connect provider (`oidc_enabled`): RS256/ES256 ID tokens.
 oidc = ["pyjwt[crypto]>=2.8"]
+# Single sign-on through a SAML 2.0 identity provider (`saml_enabled`): python3-saml verifies
+# the XML signatures, through xmlsec.
+saml = ["python3-saml>=1.16", "pyjwt>=2.8"]
 # OpenTelemetry tracing to an OTLP/HTTP collector (`tracing_enabled`).
 tracing = [
     "opentelemetry-sdk>=1.25",
@@ -126,7 +129,7 @@ no_implicit_optional = true
 exclude = ["curvevision/migrations/", "tests/"]
 
 [[tool.mypy.overrides]]
-module = ["dramatiq.*", "boto3.*", "botocore.*", "av.*", "PIL.*", "argon2.*", "prometheus_client.*", "datumaro.*"]
+module = ["dramatiq.*", "boto3.*", "botocore.*", "av.*", "PIL.*", "argon2.*", "prometheus_client.*", "datumaro.*", "onelogin.*"]
 ignore_missing_imports = true
 
 [tool.pytest.ini_options]

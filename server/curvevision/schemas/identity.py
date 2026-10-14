@@ -52,6 +52,9 @@ class SignInOptions(StrictModel):
     sso: bool
     #: The sign-in button's label: "Sign in with <this>".
     sso_name: str | None = None
+    #: Single sign-on through a SAML identity provider, when configured.
+    saml: bool = False
+    saml_name: str | None = None
 
 
 class SsoStartRequest(StrictModel):
@@ -70,6 +73,25 @@ class SsoStarted(StrictModel):
 class SsoCompleteRequest(StrictModel):
     code: str = Field(min_length=1, max_length=4096)
     state: str = Field(min_length=1, max_length=8192)
+
+
+class SamlStartRequest(StrictModel):
+    #: The SHA-256 of a random verifier this browser tab keeps, base64url without padding.
+    #: Only the tab holding the verifier can finish the sign-in.
+    verifier_sha256: str = Field(min_length=43, max_length=43, pattern=r"^[A-Za-z0-9_-]+$")
+    return_to: str = "/"
+
+
+class SamlStarted(StrictModel):
+    #: Send the browser here: the identity provider, carrying the request.
+    url: str
+
+
+class SamlCompleteRequest(StrictModel):
+    #: The login code the assertion consumer service sent the browser back with.
+    code: str = Field(min_length=1, max_length=8192)
+    #: The verifier whose hash this tab started the sign-in with.
+    verifier: str = Field(min_length=32, max_length=256)
 
 
 class TokenPair(StrictModel):

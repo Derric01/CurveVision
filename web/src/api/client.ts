@@ -41,6 +41,7 @@ import type {
   QualityReport,
   Role,
   SignInOptions,
+  SamlStarted,
   SsoStarted,
   Task,
   TaskMediaMeta,
@@ -235,6 +236,27 @@ export const api = {
       method: 'POST',
       body: { return_to: returnTo },
     });
+  },
+
+  /**
+   * Begin SAML single sign-on. `verifierSha256` is the hash of a secret this tab keeps:
+   * only the tab holding it can finish the sign-in.
+   */
+  samlStart(verifierSha256: string, returnTo: string): Promise<SamlStarted> {
+    return request<SamlStarted>('/auth/saml/start', {
+      method: 'POST',
+      body: { verifier_sha256: verifierSha256, return_to: returnTo },
+    });
+  },
+
+  /** Finish it with the login code the server sent back, and the tab's verifier. */
+  async samlComplete(code: string, verifier: string): Promise<{ user: User; returnTo: string }> {
+    const tokens = await request<TokenPair>('/auth/saml/complete', {
+      method: 'POST',
+      body: { code, verifier },
+    });
+    tokenStore.set(tokens);
+    return { user: await request<User>('/auth/me'), returnTo: tokens.return_to ?? '/' };
   },
 
   /** Finish it with what the provider sent back; signed in, and where to go next. */

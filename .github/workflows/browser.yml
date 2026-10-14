@@ -67,7 +67,7 @@ jobs:
         working-directory: server
         run: |
           python -m pip install --upgrade pip
-          pip install -e ".[dev,media,desktop]"
+          pip install -e ".[dev,media,desktop,saml]"
           pip install playwright
 
       - name: Install Chromium
@@ -139,6 +139,8 @@ jobs:
               # The real server too, signing in through an OpenID Connect provider the
               # script runs itself.
               scripts/verify_sso.py
+              # ...and through a SAML identity provider the script runs itself.
+              scripts/verify_saml.py
               # The packaged server and a team server: the desktop window switching to it.
               scripts/verify_team_server.py
             )

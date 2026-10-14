@@ -211,7 +211,10 @@ already the seam.
 * **API tokens** for SDK/CLI/CI: `cv_<id>_<secret>` displayed once, stored as a SHA-256
   hash, with optional expiry and last-used tracking.
 * Single sign-on — **OIDC Done** (iteration 81: authorization code with PKCE, accounts
-  linked by issuer and subject, driven in a browser against a provider); **SAML Planned**.
+  linked by issuer and subject, driven in a browser against a provider); **SAML Done**
+  (iteration 91: SP-initiated Web SSO, the HTTP-Redirect request and HTTP-POST response,
+  python3-saml validating; the request ID minted from a verifier the browser tab keeps, so
+  only that tab can finish; one account-linking module, `external_identity.py`, for both).
   (This line used to say an `AuthBackend` seam existed; it did not.)
 
 ### 0.7 Authorization

@@ -148,10 +148,14 @@ Stated plainly, because a security document that only lists strengths is not use
   (`content_scanner = "clamd"`, [OPERATIONS.md](./OPERATIONS.md#scanning-uploads-for-malware));
   it fails closed. Another scanner is one class implementing `ContentScanner` in
   `media/scanning.py`.
-* **Single sign-on is OpenID Connect only.** OIDC works ([OPERATIONS.md](./OPERATIONS.md#single-sign-on));
-  SAML does not. An account is linked by the provider's issuer and subject; a first
-  sign-in links to an existing account only through an email the provider says is
-  verified.
+* **Single sign-on: OpenID Connect and SAML 2.0** ([OPERATIONS.md](./OPERATIONS.md#single-sign-on)).
+  An account is linked by the provider's issuer and subject (`services/external_identity.py`,
+  one set of rules for both); a first sign-in links to an existing account only through an
+  email the provider vouches for. SAML responses are validated by python3-saml (signature
+  over the assertion, issuer, audience, destination, recipient, validity window); the
+  request ID is an HMAC over the hash of a verifier the starting browser tab keeps, so a
+  response captured or a login code leaked signs nobody in without that tab, and an
+  unsolicited response is refused. Single logout is not implemented.
 * **No audit-log tamper protection.** Audit events live in the same database as everything
   else; an attacker with database write access can alter them.
 * **CurveVision is young.** It has not had an external security audit. Weigh that when

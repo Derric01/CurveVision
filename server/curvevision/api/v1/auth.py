@@ -4,7 +4,8 @@ from __future__ import annotations
 
 import uuid
 
-from fastapi import APIRouter, Request, status
+from fastapi import APIRouter, Form, Request, status
+from fastapi.responses import RedirectResponse, Response
 
 from curvevision.api.deps import IdentityDep, SessionDep, SettingsDep, client_ip
 from curvevision.core.errors import PermissionDeniedError
@@ -17,6 +18,9 @@ from curvevision.schemas.identity import (
     PasswordChangeRequest,
     RefreshRequest,
     RegisterRequest,
+    SamlCompleteRequest,
+    SamlStarted,
+    SamlStartRequest,
     SignInOptions,
     SsoCompleteRequest,
     SsoStarted,
@@ -26,7 +30,7 @@ from curvevision.schemas.identity import (
     UserUpdate,
 )
 from curvevision.services import auth as auth_service
-from curvevision.services import oidc
+from curvevision.services import oidc, saml
 
 router = APIRouter(tags=["auth"])
 
@@ -99,11 +103,14 @@ async def sign_in_options(settings: SettingsDep) -> SignInOptions:
     """What the sign-in page should offer. Needs no authentication."""
     sso = oidc.enabled(settings)
     only_sso = sso and settings.oidc_only
+    with_saml = saml.enabled(settings)
     return SignInOptions(
         password=not only_sso,
         registration=settings.allow_registration and not only_sso,
         sso=sso,
         sso_name=settings.oidc_display_name if sso else None,
+        saml=with_saml,
+        saml_name=settings.saml_display_name if with_saml else None,
     )
 
 
@@ -131,6 +138,63 @@ async def sso_complete(
         AuditEvent(
             actor_id=user.id,
             action="user.login.sso",
+            resource_type="user",
+            resource_id=user.id,
+            ip_address=client_ip(request),
+            user_agent=(request.headers.get("user-agent") or "")[:300] or None,
+        )
+    )
+    await session.commit()
+    return TokenPair(
+        access_token=access, refresh_token=refresh, expires_in=ttl, return_to=return_to
+    )
+
+
+@router.get("/auth/saml/metadata", response_class=Response)
+async def saml_metadata(settings: SettingsDep) -> Response:
+    """This service provider's SAML metadata, for the identity provider's administrator."""
+    return Response(saml.metadata(settings), media_type="application/samlmetadata+xml")
+
+
+@router.post("/auth/saml/start", response_model=SamlStarted)
+async def saml_start(payload: SamlStartRequest, settings: SettingsDep) -> SamlStarted:
+    """Begin a sign-in at the SAML identity provider (`services/saml.py`)."""
+    started = saml.start(
+        settings, verifier_sha256=payload.verifier_sha256, return_to=payload.return_to
+    )
+    return SamlStarted(url=started.url)
+
+
+@router.post("/auth/saml/acs", include_in_schema=False)
+async def saml_acs(
+    settings: SettingsDep,
+    saml_response: str = Form(alias="SAMLResponse", max_length=2_000_000),
+    relay_state: str = Form(default="", alias="RelayState", max_length=1024),
+) -> RedirectResponse:
+    """The assertion consumer service: the identity provider posts its answer here."""
+    answered = saml.acs(settings, saml_response=saml_response, relay_state=relay_state)
+    return RedirectResponse(answered.location, status_code=status.HTTP_303_SEE_OTHER)
+
+
+@router.post("/auth/saml/complete", response_model=TokenPair)
+async def saml_complete(
+    payload: SamlCompleteRequest, session: SessionDep, settings: SettingsDep, request: Request
+) -> TokenPair:
+    """Finish it with the login code and the verifier this tab kept."""
+    user, return_to = await saml.complete(
+        session, settings, code=payload.code, verifier=payload.verifier
+    )
+    access, refresh, ttl = await auth_service.issue_token_pair(
+        session,
+        settings,
+        user,
+        user_agent=request.headers.get("user-agent"),
+        ip_address=client_ip(request),
+    )
+    session.add(
+        AuditEvent(
+            actor_id=user.id,
+            action="user.login.saml",
             resource_type="user",
             resource_id=user.id,
             ip_address=client_ip(request),

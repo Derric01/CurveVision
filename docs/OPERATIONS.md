@@ -73,7 +73,7 @@ extra ([ADR 0011](./adr/0011-datumaro-bridge.md)):
 pip install 'curvevision-server[datumaro]'
 # or, for the image:
 docker build -f deploy/Dockerfile.server \
-  --build-arg SERVER_EXTRAS=postgres,s3,media,worker,tracing,oidc,datumaro .
+  --build-arg SERVER_EXTRAS=postgres,s3,media,worker,tracing,oidc,saml,datumaro .
 ```
 
 It adds a few hundred megabytes, which is why it is not in the default image. Install it in
@@ -108,6 +108,40 @@ The sign-in page then offers the provider. Who gets in, and as whom:
 
 The server image includes what this needs; a pip install needs `curvevision-server[oidc]`.
 The desktop application has no sign-in, and ignores all of this.
+
+### SAML 2.0
+
+For a provider that speaks SAML rather than OpenID Connect — AD FS, Shibboleth, or Entra ID,
+Okta and Google Workspace configured that way. Give the provider this service provider's
+metadata, from `https://<api>/api/v1/auth/saml/metadata`, or these two values:
+
+* **ACS URL** (reply URL): `https://<api>/api/v1/auth/saml/acs`, HTTP-POST.
+* **Entity ID** (audience): the metadata URL above, unless `CURVEVISION_SAML_SP_ENTITY_ID` says
+  otherwise.
+
+```bash
+CURVEVISION_SAML_ENABLED=true
+CURVEVISION_SAML_ACS_URL=https://cv.example.com/api/v1/auth/saml/acs
+CURVEVISION_SAML_CALLBACK_URL=https://cv.example.com/auth/callback
+# Either the provider's metadata...
+CURVEVISION_SAML_IDP_METADATA_URL=https://idp.example.com/saml/metadata
+# ...or its entity ID, sign-in URL and signing certificate:
+# CURVEVISION_SAML_IDP_ENTITY_ID=https://idp.example.com/saml
+# CURVEVISION_SAML_IDP_SSO_URL=https://idp.example.com/saml/sso
+# CURVEVISION_SAML_IDP_X509_CERT="MIIC..."
+CURVEVISION_SAML_DISPLAY_NAME="Acme sign-in"
+```
+
+The provider must **sign the assertion** (not only the response) with SHA-256 or better, and
+release a stable `NameID` — persistent, ideally — which is what the account is linked by. The
+email address is read from the `email` or `mail` attribute, or the usual URI forms of them
+(`CURVEVISION_SAML_EMAIL_ATTRIBUTE` names another), and is trusted to link an existing account
+or make a new one: this is the operator's own provider (`CURVEVISION_SAML_TRUST_EMAIL=false`
+lets in only people already linked). `CURVEVISION_SAML_CREATE_USERS`,
+`CURVEVISION_SAML_ALLOWED_DOMAINS` and `CURVEVISION_SAML_DEFAULT_WORKSPACE` do what their OIDC
+counterparts do. Sign-ins must start here: an unsolicited, provider-initiated response is
+refused. The server image includes the `saml` extra; a pip install needs
+`curvevision-server[saml]`.
 
 ## Kubernetes
 

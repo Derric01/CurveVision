@@ -16,6 +16,7 @@ export const CALLBACK_PATH = "/auth/callback";
 
 export type CallbackOutcome =
   | { kind: "finish"; code: string; state: string }
+  | { kind: "saml"; code: string; verifier: string }
   | { kind: "refused"; message: string };
 
 /**
@@ -25,8 +26,24 @@ export type CallbackOutcome =
 export function readCallback(
   search: string,
   expected: string | null,
+  verifier: string | null = null,
 ): CallbackOutcome {
   const params = new URLSearchParams(search);
+  // SAML: the server read the provider's answer and sent back a login code, or why not.
+  const samlError = params.get("saml_error");
+  if (samlError) return { kind: "refused", message: samlError };
+  const samlCode = params.get("saml");
+  if (samlCode) {
+    if (!verifier) {
+      return {
+        kind: "refused",
+        message:
+          "This sign-in was not started in this browser tab, so it was not finished here. " +
+          "Start it again.",
+      };
+    }
+    return { kind: "saml", code: samlCode, verifier };
+  }
   const error = params.get("error");
   if (error) {
     const description = params.get("error_description");
@@ -75,4 +92,37 @@ export function takeState(): string | null {
   const state = store?.getItem(STATE_KEY) ?? null;
   store?.removeItem(STATE_KEY);
   return state;
+}
+
+const VERIFIER_KEY = "curvevision.saml.verifier";
+
+function base64url(bytes: Uint8Array): string {
+  let binary = "";
+  for (const byte of bytes) binary += String.fromCharCode(byte);
+  return btoa(binary).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+}
+
+/**
+ * A SAML sign-in's secret, kept by this tab: the server mints the request from its hash,
+ * and only whoever holds the verifier itself can finish what comes back. Returns the
+ * verifier and its SHA-256, base64url without padding — what `samlStart` sends.
+ */
+export async function newVerifier(): Promise<{ verifier: string; hash: string }> {
+  const random = new Uint8Array(48);
+  crypto.getRandomValues(random);
+  const verifier = base64url(random);
+  const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(verifier));
+  return { verifier, hash: base64url(new Uint8Array(digest)) };
+}
+
+export function keepVerifier(verifier: string): void {
+  storage()?.setItem(VERIFIER_KEY, verifier);
+}
+
+/** The verifier this tab kept — once: reading it forgets it. */
+export function takeVerifier(): string | null {
+  const store = storage();
+  const verifier = store?.getItem(VERIFIER_KEY) ?? null;
+  store?.removeItem(VERIFIER_KEY);
+  return verifier;
 }

@@ -23,7 +23,7 @@
 > **Keep the session short.** One iteration, then commit, push, update this file and report —
 > `AGENTS.md` § *Continue* and the `start-work` skill both say so now, because they did not
 > before and a single session ran six iterations and roughly a third of a week's budget. The
-> concrete costs, in rough order: re-reading this file (iterations 1–84 now live in
+> concrete costs, in rough order: re-reading this file (iterations 1–85 now live in
 > [`docs/iterations/ARCHIVE.md`](./docs/iterations/ARCHIVE.md), which cut it from 3,800
 > lines to 1,000 — keep it that way); `python desktop/sidecar/build.py`, which is a
 > PyInstaller run of a minute or two and is needed *again* for every sabotage-and-restore
@@ -49,8 +49,8 @@ Windows (unsigned), and a switch to a team's shared server. Since iteration 85 t
 application is driven in CI over WebDriver — which found that the shell had never granted
 its commands, so the native pickers had never worked in a built app until then.
 
-**The tree is green.** `./scripts/check.sh` passes all fifteen steps: 904 server tests (the
-PostgreSQL and S3 ones skip without a server; CI provides both), 16 SDK, 771 web, and
+**The tree is green.** `./scripts/check.sh` passes all fifteen steps: 927 server tests (the
+PostgreSQL and S3 ones skip without a server; CI provides both), 16 SDK, 775 web, and
 `scripts/` is lint-clean under its own `ruff.toml`. Thirty-four browser harnesses drive the application in a real Chromium, nightly and on every push to `main` —
 thirty-one against the packaged desktop server, and `verify_workspace.py` against the real
 server too — and **all thirty-two pass on GitHub's runners** (iteration 70, run
@@ -508,7 +508,7 @@ was the last unconnected piece of the desktop application.
 
 ## Next best action
 
-*Every additional format on the 1.0 list — LabelMe, Cityscapes, Open Images, TFRecord — each
+*SAML single sign-on, 91. Every additional format on the 1.0 list — LabelMe, Cityscapes, Open Images, TFRecord — each
 held in CI to a reader written by other people, iterations 86–89; the Datumaro bridge, its
 formats measured, 90. The desktop app on a team server, and the shell's commands granted — the
 pickers had never worked in a built app — iteration 85; desktop installers on every platform, `aiosqlite` made
@@ -521,9 +521,9 @@ archive.*
 the desktop and on tags; `browser.yml` and `ultralytics.yml` only when dispatched. All
 are recorded under *Verification performed* for iteration 85's commit.
 
-**The 1.0 list in `docs/ROADMAP.md` is done** except what needs someone else (signing
-certificates, an npm token, real AI keys, an external security review) and SAML — the
-additional formats shipped in iterations 86–89 and the Datumaro bridge in 90. What remains
+**The 1.0 list in `docs/ROADMAP.md` is done** except what needs someone else: signing
+certificates, an npm token, real AI keys, an external security review. The additional
+formats shipped in iterations 86–89, the Datumaro bridge in 90 and SAML in 91. What remains
 with no dependency on the user, in order:
 
 1. ~~The desktop webview's storage across launches~~ — done for Linux in iteration 85
@@ -1059,6 +1059,30 @@ being updated and this one was not. Check it against* Completed *before trusting
 ---
 
 ## Verification performed
+
+Iteration 91:
+
+* `tests/api/test_saml.py`, 23 tests, against assertions signed with xmlsec by a test
+  provider's key: a first sign-in makes an account, the next finds it by NameID though the
+  email changed, an existing account is linked by email, the sign-in page offers it, the
+  metadata names the ACS; refused — unsigned, signed by another key, changed after signing,
+  a second unsigned assertion beside the signed one, the wrong audience, recipient, issuer
+  or destination, expired, unsolicited, answering a request older than ten minutes, a login
+  code without the tab's verifier, a code not made here, garbage; the policy settings; off
+  in the desktop shape. Three sabotages (validation ignored, any verifier accepted,
+  unsolicited accepted) caught by 9, 1 and 1 failures.
+* `tests/api/test_sso.py`, 17 tests, unchanged in substance after the account-linking move
+  (one expectation gained the two new sign-in options).
+* Web: `sso.test.ts` adds the SAML callback and the verifier's hash, recomputed in the test;
+  the generated API types regenerated and the contract check passing.
+* `scripts/verify_saml.py` in Chromium: 5 checks, every one passing. Sabotaged (the tab
+  keeps the wrong verifier) and the sign-in check failed — after a first attempt that
+  proved nothing: a sabotage that broke the build left the previous build in place, and
+  the harness passed against it.
+* `scripts/record_demo.py`: the video recorded; the COCO export it shows holds the six
+  annotations drawn in it.
+* `./scripts/check.sh`: all fifteen steps green; 927 server tests (16 skip: PostgreSQL, S3 and the
+  Datumaro round trips), 16 SDK, 775 web.
 
 Iteration 90:
 
@@ -2129,6 +2153,42 @@ Iteration 54:
 
 ## Last iteration
 
+### 91 — SAML single sign-on, each sign-in tied to the tab that began it; a demo video
+
+The last 1.0 item that needed no one else. `services/saml.py`: SP-initiated Web SSO — the
+HTTP-Redirect AuthnRequest and the HTTP-POST Response — with OneLogin's python3-saml (MIT)
+doing what must not be written twice: parsing safely and checking the assertion's XML
+signature, issuer, audience, destination, recipient and validity window. The provider is
+configured by its metadata URL or by entity ID, sign-in URL and certificate; this service
+provider's metadata is served at `/api/v1/auth/saml/metadata`.
+
+What this project adds is how a sign-in stays stateless and cookie-free yet belongs to the
+tab that began it. The tab keeps a random verifier and sends its SHA-256; the server mints
+the AuthnRequest's ID as an HMAC over that hash and a timestamp. The ACS refuses a response
+that answers no request it minted in the last ten minutes (so unsolicited, provider-initiated
+ones too), and sends the browser back with a two-minute login code; only the tab holding the
+verifier can exchange it. A captured response, or a login code leaking through history or a
+referrer, signs nobody in. RelayState carries only the return path, inside SAML's 80 bytes.
+
+Account linking moved out of `oidc.py` into `services/external_identity.py`, so OIDC and SAML
+follow one set of rules (`saml_create_users`, `saml_allowed_domains`,
+`saml_default_workspace`, and `saml_trust_email` — a SAML provider is the operator's own).
+`tests/api/test_saml.py` signs real assertions with xmlsec against a test provider: 23 tests,
+including forged, tampered, wrapped (a second assertion smuggled beside the signed one),
+misdirected, expired and unsolicited answers and a stolen login code; three sabotages caught
+(9, 1 and 1 failures). `scripts/verify_saml.py` drives it in Chromium against a provider that
+posts back as a real one does. Single logout is not implemented.
+
+Also this session: **a one-minute demo video**, `docs/demo/curvevision-demo.mp4`, recorded
+from the running application by `scripts/record_demo.py` (sign-in, a project, boxes and a
+polygon on the README's photographs, a real COCO export, which the script checks holds all
+six annotations); and the desktop WebDriver harness now takes a session that ends by
+dropping its connection as ended (see *Known issues*).
+
+Verified: see *Verification performed*.
+
+## Iteration 90
+
 ### 90 — the Datumaro bridge, its formats measured rather than declared
 
 The 1.0 list's Datumaro bridge, as ADR 0004 planned it ([ADR 0011](./docs/adr/0011-datumaro-bridge.md)).
@@ -2256,59 +2316,9 @@ any project that lacked its labels. The import route now creates them with their
 
 Verified: see *Verification performed*.
 
-## Iteration 85
-
-### 85 — the desktop app on a team server; the shell's commands granted at last
-
-The last desktop item that needed nobody's certificates. *File ▸ Connect to a Team
-Server…* (and a *Team server* link in the desktop build): this computer's server checks the
-address — `POST /local/team-server-check`, local mode only, fetching the health check with
-nothing of this installation's, through the OS trust store (`truststore`) — and the shell
-opens the team server in a window of its own. That window (`team`) is named by no
-capability, so its pages cannot use the shell, and has no initialization script, so none of
-this computer's credentials reach it; the local window's script now checks the origin
-before handing the connection over. The choice is remembered (origin only); *Use This
-Computer* switches back. The check is server-side because the page's CSP is `connect-src
-'self'`, and loosening it for one feature was the wrong trade — the first design (a CORS
-grant on the team server's health check) was dropped for that reason.
-
-Driving the **real** application found a much older bug. Over WebDriver (`tauri-driver`
-and WebKitGTK's driver, under Xvfb — `scripts/verify_desktop_shell.py`), the first
-`invoke()` was refused: the page is served from `http://127.0.0.1`, a remote origin to
-Tauri, and no capability granted the app's own commands. **The folder and file pickers have
-never worked in a built application**, and ADR 0008 said IPC was "verified by hand". Now
-`build.rs` declares the commands, the capability grants them to the local window only, a
-Rust test pins both, and the harness runs in the installers workflow.
-
-**Deployments that had never started.** Neither Docker Compose nor the Helm chart had ever
-been brought up in CI before this PR. Doing it found, in order, each hiding the next:
-
-1. **Every API and worker process crashed at start**: list settings set as text
-   (`CURVEVISION_CORS_ORIGINS=http://localhost:8080`, as compose and the chart set them)
-   were JSON-decoded by pydantic-settings before any validator saw them. Now `NoDecode`.
-2. **No image could reach a browser**: frames redirected to a presigned URL for
-   `http://s3:9000`, which only the server can resolve. Media is now streamed by the API
-   unless `s3_public_endpoint_url` names an address browsers can reach.
-3. **No background job was ever enqueued or consumed**: `@dramatiq.actor` bound the actor
-   to Dramatiq's default broker, localhost:6379, in both processes.
-4. **A worker failed every job as unknown**: it never imported the job handlers.
-5. **`curvevision-server backup` failed in every real process** (`KeyError: 'media_blobs'`):
-   it read table metadata only the test process had filled. And compose's `./backups`
-   bind mount was not writable by the server's non-root user — now a named volume.
-
-Each has a regression test written first and seen failing; the smoke script now also
-waits for a worker to finish a queued job. On Ubuntu 22.04 the WebDriver harness lost its connection
-in two runs of three, a moment after the shell closed a window: tauri-driver reported its
-upstream — WebKitGTK 2.50's own driver — resetting the connection, and the shell printed
-no panic. It never happened on WebKitGTK 2.52 (24.04, and here). The harness now runs in a
-job of its own on 24.04; whether a 22.04 *user* could meet anything like it is not
-established — see *Known issues*.
-
-Verified: see *Verification performed*.
-
 ## Earlier iterations
 
-Iterations **1–84** are in [`docs/iterations/ARCHIVE.md`](./docs/iterations/ARCHIVE.md) —
+Iterations **1–85** are in [`docs/iterations/ARCHIVE.md`](./docs/iterations/ARCHIVE.md) —
 moved there so that orienting costs a few hundred lines rather than four thousand. Read them
 when `git log` points you at an iteration number, or when you are about to build something
 and want to know whether it was already tried and rejected. The lessons from them that are

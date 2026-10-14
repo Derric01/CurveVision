@@ -2,11 +2,12 @@ import { useEffect, useRef, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { useSession } from "@/store/session";
 import { ErrorNotice, Spinner } from "@/ui/primitives";
-import { readCallback, takeState } from "./sso";
+import { readCallback, takeState, takeVerifier } from "./sso";
 
 /** Where the sign-in provider sends the browser back (`CALLBACK_PATH`). */
 export function SsoCallback() {
   const completeSso = useSession((state) => state.completeSso);
+  const completeSaml = useSession((state) => state.completeSaml);
   const navigate = useNavigate();
   const [problem, setProblem] = useState<string | null>(null);
   // Once: a code is spent the first time it is exchanged, and React may run an effect twice.
@@ -15,19 +16,23 @@ export function SsoCallback() {
   useEffect(() => {
     if (started.current) return;
     started.current = true;
-    const outcome = readCallback(window.location.search, takeState());
+    const outcome = readCallback(window.location.search, takeState(), takeVerifier());
     if (outcome.kind === "refused") {
       setProblem(outcome.message);
       return;
     }
-    completeSso(outcome.code, outcome.state)
+    const finished =
+      outcome.kind === "saml"
+        ? completeSaml(outcome.code, outcome.verifier)
+        : completeSso(outcome.code, outcome.state);
+    finished
       .then((returnTo) =>
         navigate(returnTo === "/" ? "/projects" : returnTo, { replace: true }),
       )
       .catch((error: unknown) =>
         setProblem(error instanceof Error ? error.message : "Sign-in failed"),
       );
-  }, [completeSso, navigate]);
+  }, [completeSaml, completeSso, navigate]);
 
   return (
     <div className="flex min-h-full items-center justify-center px-4 py-12">

@@ -321,6 +321,8 @@ class TestTheSignInPage:
             "registration": True,
             "sso": True,
             "sso_name": "Team SSO",
+            "saml": False,
+            "saml_name": None,
         }
 
         monkeypatch.setattr(settings, "oidc_only", True)

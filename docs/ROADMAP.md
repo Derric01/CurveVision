@@ -87,7 +87,7 @@ Beta named is finished, and the label waits for use.
 | OpenTelemetry tracing | **Done** — requests, SQL, outbound HTTP and jobs, to any OTLP collector |
 | Content scanning (ClamAV) | **Done** — `content_scanner = "clamd"`, tested against a real clamd in CI |
 | OIDC single sign-on | **Done** — Keycloak, Okta, Entra ID, Google, Authentik…; driven in a browser in CI |
-| SAML single sign-on | **Planned** |
+| SAML single sign-on | **Done** — iteration 91: SP-initiated Web SSO through python3-saml, assertions signed and checked, each sign-in tied to the browser tab that began it; tested against signed, forged, tampered, wrapped, misdirected, expired and unsolicited responses. Single logout not implemented |
 | Kubernetes Helm chart | **Done** — `deploy/helm/curvevision`, linted and schema-validated, and installed into a live `kind` cluster and used on every CI run (iteration 83). That first install found the chart had never started: list settings set as text crashed every pod, and the worker sent and consumed no job — both fixed in iteration 85 |
 | Backup and restore tooling | **Done** — `curvevision-server backup` / `restore`, either shape, across databases, restored in CI |
 | TypeScript client package | **Done** — `sdk/typescript` (`@curvevision/client`), typed from the server's schema and tested against a real server in CI. **Publishing to npm needs the maintainers' account**: a manual workflow is ready for an `NPM_TOKEN` |

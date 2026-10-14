@@ -1,6 +1,6 @@
 # Iteration archive
 
-> The narrative record of iterations **1–84**, moved out of
+> The narrative record of iterations **1–85**, moved out of
 > [`handoff.md`](../../handoff.md) so that orienting on this project costs a few hundred
 > lines rather than four thousand.
 >
@@ -15,6 +15,56 @@
 > window, append it to the top of this file rather than deleting it.
 
 ---
+
+## Iteration 85
+
+### 85 — the desktop app on a team server; the shell's commands granted at last
+
+The last desktop item that needed nobody's certificates. *File ▸ Connect to a Team
+Server…* (and a *Team server* link in the desktop build): this computer's server checks the
+address — `POST /local/team-server-check`, local mode only, fetching the health check with
+nothing of this installation's, through the OS trust store (`truststore`) — and the shell
+opens the team server in a window of its own. That window (`team`) is named by no
+capability, so its pages cannot use the shell, and has no initialization script, so none of
+this computer's credentials reach it; the local window's script now checks the origin
+before handing the connection over. The choice is remembered (origin only); *Use This
+Computer* switches back. The check is server-side because the page's CSP is `connect-src
+'self'`, and loosening it for one feature was the wrong trade — the first design (a CORS
+grant on the team server's health check) was dropped for that reason.
+
+Driving the **real** application found a much older bug. Over WebDriver (`tauri-driver`
+and WebKitGTK's driver, under Xvfb — `scripts/verify_desktop_shell.py`), the first
+`invoke()` was refused: the page is served from `http://127.0.0.1`, a remote origin to
+Tauri, and no capability granted the app's own commands. **The folder and file pickers have
+never worked in a built application**, and ADR 0008 said IPC was "verified by hand". Now
+`build.rs` declares the commands, the capability grants them to the local window only, a
+Rust test pins both, and the harness runs in the installers workflow.
+
+**Deployments that had never started.** Neither Docker Compose nor the Helm chart had ever
+been brought up in CI before this PR. Doing it found, in order, each hiding the next:
+
+1. **Every API and worker process crashed at start**: list settings set as text
+   (`CURVEVISION_CORS_ORIGINS=http://localhost:8080`, as compose and the chart set them)
+   were JSON-decoded by pydantic-settings before any validator saw them. Now `NoDecode`.
+2. **No image could reach a browser**: frames redirected to a presigned URL for
+   `http://s3:9000`, which only the server can resolve. Media is now streamed by the API
+   unless `s3_public_endpoint_url` names an address browsers can reach.
+3. **No background job was ever enqueued or consumed**: `@dramatiq.actor` bound the actor
+   to Dramatiq's default broker, localhost:6379, in both processes.
+4. **A worker failed every job as unknown**: it never imported the job handlers.
+5. **`curvevision-server backup` failed in every real process** (`KeyError: 'media_blobs'`):
+   it read table metadata only the test process had filled. And compose's `./backups`
+   bind mount was not writable by the server's non-root user — now a named volume.
+
+Each has a regression test written first and seen failing; the smoke script now also
+waits for a worker to finish a queued job. On Ubuntu 22.04 the WebDriver harness lost its connection
+in two runs of three, a moment after the shell closed a window: tauri-driver reported its
+upstream — WebKitGTK 2.50's own driver — resetting the connection, and the shell printed
+no panic. It never happened on WebKitGTK 2.52 (24.04, and here). The harness now runs in a
+job of its own on 24.04; whether a 22.04 *user* could meet anything like it is not
+established — see *Known issues*.
+
+Verified: see *Verification performed*.
 
 ## Iteration 84
 

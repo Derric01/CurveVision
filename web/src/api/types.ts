@@ -107,11 +107,19 @@ export interface SignInOptions {
   registration: boolean;
   sso: boolean;
   sso_name?: string | null;
+  /** Single sign-on through a SAML identity provider. */
+  saml?: boolean;
+  saml_name?: string | null;
 }
 
 export interface SsoStarted {
   authorization_url: string;
   state: string;
+}
+
+export interface SamlStarted {
+  /** Send the browser here: the identity provider, carrying the request. */
+  url: string;
 }
 
 export interface Organization {

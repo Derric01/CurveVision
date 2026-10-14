@@ -17,8 +17,8 @@ COPY server/curvevision ./curvevision
 RUN python -m venv /opt/venv
 ENV PATH="/opt/venv/bin:$PATH"
 # Add `datumaro` for the long tail of dataset formats (docs/OPERATIONS.md):
-#   docker build --build-arg SERVER_EXTRAS=postgres,s3,media,worker,tracing,oidc,datumaro ...
-ARG SERVER_EXTRAS=postgres,s3,media,worker,tracing,oidc
+#   docker build --build-arg SERVER_EXTRAS=postgres,s3,media,worker,tracing,oidc,saml,datumaro ...
+ARG SERVER_EXTRAS=postgres,s3,media,worker,tracing,oidc,saml
 RUN pip install --upgrade pip && pip install ".[${SERVER_EXTRAS}]"
 
 # ---- runtime -----------------------------------------------------------------

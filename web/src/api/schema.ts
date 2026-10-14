@@ -129,6 +129,66 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/auth/saml/complete": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Saml Complete
+         * @description Finish it with the login code and the verifier this tab kept.
+         */
+        post: operations["saml_complete_api_v1_auth_saml_complete_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/auth/saml/metadata": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Saml Metadata
+         * @description This service provider's SAML metadata, for the identity provider's administrator.
+         */
+        get: operations["saml_metadata_api_v1_auth_saml_metadata_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/auth/saml/start": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Saml Start
+         * @description Begin a sign-in at the SAML identity provider (`services/saml.py`).
+         */
+        post: operations["saml_start_api_v1_auth_saml_start_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/auth/sessions/revoke": {
         parameters: {
             query?: never;
@@ -2839,6 +2899,28 @@ export interface components {
          * @enum {string}
          */
         Role: "viewer" | "annotator" | "reviewer" | "maintainer" | "admin" | "owner";
+        /** SamlCompleteRequest */
+        SamlCompleteRequest: {
+            /** Code */
+            code: string;
+            /** Verifier */
+            verifier: string;
+        };
+        /** SamlStartRequest */
+        SamlStartRequest: {
+            /**
+             * Return To
+             * @default /
+             */
+            return_to: string;
+            /** Verifier Sha256 */
+            verifier_sha256: string;
+        };
+        /** SamlStarted */
+        SamlStarted: {
+            /** Url */
+            url: string;
+        };
         /** ShapeIn */
         ShapeIn: {
             /** Attributes */
@@ -2946,6 +3028,13 @@ export interface components {
             password: boolean;
             /** Registration */
             registration: boolean;
+            /**
+             * Saml
+             * @default false
+             */
+            saml: boolean;
+            /** Saml Name */
+            saml_name?: string | null;
             /** Sso */
             sso: boolean;
             /** Sso Name */
@@ -3833,6 +3922,90 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["UserOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    saml_complete_api_v1_auth_saml_complete_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SamlCompleteRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TokenPair"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    saml_metadata_api_v1_auth_saml_metadata_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    saml_start_api_v1_auth_saml_start_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SamlStartRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SamlStarted"];
                 };
             };
             /** @description Validation Error */

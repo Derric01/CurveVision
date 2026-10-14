@@ -14,11 +14,12 @@ The authorization-code flow with PKCE, the server as a confidential client:
    and validates the ID token — signature against the provider's published keys, issuer,
    audience, expiry, nonce — then signs the person in.
 
-**Who they are here.** An account is linked by the provider's issuer and `sub`
-(`ExternalIdentity`), never by email alone: a first sign-in links to the account with the
-same email only when the provider says that email is verified, and otherwise creates an
-account (if `oidc_create_users`), or refuses. `oidc_allowed_domains` limits who may sign in
-at all; `oidc_default_workspace` gives a new account a workspace to land in.
+**Who they are here** is decided by `services/external_identity.py`, the rules SAML shares:
+an account is linked by the provider's issuer and `sub`, never by email alone; a first
+sign-in links to the account with the same email only when the provider says that email is
+verified, and otherwise creates an account (if `oidc_create_users`), or refuses.
+`oidc_allowed_domains` limits who may sign in at all; `oidc_default_workspace` gives a new
+account a workspace to land in.
 
 Until iteration 81 the documentation spoke of an `AuthBackend` seam for this; it did not
 exist. No cookie is involved at any step, which keeps the API's no-cookies property
@@ -29,7 +30,6 @@ from __future__ import annotations
 
 import base64
 import hashlib
-import re
 import secrets
 import time
 from dataclasses import dataclass
@@ -38,20 +38,14 @@ from urllib.parse import urlencode
 
 import httpx
 import jwt
-from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from curvevision.core.config import Settings
 from curvevision.core.db import utcnow
 from curvevision.core.errors import AuthenticationError, CurveVisionError, NotFoundError
 from curvevision.core.logging import get_logger
-from curvevision.domain.enums import Role
-from curvevision.domain.identity import (
-    ExternalIdentity,
-    Organization,
-    OrganizationMembership,
-    User,
-)
+from curvevision.domain.identity import User
+from curvevision.services import external_identity
 
 logger = get_logger(__name__)
 
@@ -259,97 +253,29 @@ async def _verified_claims(
     return claims
 
 
-def _username_base(claims: dict[str, Any]) -> str:
-    raw = str(claims.get("preferred_username") or str(claims.get("email", "")).split("@")[0])
-    cleaned = re.sub(r"[^A-Za-z0-9_.-]", "", raw)[:48]
-    return cleaned or "user"
-
-
-async def _free_username(session: AsyncSession, base: str) -> str:
-    candidate, suffix = base, 1
-    while (
-        await session.execute(select(User).where(func.lower(User.username) == candidate.lower()))
-    ).scalar_one_or_none() is not None:
-        suffix += 1
-        candidate = f"{base}{suffix}"
-    return candidate
+def _policy(settings: Settings) -> external_identity.Policy:
+    return external_identity.Policy(
+        kind="oidc",
+        create_users=settings.oidc_create_users,
+        allowed_domains=tuple(settings.oidc_allowed_domains),
+        default_workspace=settings.oidc_default_workspace,
+    )
 
 
 async def _person(
     session: AsyncSession, settings: Settings, issuer: str, claims: dict[str, Any]
 ) -> User:
-    subject = str(claims["sub"])
-    email = str(claims.get("email") or "").strip().lower()
-    verified = claims.get("email_verified") is True
-
-    if settings.oidc_allowed_domains:
-        domain = email.rsplit("@", 1)[-1] if "@" in email else ""
-        if not verified or domain not in {d.lower() for d in settings.oidc_allowed_domains}:
-            raise AuthenticationError("Your account at the sign-in provider may not sign in here")
-
-    link = (
-        await session.execute(
-            select(ExternalIdentity).where(
-                ExternalIdentity.issuer == issuer, ExternalIdentity.subject == subject
-            )
-        )
-    ).scalar_one_or_none()
-    if link is not None:
-        user = await session.get(User, link.user_id)
-        if user is None:  # pragma: no cover - the foreign key cascades
-            raise AuthenticationError("Account is unavailable")
-        link.email = email or link.email
-        return user
-
-    user = None
-    if email and verified:
-        user = (
-            await session.execute(select(User).where(func.lower(User.email) == email))
-        ).scalar_one_or_none()
-    if user is None:
-        if not settings.oidc_create_users:
-            raise AuthenticationError(
-                "There is no account here for you yet. Ask an administrator to add one."
-            )
-        if not email or not verified:
-            raise AuthenticationError(
-                "The sign-in provider did not give a verified email address, which a new "
-                "account here needs."
-            )
-        user = User(
-            email=email,
-            username=await _free_username(session, _username_base(claims)),
+    return await external_identity.person(
+        session,
+        _policy(settings),
+        external_identity.Claimed(
+            issuer=issuer,
+            subject=str(claims["sub"]),
+            email=str(claims.get("email") or ""),
+            email_verified=claims.get("email_verified") is True,
             full_name=str(claims.get("name") or "") or None,
-            # Unusable: the person signs in through the provider. A password can be set
-            # later by an administrator, or not at all.
-            password_hash="!oidc:" + secrets.token_hex(16),
-        )
-        session.add(user)
-        await session.flush()
-        await _join_default_workspace(session, settings, user)
-        logger.info("account created at first single sign-on", extra={"user_id": str(user.id)})
-
-    session.add(ExternalIdentity(user_id=user.id, issuer=issuer, subject=subject, email=email))
-    await session.flush()
-    return user
-
-
-async def _join_default_workspace(session: AsyncSession, settings: Settings, user: User) -> None:
-    if not settings.oidc_default_workspace:
-        return
-    workspace = (
-        await session.execute(
-            select(Organization).where(Organization.slug == settings.oidc_default_workspace)
-        )
-    ).scalar_one_or_none()
-    if workspace is None:
-        logger.warning(
-            "oidc_default_workspace names no workspace",
-            extra={"slug": settings.oidc_default_workspace},
-        )
-        return
-    session.add(
-        OrganizationMembership(organization_id=workspace.id, user_id=user.id, role=Role.ANNOTATOR)
+            username_hint=str(claims.get("preferred_username") or ""),
+        ),
     )
 
 

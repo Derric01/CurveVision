@@ -80,6 +80,7 @@ Full license texts for permissive licenses used here are reproduced under
 | [opentelemetry-instrumentation-fastapi](https://github.com/open-telemetry/opentelemetry-python-contrib) | Apache-2.0 | The OpenTelemetry Authors | Request spans (`tracing` extra) |
 | [opentelemetry-instrumentation-sqlalchemy](https://github.com/open-telemetry/opentelemetry-python-contrib) | Apache-2.0 | The OpenTelemetry Authors | SQL spans (`tracing` extra) |
 | [opentelemetry-instrumentation-httpx](https://github.com/open-telemetry/opentelemetry-python-contrib) | Apache-2.0 | The OpenTelemetry Authors | Outbound HTTP spans (`tracing` extra) |
+| [python3-saml](https://github.com/SAML-Toolkits/python3-saml) | MIT | Sixto Martín, SAML-Toolkits contributors | SAML 2.0 single sign-on: parsing and validating responses (`saml` extra). Brings [xmlsec](https://github.com/xmlsec/python-xmlsec) (MIT) and [lxml](https://github.com/lxml/lxml) (BSD-3-Clause). |
 | [Datumaro](https://github.com/openvinotoolkit/datumaro) | MIT | Intel Corporation | The long tail of dataset formats, through `formats/datumaro_bridge.py` (`datumaro` extra; [ADR 0011](./adr/0011-datumaro-bridge.md)). Not in the desktop application or the default server image. |
 
 ## Desktop shell (Rust)
