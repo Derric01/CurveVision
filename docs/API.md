@@ -735,6 +735,35 @@ POST /api/v1/webhooks?organization_id={id}
 → { "secret": "…" }   // shown once
 ```
 
+A webhook hears its whole workspace, or — with `"project_id"` — one project, which must be
+in that workspace. Maintainers manage them. The events, each sent once the change is saved:
+
+| Event | When | `data` |
+| --- | --- | --- |
+| `project.created`, `project.updated` | A project is created or edited | `{"project": …}` |
+| `task.created`, `task.updated` | A task is created or edited | `{"task": …}` |
+| `task.completed` | A task's last job is accepted, or it is marked completed | `{"task": …}` |
+| `job.updated` | A job is assigned, locked, or moves state | `{"job": …}` |
+| `job.submitted`, `job.accepted`, `job.rejected` | A job reaches that review state | `{"job": …}` |
+| `annotations.updated` | An editor save lands | `{"job": …, "annotation_version": n}` |
+| `issue.created` | An issue is opened, including by a rejection with a comment | `{"issue": …}` |
+| `dataset.released` | A dataset version is released | `{"version": …}` |
+
+Each resource is as the API returns it. The body is
+`{"event": …, "delivery_id": …, "data": …}`. *Until iteration 96 none of these was ever
+sent: the delivery machinery existed and nothing queued it.*
+
+```http
+POST /api/v1/webhooks/{id}/ping            → the delivery, attempted now
+GET  /api/v1/webhooks/{id}/deliveries      → the last 20 (?limit= up to 100), newest first
+```
+
+A ping is a signed `ping` event sent at once, whatever the webhook subscribes to, and not
+retried; the answer says what the receiver replied (`status_code`, `error`) — the way to
+check a receiver and its signature check before relying on it. A delivery lists its
+`event`, `status_code`, `error`, `attempts`, `delivered_at` and whether it is still
+`retrying`; never its body, and never the secret.
+
 Deliveries carry:
 
 ```

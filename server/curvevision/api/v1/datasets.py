@@ -9,7 +9,7 @@ from sqlalchemy import select
 
 from curvevision.api.deps import ProjectScopeDep, SessionDep, SettingsDep, TaskScopeDep
 from curvevision.core.errors import ValidationError
-from curvevision.domain.enums import DatasetVersionState
+from curvevision.domain.enums import DatasetVersionState, WebhookEvent
 from curvevision.domain.system import DatasetVersion
 from curvevision.domain.task import Job
 from curvevision.formats import ZipImportSource, get_format
@@ -23,6 +23,7 @@ from curvevision.schemas.system import (
 )
 from curvevision.services import annotations as annotation_service
 from curvevision.services import datasets as dataset_service
+from curvevision.services import webhooks as webhook_service
 from curvevision.storage import get_storage
 
 router = APIRouter(tags=["datasets"])
@@ -206,7 +207,15 @@ async def release_version(
         session, scope.project, version, get_storage(settings)
     )
     await session.commit()
-    return DatasetVersionOut.model_validate(version)
+    out = DatasetVersionOut.model_validate(version)
+    await webhook_service.emit_for_project(
+        session,
+        WebhookEvent.DATASET_RELEASED,
+        {"version": out.model_dump(mode="json")},
+        scope.project,
+        actor_id=scope.identity.user.id,
+    )
+    return out
 
 
 @router.post("/projects/{project_id}/versions/{version_id}/export")

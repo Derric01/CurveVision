@@ -1,6 +1,6 @@
 # Iteration archive
 
-> The narrative record of iterations **1–89**, moved out of
+> The narrative record of iterations **1–90**, moved out of
 > [`handoff.md`](../../handoff.md) so that orienting on this project costs a few hundred
 > lines rather than four thousand.
 >
@@ -15,6 +15,35 @@
 > window, append it to the top of this file rather than deleting it.
 
 ---
+
+## Iteration 90
+
+### 90 — the Datumaro bridge, its formats measured rather than declared
+
+The 1.0 list's Datumaro bridge, as ADR 0004 planned it ([ADR 0011](./docs/adr/0011-datumaro-bridge.md)).
+With the optional `datumaro` extra, `formats/datumaro_bridge.py` offers fourteen more formats
+as `datumaro-<name>`: ImageNet (folders and text), CIFAR, MNIST, LFW, VGGFace2, WIDER FACE,
+DOTA, CamVid, Pascal VOC segmentation and instance segmentation, COCO panoptic, LabelMe 3.0
+XML and Datumaro's own. Without the extra nothing is registered or imported — found with
+`find_spec`, so a server without Datumaro does not pay for importing it.
+
+**What each carries is measured.** `scripts/datumaro_bridge_probe.py` round-trips one shape
+of every type, a tag and an attribute through each candidate and the bridge, keeps what
+comes back with its label and its box within a pixel and a half, and writes
+`datumaro_formats.json` — which the export API's warnings come from. Eight candidates carry
+nothing and are not offered: Datumaro cannot read back its own MNIST-CSV or MVTec exports,
+and its Segment Anything and ICDAR readers give annotations no class. The first run also
+found the bridge's own bug: Datumaro names ImageNet items `label:name`, so they matched no
+frame until the image's file name was tried too. CI re-measures with `--check`
+(`.github/workflows/datumaro.yml`).
+
+Datumaro holds a dataset in memory — ADR 0004's reason for not building on it — so the bridge
+keeps only the annotations there: images go to temporary files as they stream past and masks
+are drawn when Datumaro asks. Bridged ids use `datumaro-`, not a colon, because an export's
+download is named after its format and Windows refuses a colon in a file name. The server
+image adds the extra with `--build-arg SERVER_EXTRAS=...,datumaro` (docs/OPERATIONS.md).
+
+Verified: see *Verification performed*.
 
 ## Iteration 89
 

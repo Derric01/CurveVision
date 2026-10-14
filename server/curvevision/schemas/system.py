@@ -178,6 +178,23 @@ class WebhookCreated(WebhookOut):
     secret: str
 
 
+class WebhookDeliveryOut(ORMModel):
+    """One delivery as an integrator debugging their receiver needs it. Not its body."""
+
+    id: uuid.UUID
+    event: str
+    #: The receiver's answer to the last attempt; null when nothing answered.
+    status_code: int | None = None
+    #: What went wrong on the last attempt: the receiver's reply, or why nothing reached it.
+    error: str | None = None
+    attempts: int
+    #: Set by a 2xx, and only by one.
+    delivered_at: datetime | None = None
+    #: Whether it has not succeeded and will be attempted again.
+    retrying: bool = False
+    created_at: datetime
+
+
 # ---------------------------------------------------------------------------- models
 
 

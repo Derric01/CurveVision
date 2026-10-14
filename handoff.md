@@ -5,9 +5,9 @@
 > [`AGENTS.md`](./AGENTS.md) first; it is the working contract. Update this file after every
 > iteration, including the ones that mostly failed.
 >
-> **Last updated:** 2026-10-14 (iteration 95) · branch `claude/start-work-yx080h` · PRs
+> **Last updated:** 2026-10-14 (iteration 96) · branch `claude/start-work-yx080h` · PRs
 > [#1](https://github.com/Derric01/CurveVision/pull/1)–[#36](https://github.com/Derric01/CurveVision/pull/36)
-> **all merged**. Iterations 84 (the rest) to 95 are
+> **all merged**. Iterations 84 (the rest) to 96 are
 > [#37](https://github.com/Derric01/CurveVision/pull/37).
 >
 > *Two things worth knowing about this repository's PR rhythm, which replace the
@@ -22,7 +22,7 @@
 > **Keep the session short.** One iteration, then commit, push, update this file and report —
 > `AGENTS.md` § *Continue* and the `start-work` skill both say so now, because they did not
 > before and a single session ran six iterations and roughly a third of a week's budget. The
-> concrete costs, in rough order: re-reading this file (iterations 1–89 now live in
+> concrete costs, in rough order: re-reading this file (iterations 1–90 now live in
 > [`docs/iterations/ARCHIVE.md`](./docs/iterations/ARCHIVE.md), which cut it from 3,800
 > lines to 1,000 — keep it that way); `python desktop/sidecar/build.py`, which is a
 > PyInstaller run of a minute or two and is needed *again* for every sabotage-and-restore
@@ -507,7 +507,7 @@ was the last unconnected piece of the desktop application.
 
 ## Next best action
 
-*The system's file dialogs driven in the real application, 95. The native menu driven at the keyboard, 94. The Helm chart making its own bucket, 93. Desktop auto-update, wired and tested short of the maintainers' key, 92. SAML single sign-on, 91. Every additional format on the 1.0 list — LabelMe, Cityscapes, Open Images, TFRecord — each
+*Webhooks delivering for the first time, and only their own workspace's, 96. The system's file dialogs driven in the real application, 95. The native menu driven at the keyboard, 94. The Helm chart making its own bucket, 93. Desktop auto-update, wired and tested short of the maintainers' key, 92. SAML single sign-on, 91. Every additional format on the 1.0 list — LabelMe, Cityscapes, Open Images, TFRecord — each
 held in CI to a reader written by other people, iterations 86–89; the Datumaro bridge, its
 formats measured, 90. The desktop app on a team server, and the shell's commands granted — the
 pickers had never worked in a built app — iteration 85; desktop installers on every platform, `aiosqlite` made
@@ -549,9 +549,10 @@ fakes written from each API's documentation. The likely adjustments are in
 
 
 *The iteration-62 sweep's list of features with an API and no way in through the
-application is down to **webhooks** (iteration 66 did members, dataset versions, renaming
-and deleting, and API tokens). Webhooks are an integrator's feature; a settings panel for
-them is worth doing when someone asks.*
+application is down to **webhooks**, and iteration 96 found they had never delivered
+anything. They do now; **a webhooks panel on the Workspace page is the next iteration** —
+list, create (the secret shown once), pause, delete, *Send a test* (the ping) and the
+recent deliveries, driven in a browser against a real receiver.*
 
 
 *Iteration 61 was chosen over the action below because the user asked whether AI annotation
@@ -1058,6 +1059,20 @@ being updated and this one was not. Check it against* Completed *before trusting
 ---
 
 ## Verification performed
+
+Iteration 96:
+
+* `tests/api/test_webhooks.py`, 13 tests. Written first, and failing for the right reasons:
+  a subscriber received `[]` where `['task.created']` was due, and an outsider's webhook
+  naming another workspace's project was created (201). Now: every one of the twelve
+  events reaches a subscriber with a valid signature and its resource; only subscribed
+  events, only the project's own for a project webhook, nothing for a paused one, no job
+  queued when nobody listens, a failing receiver not failing the change; another
+  workspace's project refused, a row stored before the check inert (sabotaged — the
+  workspace condition removed — and it failed), deliveries and ping hidden from outsiders
+  and annotators; a ping answered with the receiver's reply; deliveries newest first.
+* mypy clean; the generated API types regenerated. `./scripts/check.sh` all fifteen steps
+  green: 940 server tests, 777 web, 16 SDK.
 
 Iteration 95:
 
@@ -1829,6 +1844,13 @@ Iteration 54:
 
 ## Bugs fixed
 
+* **No webhook had ever received an event** (iteration 96). The signing, the retry policy
+  and the `webhook.dispatch` job were built and unit-tested, and no code queued the job, so
+  the roadmap's *Done* was false. Twelve events are now emitted from the routes that make
+  the changes. Found while planning a webhooks screen, by asking what it would show.
+* **A webhook could name another workspace's project** (iteration 96), and would have
+  received everything that project did, had anything been sent. Refused on creation;
+  matched on the workspace on delivery.
 * **A server run as several instances let a client through once per instance** (iteration
   76): the only rate limiter counted in each process. Redis now backs it when configured.
 * **A default the server filled in was stored as a string** (iteration 75): a checkbox's
@@ -2204,6 +2226,35 @@ Iteration 54:
 
 ## Last iteration
 
+### 96 — webhooks deliver, for the first time; and only their own workspace's
+
+Planning a webhooks screen — the last API feature with no way in through the app — began
+with what the screen would show of a webhook's deliveries, and the answer was: none, ever.
+`services/webhooks.py` could sign, send, retry with backoff and give up correctly, and the
+`webhook.dispatch` job existed; nothing queued it. The roadmap said *Done*.
+
+`webhooks.emit()` now queues the event once the change is committed, and only when an
+active webhook wants it — a workspace without webhooks pays one query per change, not one
+job. The twelve events of `WebhookEvent` are emitted where the changes happen (projects,
+tasks, jobs and reviews, editor saves, issues, releases), each carrying the resource as the
+API returns it; `task.completed` fires when a task's last job is accepted or it is marked
+completed. Reading the creation route on the way found the second bug: `project_id` was
+never checked against the workspace. Refused now (422, the same answer whether the project
+is elsewhere or nowhere), and matching requires the workspace as well, for rows already
+stored.
+
+For whoever builds a receiver: `POST /webhooks/{id}/ping` sends a signed `ping` now and
+answers with what the receiver said, and `GET /webhooks/{id}/deliveries` lists the recent
+ones — status, error, attempts, whether it will be retried, never the body or the secret.
+Shaped after CVAT's webhook ping and deliveries list.
+
+`tests/api/test_webhooks.py`, 13 tests through the real routes against a receiver
+(`webhooks.transport`, a test seam for `httpx.MockTransport`). The screen is next.
+
+Verified: see *Verification performed*.
+
+## Iteration 95
+
 ### 95 — folders and files chosen in the system's own dialogs, in the real application
 
 The desktop's reason to exist — annotating files where they are — had never been driven
@@ -2330,38 +2381,9 @@ dropping its connection as ended (see *Known issues*).
 
 Verified: see *Verification performed*.
 
-## Iteration 90
-
-### 90 — the Datumaro bridge, its formats measured rather than declared
-
-The 1.0 list's Datumaro bridge, as ADR 0004 planned it ([ADR 0011](./docs/adr/0011-datumaro-bridge.md)).
-With the optional `datumaro` extra, `formats/datumaro_bridge.py` offers fourteen more formats
-as `datumaro-<name>`: ImageNet (folders and text), CIFAR, MNIST, LFW, VGGFace2, WIDER FACE,
-DOTA, CamVid, Pascal VOC segmentation and instance segmentation, COCO panoptic, LabelMe 3.0
-XML and Datumaro's own. Without the extra nothing is registered or imported — found with
-`find_spec`, so a server without Datumaro does not pay for importing it.
-
-**What each carries is measured.** `scripts/datumaro_bridge_probe.py` round-trips one shape
-of every type, a tag and an attribute through each candidate and the bridge, keeps what
-comes back with its label and its box within a pixel and a half, and writes
-`datumaro_formats.json` — which the export API's warnings come from. Eight candidates carry
-nothing and are not offered: Datumaro cannot read back its own MNIST-CSV or MVTec exports,
-and its Segment Anything and ICDAR readers give annotations no class. The first run also
-found the bridge's own bug: Datumaro names ImageNet items `label:name`, so they matched no
-frame until the image's file name was tried too. CI re-measures with `--check`
-(`.github/workflows/datumaro.yml`).
-
-Datumaro holds a dataset in memory — ADR 0004's reason for not building on it — so the bridge
-keeps only the annotations there: images go to temporary files as they stream past and masks
-are drawn when Datumaro asks. Bridged ids use `datumaro-`, not a colon, because an export's
-download is named after its format and Windows refuses a colon in a file name. The server
-image adds the extra with `--build-arg SERVER_EXTRAS=...,datumaro` (docs/OPERATIONS.md).
-
-Verified: see *Verification performed*.
-
 ## Earlier iterations
 
-Iterations **1–89** are in [`docs/iterations/ARCHIVE.md`](./docs/iterations/ARCHIVE.md) —
+Iterations **1–90** are in [`docs/iterations/ARCHIVE.md`](./docs/iterations/ARCHIVE.md) —
 moved there so that orienting costs a few hundred lines rather than four thousand. Read them
 when `git log` points you at an iteration number, or when you are about to build something
 and want to know whether it was already tried and rejected. The lessons from them that are

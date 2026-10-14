@@ -564,7 +564,7 @@ classes, with every label compared against the source geometry, and trains one e
 each (`scripts/verify_ultralytics.py`, `.github/workflows/ultralytics.yml`). Its first run
 found that every `data.yaml` failed unless training started inside the export (`path: .`
 resolves against the working directory); pose now writes `flip_idx` from joint names.
-The workflow has run locally, not yet on a GitHub runner.
+It runs on GitHub for every pull request that touches the formats, and weekly (`ultralytics.yml`).
 
 **LabelMe (JSON)** (iteration 86): the labelme tool's per-image files, both ways — boxes,
 rotated boxes as `oriented_rectangle`, polygons, polylines, points, circles, masks (a PNG of
@@ -839,7 +839,11 @@ editing it and rejected by deleting it.
 * **API tokens** — **Done**, and minted, listed and revoked from the *Workspace* page
   since iteration 66.
 * **Webhooks** — **In Progress**: HMAC-SHA256 signed deliveries with retry/backoff for
-  project and task lifecycle events.
+  twelve project, task, job, annotation, issue and release events — **emitted since
+  iteration 96**; before it nothing queued a delivery, so no webhook ever received
+  anything. A ping and a recent-deliveries list for integrators; a webhook can name only a
+  project in its own workspace (iteration 96 closed a hole that let it name any). Still
+  missing: a screen in the app — they are managed through the API.
 * **Python SDK** — **Done** for core resources; typed, `httpx`-based, sync client.
 * **CLI** — **Done** for auth, project/task creation, upload, export.
 * **TypeScript client** — **Done** (iteration 82): `sdk/typescript`, `@curvevision/client`,

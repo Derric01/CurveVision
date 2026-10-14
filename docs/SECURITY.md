@@ -73,6 +73,12 @@ Stating the design so you know what to test *against*, and so operators know wha
   is not observable.
 * List endpoints filter by membership **in the query**, so an invisible row never enters a
   result set or a pagination count.
+* An id inside a request body is checked against the workspace the request acts in, not
+  only the id in the path. Iteration 96 found one that was not: a webhook took any
+  `project_id`, so a maintainer of one workspace could subscribe to another workspace's
+  project and receive its events. It could not be exploited in practice before then, only
+  because no event was being sent at all. Creation now refuses it, and deliveries are matched
+  on the workspace too, so a row written earlier stays inert.
 
 ### Input and file handling
 
