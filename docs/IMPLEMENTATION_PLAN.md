@@ -838,12 +838,13 @@ editing it and rejected by deleting it.
 * **REST API** — **Done**, OpenAPI 3.1 at `/api/v1/openapi.json`.
 * **API tokens** — **Done**, and minted, listed and revoked from the *Workspace* page
   since iteration 66.
-* **Webhooks** — **In Progress**: HMAC-SHA256 signed deliveries with retry/backoff for
+* **Webhooks** — **Done** (iterations 96–97): HMAC-SHA256 signed deliveries with retry/backoff for
   twelve project, task, job, annotation, issue and release events — **emitted since
   iteration 96**; before it nothing queued a delivery, so no webhook ever received
   anything. A ping and a recent-deliveries list for integrators; a webhook can name only a
-  project in its own workspace (iteration 96 closed a hole that let it name any). Still
-  missing: a screen in the app — they are managed through the API.
+  project in its own workspace (iteration 96 closed a hole that let it name any). Managed
+  from the Workspace page (iteration 97), shown to maintainers and above; driven in a browser
+  against a real receiver by `scripts/verify_webhooks.py`.
 * **Python SDK** — **Done** for core resources; typed, `httpx`-based, sync client.
 * **CLI** — **Done** for auth, project/task creation, upload, export.
 * **TypeScript client** — **Done** (iteration 82): `sdk/typescript`, `@curvevision/client`,

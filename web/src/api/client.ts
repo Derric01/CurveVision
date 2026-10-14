@@ -12,13 +12,13 @@
 
 import { desktopToken } from '@/desktop';
 import type {
+  AnnotationDocument,
+  AnnotationImportResult,
+  AnnotationWriteResult,
   ApiToken,
   ApiTokenCreated,
-  AnnotationDocument,
-  AnnotationWriteResult,
   Asset,
   BackgroundTaskBrief,
-  AnnotationImportResult,
   DatasetFormat,
   DatasetVersion,
   FrameInfo,
@@ -40,8 +40,8 @@ import type {
   ProjectStatistics,
   QualityReport,
   Role,
-  SignInOptions,
   SamlStarted,
+  SignInOptions,
   SsoStarted,
   Task,
   TaskMediaMeta,
@@ -50,6 +50,10 @@ import type {
   TokenPair,
   UploadSession,
   User,
+  Webhook,
+  WebhookCreated,
+  WebhookDelivery,
+  WebhookEvent,
 } from './types';
 
 const API_PREFIX = '/api/v1';
@@ -299,6 +303,30 @@ export const api = {
     request<ApiTokenCreated>('/auth/tokens', { method: 'POST', body: input }),
 
   revokeApiToken: (id: string) => request<void>(`/auth/tokens/${id}`, { method: 'DELETE' }),
+
+  // ---------------------------------------------------------------- webhooks
+  webhooks: (organizationId: string) =>
+    request<Webhook[]>(`/webhooks?organization_id=${encodeURIComponent(organizationId)}`),
+
+  createWebhook: (
+    organizationId: string,
+    input: { target_url: string; events: WebhookEvent[]; description?: string | null },
+  ) =>
+    request<WebhookCreated>(`/webhooks?organization_id=${encodeURIComponent(organizationId)}`, {
+      method: 'POST',
+      body: input,
+    }),
+
+  updateWebhook: (id: string, input: { is_active?: boolean; events?: WebhookEvent[] }) =>
+    request<Webhook>(`/webhooks/${id}`, { method: 'PATCH', body: input }),
+
+  deleteWebhook: (id: string) => request<void>(`/webhooks/${id}`, { method: 'DELETE' }),
+
+  /** Send a signed `ping` now; answers with what the receiver said. */
+  pingWebhook: (id: string) =>
+    request<WebhookDelivery>(`/webhooks/${id}/ping`, { method: 'POST' }),
+
+  webhookDeliveries: (id: string) => request<WebhookDelivery[]>(`/webhooks/${id}/deliveries`),
 
   // ---------------------------------------------------------------- organizations
   organizations: () => request<Organization[]>('/organizations'),

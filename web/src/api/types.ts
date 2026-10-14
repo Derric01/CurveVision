@@ -73,6 +73,54 @@ export interface ApiTokenCreated extends ApiToken {
   token: string;
 }
 
+/** What a webhook can subscribe to (`domain/enums.py` `WebhookEvent`). */
+export type WebhookEvent =
+  | 'project.created'
+  | 'project.updated'
+  | 'task.created'
+  | 'task.updated'
+  | 'task.completed'
+  | 'job.updated'
+  | 'job.submitted'
+  | 'job.accepted'
+  | 'job.rejected'
+  | 'annotations.updated'
+  | 'issue.created'
+  | 'dataset.released';
+
+/** A webhook as listed. Its signing secret is never listed — only when created. */
+export interface Webhook {
+  id: string;
+  organization_id?: string | null;
+  /** Set when it hears one project rather than the whole workspace. */
+  project_id?: string | null;
+  target_url: string;
+  events: string[];
+  is_active: boolean;
+  description?: string | null;
+  created_at: string;
+}
+
+export interface WebhookCreated extends Webhook {
+  /** Signs every delivery (`X-CurveVision-Signature: sha256=HMAC(secret, body)`); shown once. */
+  secret: string;
+}
+
+/** One delivery: what the receiver answered. Never its body. */
+export interface WebhookDelivery {
+  id: string;
+  event: string;
+  /** The receiver's answer to the last attempt; null when nothing answered. */
+  status_code?: number | null;
+  error?: string | null;
+  attempts: number;
+  /** Set by a 2xx, and only by one. */
+  delivered_at?: string | null;
+  /** Not delivered yet, and will be attempted again. */
+  retrying?: boolean;
+  created_at: string;
+}
+
 /** A named snapshot of a project's annotations. Released ones are frozen. */
 export interface DatasetVersion {
   id: string;

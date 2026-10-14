@@ -764,6 +764,10 @@ check a receiver and its signature check before relying on it. A delivery lists 
 `event`, `status_code`, `error`, `attempts`, `delivered_at` and whether it is still
 `retrying`; never its body, and never the secret.
 
+The application's Workspace page does all of this for maintainers and above: add a webhook
+(the secret shown once, with a snippet that checks it), choose its events, *Send a test*,
+pause, delete, and read its recent deliveries.
+
 Deliveries carry:
 
 ```

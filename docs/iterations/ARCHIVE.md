@@ -1,6 +1,6 @@
 # Iteration archive
 
-> The narrative record of iterations **1–90**, moved out of
+> The narrative record of iterations **1–91**, moved out of
 > [`handoff.md`](../../handoff.md) so that orienting on this project costs a few hundred
 > lines rather than four thousand.
 >
@@ -15,6 +15,42 @@
 > window, append it to the top of this file rather than deleting it.
 
 ---
+
+## Iteration 91
+
+### 91 — SAML single sign-on, each sign-in tied to the tab that began it; a demo video
+
+The last 1.0 item that needed no one else. `services/saml.py`: SP-initiated Web SSO — the
+HTTP-Redirect AuthnRequest and the HTTP-POST Response — with OneLogin's python3-saml (MIT)
+doing what must not be written twice: parsing safely and checking the assertion's XML
+signature, issuer, audience, destination, recipient and validity window. The provider is
+configured by its metadata URL or by entity ID, sign-in URL and certificate; this service
+provider's metadata is served at `/api/v1/auth/saml/metadata`.
+
+What this project adds is how a sign-in stays stateless and cookie-free yet belongs to the
+tab that began it. The tab keeps a random verifier and sends its SHA-256; the server mints
+the AuthnRequest's ID as an HMAC over that hash and a timestamp. The ACS refuses a response
+that answers no request it minted in the last ten minutes (so unsolicited, provider-initiated
+ones too), and sends the browser back with a two-minute login code; only the tab holding the
+verifier can exchange it. A captured response, or a login code leaking through history or a
+referrer, signs nobody in. RelayState carries only the return path, inside SAML's 80 bytes.
+
+Account linking moved out of `oidc.py` into `services/external_identity.py`, so OIDC and SAML
+follow one set of rules (`saml_create_users`, `saml_allowed_domains`,
+`saml_default_workspace`, and `saml_trust_email` — a SAML provider is the operator's own).
+`tests/api/test_saml.py` signs real assertions with xmlsec against a test provider: 23 tests,
+including forged, tampered, wrapped (a second assertion smuggled beside the signed one),
+misdirected, expired and unsolicited answers and a stolen login code; three sabotages caught
+(9, 1 and 1 failures). `scripts/verify_saml.py` drives it in Chromium against a provider that
+posts back as a real one does. Single logout is not implemented.
+
+Also this session: **a one-minute demo video**, `docs/demo/curvevision-demo.mp4`, recorded
+from the running application by `scripts/record_demo.py` (sign-in, a project, boxes and a
+polygon on the README's photographs, a real COCO export, which the script checks holds all
+six annotations); and the desktop WebDriver harness now takes a session that ends by
+dropping its connection as ended (see *Known issues*).
+
+Verified: see *Verification performed*.
 
 ## Iteration 90
 

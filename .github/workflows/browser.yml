@@ -141,6 +141,8 @@ jobs:
               scripts/verify_sso.py
               # ...and through a SAML identity provider the script runs itself.
               scripts/verify_saml.py
+              # The real server again, delivering to a webhook receiver the script runs.
+              scripts/verify_webhooks.py
               # The packaged server and a team server: the desktop window switching to it.
               scripts/verify_team_server.py
             )

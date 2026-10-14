@@ -5,9 +5,9 @@
 > [`AGENTS.md`](./AGENTS.md) first; it is the working contract. Update this file after every
 > iteration, including the ones that mostly failed.
 >
-> **Last updated:** 2026-10-14 (iteration 96) · branch `claude/start-work-yx080h` · PRs
+> **Last updated:** 2026-10-14 (iteration 97) · branch `claude/start-work-yx080h` · PRs
 > [#1](https://github.com/Derric01/CurveVision/pull/1)–[#36](https://github.com/Derric01/CurveVision/pull/36)
-> **all merged**. Iterations 84 (the rest) to 96 are
+> **all merged**. Iterations 84 (the rest) to 97 are
 > [#37](https://github.com/Derric01/CurveVision/pull/37).
 >
 > *Two things worth knowing about this repository's PR rhythm, which replace the
@@ -22,7 +22,7 @@
 > **Keep the session short.** One iteration, then commit, push, update this file and report —
 > `AGENTS.md` § *Continue* and the `start-work` skill both say so now, because they did not
 > before and a single session ran six iterations and roughly a third of a week's budget. The
-> concrete costs, in rough order: re-reading this file (iterations 1–90 now live in
+> concrete costs, in rough order: re-reading this file (iterations 1–91 now live in
 > [`docs/iterations/ARCHIVE.md`](./docs/iterations/ARCHIVE.md), which cut it from 3,800
 > lines to 1,000 — keep it that way); `python desktop/sidecar/build.py`, which is a
 > PyInstaller run of a minute or two and is needed *again* for every sabotage-and-restore
@@ -507,7 +507,7 @@ was the last unconnected piece of the desktop application.
 
 ## Next best action
 
-*Webhooks delivering for the first time, and only their own workspace's, 96. The system's file dialogs driven in the real application, 95. The native menu driven at the keyboard, 94. The Helm chart making its own bucket, 93. Desktop auto-update, wired and tested short of the maintainers' key, 92. SAML single sign-on, 91. Every additional format on the 1.0 list — LabelMe, Cityscapes, Open Images, TFRecord — each
+*Webhooks on the Workspace page, 97; delivering for the first time, and only their own workspace's, 96. The system's file dialogs driven in the real application, 95. The native menu driven at the keyboard, 94. The Helm chart making its own bucket, 93. Desktop auto-update, wired and tested short of the maintainers' key, 92. SAML single sign-on, 91. Every additional format on the 1.0 list — LabelMe, Cityscapes, Open Images, TFRecord — each
 held in CI to a reader written by other people, iterations 86–89; the Datumaro bridge, its
 formats measured, 90. The desktop app on a team server, and the shell's commands granted — the
 pickers had never worked in a built app — iteration 85; desktop installers on every platform, `aiosqlite` made
@@ -549,10 +549,8 @@ fakes written from each API's documentation. The likely adjustments are in
 
 
 *The iteration-62 sweep's list of features with an API and no way in through the
-application is down to **webhooks**, and iteration 96 found they had never delivered
-anything. They do now; **a webhooks panel on the Workspace page is the next iteration** —
-list, create (the secret shown once), pause, delete, *Send a test* (the ping) and the
-recent deliveries, driven in a browser against a real receiver.*
+application is empty since iteration 97: webhooks — which iteration 96 found had never
+delivered anything — are managed from the Workspace page.*
 
 
 *Iteration 61 was chosen over the action below because the user asked whether AI annotation
@@ -1024,7 +1022,7 @@ full docs set including seven ADRs.
 | Track keyframe **editing** | Complete: `K` adds or removes a keyframe, `O` marks a departure, a marker can be dragged along its lane, and a tracked object moved on the canvas becomes a keyframe on that frame (Delete deletes the track). Verified in a browser, not only in unit tests. |
 | Pre-building chunks after upload | Done: probing chains the build once the frame numbering is settled, so the first annotator no longer pays the decode. Not fused into one pass — see the iteration note for why that is not available in general. |
 | Surfacing an uncorrected frame count | Complete and driven in a browser. `Asset.frame_count_exact` records whether a count was established by decoding; `GET /tasks/{id}/media` reports it and names the estimated files; the task page warns and offers `POST /tasks/{id}/media/recount`. Both ways a count stays provisional are covered — the declined correction and the file nothing could decode. |
-| Webhooks | Complete: signed delivery, capped exponential backoff with jitter, and a retry policy that distinguishes "the receiver is struggling" from "the receiver said no". |
+| Webhooks | Complete since iterations 96–97 — before 96 nothing was ever sent. Signed delivery, capped exponential backoff with jitter, a retry policy that distinguishes "the receiver is struggling" from "the receiver said no"; twelve events emitted; ping and recent deliveries; a panel on the Workspace page, driven in a browser against a real receiver. |
 | Keypoint (skeleton) tool | Complete and driven in a browser, through to the exported `yolo_pose` rows: joints placed in declared order, `X` skips one, `Enter` finishes early, `Alt`-click marks a joint occluded, and the bones are drawn. |
 | Masks | Stored, **exported** (`cvat_xml` writes CVAT's real mask element and reads it back; `segmentation_mask` paints the pixels), **drawn** — the editor renders the pixels and picks by them — and now **paintable**: the brush creates, grows, shrinks and (by erasing every pixel) deletes one, driven end to end in a browser. Nothing outstanding. |
 | Reviewing suggestions | Complete and measured in a browser: a job-wide count, accept and reject in bulk over shapes, tracks and tags, and an accepted suggestion drawn solid rather than dashed. Per-object accept/reject buttons do not exist — an individual suggestion is accepted by editing it and rejected by deleting it, which is what the editor already does. |
@@ -1059,6 +1057,19 @@ being updated and this one was not. Check it against* Completed *before trusting
 ---
 
 ## Verification performed
+
+Iteration 97:
+
+* `scripts/verify_webhooks.py` in Chromium against the real server: 9 checks, every one
+  passing — the secret shown once; *Send a test* reaching the receiver signed with it; a
+  task created through the API arriving as `task.created`, signed; a refusing receiver (401)
+  reported as refusing and sent exactly one attempt; the deliveries listed newest first; a
+  paused webhook sent nothing; an annotator not offered the panel; deletion. Sabotaged (see
+  above): 3 failures, exactly the checks the sabotage breaks. The build was checked before
+  the sabotaged run.
+* `webhooks.test.ts`, 10 tests: the twelve events offered once each, who may manage them,
+  receiver addresses, what each kind of delivery outcome says; the contract check covers
+  the three new types.
 
 Iteration 96:
 
@@ -2016,11 +2027,16 @@ Iteration 54:
 
 ## Known issues
 
-* **Check 3 of `verify_desktop_shell.py` flakes locally** (iteration 92, seen twice in four
-  runs on Ubuntu 24.04, WebKitWebDriver 2.52.6): the switch to the team-server window drops
-  the driver's connection. Not seen in CI, which passed on every run since iteration 85;
-  not caused by the update feed — it happened with check 9 removed. If CI starts showing
-  it, the next thing to try is waiting for the window handle to appear before switching.
+* **WebKitWebDriver drops connections** (2.52.6 here; the CI runner's too). Around a window
+  opening or closing, and during a long-held asynchronous script, it closes the HTTP
+  connection without answering. `verify_desktop_shell.py` crashed on it: check 3 locally
+  (iteration 92), a poll after a relaunch, and check 9 in CI on `efc528f` (iteration 96's
+  push), mid `install_update`. Iteration 97 made the harness tolerate it rather than retry
+  whole runs: shell commands are started by one short request and collected by polls
+  (`invoke`), and a poll whose connection drops counts as "not yet" (`until`). Before: 2
+  crashes in 4 local runs. After: 6 runs of 6 clean. A session that has really gone still
+  fails, as a check with its reason. If a new check crashes the same way, it is holding a
+  request open or polling outside `until`.
 * **Datumaro 1.x reads Cityscapes differently from the dataset** (iteration 87). It takes
   `instanceIds` values as class ids, where the dataset (and cityscapesScripts, and this
   export) write class x 1000 + instance, so it finds no car or person in real Cityscapes
@@ -2226,6 +2242,31 @@ Iteration 54:
 
 ## Last iteration
 
+### 97 — webhooks on the Workspace page
+
+The last feature with an API and no way in through the application. `WebhooksPanel`, shown
+to maintainers and above (the server's floor): add a webhook — its address, what it is
+for, and the events, grouped as a person thinks of them (`webhooks.ts`); the signing secret
+shown once beside a few lines of Python that check it; *Send a test* (the ping), answered
+in place with what the receiver said and what that means; pause and resume; delete, in two
+steps; and the recent deliveries, each with its outcome. The wording follows the retry
+policy: a 4xx is the receiver refusing, which retrying will not change; a 5xx or no answer
+is the receiver struggling. Shaped after CVAT's webhook settings.
+
+`scripts/verify_webhooks.py` drives it in Chromium against the real server and a receiver
+of its own that checks every signature: 9 checks, from the secret shown once to deletion,
+and an annotator not offered the panel. Sabotaged in one build — the form sending the
+default events instead of the ones ticked, and the panel shown to everyone — and the three
+checks those break failed. Added to `browser.yml`.
+
+Also: **the desktop WebDriver job failed on GitHub at `efc528f`** (iteration 96, which did
+not touch the desktop). The driver dropped a long-held asynchronous script during check 9;
+see *Known issues* for the cause and the harness change, verified by 6 clean runs of 6.
+
+Verified: see *Verification performed*.
+
+## Iteration 96
+
 ### 96 — webhooks deliver, for the first time; and only their own workspace's
 
 Planning a webhooks screen — the last API feature with no way in through the app — began
@@ -2345,45 +2386,9 @@ which had left the driver counting a dead session and refusing the next.
 
 Verified: see *Verification performed*.
 
-## Iteration 91
-
-### 91 — SAML single sign-on, each sign-in tied to the tab that began it; a demo video
-
-The last 1.0 item that needed no one else. `services/saml.py`: SP-initiated Web SSO — the
-HTTP-Redirect AuthnRequest and the HTTP-POST Response — with OneLogin's python3-saml (MIT)
-doing what must not be written twice: parsing safely and checking the assertion's XML
-signature, issuer, audience, destination, recipient and validity window. The provider is
-configured by its metadata URL or by entity ID, sign-in URL and certificate; this service
-provider's metadata is served at `/api/v1/auth/saml/metadata`.
-
-What this project adds is how a sign-in stays stateless and cookie-free yet belongs to the
-tab that began it. The tab keeps a random verifier and sends its SHA-256; the server mints
-the AuthnRequest's ID as an HMAC over that hash and a timestamp. The ACS refuses a response
-that answers no request it minted in the last ten minutes (so unsolicited, provider-initiated
-ones too), and sends the browser back with a two-minute login code; only the tab holding the
-verifier can exchange it. A captured response, or a login code leaking through history or a
-referrer, signs nobody in. RelayState carries only the return path, inside SAML's 80 bytes.
-
-Account linking moved out of `oidc.py` into `services/external_identity.py`, so OIDC and SAML
-follow one set of rules (`saml_create_users`, `saml_allowed_domains`,
-`saml_default_workspace`, and `saml_trust_email` — a SAML provider is the operator's own).
-`tests/api/test_saml.py` signs real assertions with xmlsec against a test provider: 23 tests,
-including forged, tampered, wrapped (a second assertion smuggled beside the signed one),
-misdirected, expired and unsolicited answers and a stolen login code; three sabotages caught
-(9, 1 and 1 failures). `scripts/verify_saml.py` drives it in Chromium against a provider that
-posts back as a real one does. Single logout is not implemented.
-
-Also this session: **a one-minute demo video**, `docs/demo/curvevision-demo.mp4`, recorded
-from the running application by `scripts/record_demo.py` (sign-in, a project, boxes and a
-polygon on the README's photographs, a real COCO export, which the script checks holds all
-six annotations); and the desktop WebDriver harness now takes a session that ends by
-dropping its connection as ended (see *Known issues*).
-
-Verified: see *Verification performed*.
-
 ## Earlier iterations
 
-Iterations **1–90** are in [`docs/iterations/ARCHIVE.md`](./docs/iterations/ARCHIVE.md) —
+Iterations **1–91** are in [`docs/iterations/ARCHIVE.md`](./docs/iterations/ARCHIVE.md) —
 moved there so that orienting costs a few hundred lines rather than four thousand. Read them
 when `git log` points you at an iteration number, or when you are about to build something
 and want to know whether it was already tried and rejected. The lessons from them that are
