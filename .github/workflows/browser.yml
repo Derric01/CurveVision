@@ -135,6 +135,8 @@ jobs:
               scripts/verify_tracked_skeleton.py
               # Click-to-segment, against a model server the script runs: the real server shape.
               scripts/verify_interactor.py
+              # Deciding model suggestions one at a time: the real server shape again.
+              scripts/verify_suggestion_review.py
               # Also starts the real server (uvicorn on SQLite, serving `web/dist`): the
               # desktop build has one person and no registration, and members need several.
               scripts/verify_workspace.py

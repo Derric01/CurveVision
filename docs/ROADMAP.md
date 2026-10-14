@@ -55,7 +55,7 @@ application — and produce a real dataset with it.
 | Issues and comment threads anchored to frames | **Done** — and reachable: the editor lists them, opens one on the current frame anchored to the selected object **or pinned to a point you click on the image**, replies on a thread, and resolves or reopens it |
 | Annotation history | **Done** |
 | `ModelProvider` abstraction and the HTTP inference contract | **Done** |
-| Model predictions as accept/reject suggestions | **Done** |
+| Model predictions as accept/reject suggestions | **Done** — in bulk, or one at a time with *Next suggestion* (iteration 99) |
 | AI by API key (Claude, OpenAI, Gemini, xAI, OpenRouter, Mistral, Groq, Together, Ollama) | **In progress** — built and tested against fakes of each request shape (ADR 0010); not yet run against a real service. Boxes only |
 | Adding a model from the application | **Done** — a Models page: paste an endpoint and its API key, *Connect* asks the endpoint what it serves (`GET <endpoint>/models`, which nothing called until iteration 61), and the model's kind and labels are filled in from the answer. A wrong key or a dead endpoint is reported before anything is saved. Driven end to end in a browser against a real model server, through to the key and the model's id arriving with an inference request |
 | Dataset versions with immutable releases | **Done** — a release freezes its annotations (until iteration 66 it kept only a hash, and "exporting a release" read the current project); create, release and download any version in any format from the project page |

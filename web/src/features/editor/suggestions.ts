@@ -75,3 +75,59 @@ export function describeDecision(
     ? `Kept ${total} ${things}. They are ordinary annotations now.`
     : `Deleted ${total} ${things}.`;
 }
+
+/**
+ * The suggestions among the selected objects, split the way the endpoint takes them.
+ *
+ * Selection ids are shape ids, or a track's id for any frame of a track. Tags have no
+ * object on the canvas, so they are only ever decided in bulk.
+ */
+export function selectedForReview(
+  document: AnnotationDocument | undefined,
+  selection: readonly string[],
+): ReviewSet {
+  if (!document || selection.length === 0) return NOTHING_TO_REVIEW;
+  const chosen = new Set(selection);
+  const shapeIds = document.shapes
+    .filter((shape) => chosen.has(shape.id) && isUnreviewed(shape))
+    .map((shape) => shape.id);
+  const trackIds = document.tracks
+    .filter((track) => chosen.has(track.id) && isUnreviewed(track))
+    .map((track) => track.id);
+  return { shapeIds, trackIds, tagIds: [], total: shapeIds.length + trackIds.length };
+}
+
+/** Where a suggestion is: the frame it is on (a track's first), and its id. */
+export interface SuggestionPlace {
+  frame: number;
+  id: string;
+}
+
+/**
+ * The next suggestion awaiting a decision after the one in view, going through the job by
+ * frame, and round to the start after the last.
+ *
+ * `after` is where the annotator is: the frame on screen and, if one is selected, the
+ * suggestion selected there, so pressing *Next* again moves on rather than finding the
+ * same one. `null` when nothing is waiting.
+ */
+export function nextSuggestion(
+  document: AnnotationDocument | undefined,
+  after: { frame: number; id?: string | null },
+): SuggestionPlace | null {
+  if (!document) return null;
+  const places: SuggestionPlace[] = [
+    ...document.shapes.filter(isUnreviewed).map((shape) => ({ frame: shape.frame, id: shape.id })),
+    ...document.tracks
+      .filter((track) => isUnreviewed(track) && track.shapes.length > 0)
+      .map((track) => ({
+        frame: Math.min(...track.shapes.map((position) => position.frame)),
+        id: track.id,
+      })),
+  ];
+  if (places.length === 0) return null;
+  places.sort((a, b) => a.frame - b.frame || a.id.localeCompare(b.id));
+  const here = after.id ? places.findIndex((place) => place.id === after.id) : -1;
+  if (here >= 0) return places[(here + 1) % places.length]!;
+  return places.find((place) => place.frame >= after.frame) ?? places[0]!;
+}

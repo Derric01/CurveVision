@@ -5,7 +5,9 @@ import {
   NOTHING_TO_REVIEW,
   describeDecision,
   describePending,
+  nextSuggestion,
   pendingReview,
+  selectedForReview,
 } from '../suggestions';
 
 function shape(overrides: Partial<ApiShape> = {}): ApiShape {
@@ -175,5 +177,64 @@ describe('describeDecision', () => {
   it('handles a server that reported nothing', () => {
     expect(describeDecision(undefined, true)).toBe('Nothing was accepted.');
     expect(describeDecision({ shapes: 0, tracks: 0, tags: 0 }, false)).toBe('Nothing was rejected.');
+  });
+});
+
+describe('deciding the selected ones', () => {
+  const document: AnnotationDocument = {
+    job_id: 'j',
+    annotation_version: 3,
+    shapes: [
+      shape({ id: 'waiting' }),
+      shape({ id: 'accepted', confidence: null }),
+      shape({ id: 'manual', source: 'manual', confidence: null }),
+    ],
+    tracks: [track({ id: 'tracked', shapes: [] })],
+    tags: [tag()],
+  } as AnnotationDocument;
+
+  it('takes only the selected suggestions still waiting, never tags', () => {
+    expect(selectedForReview(document, ['waiting', 'accepted', 'manual', 'tracked', 'g1'])).toEqual({
+      shapeIds: ['waiting'],
+      trackIds: ['tracked'],
+      tagIds: [],
+      total: 2,
+    });
+    expect(selectedForReview(document, [])).toEqual(NOTHING_TO_REVIEW);
+  });
+});
+
+describe('the next suggestion', () => {
+  const document = {
+    job_id: 'j',
+    annotation_version: 1,
+    shapes: [
+      shape({ id: 'b', frame: 2 }),
+      shape({ id: 'a', frame: 2 }),
+      shape({ id: 'late', frame: 9 }),
+      shape({ id: 'done', frame: 5, confidence: null }),
+    ],
+    tracks: [
+      track({
+        id: 'trk',
+        shapes: [{ frame: 6 }, { frame: 4 }] as ApiTrack['shapes'],
+      }),
+    ],
+    tags: [],
+  } as unknown as AnnotationDocument;
+
+  it('is the first waiting on or after the frame on screen', () => {
+    expect(nextSuggestion(document, { frame: 0 })).toEqual({ frame: 2, id: 'a' });
+    expect(nextSuggestion(document, { frame: 3 })).toEqual({ frame: 4, id: 'trk' });
+  });
+
+  it('moves on from the one selected, and wraps round after the last', () => {
+    expect(nextSuggestion(document, { frame: 2, id: 'a' })).toEqual({ frame: 2, id: 'b' });
+    expect(nextSuggestion(document, { frame: 9, id: 'late' })).toEqual({ frame: 2, id: 'a' });
+    expect(nextSuggestion(document, { frame: 10 })).toEqual({ frame: 2, id: 'a' });
+  });
+
+  it('is nothing when nothing is waiting', () => {
+    expect(nextSuggestion({ ...document, shapes: [], tracks: [] }, { frame: 0 })).toBeNull();
   });
 });

@@ -1,5 +1,6 @@
 /**
- * Accept or reject what a model proposed, in bulk.
+ * Accept or reject what a model proposed: the selected suggestions, or all of them, and go
+ * to the next one waiting.
  *
  * Renders nothing at all when there is nothing waiting, so it costs a job with no model
  * suggestions no space in an already-full rail.
@@ -10,37 +11,65 @@
 
 import { useCallback, useState } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
-import { Check, X } from 'lucide-react';
+import { Check, ChevronRight, X } from 'lucide-react';
 import { api } from '@/api/client';
 import type { AnnotationDocument } from '@/api/types';
 import { Button, ErrorNotice } from '@/ui/primitives';
-import { describeDecision, describePending, pendingReview } from './suggestions';
+import {
+  describeDecision,
+  describePending,
+  nextSuggestion,
+  pendingReview,
+  selectedForReview,
+  type ReviewSet,
+  type SuggestionPlace,
+} from './suggestions';
 
 export function SuggestionsPanel({
   jobId,
   document,
   onDecided,
+  selection = [],
+  currentFrame = 0,
+  beforeDeciding,
+  onGoTo,
 }: {
   jobId: string;
   document: AnnotationDocument | undefined;
   onDecided: () => void;
+  /** What is selected on the canvas: the suggestions among it can be decided on their own. */
+  selection?: readonly string[];
+  currentFrame?: number;
+  /**
+   * Save what the editor holds first. A suggestion edited and not yet saved would otherwise
+   * be decided as the model left it — or deleted under an edit still on its way.
+   */
+  beforeDeciding?: () => Promise<unknown>;
+  /** Show a suggestion: its frame, with it selected. */
+  onGoTo?: (place: SuggestionPlace) => void;
 }) {
   const queryClient = useQueryClient();
-  const [busy, setBusy] = useState<'accept' | 'reject' | null>(null);
+  const [busy, setBusy] = useState<'accept' | 'reject' | 'accept-one' | 'reject-one' | null>(null);
   const [outcome, setOutcome] = useState<string | null>(null);
   const [error, setError] = useState<unknown>(null);
 
   const review = pendingReview(document);
+  const selected = selectedForReview(document, selection);
+  const next = nextSuggestion(document, {
+    frame: currentFrame,
+    id: selected.shapeIds[0] ?? selected.trackIds[0] ?? null,
+  });
 
   const decide = useCallback(
-    async (accepted: boolean) => {
+    async (accepted: boolean, which: ReviewSet, one: boolean) => {
       setError(null);
       setOutcome(null);
-      setBusy(accepted ? 'accept' : 'reject');
+      setBusy(one ? (accepted ? 'accept-one' : 'reject-one') : accepted ? 'accept' : 'reject');
       try {
+        await beforeDeciding?.();
         const counts = await api.decideSuggestions(
           jobId,
-          { shapeIds: review.shapeIds, trackIds: review.trackIds, tagIds: review.tagIds },
+          { shapeIds: which.shapeIds, trackIds: which.trackIds, tagIds: which.tagIds },
           accepted,
         );
         setOutcome(describeDecision(counts, accepted));
@@ -54,7 +83,7 @@ export function SuggestionsPanel({
         setBusy(null);
       }
     },
-    [jobId, onDecided, queryClient, review.shapeIds, review.tagIds, review.trackIds],
+    [beforeDeciding, jobId, onDecided, queryClient],
   );
 
   // Nothing pending and nothing to report: the section does not exist.
@@ -75,12 +104,58 @@ export function SuggestionsPanel({
             Accepting keeps them as they are, still recorded as a model's work. Rejecting
             deletes them. Editing one accepts it on its own.
           </p>
+          {selected.total > 0 && (
+            <div className="mt-2 rounded-md border border-ink-700 p-2" data-suggestion-selected="">
+              <p className="text-[11px] text-ink-300">
+                {selected.total === 1
+                  ? 'The selected object is a suggestion.'
+                  : `${selected.total} selected objects are suggestions.`}
+              </p>
+              <div className="mt-1.5 flex gap-1.5">
+                <Button
+                  variant="primary"
+                  size="sm"
+                  className="flex-1"
+                  onClick={() => void decide(true, selected, true)}
+                  disabled={busy !== null}
+                  data-suggestion-accept=""
+                >
+                  <Check size={12} />
+                  {busy === 'accept-one' ? 'Keeping…' : 'Accept'}
+                </Button>
+                <Button
+                  variant="secondary"
+                  size="sm"
+                  className="flex-1"
+                  onClick={() => void decide(false, selected, true)}
+                  disabled={busy !== null}
+                  data-suggestion-reject=""
+                >
+                  <X size={12} />
+                  {busy === 'reject-one' ? 'Deleting…' : 'Reject'}
+                </Button>
+              </div>
+            </div>
+          )}
+          {next && onGoTo && (
+            <Button
+              variant="ghost"
+              size="sm"
+              className="mt-1.5 w-full"
+              onClick={() => onGoTo(next)}
+              title="Select the next suggestion waiting in this job, on its frame"
+              data-suggestion-next=""
+            >
+              Next suggestion
+              <ChevronRight size={12} />
+            </Button>
+          )}
           <div className="mt-2 flex gap-1.5">
             <Button
               variant="secondary"
               size="sm"
               className="flex-1"
-              onClick={() => void decide(true)}
+              onClick={() => void decide(true, review, false)}
               disabled={busy !== null}
               data-suggestions-accept=""
             >
@@ -91,7 +166,7 @@ export function SuggestionsPanel({
               variant="secondary"
               size="sm"
               className="flex-1"
-              onClick={() => void decide(false)}
+              onClick={() => void decide(false, review, false)}
               disabled={busy !== null}
               data-suggestions-reject=""
             >
