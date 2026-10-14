@@ -44,3 +44,6 @@ htmlcov/
 /desktop/shell/src-tauri/target/
 /desktop/shell/src-tauri/gen/
 backups/
+
+# The WebM is the recording scripts/record_demo.py encodes the MP4 from.
+docs/demo/*.webm

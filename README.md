@@ -29,6 +29,10 @@ which drives the real application in a real browser and draws those boxes with r
 on a real photograph. Nothing here is a mockup.
 </sub></div>
 
+<p align="center"><b><a href="docs/demo/curvevision-demo.mp4">▶ Watch the one-minute demo</a></b> —
+sign in, a project, boxes and a polygon on real photographs, a real COCO export.
+Recorded from the running application by <a href="scripts/record_demo.py"><code>scripts/record_demo.py</code></a>.</p>
+
 ---
 
 ## Why
