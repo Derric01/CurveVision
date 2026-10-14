@@ -415,7 +415,15 @@ jobs:
           kind load docker-image curvevision-server:ci curvevision-web:ci --name curvevision
           kubectl apply -f deploy/helm/ci/dependencies.yaml
           kubectl wait --for=condition=available deploy/postgres deploy/redis deploy/s3 --timeout=300s
-          kubectl wait --for=condition=complete job/storage-init --timeout=300s
+
+      # The store starts empty: the chart's storage-init hook has to make the bucket, or the
+      # upload in the smoke test below fails.
+      - name: Turning the bucket hook off leaves it out
+        run: |
+          helm template cv deploy/helm/curvevision -f deploy/helm/ci/values.yaml \
+            | grep -q 'name: cv-curvevision-storage-init'
+          ! helm template cv deploy/helm/curvevision -f deploy/helm/ci/values.yaml \
+            --set storage.s3.createBucket=false | grep -q storage-init
 
       - name: helm install, and wait for every pod to be ready
         run: >

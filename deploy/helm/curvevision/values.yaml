@@ -42,6 +42,11 @@ storage:
     # Leave empty for AWS S3 itself; set for Ceph, R2, Versity Gateway and the like.
     endpointUrl: ""
     bucket: curvevision
+    # Make the bucket on install and upgrade if it does not exist (a hook running
+    # `curvevision-server storage-init`). Turn off when the bucket is made elsewhere and the
+    # credentials below may not list it (no `s3:ListBucket`): S3 then answers 403 and the
+    # hook, and the install, would fail.
+    createBucket: true
     region: ""
     accessKeyId: ""
     secretAccessKey: ""

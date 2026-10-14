@@ -5,9 +5,9 @@
 > [`AGENTS.md`](./AGENTS.md) first; it is the working contract. Update this file after every
 > iteration, including the ones that mostly failed.
 >
-> **Last updated:** 2026-10-14 (iteration 92) · branch `claude/start-work-yx080h` · PRs
+> **Last updated:** 2026-10-14 (iteration 93) · branch `claude/start-work-yx080h` · PRs
 > [#1](https://github.com/Derric01/CurveVision/pull/1)–[#36](https://github.com/Derric01/CurveVision/pull/36)
-> **all merged**. Iterations 84 (the rest) to 92 are
+> **all merged**. Iterations 84 (the rest) to 93 are
 > [#37](https://github.com/Derric01/CurveVision/pull/37).
 >
 > *Two things worth knowing about this repository's PR rhythm, which replace the
@@ -22,7 +22,7 @@
 > **Keep the session short.** One iteration, then commit, push, update this file and report —
 > `AGENTS.md` § *Continue* and the `start-work` skill both say so now, because they did not
 > before and a single session ran six iterations and roughly a third of a week's budget. The
-> concrete costs, in rough order: re-reading this file (iterations 1–86 now live in
+> concrete costs, in rough order: re-reading this file (iterations 1–87 now live in
 > [`docs/iterations/ARCHIVE.md`](./docs/iterations/ARCHIVE.md), which cut it from 3,800
 > lines to 1,000 — keep it that way); `python desktop/sidecar/build.py`, which is a
 > PyInstaller run of a minute or two and is needed *again* for every sabotage-and-restore
@@ -507,7 +507,7 @@ was the last unconnected piece of the desktop application.
 
 ## Next best action
 
-*Desktop auto-update, wired and tested short of the maintainers' key, 92. SAML single sign-on, 91. Every additional format on the 1.0 list — LabelMe, Cityscapes, Open Images, TFRecord — each
+*The Helm chart making its own bucket, 93. Desktop auto-update, wired and tested short of the maintainers' key, 92. SAML single sign-on, 91. Every additional format on the 1.0 list — LabelMe, Cityscapes, Open Images, TFRecord — each
 held in CI to a reader written by other people, iterations 86–89; the Datumaro bridge, its
 formats measured, 90. The desktop app on a team server, and the shell's commands granted — the
 pickers had never worked in a built app — iteration 85; desktop installers on every platform, `aiosqlite` made
@@ -530,10 +530,8 @@ with no dependency on the user, in order:
 2. **The native menu** (*Use This Computer*, *Open Folder…*) is the one part of the shell no
    test reaches: WebDriver cannot click a native menu. An `xdotool` keystroke under Xvfb
    might; worth an hour, not more.
-3. **The Helm chart could run `storage-init`** in its migration hook, so a fresh bucket is
-   made on install, as Compose does. Deliberately not done yet: with an IAM policy that
-   allows objects but not `s3:ListBucket`, `HeadBucket` fails and the install would too —
-   it needs an opt-out value first.
+3. ~~**The Helm chart could run `storage-init`**~~ — done in iteration 93, with the
+   opt-out (`storage.s3.createBucket`) it needed first.
 4. ~~The additional formats on the 1.0 list~~ — done: LabelMe (86), Cityscapes (87), Open
    Images (88), TFRecord (89), each held in CI to a reader written by other people.
 5. ~~**Auto-update**~~ — wired and tested with a throwaway key in iteration 92; turning it
@@ -1059,6 +1057,16 @@ being updated and this one was not. Check it against* Completed *before trusting
 ---
 
 ## Verification performed
+
+Iteration 93:
+
+* `helm lint` and `helm template` (Helm 3.16.2, built from source here): the hook renders
+  with the S3 settings inline; with `existingSecret`, the credentials come from that Secret;
+  with `createBucket=false`, it is not rendered.
+* The hook's command with exactly the hook's environment — no database, no secret key —
+  against Versity Gateway: "Created bucket curvevision.", exit 0; again, "already exists",
+  exit 0; with credentials the store refuses, the 403 named and exit 1.
+* CI's `kind` job with S3 starting empty: see the PR's checks on the commit.
 
 Iteration 92:
 
@@ -2176,6 +2184,26 @@ Iteration 54:
 
 ## Last iteration
 
+### 93 — the Helm chart makes its bucket, as Compose does, and can be told not to
+
+A `pre-install,pre-upgrade` hook (`templates/storage-init.yaml`, weight -1, so before the
+migrations) runs `curvevision-server storage-init`: a fresh install now fails on a clear
+setup step when the store is unusable, instead of on somebody's first upload. It is on by
+default and turned off with `storage.s3.createBucket=false`, for a bucket made elsewhere by
+credentials that may not list it — S3 answers that `HeadBucket` with 403, and the hook, so
+the install, would stop. Like the migration hook, it runs before the release's ConfigMap
+and Secret exist, so it carries its own settings, its credentials from `existingSecret`
+when there is one.
+
+CI's `kind` install no longer makes the bucket for the chart: `deploy/helm/ci/dependencies.yaml`
+starts S3 empty, so the smoke test's upload passes only if the hook made it, and `helm
+upgrade` runs it again against a bucket that exists. A render check proves the opt-out
+leaves the hook out.
+
+Verified: see *Verification performed*.
+
+## Iteration 92
+
 ### 92 — the desktop app updates itself, from a signed feed only
 
 The last desktop item with nothing outside the repository in its way: Tauri's updater
@@ -2322,37 +2350,9 @@ under its own sabotage.
 
 Verified: see *Verification performed*.
 
-## Iteration 87
-
-### 87 — Cityscapes, both ways, drawn exactly as the dataset's own tools draw it
-
-The second of the 1.0 list's additional formats: the `gtFine` layout — per image the
-polygons file and the label-id, instance-id, training-id and colour images drawn from it,
-the image under `leftImg8bit/`. A project whose labels are all Cityscapes classes keeps
-Cityscapes' ids, colours and training ids (crowds such as `cargroup` drawn with the class id
-and no instance number, `license plate` listed and never drawn, as cityscapesScripts does);
-any other project is numbered after a background in `label_colors.txt`. Import reads the
-polygons file when there is one and otherwise makes each instance — or each class of a
-label-id image — the mask of exactly its pixels. Boxes and ellipses are written as the
-polygons they are; masks are painted into the images only, since the polygons file has no
-place for them.
-
-Held to the dataset's own tools: `scripts/verify_cityscapes.py`
-(`.github/workflows/cityscapes.yml`) has cityscapesScripts draw every exported polygons file
-and requires each of the four images to equal its drawing pixel for pixel; imports instance
-images cityscapesScripts drew; and has Datumaro read both kinds of export. It passed first
-time on the drawing. What it found was elsewhere: **Pillow 13 (due 2026-10-15) stops writing
-32-bit PNGs** and deprecates `getdata`, so the instance image is written 16-bit, as the
-dataset's own are, and read from raw bytes; and **Datumaro 1.x reads Cityscapes differently
-from the dataset** (see *Known issues*). One rule the cross-check cannot see — which shape
-wins a pixel, since the polygons file and the images come from one loop — is pinned by a unit
-test, and that test fails when the order is reversed.
-
-Verified: see *Verification performed*.
-
 ## Earlier iterations
 
-Iterations **1–86** are in [`docs/iterations/ARCHIVE.md`](./docs/iterations/ARCHIVE.md) —
+Iterations **1–87** are in [`docs/iterations/ARCHIVE.md`](./docs/iterations/ARCHIVE.md) —
 moved there so that orienting costs a few hundred lines rather than four thousand. Read them
 when `git log` points you at an iteration number, or when you are about to build something
 and want to know whether it was already tried and rejected. The lessons from them that are

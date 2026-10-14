@@ -146,8 +146,12 @@ refused. The server image includes the `saml` extra; a pip install needs
 ## Kubernetes
 
 A Helm chart is in [`deploy/helm/curvevision`](../deploy/helm/curvevision): the API, the
-workers and the web application, with a migration Job that runs once before each install
-and upgrade. **PostgreSQL, Redis and S3-compatible storage are yours to provide** — every
+workers and the web application, with Jobs that run before each install and upgrade: one
+makes the bucket if it does not exist (`curvevision-server storage-init`, as Docker Compose
+runs it), then one migrates the database. Turn the first off with
+`storage.s3.createBucket=false` when the bucket is made elsewhere and the release's
+credentials may not list it — without `s3:ListBucket`, S3 answers 403 and the install would
+stop there. **PostgreSQL, Redis and S3-compatible storage are yours to provide** — every
 cluster already runs those its own way, and a copy bundled here would be one more thing to
 back up.
 
@@ -175,7 +179,7 @@ scanning and tracing are `config.contentScanner` and `config.tracing`.
 
 Every CI run lints the chart, validates its manifests against the Kubernetes 1.30 schemas,
 and installs it into a `kind` cluster with PostgreSQL, Redis and an S3 service in it
-(`deploy/helm/ci/`): it waits for every pod, uses the release through its web service —
+(`deploy/helm/ci/`), whose S3 starts with no bucket, so the chart's hook has to make one: it waits for every pod, uses the release through its web service —
 sign-up, an image uploaded and read back, an annotation exported, a background job run by
 a worker — takes a backup from inside the cluster, and runs `helm upgrade`.
 

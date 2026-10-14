@@ -85,25 +85,3 @@ metadata: {name: s3}
 spec:
   selector: {app: s3}
   ports: [{port: 9000}]
----
-# The bucket, made the way `storage-init` makes it under Docker Compose: by the server
-# image itself.
-apiVersion: batch/v1
-kind: Job
-metadata: {name: storage-init}
-spec:
-  backoffLimit: 20
-  template:
-    spec:
-      restartPolicy: OnFailure
-      containers:
-        - name: storage-init
-          image: curvevision-server:ci
-          imagePullPolicy: Never
-          command: [curvevision-server, storage-init]
-          env:
-            - {name: CURVEVISION_STORAGE_BACKEND, value: s3}
-            - {name: CURVEVISION_S3_ENDPOINT_URL, value: "http://s3:9000"}
-            - {name: CURVEVISION_S3_BUCKET, value: curvevision}
-            - {name: CURVEVISION_S3_ACCESS_KEY_ID, value: curvevision}
-            - {name: CURVEVISION_S3_SECRET_ACCESS_KEY, value: curvevision-ci-secret}

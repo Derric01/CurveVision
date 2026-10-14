@@ -1,6 +1,6 @@
 # Iteration archive
 
-> The narrative record of iterations **1–86**, moved out of
+> The narrative record of iterations **1–87**, moved out of
 > [`handoff.md`](../../handoff.md) so that orienting on this project costs a few hundred
 > lines rather than four thousand.
 >
@@ -15,6 +15,34 @@
 > window, append it to the top of this file rather than deleting it.
 
 ---
+
+## Iteration 87
+
+### 87 — Cityscapes, both ways, drawn exactly as the dataset's own tools draw it
+
+The second of the 1.0 list's additional formats: the `gtFine` layout — per image the
+polygons file and the label-id, instance-id, training-id and colour images drawn from it,
+the image under `leftImg8bit/`. A project whose labels are all Cityscapes classes keeps
+Cityscapes' ids, colours and training ids (crowds such as `cargroup` drawn with the class id
+and no instance number, `license plate` listed and never drawn, as cityscapesScripts does);
+any other project is numbered after a background in `label_colors.txt`. Import reads the
+polygons file when there is one and otherwise makes each instance — or each class of a
+label-id image — the mask of exactly its pixels. Boxes and ellipses are written as the
+polygons they are; masks are painted into the images only, since the polygons file has no
+place for them.
+
+Held to the dataset's own tools: `scripts/verify_cityscapes.py`
+(`.github/workflows/cityscapes.yml`) has cityscapesScripts draw every exported polygons file
+and requires each of the four images to equal its drawing pixel for pixel; imports instance
+images cityscapesScripts drew; and has Datumaro read both kinds of export. It passed first
+time on the drawing. What it found was elsewhere: **Pillow 13 (due 2026-10-15) stops writing
+32-bit PNGs** and deprecates `getdata`, so the instance image is written 16-bit, as the
+dataset's own are, and read from raw bytes; and **Datumaro 1.x reads Cityscapes differently
+from the dataset** (see *Known issues*). One rule the cross-check cannot see — which shape
+wins a pixel, since the polygons file and the images come from one loop — is pinned by a unit
+test, and that test fails when the order is reversed.
+
+Verified: see *Verification performed*.
 
 ## Iteration 86
 
