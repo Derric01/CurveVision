@@ -653,7 +653,21 @@ vendor, or a script. **Request:**
 ```
 
 `classes` is empty for a fixed-head model, and a server that does not read open-vocabulary
-prompts can ignore the key entirely. `GET <endpoint>/models` may advertise
+prompts can ignore the key entirely.
+
+An **`interactor`** model (SAM and its kind) is asked about one frame at a time, with the
+annotator's clicks in `prompts`, in image pixels:
+
+```json
+{ "model": "sam", "frames": [ { "frame": 7, "...": "..." } ],
+  "prompts": { "positive": [[212, 148]], "negative": [[301, 150]] } }
+```
+
+`positive` are clicks on the object, `negative` clicks on what is not it. Answer with a
+`polygon` outlining the object; the editor shows the most confident one after every click
+and keeps it when the annotator presses Enter, as a shape with `source: "model"` and no
+confidence (a model drew it, a person accepted it). An answer that is not a polygon is
+reported to the annotator as such, and no shape at all as "found nothing there". `GET <endpoint>/models` may advertise
 `"open_vocabulary": true` per model for discovery.
 
 **Response:**
@@ -734,6 +748,39 @@ POST /api/v1/webhooks?organization_id={id}
 
 → { "secret": "…" }   // shown once
 ```
+
+A webhook hears its whole workspace, or — with `"project_id"` — one project, which must be
+in that workspace. Maintainers manage them. The events, each sent once the change is saved:
+
+| Event | When | `data` |
+| --- | --- | --- |
+| `project.created`, `project.updated` | A project is created or edited | `{"project": …}` |
+| `task.created`, `task.updated` | A task is created or edited | `{"task": …}` |
+| `task.completed` | A task's last job is accepted, or it is marked completed | `{"task": …}` |
+| `job.updated` | A job is assigned, locked, or moves state | `{"job": …}` |
+| `job.submitted`, `job.accepted`, `job.rejected` | A job reaches that review state | `{"job": …}` |
+| `annotations.updated` | An editor save lands | `{"job": …, "annotation_version": n}` |
+| `issue.created` | An issue is opened, including by a rejection with a comment | `{"issue": …}` |
+| `dataset.released` | A dataset version is released | `{"version": …}` |
+
+Each resource is as the API returns it. The body is
+`{"event": …, "delivery_id": …, "data": …}`. *Until iteration 96 none of these was ever
+sent: the delivery machinery existed and nothing queued it.*
+
+```http
+POST /api/v1/webhooks/{id}/ping            → the delivery, attempted now
+GET  /api/v1/webhooks/{id}/deliveries      → the last 20 (?limit= up to 100), newest first
+```
+
+A ping is a signed `ping` event sent at once, whatever the webhook subscribes to, and not
+retried; the answer says what the receiver replied (`status_code`, `error`) — the way to
+check a receiver and its signature check before relying on it. A delivery lists its
+`event`, `status_code`, `error`, `attempts`, `delivered_at` and whether it is still
+`retrying`; never its body, and never the secret.
+
+The application's Workspace page does all of this for maintainers and above: add a webhook
+(the secret shown once, with a snippet that checks it), choose its events, *Send a test*,
+pause, delete, and read its recent deliveries.
 
 Deliveries carry:
 

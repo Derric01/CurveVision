@@ -18,6 +18,8 @@ import { desktop } from '@/desktop';
 import { useSession } from '@/store/session';
 import { Badge, Button, EmptyState, ErrorNotice, Input, Panel, Spinner } from '@/ui/primitives';
 import { ApiTokensPanel } from './ApiTokensPanel';
+import { WebhooksPanel } from './WebhooksPanel';
+import { canManageWebhooks } from './webhooks';
 import {
   ROLE_DESCRIPTIONS,
   actingRole,
@@ -89,8 +91,16 @@ export function WorkspacePage() {
           />
         ))}
       <ApiTokensPanel />
+      {organization && <Webhooks organization={organization} />}
     </div>
   );
+}
+
+/** Offered to those the server lets manage them: maintainers and above. */
+function Webhooks({ organization }: { organization: Organization }) {
+  const { user } = useSession();
+  const actor = actingRole(organization.role, Boolean(user?.is_superuser));
+  return canManageWebhooks(actor) ? <WebhooksPanel organization={organization} /> : null;
 }
 
 function MembersPanel({ organization }: { organization: Organization }) {

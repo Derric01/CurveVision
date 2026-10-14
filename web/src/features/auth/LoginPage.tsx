@@ -4,7 +4,7 @@ import { api } from "@/api/client";
 import type { SignInOptions } from "@/api/types";
 import { useSession } from "@/store/session";
 import { Button, ErrorNotice, Input } from "@/ui/primitives";
-import { keepState } from "./sso";
+import { keepState, keepVerifier, newVerifier } from "./sso";
 
 /** What a server too old to say offers: the password form, as it always did. */
 const PASSWORDS_ONLY: SignInOptions = {
@@ -44,6 +44,21 @@ export function LoginPage() {
       // Checked when the provider sends the browser back (`SsoCallback`).
       keepState(started.state);
       window.location.assign(started.authorization_url);
+    } catch (error) {
+      setSsoProblem(error);
+      setBusy(false);
+    }
+  }
+
+  async function signInWithSaml() {
+    setSsoProblem(null);
+    setBusy(true);
+    try {
+      const { verifier, hash } = await newVerifier();
+      const started = await api.samlStart(hash, "/");
+      // Only this tab can finish it: the callback needs the verifier (`SsoCallback`).
+      keepVerifier(verifier);
+      window.location.assign(started.url);
     } catch (error) {
       setSsoProblem(error);
       setBusy(false);
@@ -102,17 +117,30 @@ export function LoginPage() {
           </p>
         </div>
 
-        {options.sso && (
+        {(options.sso || options.saml) && (
           <div className="panel mb-4 space-y-3 p-6">
-            <Button
-              variant="primary"
-              className="w-full"
-              disabled={busy}
-              onClick={() => void signInWithSso()}
-              data-sso-start=""
-            >
-              Sign in with {options.sso_name ?? "single sign-on"}
-            </Button>
+            {options.sso && (
+              <Button
+                variant="primary"
+                className="w-full"
+                disabled={busy}
+                onClick={() => void signInWithSso()}
+                data-sso-start=""
+              >
+                Sign in with {options.sso_name ?? "single sign-on"}
+              </Button>
+            )}
+            {options.saml && (
+              <Button
+                variant={options.sso ? "secondary" : "primary"}
+                className="w-full"
+                disabled={busy}
+                onClick={() => void signInWithSaml()}
+                data-saml-start=""
+              >
+                Sign in with {options.saml_name ?? "SAML single sign-on"}
+              </Button>
+            )}
             {ssoProblem != null && <ErrorNotice error={ssoProblem} />}
           </div>
         )}

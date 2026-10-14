@@ -1,0 +1,139 @@
+[
+  {
+    "datumaro_id": "datumaro",
+    "name": "Datumaro",
+    "shape_types": [
+      "rectangle",
+      "polygon",
+      "polyline",
+      "points",
+      "ellipse",
+      "mask"
+    ],
+    "tags": true,
+    "attributes": true,
+    "becomes": {}
+  },
+  {
+    "datumaro_id": "label_me",
+    "name": "LabelMe 3.0 (XML)",
+    "shape_types": [
+      "rectangle",
+      "polygon",
+      "mask"
+    ],
+    "tags": false,
+    "attributes": true,
+    "becomes": {}
+  },
+  {
+    "datumaro_id": "dota",
+    "name": "DOTA",
+    "shape_types": [
+      "rotated_rectangle"
+    ],
+    "tags": false,
+    "attributes": false,
+    "becomes": {}
+  },
+  {
+    "datumaro_id": "camvid",
+    "name": "CamVid",
+    "shape_types": [
+      "mask"
+    ],
+    "tags": false,
+    "attributes": false,
+    "becomes": {}
+  },
+  {
+    "datumaro_id": "voc_segmentation",
+    "name": "Pascal VOC segmentation",
+    "shape_types": [
+      "mask"
+    ],
+    "tags": false,
+    "attributes": false,
+    "becomes": {}
+  },
+  {
+    "datumaro_id": "voc_instance_segmentation",
+    "name": "Pascal VOC instance segmentation",
+    "shape_types": [
+      "mask"
+    ],
+    "tags": false,
+    "attributes": false,
+    "becomes": {}
+  },
+  {
+    "datumaro_id": "coco_panoptic",
+    "name": "COCO panoptic",
+    "shape_types": [
+      "mask"
+    ],
+    "tags": false,
+    "attributes": true,
+    "becomes": {}
+  },
+  {
+    "datumaro_id": "imagenet",
+    "name": "ImageNet (folders)",
+    "shape_types": [],
+    "tags": true,
+    "attributes": false,
+    "becomes": {}
+  },
+  {
+    "datumaro_id": "imagenet_txt",
+    "name": "ImageNet (text)",
+    "shape_types": [],
+    "tags": true,
+    "attributes": false,
+    "becomes": {}
+  },
+  {
+    "datumaro_id": "cifar",
+    "name": "CIFAR",
+    "shape_types": [],
+    "tags": true,
+    "attributes": false,
+    "becomes": {}
+  },
+  {
+    "datumaro_id": "mnist",
+    "name": "MNIST",
+    "shape_types": [],
+    "tags": true,
+    "attributes": false,
+    "becomes": {}
+  },
+  {
+    "datumaro_id": "lfw",
+    "name": "LFW",
+    "shape_types": [],
+    "tags": true,
+    "attributes": false,
+    "becomes": {}
+  },
+  {
+    "datumaro_id": "vgg_face2",
+    "name": "VGGFace2",
+    "shape_types": [
+      "rectangle"
+    ],
+    "tags": true,
+    "attributes": false,
+    "becomes": {}
+  },
+  {
+    "datumaro_id": "wider_face",
+    "name": "WIDER FACE",
+    "shape_types": [
+      "rectangle"
+    ],
+    "tags": true,
+    "attributes": false,
+    "becomes": {}
+  }
+]

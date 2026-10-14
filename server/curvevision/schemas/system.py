@@ -178,6 +178,23 @@ class WebhookCreated(WebhookOut):
     secret: str
 
 
+class WebhookDeliveryOut(ORMModel):
+    """One delivery as an integrator debugging their receiver needs it. Not its body."""
+
+    id: uuid.UUID
+    event: str
+    #: The receiver's answer to the last attempt; null when nothing answered.
+    status_code: int | None = None
+    #: What went wrong on the last attempt: the receiver's reply, or why nothing reached it.
+    error: str | None = None
+    attempts: int
+    #: Set by a 2xx, and only by one.
+    delivered_at: datetime | None = None
+    #: Whether it has not succeeded and will be attempted again.
+    retrying: bool = False
+    created_at: datetime
+
+
 # ---------------------------------------------------------------------------- models
 
 
@@ -358,3 +375,20 @@ class GroundTruthJobIn(StrictModel):
     start_frame: int | None = Field(default=None, ge=0)
     stop_frame: int | None = Field(default=None, ge=0)
     assignee_id: uuid.UUID | None = None
+
+
+class TeamServerCheckIn(StrictModel):
+    """An address a person typed, to be checked before the desktop window switches to it."""
+
+    address: str = Field(min_length=1, max_length=2000)
+
+
+class TeamServerCheckOut(StrictModel):
+    """Whether an address is a CurveVision team server the desktop window can show."""
+
+    ok: bool
+    #: The server's origin, after any redirect (`http` to `https`, usually). Set when `ok`.
+    url: str | None = None
+    version: str | None = None
+    #: What is wrong, in a sentence for the person who typed the address. Set unless `ok`.
+    reason: str | None = None

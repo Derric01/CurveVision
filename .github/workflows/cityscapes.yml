@@ -1,0 +1,61 @@
+# CurveVision's Cityscapes export, drawn by cityscapesScripts and read by Datumaro.
+#
+# `scripts/verify_cityscapes.py` has cityscapesScripts — the dataset's own tools — draw the
+# label, training-id, colour and instance images from every exported polygons file, and
+# requires each to equal the image exported beside it, pixel for pixel; imports instance
+# images cityscapesScripts drew; and has Datumaro read the export.
+#
+# Not in `ci.yml`: Datumaro brings a scientific stack for code that changes rarely. The core
+# suite holds the format to the same rules (`test_formats_cityscapes.py`); this job is the
+# real tools, run whenever a format changes, weekly against their latest releases, and on
+# demand. Neither is a dependency of CurveVision; both are installed here only to check
+# our files.
+name: Cityscapes
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'server/curvevision/formats/**'
+      - 'scripts/verify_cityscapes.py'
+      - '.github/workflows/cityscapes.yml'
+  pull_request:
+    paths:
+      - 'server/curvevision/formats/**'
+      - 'scripts/verify_cityscapes.py'
+      - '.github/workflows/cityscapes.yml'
+  schedule:
+    # Mondays 05:20 UTC: catches a release that changes what either tool reads.
+    - cron: '20 5 * * 1'
+  workflow_dispatch:
+
+concurrency:
+  group: cityscapes-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  draw-and-read:
+    name: Our Cityscapes files drawn by cityscapesScripts and read by Datumaro
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.11'
+          cache: pip
+          cache-dependency-path: server/pyproject.toml
+
+      - name: Install the server, cityscapesScripts and Datumaro
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e "server[media]"
+          pip install cityscapesscripts datumaro
+
+      - name: Draw and read
+        run: python scripts/verify_cityscapes.py

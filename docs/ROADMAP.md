@@ -60,7 +60,7 @@ application — and produce a real dataset with it.
 | Adding a model from the application | **Done** — a Models page: paste an endpoint and its API key, *Connect* asks the endpoint what it serves (`GET <endpoint>/models`, which nothing called until iteration 61), and the model's kind and labels are filled in from the answer. A wrong key or a dead endpoint is reported before anything is saved. Driven end to end in a browser against a real model server, through to the key and the model's id arriving with an inference request |
 | Dataset versions with immutable releases | **Done** — a release freezes its annotations (until iteration 66 it kept only a hash, and "exporting a release" read the current project); create, release and download any version in any format from the project page |
 | REST API and API tokens | **Done** — tokens minted and revoked from the *Workspace* page |
-| Webhooks with HMAC signing | **Done** — delivery is signed, and a failure that is worth retrying is retried with capped exponential backoff and jitter, up to 5 attempts. A 4xx is not retried: the receiver understood and said no, so repeating it cannot change the answer. A retry resends the same `delivery_id` and bytes, so a receiver can deduplicate |
+| Webhooks with HMAC signing | **Done** — delivery is signed, and a failure that is worth retrying is retried with capped exponential backoff and jitter, up to 5 attempts. A 4xx is not retried: the receiver understood and said no, so repeating it cannot change the answer. A retry resends the same `delivery_id` and bytes, so a receiver can deduplicate. **Until iteration 96 no event was ever sent** — nothing queued a delivery — so this row was a false Done for a long time; events are now emitted and each one is tested arriving signed at a receiver, with a ping and a recent-deliveries list for integrators. Managed from the Workspace page since iteration 97 — add, choose events, *Send a test*, pause, delete, recent deliveries — driven in a browser against a receiver that checks every signature (`scripts/verify_webhooks.py`) |
 | Video annotation | **Done** — a video task is annotatable; frames are served from chunks decoded one pass at a time (17× fewer decodes when stepping through frames; see the implementation plan for the measurements), the editor fetches a chunk rather than 36 frames, and **chunks are built when the video is uploaded** rather than by whoever opens the task first. A missing chunk still falls back to decoding one frame, so a frame is never unavailable, only slower |
 | Track editing UI (keyframe timeline) | **Done** — the timeline shows every track's keyframes and where it is present, `,`/`.` step between them, `K` adds or removes a keyframe, `O` marks where the object leaves, and a keyframe can be **dragged along its lane** to another frame, keeping its geometry. A drop onto an occupied frame is refused rather than merged. A tracked object **moved on the canvas** becomes a keyframe on that frame, and deleting it deletes the track — until iteration 53, either one broke every save for the rest of the session |
 | Intelligent scissors (edge-snapping boundaries) | **Done** — live-wire, implemented directly rather than by loading a ~10 MB OpenCV build; see [ADR 0009](./adr/0009-intelligent-scissors.md) |
@@ -87,12 +87,12 @@ Beta named is finished, and the label waits for use.
 | OpenTelemetry tracing | **Done** — requests, SQL, outbound HTTP and jobs, to any OTLP collector |
 | Content scanning (ClamAV) | **Done** — `content_scanner = "clamd"`, tested against a real clamd in CI |
 | OIDC single sign-on | **Done** — Keycloak, Okta, Entra ID, Google, Authentik…; driven in a browser in CI |
-| SAML single sign-on | **Planned** |
-| Kubernetes Helm chart | **Done** — `deploy/helm/curvevision`, linted and schema-validated in CI; not yet installed into a live cluster in CI |
+| SAML single sign-on | **Done** — iteration 91: SP-initiated Web SSO through python3-saml, assertions signed and checked, each sign-in tied to the browser tab that began it; tested against signed, forged, tampered, wrapped, misdirected, expired and unsolicited responses. Single logout not implemented |
+| Kubernetes Helm chart | **Done** — `deploy/helm/curvevision`, linted and schema-validated, and installed into a live `kind` cluster and used on every CI run (iteration 83). That first install found the chart had never started: list settings set as text crashed every pod, and the worker sent and consumed no job — both fixed in iteration 85. Since iteration 93 it makes its own bucket on install (`storage.s3.createBucket`, on by default), and CI's S3 starts with none |
 | Backup and restore tooling | **Done** — `curvevision-server backup` / `restore`, either shape, across databases, restored in CI |
 | TypeScript client package | **Done** — `sdk/typescript` (`@curvevision/client`), typed from the server's schema and tested against a real server in CI. **Publishing to npm needs the maintainers' account**: a manual workflow is ready for an `NPM_TOKEN` |
-| Additional formats: LabelMe, Open Images, TFRecord, Cityscapes | **Planned** — KITTI, MOTChallenge, CVAT XML and segmentation masks shipped ahead of this list |
-| Datumaro bridge for the long tail of formats | **Planned** |
+| Additional formats: LabelMe, Open Images, TFRecord, Cityscapes | **Done** — all four both ways, each held in CI to a reader written by other people: **LabelMe (JSON)** (iteration 86) read and written by labelme's own code; **Cityscapes** (87) every label image identical to cityscapesScripts' own drawing, and read by Datumaro; **Open Images (CSV)** (88) read and written by Datumaro; **TFRecord** (89) written without TensorFlow, read by TensorFlow with the Object Detection API's own feature specification and by Datumaro. KITTI, MOTChallenge, CVAT XML and segmentation masks shipped ahead of this list |
+| Datumaro bridge for the long tail of formats | **Done** — iteration 90 ([ADR 0011](./adr/0011-datumaro-bridge.md)): with the optional `datumaro` extra, fourteen more formats (ImageNet, CIFAR, MNIST, LFW, VGGFace2, WIDER FACE, DOTA, CamVid, Pascal VOC segmentation layouts, COCO panoptic, LabelMe 3.0, Datumaro's own). What each carries is measured by round-tripping every shape type through it, and re-measured in CI |
 | An external security review | **Planned** |
 
 We will not call a release 1.0 until backup/restore is documented and tested, and the
@@ -109,8 +109,8 @@ Directions we believe in, without commitment:
 * **Model-assisted labelling loops** — train on accepted work, re-run, measure whether
   suggestions are getting better. The `source` provenance chain (`model` →
   `model_corrected`) exists precisely to make this measurable.
-* **Interactive segmentation** — click-to-segment via the `interactor` model kind, which
-  the contract already accommodates.
+* ~~**Interactive segmentation**~~ — shipped in iteration 98: the editor's *Outline* tool
+  sends clicks to an `interactor` model and keeps its outline.
 * **Dataset analytics** — annotation quality over time, inter-annotator agreement,
   per-annotator throughput and drift.
 * **Distributed processing** — parallel frame extraction and export for very large datasets.
@@ -140,9 +140,11 @@ Redis and no object store.
 | The editor served by the app itself, same-origin with its API | **Done** |
 | Frontend reads the injected connection and skips sign-in | **Done** |
 | Open-folder and choose-files flows wired to the shell's native pickers | **Done** — *Add media from this computer* and File ▸ Open Folder… call the folder picker; a second button calls the file picker for individual files, one `local-import` call per file, a failed one reported without aborting the rest |
-| Signed installers for macOS and Windows, built per platform in CI | **Planned** |
-| Auto-update | **Planned** |
-| Pointing the desktop app at a shared team server | **Planned** — the app is already same-origin-agnostic; this is UI work |
+| Installers built per platform in CI (`.deb`, `.rpm`, `.AppImage`, `.dmg`, NSIS `.exe`) | **Done, unsigned** — the `.deb` is installed and its server used on every run |
+| Code signing for macOS and Windows | **Blocked** — needs the project's certificates |
+| The real application driven in CI over WebDriver (Linux) | **Done** — it found that the shell's commands had never been granted, so the native pickers never worked in a built app; fixed in iteration 85. Since iterations 94–95 the native menu and the system's folder and file dialogs are driven too, at the keyboard (`xdotool`) |
+| Auto-update | **Done, unreleased** — wired and tested to the refusal of a bad signature; real updates need the maintainers' key and a release |
+| Pointing the desktop app at a shared team server | **Done** — the team server opens in a window of its own, with no access to the shell and none of this computer's credentials |
 
 Explicitly **not** a second implementation of the product: the shell is ~450 lines of Rust
 whose whole job is starting a child process and opening native dialogs. The editor, the API
@@ -161,8 +163,9 @@ deciding whether to adopt this needs them more than they need the roadmap.
 
 * **No 3D or point-cloud annotation.** No LiDAR, no cuboids in 3D. Not close, and not
   planned for 1.0.
-* **Eleven dataset formats**, not thirty-three. COCO, YOLO (detection, segmentation, OBB,
-  pose, classification), Pascal VOC, KITTI, MOTChallenge, CVAT XML, segmentation masks and
+* **Fifteen dataset formats**, not thirty-three. COCO, YOLO (detection, segmentation, OBB,
+  pose, classification), Pascal VOC, KITTI, MOTChallenge, CVAT XML, LabelMe, Cityscapes,
+  Open Images, TFRecord, segmentation masks and
   the lossless native format, each declaring honestly what it can represent. The mature tool in this space ships 33 exporters; most of the remainder
   are single-dataset conventions (LFW, VGGFace2, Market-1501, ICDAR, WiderFace) that matter
   to whoever needs them and to nobody else. The registry takes plugins through entry points,
@@ -177,8 +180,10 @@ deciding whether to adopt this needs them more than they need the roadmap.
   was measured rather than guessed at, and the worst realistic ground truth finishes in a few
   seconds. The unused `quality` queue would have hidden the real cost, which was a quadratic
   matcher, not the request path.
-* **No signed installers.** The desktop app builds and runs from source; `.dmg`, `.msi` and
-  `.AppImage` need one CI runner per platform and are not built yet.
+* **No signed installers, and no published release.** CI builds an installer per platform
+  (`.deb`, `.rpm`, `.AppImage`, `.dmg`, `.exe`) and keeps them as workflow artifacts, but
+  they are unsigned: macOS makes a person open the app from System Settings, and Windows
+  SmartScreen warns. Signing needs certificates the project does not have.
 * **Young.** This has not been through years of production use across many organisations.
   Anyone choosing an annotation platform for critical work today should weigh that
   seriously — the README says so too, and it is the honest reason to prefer something older

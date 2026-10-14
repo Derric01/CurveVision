@@ -67,7 +67,7 @@ jobs:
         working-directory: server
         run: |
           python -m pip install --upgrade pip
-          pip install -e ".[dev,media,desktop]"
+          pip install -e ".[dev,media,desktop,saml]"
           pip install playwright
 
       - name: Install Chromium
@@ -133,12 +133,20 @@ jobs:
               scripts/verify_save_refusals.py
               scripts/verify_crash_recovery.py
               scripts/verify_tracked_skeleton.py
+              # Click-to-segment, against a model server the script runs: the real server shape.
+              scripts/verify_interactor.py
               # Also starts the real server (uvicorn on SQLite, serving `web/dist`): the
               # desktop build has one person and no registration, and members need several.
               scripts/verify_workspace.py
               # The real server too, signing in through an OpenID Connect provider the
               # script runs itself.
               scripts/verify_sso.py
+              # ...and through a SAML identity provider the script runs itself.
+              scripts/verify_saml.py
+              # The real server again, delivering to a webhook receiver the script runs.
+              scripts/verify_webhooks.py
+              # The packaged server and a team server: the desktop window switching to it.
+              scripts/verify_team_server.py
             )
           fi
 

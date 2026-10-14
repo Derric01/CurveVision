@@ -1,0 +1,62 @@
+# CurveVision's TFRecord export, read by TensorFlow and Datumaro — and Datumaro's, by us.
+#
+# CurveVision writes TFRecord's framing, its CRC-32C and the tf.train.Example protocol buffer
+# by hand, with neither TensorFlow nor protobuf. `scripts/verify_tfrecord.py` has TensorFlow
+# read every record (verifying each checksum) and parse it with the Object Detection API's
+# own feature specification, decode the image and every mask; has Datumaro read the export;
+# and imports what Datumaro's exporter writes through TensorFlow's own writer.
+#
+# Not in `ci.yml`: TensorFlow is a large install for code that changes rarely. The core
+# suite pins the framing, the encoding (byte for byte against protobuf's) and the format
+# (`test_formats_tfrecord.py`); this job is the real readers, run whenever a format
+# changes, weekly against their latest releases, and on demand. Neither is a dependency of
+# CurveVision; both are installed here only to check our files.
+name: TFRecord
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'server/curvevision/formats/**'
+      - 'scripts/verify_tfrecord.py'
+      - '.github/workflows/tfrecord.yml'
+  pull_request:
+    paths:
+      - 'server/curvevision/formats/**'
+      - 'scripts/verify_tfrecord.py'
+      - '.github/workflows/tfrecord.yml'
+  schedule:
+    # Mondays 05:40 UTC: catches a release of either that changes what it reads or writes.
+    - cron: '40 5 * * 1'
+  workflow_dispatch:
+
+concurrency:
+  group: tfrecord-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  read-and-write:
+    name: Our TFRecord files in TensorFlow and Datumaro, and Datumaro's in ours
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.11'
+          cache: pip
+          cache-dependency-path: server/pyproject.toml
+
+      - name: Install the server, TensorFlow and Datumaro
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e "server[media]"
+          pip install tensorflow-cpu datumaro
+
+      - name: Read and write
+        run: python scripts/verify_tfrecord.py

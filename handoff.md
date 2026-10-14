@@ -5,10 +5,10 @@
 > [`AGENTS.md`](./AGENTS.md) first; it is the working contract. Update this file after every
 > iteration, including the ones that mostly failed.
 >
-> **Last updated:** 2026-10-13 (iteration 82) · branch `claude/start-work-yx080h` · PRs
-> [#1](https://github.com/Derric01/CurveVision/pull/1)–[#34](https://github.com/Derric01/CurveVision/pull/34)
-> **all merged**, #34 carrying iterations 67–69. Iterations 70–82 are pushed on top of
-> that merge with no PR yet.
+> **Last updated:** 2026-10-14 (iteration 98) · branch `claude/start-work-yx080h` · PRs
+> [#1](https://github.com/Derric01/CurveVision/pull/1)–[#36](https://github.com/Derric01/CurveVision/pull/36)
+> **all merged**. Iterations 84 (the rest) to 98 are
+> [#37](https://github.com/Derric01/CurveVision/pull/37).
 >
 > *Two things worth knowing about this repository's PR rhythm, which replace the
 > PR-by-PR changelog that used to sit here and had stopped helping anybody.* **PRs are
@@ -22,7 +22,7 @@
 > **Keep the session short.** One iteration, then commit, push, update this file and report —
 > `AGENTS.md` § *Continue* and the `start-work` skill both say so now, because they did not
 > before and a single session ran six iterations and roughly a third of a week's budget. The
-> concrete costs, in rough order: re-reading this file (iterations 1–76 now live in
+> concrete costs, in rough order: re-reading this file (iterations 1–92 now live in
 > [`docs/iterations/ARCHIVE.md`](./docs/iterations/ARCHIVE.md), which cut it from 3,800
 > lines to 1,000 — keep it that way); `python desktop/sidecar/build.py`, which is a
 > PyInstaller run of a minute or two and is needed *again* for every sabotage-and-restore
@@ -36,18 +36,21 @@
 
 CurveVision is a working annotation platform in **two shapes from one codebase**: a desktop
 application and a server. The manual annotation path is complete end to end — create a
-project and label schema, add media, draw, review, export to any of eleven formats — and
+project and label schema, add media, draw, review, export to any of fifteen formats — and
 is tested. The exporters cover COCO, CVAT XML, Pascal VOC, KITTI, MOTChallenge, indexed
 segmentation masks, the lossless native format, and the Ultralytics YOLO family in four
 shapes (detection/segmentation, OBB, pose, classification), each declaring in its
 `capabilities` exactly what it cannot carry rather than dropping it silently.
 
 The desktop shape works: a packaged single-executable server, a Tauri shell that supervises
-it, and folders annotated in place without copying a byte.
+it, folders annotated in place without copying a byte, installers built on Linux, macOS and
+Windows (unsigned), and a switch to a team's shared server. Since iteration 85 the **real**
+application is driven in CI over WebDriver — which found that the shell had never granted
+its commands, so the native pickers had never worked in a built app until then.
 
-**The tree is green.** `./scripts/check.sh` passes all fifteen steps: 774 server tests, 16
-SDK, 771 web, and `scripts/` is lint-clean under its own `ruff.toml`. Thirty-two browser
-harnesses drive the application in a real Chromium, nightly and on every push to `main` —
+**The tree is green.** `./scripts/check.sh` passes all fifteen steps: 927 server tests (the
+PostgreSQL and S3 ones skip without a server; CI provides both), 16 SDK, 775 web, and
+`scripts/` is lint-clean under its own `ruff.toml`. Thirty-four browser harnesses drive the application in a real Chromium, nightly and on every push to `main` —
 thirty-one against the packaged desktop server, and `verify_workspace.py` against the real
 server too — and **all thirty-two pass on GitHub's runners** (iteration 70, run
 38282080179: the first green `browser.yml` since 10-08). (Iteration 52 arrived to a red tree — mypy 2 — and fixed it first.)
@@ -450,8 +453,8 @@ than dropped — which is what keeps `yolo_pose`'s positional triples lined up �
 are drawn. That closes the last case of the platform exporting a dataset shape it could not
 produce.
 
-Honestly incomplete, and marked as such everywhere: signed desktop installers, blocked
-outside the repository, and a reference model server, which needs a repository this session
+Honestly incomplete, and marked as such everywhere: *signed* desktop installers, blocked
+outside the repository (unsigned ones are built on every platform since iteration 84), and a reference model server, which needs a repository this session
 cannot create. Everything else this paragraph has named over the last several iterations —
 the mask brush, the resumable upload's SDK, CLI and browser clients, and the reviewer's
 queue — is finished, in iterations 37, 43 and 47 respectively.
@@ -504,34 +507,37 @@ was the last unconnected piece of the desktop application.
 
 ## Next best action
 
-*A TypeScript client package, iteration 82; single sign-on through OpenID Connect, 81; a Helm chart, 80; backup and restore, either shape and across databases, 79; OpenTelemetry tracing, 78; uploads scanned by ClamAV, 77; a rate limit shared by every server instance through Redis, and Phase 12's markers made true, iteration 76; a default the server fills in is stored typed, 75; Submit checks what its own save achieved, 74. No edit made during a save is lost any more — to a new object while its first save is in
-flight, or to any object while a save that then fails is — and the editor always fits the
-frame it opens on, iteration 73; a backup that
-restores what it holds, and tracks that keep their keyframes through CVAT XML and the
-native format, 72; CVAT XML tracks read as CVAT reads them, 71.*
+*Click-to-segment with an interactor model, 98. Webhooks on the Workspace page, 97; delivering for the first time, and only their own workspace's, 96. The system's file dialogs driven in the real application, 95. The native menu driven at the keyboard, 94. The Helm chart making its own bucket, 93. Desktop auto-update, wired and tested short of the maintainers' key, 92. SAML single sign-on, 91. Every additional format on the 1.0 list — LabelMe, Cityscapes, Open Images, TFRecord — each
+held in CI to a reader written by other people, iterations 86–89; the Datumaro bridge, its
+formats measured, 90. The desktop app on a team server, and the shell's commands granted — the
+pickers had never worked in a built app — iteration 85; desktop installers on every platform, `aiosqlite` made
+a real dependency, Windows shutdown fixed, MinIO replaced by Versity Gateway and the S3
+backend tested for the first time, 84; the Helm chart installed into a live cluster in CI,
+83; a TypeScript client, 82; OIDC sign-on, 81; a Helm chart, 80. Iterations 1–79 are in the
+archive.*
 
-**CI on GitHub**: on this branch `ci.yml`, `ultralytics.yml` and `browser.yml` run only
-when dispatched (or for a PR). All three were green on iteration 72's commit; dispatch them
-on whatever is pushed next.
+**CI on GitHub**: `ci.yml` runs for PRs (and on dispatch); `desktop.yml` for PRs touching
+the desktop and on tags; `browser.yml` and `ultralytics.yml` only when dispatched. All
+are recorded under *Verification performed* for iteration 85's commit.
 
-**Then, with no dependency on the user: the rest of the 1.0 list in `docs/ROADMAP.md`**,
-in this order — each self-contained, each a gap a production operator would hit:
+**The 1.0 list in `docs/ROADMAP.md` is done** except what needs someone else: signing
+certificates, an npm token, real AI keys, an external security review. The additional
+formats shipped in iterations 86–89, the Datumaro bridge in 90, SAML in 91 and the auto-update wiring in 92. What remains
+with no dependency on the user, in order:
 
-1. ~~Content scanning (ClamAV)~~ — done, iteration 77.
-2. ~~OpenTelemetry tracing~~ — done, iteration 78.
-3. ~~Backup and restore tooling~~ — done, iteration 79.
-4. ~~A Helm chart~~ — done, iteration 80 (linted and schema-validated; not yet installed
-   into a live cluster in CI — a `kind` job with in-cluster PostgreSQL, Redis and MinIO
-   would be the proof, and is worth doing).
-5. ~~OIDC sign-on~~ — done, iteration 81. (SAML is not, and nobody has asked.)
-6. ~~A TypeScript client~~ — done, iteration 82; **publishing it to npm is the
-   maintainers'** (an `NPM_TOKEN` secret, then *Publish TypeScript client* by hand).
-
-**Next, with no dependency on the user: install the Helm chart into a real cluster in CI.**
-A `kind` job: build both images, load them, install PostgreSQL, Redis and MinIO in the
-cluster (plain manifests are enough), `helm install` with `--wait`, then register an
-account, create a project and upload an image through the ingress or a port-forward. Until
-it exists, the chart is validated, not proven — and the docs say so.
+1. ~~The desktop webview's storage across launches~~ — done for Linux in iteration 85
+   (check 8 of `verify_desktop_shell.py`); Windows and macOS have no WebDriver bridge.
+2. ~~**The native menu**~~ and ~~**the native dialogs**~~ — driven at the keyboard since
+   iterations 94–95 (`xdotool` under Xvfb). What is left of the desktop is per-platform:
+   macOS's and Windows' webviews and dialogs have no WebDriver bridge, so they are covered
+   by the installer builds and nothing more.
+3. ~~**The Helm chart could run `storage-init`**~~ — done in iteration 93, with the
+   opt-out (`storage.s3.createBucket`) it needed first.
+4. ~~The additional formats on the 1.0 list~~ — done: LabelMe (86), Cityscapes (87), Open
+   Images (88), TFRecord (89), each held in CI to a reader written by other people.
+5. ~~**Auto-update**~~ — wired and tested with a throwaway key in iteration 92; turning it
+   on is the maintainers' (their key pair in the repository's secrets, a release with
+   `latest.json` — `desktop/README.md`, *Releasing an update*).
 
 **First, if a key is available: try iteration 63 against the real services.** Add Claude,
 OpenAI and one OpenRouter vision model on the Models page with real keys, run each on a few
@@ -543,9 +549,8 @@ fakes written from each API's documentation. The likely adjustments are in
 
 
 *The iteration-62 sweep's list of features with an API and no way in through the
-application is down to **webhooks** (iteration 66 did members, dataset versions, renaming
-and deleting, and API tokens). Webhooks are an integrator's feature; a settings panel for
-them is worth doing when someone asks.*
+application is empty since iteration 97: webhooks — which iteration 96 found had never
+delivered anything — are managed from the Workspace page.*
 
 
 *Iteration 61 was chosen over the action below because the user asked whether AI annotation
@@ -570,14 +575,12 @@ server to point at — the first item under* Then, still needing the user.
   part of it needs revisiting. A FastAPI wrapper speaking the documented contract is perhaps
   a day's work; it needs the user's go-ahead because it is a new repository this session has
   no access to create.
-* **Signed installers in CI** — one runner per platform and signing certificates the project
-  does not have.
+* **Code signing** — installers are built on every platform since iteration 84; signing them
+  needs certificates the project does not have.
 
-Past those, the remaining candidates are all 1.0-list infrastructure with no specific gap
-pulling any one of them forward — Redis-backed rate limiting, OpenTelemetry tracing, the
-ClamAV hook, OIDC/SSO, a Helm chart, backup/restore tooling, a published TypeScript client,
-a Datumaro bridge, an external security review. Picking one without a reason beyond "it is
-on the list" is exactly the "next unchecked box" `AGENTS.md` says not to default to.
+The 1.0 list's infrastructure items are done (iterations 76–83). What is left on it is a
+Datumaro bridge and an external security review — the second is not something a session
+can do for itself.
 
 > **How the last two real gaps were found, since both came from the same habit rather than
 > from this list.** Iteration 42 found a docstring that named endpoints which did not exist.
@@ -1019,7 +1022,7 @@ full docs set including seven ADRs.
 | Track keyframe **editing** | Complete: `K` adds or removes a keyframe, `O` marks a departure, a marker can be dragged along its lane, and a tracked object moved on the canvas becomes a keyframe on that frame (Delete deletes the track). Verified in a browser, not only in unit tests. |
 | Pre-building chunks after upload | Done: probing chains the build once the frame numbering is settled, so the first annotator no longer pays the decode. Not fused into one pass — see the iteration note for why that is not available in general. |
 | Surfacing an uncorrected frame count | Complete and driven in a browser. `Asset.frame_count_exact` records whether a count was established by decoding; `GET /tasks/{id}/media` reports it and names the estimated files; the task page warns and offers `POST /tasks/{id}/media/recount`. Both ways a count stays provisional are covered — the declined correction and the file nothing could decode. |
-| Webhooks | Complete: signed delivery, capped exponential backoff with jitter, and a retry policy that distinguishes "the receiver is struggling" from "the receiver said no". |
+| Webhooks | Complete since iterations 96–97 — before 96 nothing was ever sent. Signed delivery, capped exponential backoff with jitter, a retry policy that distinguishes "the receiver is struggling" from "the receiver said no"; twelve events emitted; ping and recent deliveries; a panel on the Workspace page, driven in a browser against a real receiver. |
 | Keypoint (skeleton) tool | Complete and driven in a browser, through to the exported `yolo_pose` rows: joints placed in declared order, `X` skips one, `Enter` finishes early, `Alt`-click marks a joint occluded, and the bones are drawn. |
 | Masks | Stored, **exported** (`cvat_xml` writes CVAT's real mask element and reads it back; `segmentation_mask` paints the pixels), **drawn** — the editor renders the pixels and picks by them — and now **paintable**: the brush creates, grows, shrinks and (by erasing every pixel) deletes one, driven end to end in a browser. Nothing outstanding. |
 | Reviewing suggestions | Complete and measured in a browser: a job-wide count, accept and reject in bulk over shapes, tracks and tags, and an accepted suggestion drawn solid rather than dashed. Per-object accept/reject buttons do not exist — an individual suggestion is accepted by editing it and rejected by deleting it, which is what the editor already does. |
@@ -1045,12 +1048,276 @@ being updated and this one was not. Check it against* Completed *before trusting
    gets a model, but no request has gone to Anthropic, OpenAI or any other real endpoint.
    A trained detector for production volume still needs a model server — no reference one
    exists yet (ADR 0005's separate repositories).
-2. **Signed installers in CI** — *blocked outside the repository*: one runner per platform
-   (PyInstaller does not cross-compile) and signing certificates the project does not have.
+2. **Code signing** — *blocked outside the repository*: installers are built on every
+   platform (iteration 84) but unsigned; signing needs an Apple Developer ID and a Windows
+   code-signing certificate the project does not have.
+3. **Publishing** the TypeScript client to npm (an `NPM_TOKEN` secret) and a first tagged
+   release whose installers are attached — both outward acts under the maintainers' names.
 
 ---
 
 ## Verification performed
+
+Iteration 98:
+
+* `interactorTool.test.ts`, 11 tests: clicks on and off the object become prompts in image
+  pixels; the answer is drawn and Enter keeps it as a model-drawn polygon; a late answer to
+  older clicks does not replace a newer one; Enter while waiting refuses; Backspace re-asks,
+  and the last one clears; a failing model is reported with the clicks kept; another frame
+  starts again; no model says where to add one; Escape drops an answer in flight.
+  `interactorModels.test.ts`, 4: which models qualify, and the outline chosen from an answer.
+* `./scripts/check.sh` all fifteen steps green: 940 server tests, 802 web, 16 SDK.
+* `scripts/verify_interactor.py` in Chromium against the real server and a click-answering
+  model server: 6 checks, all passing. Sabotaged in one build (every click sent as on the
+  object; the kept shape marked manual): the two checks that cover those failed, recorded
+  as failures rather than a crash after making the harness's waits non-fatal.
+
+Iteration 97:
+
+* `scripts/verify_webhooks.py` in Chromium against the real server: 9 checks, every one
+  passing — the secret shown once; *Send a test* reaching the receiver signed with it; a
+  task created through the API arriving as `task.created`, signed; a refusing receiver (401)
+  reported as refusing and sent exactly one attempt; the deliveries listed newest first; a
+  paused webhook sent nothing; an annotator not offered the panel; deletion. Sabotaged (see
+  above): 3 failures, exactly the checks the sabotage breaks. The build was checked before
+  the sabotaged run.
+* `webhooks.test.ts`, 10 tests: the twelve events offered once each, who may manage them,
+  receiver addresses, what each kind of delivery outcome says; the contract check covers
+  the three new types.
+
+Iteration 96:
+
+* `tests/api/test_webhooks.py`, 13 tests. Written first, and failing for the right reasons:
+  a subscriber received `[]` where `['task.created']` was due, and an outsider's webhook
+  naming another workspace's project was created (201). Now: every one of the twelve
+  events reaches a subscriber with a valid signature and its resource; only subscribed
+  events, only the project's own for a project webhook, nothing for a paused one, no job
+  queued when nobody listens, a failing receiver not failing the change; another
+  workspace's project refused, a row stored before the check inert (sabotaged — the
+  workspace condition removed — and it failed), deliveries and ping hidden from outsiders
+  and annotators; a ping answered with the receiver's reply; deliveries newest first.
+* mypy clean; the generated API types regenerated. `./scripts/check.sh` all fifteen steps
+  green: 940 server tests, 777 web, 16 SDK.
+
+Iteration 95:
+
+* `verify_desktop_shell.py`, all 18 checks passing locally; sabotaged (`choose_folder` and
+  `choose_files` returning nothing whatever was chosen) and exactly the two new ones failed.
+  A first attempt at that sabotage did not compile and so tested the unchanged binary —
+  caught because it passed, and redone in a form that compiled. Check a sabotage's build
+  before believing its run.
+* Web lint, types and build; the sidecar rebuilt with the new page.
+
+Iteration 94:
+
+* `verify_desktop_shell.py`, all 16 checks passing locally (Ubuntu 24.04, xdotool 3.20160805,
+  WebKitWebDriver 2.52.6), the two new ones included. Sabotaged — the shell's team-server
+  menu event renamed and *Use This Computer*'s forgetting removed — and exactly those two
+  failed.
+* On GitHub at `2ed6a57`: the WebDriver job, with `xdotool` installed, passed — the
+  menu checks included.
+
+Iteration 93:
+
+* `helm lint` and `helm template` (Helm 3.16.2, built from source here): the hook renders
+  with the S3 settings inline; with `existingSecret`, the credentials come from that Secret;
+  with `createBucket=false`, it is not rendered.
+* The hook's command with exactly the hook's environment — no database, no secret key —
+  against Versity Gateway: "Created bucket curvevision.", exit 0; again, "already exists",
+  exit 0; with credentials the store refuses, the 403 named and exit 1.
+* On GitHub at `2ed6a57`: *Helm chart installs and serves, in kind* passed with S3
+  starting empty — the bucket the upload used was the hook's.
+
+Iteration 92:
+
+* `cargo test` in the shell: 18 tests, including `resolve` each way it can go (built, absent,
+  blank, a release build ignoring the environment, a debug build preferring it) and
+  `a_python_made_signature_verifies`; `cargo clippy --all-targets -D warnings` and `cargo
+  fmt --check` clean.
+* `verify_desktop_shell.py` check 9, in its own launch against a local feed announcing
+  9.9.9: found, offered, a tampered download refused, another key's signature refused —
+  passing every time it was reached; each refusal's message is the one minisign gives for
+  that fault, so neither is a download or parse error passing for a refusal. The whole harness, four local runs: two passed all 14 checks, two hit the
+  check-3 window-swap flake described under *Known issues*, which predates this iteration.
+* `UpdateNotice.test.tsx`: no notice when unconfigured or current, the version and notes
+  when one is offered.
+* `scripts/updater_manifest.py` on a fake release (the three platforms' names as Tauri
+  writes them): the feed names each with its signature; a folder of unsigned files is
+  refused.
+* `./scripts/check.sh`: all fifteen steps green; 927 server tests (16 skip), 16 SDK, 777 web.
+
+Iteration 91:
+
+* `tests/api/test_saml.py`, 23 tests, against assertions signed with xmlsec by a test
+  provider's key: a first sign-in makes an account, the next finds it by NameID though the
+  email changed, an existing account is linked by email, the sign-in page offers it, the
+  metadata names the ACS; refused — unsigned, signed by another key, changed after signing,
+  a second unsigned assertion beside the signed one, the wrong audience, recipient, issuer
+  or destination, expired, unsolicited, answering a request older than ten minutes, a login
+  code without the tab's verifier, a code not made here, garbage; the policy settings; off
+  in the desktop shape. Three sabotages (validation ignored, any verifier accepted,
+  unsolicited accepted) caught by 9, 1 and 1 failures.
+* `tests/api/test_sso.py`, 17 tests, unchanged in substance after the account-linking move
+  (one expectation gained the two new sign-in options).
+* Web: `sso.test.ts` adds the SAML callback and the verifier's hash, recomputed in the test;
+  the generated API types regenerated and the contract check passing.
+* `scripts/verify_saml.py` in Chromium: 5 checks, every one passing. Sabotaged (the tab
+  keeps the wrong verifier) and the sign-in check failed — after a first attempt that
+  proved nothing: a sabotage that broke the build left the previous build in place, and
+  the harness passed against it.
+* `scripts/record_demo.py`: the video recorded; the COCO export it shows holds the six
+  annotations drawn in it.
+* `./scripts/check.sh`: all fifteen steps green; 927 server tests (16 skip: PostgreSQL, S3 and the
+  Datumaro round trips), 16 SDK, 775 web.
+
+Iteration 90:
+
+* `tests/unit/test_formats_datumaro_bridge.py`, 10 tests. Without Datumaro (the core suite):
+  the measured table names real shape types, nothing registers without Datumaro, a bridged
+  format declares what was measured, archive paths outside the archive are refused. With
+  Datumaro 1.13.11 (`datumaro.yml`): every measured format is offered; Datumaro's own format
+  keeps every shape it can hold, with occlusion, z-order, attributes and a mask pixel for
+  pixel; ImageNet folders as image labels; DOTA keeping a rotated box turned the right way;
+  items not in the task reported once; an unreadable dataset a warning. Two sabotages (the
+  rotation's sign, an ellipse built from the wrong corners) each caught.
+* `scripts/datumaro_bridge_probe.py --check`: the table matches a fresh measurement, 14
+  formats bridged.
+* `./scripts/check.sh`: all fifteen steps green; 904 server tests (16 skip: PostgreSQL, S3, and the
+  Datumaro round trips, which run in `datumaro.yml`), 16 SDK, 771 web.
+
+Iteration 89:
+
+* `tests/unit/test_formats_tfrecord.py`, 19 tests: CRC-32C against its published check value
+  and a bitwise reference at every alignment; the framing, and a damaged or cut record
+  refused; the encoding byte for byte against protobuf's own serialisation, every kind round
+  trip (negative and empty included), unpacked repeated values read, a cut message refused;
+  the label map in either quoting, `display_name`; the export's files, image, boxes, flags,
+  masks all-or-none; the import of an export, classes from the label map, sharded file names,
+  and everything unreadable reported while the rest imports.
+* `tests/api/test_import_fidelity.py`: TFRecord through the real import route — which found
+  the float32 noise now rounded away.
+* `scripts/verify_tfrecord.py` with TensorFlow 2.21.0 and Datumaro 1.13.11: 14 checks, every
+  one passing; four sabotages each caught (a broken checksum stops TensorFlow outright).
+  `verify_open_images.py` and the Open Images tests rerun after the shared rasteriser.
+* `./scripts/check.sh`: all fifteen steps green; 894 server tests (10 skip without PostgreSQL or
+  S3), 16 SDK, 771 web.
+
+Iteration 88:
+
+* `tests/unit/test_formats_open_images.py`, 15 tests: the files and the class list without a
+  header, a box normalised to six places with its flags (``-1`` for one never recorded), a
+  model's confidence kept, tags as human and machine image labels, a polygon as the mask it
+  covers and the box around it, a mask round-tripping pixel for pixel and arriving once with
+  its box's flags, safe mask names from names that are not file names; and on import the
+  dataset's own files (MIDs, a header, masks at half resolution naming their box), a label
+  verified absent, machine labels, images not in the task as one warning, and what cannot be
+  read reported while the rest imports.
+* `tests/api/test_import_fidelity.py`: an Open Images archive through the real import route,
+  at the size the task knows each image to be.
+* `scripts/verify_open_images.py` with Datumaro 1.13.11: 16 checks, every one passing; four
+  sabotages each caught, and three more against the unit tests (absent labels read as tags,
+  MIDs left as names, masks not scaled), each caught.
+* `./scripts/check.sh`: all fifteen steps green; 874 server tests (10 skip without PostgreSQL or
+  S3), 16 SDK, 771 web.
+
+Iteration 87:
+
+* `tests/unit/test_formats_cityscapes.py`, 20 tests: the layout and where the image goes,
+  Cityscapes' ids, colours and training ids, which shape wins a pixel, instances numbered per
+  class from 0, a crowd with no number, a licence plate listed and never drawn, boxes and
+  ellipses as their polygons, a mask pixel for pixel, a project's own labels after a
+  background; and on import an export's polygons in their order, the dataset's own names,
+  instance and label-id images as masks of exactly their pixels, `label_colors.txt` names,
+  and everything unreadable reported while the rest imports.
+* `tests/api/test_import_fidelity.py`: a Cityscapes archive through the real import route,
+  one frame from its polygons file and one from its instance image alone.
+* `scripts/verify_cityscapes.py` with cityscapesScripts 2.3.0 and Datumaro 1.13.11: 14
+  checks, every one passing, the module raising no deprecation warning. Sabotaged three
+  ways — instances numbered from 1, the drawing order reversed, a crowd given an instance
+  number — and each caught; the reversed order only on the frame with a mask, which is why a
+  unit test pins it too (and fails under the same sabotage).
+* `./scripts/check.sh`: all fifteen steps green; 858 server tests (10 skip without PostgreSQL or
+  S3), 16 SDK, 771 web.
+
+Iteration 86:
+
+* `tests/unit/test_formats_labelme.py`, 18 tests: each geometry in labelme's terms both
+  ways, a rotated box as its real corners and back, an ellipse that is not a circle as the
+  polygon tracing it, several points as one group, flags, description and tags, masks pixel
+  for pixel, and what cannot be read reported while the rest imports.
+* `scripts/verify_labelme.py` with labelme 6.3.1, 14 checks — every one passing. Sabotaged
+  (the circle written at twice its radius; the mask PNG reversed): each caught, the second
+  only after the test mask was made asymmetric — the first one was symmetric under a 180°
+  turn, so a reversed mask passed for it.
+* `tests/api/test_import_fidelity.py`: a labelme archive through the real import route, and
+  a native archive into a project with none of its labels. Both failed before the route
+  fix and pass after it.
+* `./scripts/check.sh`: all fifteen steps green; 837 server tests.
+* PR #37 on GitHub, `de4bab3`: the LabelMe and Ultralytics workflows green. The WebDriver
+  job on 24.04 failed for the first time — not on anything this iteration touched: check 3
+  asks each window for its address while the shell is closing the local one, and
+  WebKitWebDriver dropped the connection for the dying window. `_shows` took an HTTP error
+  as "not this window" but let a dropped connection end the run; it now takes both.
+
+Iteration 85:
+
+* PR #37 on GitHub, `50bba3d`: CI green — including the compose stack brought up and used
+  end to end (the first time), the `helm-install` kind job, and the server suite with
+  PostgreSQL and S3; the installers built on macOS, Windows and Linux. The WebDriver
+  harness, then still a step of the 22.04 installer job, failed there as described under
+  iteration 85; its own 24.04 job's result is recorded in the next session's notes if not
+  here.
+* `tests/unit/test_settings_from_environment.py`, `tests/unit/test_s3_presigning.py`,
+  `tests/api/test_dramatiq_broker.py` (fresh interpreters, as the worker and the API
+  start; the enqueue test against real Redis) and the fresh-process backup test in
+  `tests/api/test_backup.py`: each failed before its fix, as the deployment had.
+* `scripts/helm_smoke.py` against a server with a real Dramatiq worker on Redis here: the
+  queued job finished, nothing in the worker's log.
+* `tests/api/test_team_server_check.py`, 26 tests: addresses as a person types them become
+  origins, and what is not a web address (or carries a password) is refused before anything
+  is fetched; a team server is recognised with its version, a redirect to https is followed
+  and remembered, another desktop installation, a server whose database is down, something
+  that is not CurveVision, nothing answering and an untrusted certificate each get their
+  own sentence; the route is 404 on a shared server and needs the installation's
+  credential.
+* Rust (`cargo test`, 13): the address rules, the choice surviving a restart and a damaged
+  file meaning this computer, the credential script guarded by origin, the capability
+  granting every command to the local window and only to it, and the server stopped by
+  end-of-file rather than killed. `cargo clippy -D warnings` and `cargo fmt --check` clean.
+* `scripts/verify_team_server.py`, 11 checks, against the packaged server and a team server.
+  Sabotaged (the desktop installation accepted; the typed address handed to the shell):
+  3 checks failed, then green again after restoring and rebuilding.
+* `scripts/verify_desktop_shell.py`, 10 checks, the **built shell** over WebDriver under
+  Xvfb. First run: `invoke('connection')` refused, "not allowed" — the bug this iteration
+  fixed. After the fix, all nine pass. Sabotaged (the capability granted to the team window
+  too; a payload injected into it): the two isolation checks failed, and the output showed
+  the team server's page reading this computer's token through the shell.
+* Check 8, added after: IndexedDB written in the first launch and read back in the third,
+  on this computer's origin. Sabotaged (the webview's data folder removed between
+  launches): that check failed, and only that one.
+
+Iteration 84:
+
+* The installers workflow on GitHub, on `dad342d`: `.deb`/`.rpm`/`.AppImage`, `.dmg` and
+  the NSIS `.exe` all built; the `.deb` installed, its server started, the health check in
+  local mode and the editor's HTML read from it. The two runs before were red on all three
+  platforms (`aiosqlite` missing) and then on Windows (the orphaned server) — both fixed.
+* `tests/unit/test_packaging.py` pins the default database's driver to the required
+  dependencies.
+* Versity Gateway v1.8.0 built from source here (`go install`): `tests/api/test_s3_storage.py`
+  (storage-init creating the bucket and saying so again; put, get, stream, a presigned URL
+  fetched as is, append, delete) passes against it, and `scripts/helm_smoke.py`'s whole
+  flow passes against a server on S3 through it, with the gateway's metadata in a sidecar
+  directory.
+
+Iteration 83:
+
+* `scripts/helm_smoke.py` against a real server here. On GitHub, on `50bba3d`: the
+  `helm-install` job green — every pod ready, the release used through its web service
+  (sign-up, an image uploaded and read back, an annotation exported as COCO, a background
+  job run by a worker), a backup from inside the cluster, `helm upgrade`. It took five
+  runs and found five bugs to get there; see iteration 85's *Deployments that had never
+  started*.
 
 Iteration 82:
 
@@ -1602,6 +1869,13 @@ Iteration 54:
 
 ## Bugs fixed
 
+* **No webhook had ever received an event** (iteration 96). The signing, the retry policy
+  and the `webhook.dispatch` job were built and unit-tested, and no code queued the job, so
+  the roadmap's *Done* was false. Twelve events are now emitted from the routes that make
+  the changes. Found while planning a webhooks screen, by asking what it would show.
+* **A webhook could name another workspace's project** (iteration 96), and would have
+  received everything that project did, had anything been sent. Refused on creation;
+  matched on the workspace on delivery.
 * **A server run as several instances let a client through once per instance** (iteration
   76): the only rate limiter counted in each process. Redis now backs it when configured.
 * **A default the server filled in was stored as a string** (iteration 75): a checkbox's
@@ -1767,6 +2041,24 @@ Iteration 54:
 
 ## Known issues
 
+* **WebKitWebDriver drops connections** (2.52.6 here; the CI runner's too). Around a window
+  opening or closing, and during a long-held asynchronous script, it closes the HTTP
+  connection without answering. `verify_desktop_shell.py` crashed on it: check 3 locally
+  (iteration 92), a poll after a relaunch, and check 9 in CI on `efc528f` (iteration 96's
+  push), mid `install_update`. Iteration 97 made the harness tolerate it rather than retry
+  whole runs: shell commands are started by one short request and collected by polls
+  (`invoke`), and a poll whose connection drops counts as "not yet" (`until`). Before: 2
+  crashes in 4 local runs. After: 6 runs of 6 clean. A session that has really gone still
+  fails, as a check with its reason. If a new check crashes the same way, it is holding a
+  request open or polling outside `until`.
+* **Datumaro 1.x reads Cityscapes differently from the dataset** (iteration 87). It takes
+  `instanceIds` values as class ids, where the dataset (and cityscapesScripts, and this
+  export) write class x 1000 + instance, so it finds no car or person in real Cityscapes
+  instance images; it reads `labelTrainIds` first when present, which is why the export
+  writes one for every project; and it skips label index 0, which in its training-id map is
+  the road, so it reads no road from anyone's files. Its `label_colors.txt` reader keeps only
+  the first word of a name, so a project label with a space (`wooden crate`) reaches
+  Datumaro truncated. This project's reader handles all four.
 * **YOLO Pose writes `flip_idx` only when joint names say left and right** (iteration 67).
   A skeleton named `hand1`/`hand2` gets none, and Ultralytics then trains without flip
   augmentation — slower to generalise, never wrong. Naming joints `left_…`/`right_…` fixes it.
@@ -1806,11 +2098,27 @@ Iteration 54:
 * **The Models page opens on the first workspace** when there are several, not on the one
   last used; a picker switches it.
 
-* **The Tauri webviews' storage across launches is not verified.** Recovery in the
+* **The webviews' storage across launches is verified on Linux only.** Recovery in the
   desktop shape rests on the webview keeping IndexedDB for an origin from one launch to the
-  next — the default for WebView2, WKWebView and Tauri's WebKitGTK setup, but not run
-  here, where the shell has no display. Everything up to that is verified with the packaged
-  server and a persistent Chromium profile.
+  next. `scripts/verify_desktop_shell.py` (check 8) proves it for WebKitGTK in the built
+  application, and fails when the webview's data folder is removed between launches;
+  WebView2 (Windows) and WKWebView (macOS) have no WebDriver bridge in Tauri and remain
+  the platform default, unverified here.
+* **WebDriver on Ubuntu 22.04 (WebKitGTK 2.50) dropped its session** two runs in three, a
+  moment after the shell closed a window; tauri-driver reported the WebKit driver
+  resetting the connection, and the shell printed no panic. On 2.52 it has never
+  happened, so the harness runs on 24.04. Unknown: whether the shell itself misbehaves on
+  22.04 when it swaps windows. Iteration 86 saw the same reset once on 2.52, and it was the
+  harness probing the window being closed (now tolerated) — so the 22.04 failures may have
+  been that too; unproven until the harness runs there again. Iterations 88 and 89 met the
+  same reset at the other end, ending a session (the application closing as WebKitWebDriver
+  answers); `quit()` now takes a dropped connection as the session over, and the checks
+  after each quit still establish that the application stopped. Worth checking by hand on a 22.04 desktop: connect to a team
+  server and back a few times.
+* **The native menus are driven by no test.** WebDriver cannot click them; *Use This
+  Computer* shares `switch_to_local` with the code the WebDriver harness does exercise.
+* **The desktop installers are unsigned** (iteration 84): macOS asks the person to open the
+  app from System Settings, and Windows SmartScreen warns.
 * **Until an offer is restored or discarded, new work is not copied**: rewriting the copy
   would replace what was found. New work still saves every four seconds; what is lost to a
   crash in that window is at most what failed to save meanwhile.
@@ -1948,90 +2256,147 @@ Iteration 54:
 
 ## Last iteration
 
-### 82 — a TypeScript client package
+### 98 — click an object, a model outlines it
 
-The last code item on the 1.0 list. `sdk/typescript` is `@curvevision/client`: a thin
-wrapper over `openapi-fetch` (its only runtime dependency) with every path, body and
-response typed from the server's schema, a bearer token (or a function returning one), and
-problem documents thrown as a typed error. Its types come from the generator the web
-application uses, checked against the server in CI, and its tests run against a real
-server. Not published: that is an outward act under the maintainers' npm account, and a
-manual workflow waits for their token.
+The roadmap's *Future* named interactive segmentation, and everything below the editor was
+there: the inference contract carried `prompts` for `interactor` models, the route took
+them, `persist: false` returned predictions without storing them. Nothing sent a click; the
+auto-annotate panel listed interactor models only to say it could not run them.
 
-Verified: see *Verification performed*.
+The *Outline* tool (`I`, `canvas/interactor.ts`), after CVAT's interactors: left-click the
+object, right-click (or Alt-click) what is not it; after each click the model's outline is
+redrawn, and Enter keeps it as a polygon with `source = "model"` and no confidence — the
+pair an accepted suggestion carries. Model answers arrive after the click that asked, and a
+later one can arrive first, so requests are numbered and only the newest answer is shown;
+an answer for clicks taken back (Backspace), for a cancelled outline, or for another frame
+is dropped. The engine gained `setInteractor` and a `deliver` callback for results that come
+later than the event that caused them, applied only while the asking tool is still active.
+The editor asks the workspace's active interactor (a picker when there are several) for the
+frame on screen. Prompt shape documented in `docs/API.md`: `{"positive": [[x, y]],
+"negative": [[x, y]]}`, answered with a polygon.
 
-## Iteration 81
-
-### 81 — single sign-on through OpenID Connect
-
-The largest item left on the 1.0 list, and the third false claim found this session: the
-docs said an `AuthBackend` seam existed; nothing by that name did. `services/oidc.py`
-implements the authorization-code flow with PKCE, the server a confidential client that
-keeps no login state (the signed `state` carries nonce, verifier and destination), and the
-web application checks `state` against what its own tab kept — login CSRF, without a
-cookie. Accounts link by issuer and `sub` (`external_identities`, a migration); a first
-sign-in uses an existing account only through a verified email. The sign-in page asks the
-server what to offer.
+Also: `IMPLEMENTATION_PLAN.md` still listed hosted vendors as *Planned* (iteration 63 built
+them) — corrected.
 
 Verified: see *Verification performed*.
 
-## Iteration 80
+## Iteration 97
 
-### 80 — a Helm chart
+### 97 — webhooks on the Workspace page
 
-The next 1.0 item. `deploy/helm/curvevision`: the API, workers and web application, a
-migration Job as a pre-install/pre-upgrade hook (migrating in every replica at start would
-race), probes on the health check, non-root pods, an optional ingress; PostgreSQL, Redis and
-S3 are the operator's. The web image hard-coded its API as `api:8000`, which only Compose
-can provide; its nginx config is a template now, filled from the environment. The API trusts
-forwarded client addresses in the chart, without which every anonymous visitor would share
-the proxy's rate limit.
+The last feature with an API and no way in through the application. `WebhooksPanel`, shown
+to maintainers and above (the server's floor): add a webhook — its address, what it is
+for, and the events, grouped as a person thinks of them (`webhooks.ts`); the signing secret
+shown once beside a few lines of Python that check it; *Send a test* (the ping), answered
+in place with what the receiver said and what that means; pause and resume; delete, in two
+steps; and the recent deliveries, each with its outcome. The wording follows the retry
+policy: a 4xx is the receiver refusing, which retrying will not change; a 5xx or no answer
+is the receiver struggling. Shaped after CVAT's webhook settings.
 
-Verified: see *Verification performed*.
+`scripts/verify_webhooks.py` drives it in Chromium against the real server and a receiver
+of its own that checks every signature: 9 checks, from the secret shown once to deletion,
+and an annotator not offered the panel. Sabotaged in one build — the form sending the
+default events instead of the ones ticked, and the panel shown to everyone — and the three
+checks those break failed. Added to `browser.yml`.
 
-## Iteration 79
-
-### 79 — backup and restore, either shape, across databases
-
-The next 1.0 item. Backups were two hand-run commands against two systems, for the server
-only, and nothing had ever restored one. `curvevision-server backup` / `restore`
-(`services/backup.py`) write one archive: every row as JSON, in foreign-key order, and every
-stored object a row names, with its SHA-256. Rows as JSON rather than a database dump is
-the design decision: it makes an archive portable between databases, so a desktop user's
-SQLite moves to a team server's PostgreSQL with the same two commands — tested. A restore
-refuses anything but an empty installation at the backup's schema revision.
+Also: **the desktop WebDriver job failed on GitHub at `efc528f`** (iteration 96, which did
+not touch the desktop). The driver dropped a long-held asynchronous script during check 9;
+see *Known issues* for the cause and the harness change, verified by 6 clean runs of 6.
 
 Verified: see *Verification performed*.
 
-## Iteration 78
+## Iteration 96
 
-### 78 — OpenTelemetry tracing
+### 96 — webhooks deliver, for the first time; and only their own workspace's
 
-The next 1.0 item. `core/tracing.py`: requests (FastAPI), SQL (SQLAlchemy), outbound HTTP
-(httpx: model servers, hosted models, webhooks) and background jobs (a span around
-`run_task`), to an OTLP/HTTP collector, with the trace id in every JSON log line written
-inside a span. Optional twice — off by default, and its packages are the `tracing` extra,
-which the server image includes so an operator turns it on with an environment variable.
+Planning a webhooks screen — the last API feature with no way in through the app — began
+with what the screen would show of a webhook's deliveries, and the answer was: none, ever.
+`services/webhooks.py` could sign, send, retry with backoff and give up correctly, and the
+`webhook.dispatch` job existed; nothing queued it. The roadmap said *Done*.
+
+`webhooks.emit()` now queues the event once the change is committed, and only when an
+active webhook wants it — a workspace without webhooks pays one query per change, not one
+job. The twelve events of `WebhookEvent` are emitted where the changes happen (projects,
+tasks, jobs and reviews, editor saves, issues, releases), each carrying the resource as the
+API returns it; `task.completed` fires when a task's last job is accepted or it is marked
+completed. Reading the creation route on the way found the second bug: `project_id` was
+never checked against the workspace. Refused now (422, the same answer whether the project
+is elsewhere or nowhere), and matching requires the workspace as well, for rows already
+stored.
+
+For whoever builds a receiver: `POST /webhooks/{id}/ping` sends a signed `ping` now and
+answers with what the receiver said, and `GET /webhooks/{id}/deliveries` lists the recent
+ones — status, error, attempts, whether it will be retried, never the body or the secret.
+Shaped after CVAT's webhook ping and deliveries list.
+
+`tests/api/test_webhooks.py`, 13 tests through the real routes against a receiver
+(`webhooks.transport`, a test seam for `httpx.MockTransport`). The screen is next.
 
 Verified: see *Verification performed*.
 
-## Iteration 77
+## Iteration 95
 
-### 77 — uploads scanned by ClamAV
+### 95 — folders and files chosen in the system's own dialogs, in the real application
 
-The next item on the 1.0 list, and another false claim: `SECURITY.md` and
-`ARCHITECTURE.md` described a `ContentScanner` hook that did not exist. It does now
-(`media/scanning.py`), with ClamAV behind it through clamd's `INSTREAM` command — no client
-library — called in the one path direct and resumable uploads share. Off by default; when
-on, it fails closed, because a scanner an attacker can switch off by overloading it is not a
-control. Docker Compose gets an opt-in `scanning` profile, and its `api` replicas now share
-iteration 76's Redis rate limit by default.
+The desktop's reason to exist — annotating files where they are — had never been driven
+through the dialog a person actually uses: the IPC bridge was (iteration 85), the GTK
+dialog was not. `verify_desktop_shell.py` check 11 now does it on a task's page: *File ▸
+Open Folder…* by its accelerator (Ctrl+O) opens GTK's folder dialog, which is focused (there
+is no window manager under Xvfb), sent home with Alt+Home — it opens on *Recent*, where a
+typed location goes nowhere — given the path with Ctrl+L, and chosen with Return twice (the
+first only completes the path); the task gains three frames, read in place, and the page
+says so. *Choose files…* does the same for one file through the multi-file dialog, the
+filter included. The page's two buttons and its import summary gained `data-` hooks for it.
+
+Sabotaged — the shell dropping whatever each dialog returned — and both checks failed, the
+sixteen others passing. One earlier sabotaged run ended in a traceback whose log was not
+kept, most likely the check-3 flake under *Known issues*; the rerun was clean.
+
+Verified: see *Verification performed*.
+
+## Iteration 94
+
+### 94 — the native menu, chosen at the keyboard
+
+The one part of the shell no test reached: its menu, which is GTK's, outside the webview,
+where WebDriver cannot go. `verify_desktop_shell.py` check 10 now chooses from it as a
+person at the keyboard would — `xdotool` under the harness's Xvfb: focus the window, F10
+opens the menu bar on *File* with nothing selected, the arrow keys move, Return chooses.
+*File ▸ Connect to a Team Server…* brings up the page that asks for the address (the menu
+event crossing into the page), and *File ▸ Use This Computer*, in a launch that opened the
+team server, goes back to this computer's window and writes the choice away. That replaces
+the line that wrote `connection.json` by hand before check 8, which is what had stood in
+for the menu. When a menu check fails, the harness falls back to the old way so the checks
+after it still run.
+
+Sabotaged in one build — the team-server event renamed, the forgetting removed — and both
+checks failed, the other fourteen passing.
+
+Verified: see *Verification performed*.
+
+## Iteration 93
+
+### 93 — the Helm chart makes its bucket, as Compose does, and can be told not to
+
+A `pre-install,pre-upgrade` hook (`templates/storage-init.yaml`, weight -1, so before the
+migrations) runs `curvevision-server storage-init`: a fresh install now fails on a clear
+setup step when the store is unusable, instead of on somebody's first upload. It is on by
+default and turned off with `storage.s3.createBucket=false`, for a bucket made elsewhere by
+credentials that may not list it — S3 answers that `HeadBucket` with 403, and the hook, so
+the install, would stop. Like the migration hook, it runs before the release's ConfigMap
+and Secret exist, so it carries its own settings, its credentials from `existingSecret`
+when there is one.
+
+CI's `kind` install no longer makes the bucket for the chart: `deploy/helm/ci/dependencies.yaml`
+starts S3 empty, so the smoke test's upload passes only if the hook made it, and `helm
+upgrade` runs it again against a bucket that exists. A render check proves the opt-out
+leaves the hook out.
 
 Verified: see *Verification performed*.
 
 ## Earlier iterations
 
-Iterations **1–76** are in [`docs/iterations/ARCHIVE.md`](./docs/iterations/ARCHIVE.md) —
+Iterations **1–92** are in [`docs/iterations/ARCHIVE.md`](./docs/iterations/ARCHIVE.md) —
 moved there so that orienting costs a few hundred lines rather than four thousand. Read them
 when `git log` points you at an iteration number, or when you are about to build something
 and want to know whether it was already tried and rejected. The lessons from them that are

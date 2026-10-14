@@ -129,6 +129,66 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/auth/saml/complete": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Saml Complete
+         * @description Finish it with the login code and the verifier this tab kept.
+         */
+        post: operations["saml_complete_api_v1_auth_saml_complete_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/auth/saml/metadata": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Saml Metadata
+         * @description This service provider's SAML metadata, for the identity provider's administrator.
+         */
+        get: operations["saml_metadata_api_v1_auth_saml_metadata_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/auth/saml/start": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Saml Start
+         * @description Begin a sign-in at the SAML identity provider (`services/saml.py`).
+         */
+        post: operations["saml_start_api_v1_auth_saml_start_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/auth/sessions/revoke": {
         parameters: {
             query?: never;
@@ -593,6 +653,31 @@ export interface paths {
          * @description Accept or reject model-produced annotations in bulk.
          */
         post: operations["decide_suggestions_api_v1_jobs__job_id__suggestions_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/local/team-server-check": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Check Team Server
+         * @description Whether an address is a CurveVision team server the desktop window can switch to.
+         *
+         *     Asked by the desktop application before it hands the address to its shell. This server
+         *     fetches the address's health check, with nothing of this installation's, and answers
+         *     in a sentence for the person who typed it. On a shared server, fetching an address a
+         *     client names would be a server-side request forgery, so there the route does not exist.
+         */
+        post: operations["check_team_server_api_v1_local_team_server_check_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -1426,6 +1511,46 @@ export interface paths {
         head?: never;
         /** Update Webhook */
         patch: operations["update_webhook_api_v1_webhooks__webhook_id__patch"];
+        trace?: never;
+    };
+    "/api/v1/webhooks/{webhook_id}/deliveries": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List Deliveries
+         * @description The webhook's most recent deliveries, newest first: what its receiver answered.
+         */
+        get: operations["list_deliveries_api_v1_webhooks__webhook_id__deliveries_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/webhooks/{webhook_id}/ping": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Ping Webhook
+         * @description Send a signed `ping` delivery now and answer with how the receiver took it.
+         */
+        post: operations["ping_webhook_api_v1_webhooks__webhook_id__ping_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
         trace?: never;
     };
 }
@@ -2814,6 +2939,28 @@ export interface components {
          * @enum {string}
          */
         Role: "viewer" | "annotator" | "reviewer" | "maintainer" | "admin" | "owner";
+        /** SamlCompleteRequest */
+        SamlCompleteRequest: {
+            /** Code */
+            code: string;
+            /** Verifier */
+            verifier: string;
+        };
+        /** SamlStartRequest */
+        SamlStartRequest: {
+            /**
+             * Return To
+             * @default /
+             */
+            return_to: string;
+            /** Verifier Sha256 */
+            verifier_sha256: string;
+        };
+        /** SamlStarted */
+        SamlStarted: {
+            /** Url */
+            url: string;
+        };
         /** ShapeIn */
         ShapeIn: {
             /** Attributes */
@@ -2921,6 +3068,13 @@ export interface components {
             password: boolean;
             /** Registration */
             registration: boolean;
+            /**
+             * Saml
+             * @default false
+             */
+            saml: boolean;
+            /** Saml Name */
+            saml_name?: string | null;
             /** Sso */
             sso: boolean;
             /** Sso Name */
@@ -3219,6 +3373,28 @@ export interface components {
             name?: string | null;
             status?: components["schemas"]["TaskStatus"] | null;
         };
+        /**
+         * TeamServerCheckIn
+         * @description An address a person typed, to be checked before the desktop window switches to it.
+         */
+        TeamServerCheckIn: {
+            /** Address */
+            address: string;
+        };
+        /**
+         * TeamServerCheckOut
+         * @description Whether an address is a CurveVision team server the desktop window can show.
+         */
+        TeamServerCheckOut: {
+            /** Ok */
+            ok: boolean;
+            /** Reason */
+            reason?: string | null;
+            /** Url */
+            url?: string | null;
+            /** Version */
+            version?: string | null;
+        };
         /** TokenPair */
         TokenPair: {
             /** Access Token */
@@ -3499,6 +3675,37 @@ export interface components {
             secret: string;
             /** Target Url */
             target_url: string;
+        };
+        /**
+         * WebhookDeliveryOut
+         * @description One delivery as an integrator debugging their receiver needs it. Not its body.
+         */
+        WebhookDeliveryOut: {
+            /** Attempts */
+            attempts: number;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /** Delivered At */
+            delivered_at?: string | null;
+            /** Error */
+            error?: string | null;
+            /** Event */
+            event: string;
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /**
+             * Retrying
+             * @default false
+             */
+            retrying: boolean;
+            /** Status Code */
+            status_code?: number | null;
         };
         /**
          * WebhookEvent
@@ -3786,6 +3993,90 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["UserOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    saml_complete_api_v1_auth_saml_complete_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SamlCompleteRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TokenPair"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    saml_metadata_api_v1_auth_saml_metadata_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    saml_start_api_v1_auth_saml_start_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SamlStartRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SamlStarted"];
                 };
             };
             /** @description Validation Error */
@@ -4802,6 +5093,41 @@ export interface operations {
                     "application/json": {
                         [key: string]: number;
                     };
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    check_team_server_api_v1_local_team_server_check_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                authorization?: string | null;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["TeamServerCheckIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TeamServerCheckOut"];
                 };
             };
             /** @description Validation Error */
@@ -6949,6 +7275,74 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["WebhookOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_deliveries_api_v1_webhooks__webhook_id__deliveries_get: {
+        parameters: {
+            query?: {
+                limit?: number;
+            };
+            header?: {
+                authorization?: string | null;
+            };
+            path: {
+                webhook_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WebhookDeliveryOut"][];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    ping_webhook_api_v1_webhooks__webhook_id__ping_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                authorization?: string | null;
+            };
+            path: {
+                webhook_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WebhookDeliveryOut"];
                 };
             };
             /** @description Validation Error */

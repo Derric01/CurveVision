@@ -369,14 +369,26 @@ export function TaskPage() {
           title="Add media from this computer"
           actions={
             <div className="flex gap-2">
-              <Button variant="secondary" size="sm" onClick={() => void importFolder()} disabled={importing}>
+              <Button
+                variant="secondary"
+                size="sm"
+                onClick={() => void importFolder()}
+                disabled={importing}
+                data-choose-folder
+              >
                 <FolderOpen size={13} />
                 {importing ? 'Importing…' : 'Choose folder…'}
               </Button>
               {/* The folder case is the one that matters for a real dataset; this is for
                   the smaller case of adding a handful of specific files without first
                   organising them into one. */}
-              <Button variant="secondary" size="sm" onClick={() => void importFiles()} disabled={importing}>
+              <Button
+                variant="secondary"
+                size="sm"
+                onClick={() => void importFiles()}
+                disabled={importing}
+                data-choose-files
+              >
                 <Files size={13} />
                 {importing ? 'Importing…' : 'Choose files…'}
               </Button>
@@ -394,6 +406,7 @@ export function TaskPage() {
           )}
           {summary && (
             <div
+              data-import-summary
               className={clsx(
                 'mt-3 rounded-md border px-3 py-2 text-sm',
                 summary.tone === 'success'

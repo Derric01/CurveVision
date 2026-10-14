@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { readCallback } from "../sso";
+import { newVerifier, readCallback } from "../sso";
 
 describe("readCallback", () => {
   it("finishes a sign-in this tab started", () => {
@@ -39,5 +39,48 @@ describe("readCallback", () => {
 
   it("refuses an answer with no code", () => {
     expect(readCallback("?state=s1", "s1").kind).toBe("refused");
+  });
+});
+
+describe("readCallback, for SAML", () => {
+  it("finishes with the login code and the verifier this tab kept", () => {
+    expect(readCallback("?saml=code-1", null, "v-1")).toEqual({
+      kind: "saml",
+      code: "code-1",
+      verifier: "v-1",
+    });
+  });
+
+  it("refuses a login code when this tab holds no verifier", () => {
+    const outcome = readCallback("?saml=code-1", null, null);
+    expect(outcome.kind === "refused" && outcome.message).toContain(
+      "not started in this browser tab",
+    );
+  });
+
+  it("shows the server's reason when it refused the provider's answer", () => {
+    expect(readCallback("?saml_error=Sign-ins+must+start+here.", null, "v")).toEqual({
+      kind: "refused",
+      message: "Sign-ins must start here.",
+    });
+  });
+});
+
+describe("newVerifier", () => {
+  it("is random, and its hash is the base64url SHA-256 the server recomputes", async () => {
+    const one = await newVerifier();
+    const two = await newVerifier();
+    expect(one.verifier).not.toBe(two.verifier);
+    expect(one.verifier).toMatch(/^[A-Za-z0-9_-]{64}$/);
+    expect(one.hash).toMatch(/^[A-Za-z0-9_-]{43}$/);
+    const digest = await crypto.subtle.digest(
+      "SHA-256",
+      new TextEncoder().encode(one.verifier),
+    );
+    const expected = btoa(String.fromCharCode(...new Uint8Array(digest)))
+      .replace(/\+/g, "-")
+      .replace(/\//g, "_")
+      .replace(/=+$/, "");
+    expect(one.hash).toBe(expected);
   });
 });

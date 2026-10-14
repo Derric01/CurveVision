@@ -32,6 +32,10 @@ logger = get_logger(__name__)
 
 DELIVERY_TIMEOUT = 10.0
 
+#: Where deliveries go when no client is passed: the network, unless a test puts an
+#: `httpx.MockTransport` here to stand in for a receiver.
+transport: httpx.AsyncBaseTransport | None = None
+
 #: How many times a delivery is attempted in total, the first attempt included.
 MAX_ATTEMPTS = 5
 #: The first retry waits this long; each subsequent one doubles it.
@@ -114,7 +118,13 @@ async def matching_webhooks(
     """Webhooks subscribed to ``event`` for this project or its organization."""
     conditions = []
     if project_id is not None:
-        conditions.append(Webhook.project_id == project_id)
+        # A project's webhook must also belong to the project's workspace. Creating one is
+        # checked for that (iteration 96); this keeps a row written before the check from
+        # hearing another workspace's project.
+        same_workspace = (
+            Webhook.organization_id == organization_id if organization_id is not None else True
+        )
+        conditions.append((Webhook.project_id == project_id) & same_workspace)
     if organization_id is not None:
         conditions.append(
             (Webhook.organization_id == organization_id) & Webhook.project_id.is_(None)
@@ -128,6 +138,106 @@ async def matching_webhooks(
     # The events list is a JSON column; filtering it in SQL portably is more trouble than
     # the in-Python filter is worth at the scale a webhook list reaches.
     return [hook for hook in result.scalars().all() if event.value in hook.events]
+
+
+async def emit(
+    session: AsyncSession,
+    event: WebhookEvent,
+    data: dict[str, Any],
+    *,
+    organization_id: uuid.UUID | None,
+    project_id: uuid.UUID | None = None,
+    actor_id: uuid.UUID | None = None,
+) -> bool:
+    """Queue ``event`` for every webhook subscribed to it. Returns whether anything was queued.
+
+    Call it once the change is committed: the delivery runs as a background job, in a
+    session of its own (under Dramatiq, in another process), and must find what it reports.
+    It commits, as queueing does. When no active webhook wants the event nothing is queued,
+    so a workspace without webhooks pays one query per change rather than one job.
+
+    ``data`` is the resource as the API returns it, under its kind (``{"task": {...}}``).
+    """
+    hooks = await matching_webhooks(
+        session, event, organization_id=organization_id, project_id=project_id
+    )
+    if not hooks:
+        return False
+    from curvevision.services import background  # imports the job queue, which imports this
+
+    await background.enqueue(
+        session,
+        kind="webhook.dispatch",
+        payload={
+            "event": event.value,
+            "data": data,
+            "organization_id": str(organization_id) if organization_id else None,
+            "project_id": str(project_id) if project_id else None,
+        },
+        created_by_id=actor_id,
+    )
+    return True
+
+
+async def emit_for_project(
+    session: AsyncSession,
+    event: WebhookEvent,
+    data: dict[str, Any],
+    project: Any,
+    *,
+    actor_id: uuid.UUID | None = None,
+) -> bool:
+    """`emit` for a change inside ``project``: its webhooks and its workspace's hear it."""
+    return await emit(
+        session,
+        event,
+        data,
+        organization_id=project.organization_id,
+        project_id=project.id,
+        actor_id=actor_id,
+    )
+
+
+#: The event a ping sends. Not a `WebhookEvent`: nothing subscribes to it, and every
+#: webhook can be pinged.
+PING = "ping"
+
+
+async def ping(
+    session: AsyncSession, hook: Webhook, *, client: httpx.AsyncClient | None = None
+) -> WebhookDelivery:
+    """Send one signed test delivery now, whatever the webhook subscribes to, and record it.
+
+    Attempted once and never retried: whoever pressed the button is waiting for the answer.
+    """
+    delivery = WebhookDelivery(
+        webhook_id=hook.id,
+        event=PING,
+        payload={"webhook": {"id": str(hook.id), "target_url": hook.target_url}},
+    )
+    session.add(delivery)
+    await session.flush()
+    body, headers = _delivery_body(hook, delivery)
+    return await attempt_delivery(hook, delivery, body, headers, client=client)
+
+
+async def recent_deliveries(
+    session: AsyncSession, webhook_id: uuid.UUID, *, limit: int = 20
+) -> list[WebhookDelivery]:
+    result = await session.execute(
+        select(WebhookDelivery)
+        .where(WebhookDelivery.webhook_id == webhook_id)
+        .order_by(WebhookDelivery.created_at.desc(), WebhookDelivery.id.desc())
+        .limit(limit)
+    )
+    return list(result.scalars().all())
+
+
+def retrying(delivery: WebhookDelivery) -> bool:
+    """Whether a delivery that has not succeeded will be attempted again."""
+    if delivery.delivered_at is not None or delivery.event == PING:
+        return False
+    return not exhausted(delivery)
 
 
 async def dispatch(
@@ -201,7 +311,7 @@ async def attempt_delivery(
         if client is not None:
             response = await client.post(hook.target_url, content=body, headers=headers)
         else:
-            async with httpx.AsyncClient(timeout=DELIVERY_TIMEOUT) as owned:
+            async with httpx.AsyncClient(timeout=DELIVERY_TIMEOUT, transport=transport) as owned:
                 response = await owned.post(hook.target_url, content=body, headers=headers)
         delivery.status_code = response.status_code
         if response.status_code >= 400:

@@ -17,6 +17,7 @@ from curvevision.api.deps import (
 )
 from curvevision.core.errors import NotFoundError
 from curvevision.core.pagination import Page, PageParamsDep, paginate
+from curvevision.domain.enums import WebhookEvent
 from curvevision.domain.identity import OrganizationMembership
 from curvevision.domain.project import Label, Project
 from curvevision.domain.task import Task
@@ -33,6 +34,7 @@ from curvevision.schemas.project import (
 from curvevision.services import background as background_service
 from curvevision.services import datasets as dataset_service
 from curvevision.services import projects as project_service
+from curvevision.services import webhooks as webhook_service
 from curvevision.storage import get_storage
 
 router = APIRouter(prefix="/projects", tags=["projects"])
@@ -91,7 +93,15 @@ async def create_project(
         owner=identity.user,
     )
     await session.commit()
-    return await _project_detail(session, project)
+    detail = await _project_detail(session, project)
+    await webhook_service.emit_for_project(
+        session,
+        WebhookEvent.PROJECT_CREATED,
+        {"project": detail.model_dump(mode="json")},
+        project,
+        actor_id=identity.user.id,
+    )
+    return detail
 
 
 @router.get("/{project_id}", response_model=ProjectDetail)
@@ -121,7 +131,15 @@ async def update_project(
         # `owner` is eagerly loaded and survives the commit, so the response would name
         # whoever owned the project before the write.
         await session.refresh(project, ["owner_id", "owner"])
-    return await _project_detail(session, project)
+    detail = await _project_detail(session, project)
+    await webhook_service.emit_for_project(
+        session,
+        WebhookEvent.PROJECT_UPDATED,
+        {"project": detail.model_dump(mode="json")},
+        project,
+        actor_id=scope.identity.user.id,
+    )
+    return detail
 
 
 @router.delete("/{project_id}", status_code=status.HTTP_204_NO_CONTENT)

@@ -1,8 +1,10 @@
 {
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "default",
-  "description": "What the CurveVision window is allowed to ask the shell to do. Deliberately short: the shell exists to run the local server and open native dialogs, and anything else the application needs it gets from the API.",
-  "windows": ["main"],
+  "description": "What the local CurveVision window is allowed to ask the shell to do. Deliberately short: the shell exists to run the local server and open native dialogs, and anything else the application needs it gets from the API. Granted to the local window only: a team server's pages open in a window of their own (`team`), which no capability names, so they cannot use the shell at all.",
+  "windows": [
+    "main"
+  ],
   "remote": {
     "urls": [
       "http://127.0.0.1:*",
@@ -10,6 +12,12 @@
     ]
   },
   "permissions": [
+    "allow-connection",
+    "allow-choose-folder",
+    "allow-choose-files",
+    "allow-connect-to-team-server",
+    "allow-check-for-update",
+    "allow-install-update",
     "core:default",
     "core:event:allow-listen",
     "core:event:allow-unlisten",

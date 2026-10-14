@@ -65,6 +65,7 @@ Full license texts for permissive licenses used here are reproduced under
 | [httpx2](https://github.com/pydantic/httpx2) (via anthropic) | BSD-3-Clause | Encode OSS Ltd. and contributors | HTTP client underneath the Anthropic SDK |
 | [jiter](https://github.com/pydantic/jiter) (via anthropic) | MIT | Samuel Colvin and contributors | JSON parsing for the Anthropic SDK |
 | [docstring-parser](https://github.com/rr-/docstring_parser) (via anthropic) | MIT | Marcin Kurczewski | Used by the Anthropic SDK |
+| [truststore](https://github.com/sethmlarson/truststore) | MIT | Seth Michael Larson and contributors | The operating system's certificate store, for a desktop installation checking a team server |
 | [prometheus-client](https://github.com/prometheus/client_python) | Apache-2.0 | Prometheus authors | Metrics |
 | [asyncpg](https://github.com/MagicStack/asyncpg) | Apache-2.0 | MagicStack Inc. | PostgreSQL driver (`postgres` extra) |
 | [psycopg](https://github.com/psycopg/psycopg) | LGPL-3.0-or-later | Daniele Varrazzo and contributors | PostgreSQL driver, used unmodified as a library (`postgres` extra) |
@@ -79,6 +80,8 @@ Full license texts for permissive licenses used here are reproduced under
 | [opentelemetry-instrumentation-fastapi](https://github.com/open-telemetry/opentelemetry-python-contrib) | Apache-2.0 | The OpenTelemetry Authors | Request spans (`tracing` extra) |
 | [opentelemetry-instrumentation-sqlalchemy](https://github.com/open-telemetry/opentelemetry-python-contrib) | Apache-2.0 | The OpenTelemetry Authors | SQL spans (`tracing` extra) |
 | [opentelemetry-instrumentation-httpx](https://github.com/open-telemetry/opentelemetry-python-contrib) | Apache-2.0 | The OpenTelemetry Authors | Outbound HTTP spans (`tracing` extra) |
+| [python3-saml](https://github.com/SAML-Toolkits/python3-saml) | MIT | Sixto Martín, SAML-Toolkits contributors | SAML 2.0 single sign-on: parsing and validating responses (`saml` extra). Brings [xmlsec](https://github.com/xmlsec/python-xmlsec) (MIT) and [lxml](https://github.com/lxml/lxml) (BSD-3-Clause). |
+| [Datumaro](https://github.com/openvinotoolkit/datumaro) | MIT | Intel Corporation | The long tail of dataset formats, through `formats/datumaro_bridge.py` (`datumaro` extra; [ADR 0011](./adr/0011-datumaro-bridge.md)). Not in the desktop application or the default server image. |
 
 ## Desktop shell (Rust)
 
@@ -91,6 +94,7 @@ part of the server or web distributions.
 | [tauri-build](https://github.com/tauri-apps/tauri) | Apache-2.0 OR MIT | Tauri Programme within The Commons Conservancy | Build-time code generation |
 | [tauri-plugin-dialog](https://github.com/tauri-apps/plugins-workspace) | Apache-2.0 OR MIT | Tauri Programme within The Commons Conservancy | Native file and folder pickers |
 | [tauri-plugin-opener](https://github.com/tauri-apps/plugins-workspace) | Apache-2.0 OR MIT | Tauri Programme within The Commons Conservancy | Opening the data folder in the OS file manager |
+| [tauri-plugin-updater](https://github.com/tauri-apps/plugins-workspace) | Apache-2.0 OR MIT | Tauri Programme within The Commons Conservancy | Checking a release feed and installing a signed update |
 | [serde](https://github.com/serde-rs/serde) | Apache-2.0 OR MIT | Erick Tryzelaar, David Tolnay | Serialisation |
 | [serde_json](https://github.com/serde-rs/json) | Apache-2.0 OR MIT | Erick Tryzelaar, David Tolnay | Parsing the sidecar handshake |
 
@@ -148,7 +152,7 @@ These run as unmodified services; CurveVision links to none of them.
 | --- | --- | --- |
 | [PostgreSQL](https://www.postgresql.org/) | PostgreSQL License (BSD-like) | Primary datastore |
 | [Redis](https://redis.io/) | RSALv2 / SSPLv1 (Redis 7.4+) | Cache and job broker. Run as a network service, never linked or redistributed, so the source-available terms do not extend to CurveVision. Substitute [Valkey](https://valkey.io/) (BSD-3-Clause) if you prefer a fully OSI-licensed drop-in. |
-| [MinIO](https://min.io/) | AGPL-3.0 | Development object storage, run as an unmodified network service. Any S3-compatible backend works instead. |
+| [Versity Gateway](https://github.com/versity/versitygw) | Apache-2.0 | The object store Docker Compose runs (`s3`), and CI's S3 server, as an unmodified network service. Any S3-compatible backend works instead. (MinIO, AGPL-3.0, held this role until October 2026.) |
 | [ClamAV](https://www.clamav.net/) (`clamav/clamav` image) | GPL-2.0 | Optional malware scanning (`--profile scanning`), run as an unmodified network service and spoken to over clamd's socket protocol; nothing of it is linked or redistributed. |
 | [nginx](https://nginx.org/) | BSD-2-Clause | Static file serving and reverse proxy |
 
@@ -156,7 +160,7 @@ These run as unmodified services; CurveVision links to none of them.
 
 | Project | License | Relationship |
 | --- | --- | --- |
-| [Datumaro](https://github.com/openvinotoolkit/datumaro) | MIT — © Intel Corporation | Evaluated for dataset format conversion and not adopted, for the streaming reasons in [ADR 0004](./adr/0004-streaming-format-registry.md). An optional bridge is planned. |
+| [Datumaro](https://github.com/openvinotoolkit/datumaro) | MIT — © Intel Corporation | Not the core of the format registry, for the streaming reasons in [ADR 0004](./adr/0004-streaming-format-registry.md); bridged to for the long tail as an optional extra ([ADR 0011](./adr/0011-datumaro-bridge.md)), listed above. The conformance checks also use it as a separate program's reader and writer. |
 
 CurveVision claims no affiliation with, or endorsement by, any project listed in this file.
 Where source is adapted, the copyright holders are named in [Adapted source](#adapted-source)

@@ -51,46 +51,37 @@ spec:
   selector: {app: redis}
   ports: [{port: 6379}]
 ---
+# Object storage: Versity Gateway, serving a directory as S3 (MinIO's images can no longer
+# be pulled anonymously). Metadata in a sidecar directory rather than extended attributes.
 apiVersion: apps/v1
 kind: Deployment
-metadata: {name: minio}
+metadata: {name: s3}
 spec:
-  selector: {matchLabels: {app: minio}}
+  selector: {matchLabels: {app: s3}}
   template:
-    metadata: {labels: {app: minio}}
+    metadata: {labels: {app: s3}}
     spec:
       containers:
-        - name: minio
-          image: minio/minio:RELEASE.2024-10-13T13-34-11Z
-          args: [server, /data]
+        - name: s3
+          image: versity/versitygw:v1.8.0
+          args: ["--port", ":9000", "--health", "/health", posix, --sidecar, /meta, /objects]
           env:
-            - {name: MINIO_ROOT_USER, value: curvevision}
-            - {name: MINIO_ROOT_PASSWORD, value: curvevision-ci-secret}
+            - {name: ROOT_ACCESS_KEY, value: curvevision}
+            - {name: ROOT_SECRET_KEY, value: curvevision-ci-secret}
           ports: [{containerPort: 9000}]
           readinessProbe:
-            httpGet: {path: /minio/health/ready, port: 9000}
+            httpGet: {path: /health, port: 9000}
             periodSeconds: 3
+          volumeMounts:
+            - {name: objects, mountPath: /objects}
+            - {name: meta, mountPath: /meta}
+      volumes:
+        - {name: objects, emptyDir: {}}
+        - {name: meta, emptyDir: {}}
 ---
 apiVersion: v1
 kind: Service
-metadata: {name: minio}
+metadata: {name: s3}
 spec:
-  selector: {app: minio}
+  selector: {app: s3}
   ports: [{port: 9000}]
----
-# The bucket, as `minio-init` makes it under Docker Compose.
-apiVersion: batch/v1
-kind: Job
-metadata: {name: minio-bucket}
-spec:
-  backoffLimit: 20
-  template:
-    spec:
-      restartPolicy: OnFailure
-      containers:
-        - name: mc
-          image: minio/mc:RELEASE.2024-10-08T09-37-26Z
-          command: [/bin/sh, -c]
-          args:
-            - mc alias set local http://minio:9000 curvevision curvevision-ci-secret &&
-              mc mb --ignore-existing local/curvevision

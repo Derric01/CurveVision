@@ -1,6 +1,6 @@
 # Iteration archive
 
-> The narrative record of iterations **1–76**, moved out of
+> The narrative record of iterations **1–92**, moved out of
 > [`handoff.md`](../../handoff.md) so that orienting on this project costs a few hundred
 > lines rather than four thousand.
 >
@@ -13,6 +13,378 @@
 >
 > Newest first, as in `handoff.md`. When an iteration drops out of `handoff.md`'s recent
 > window, append it to the top of this file rather than deleting it.
+
+---
+
+## Iteration 92
+
+### 92 — the desktop app updates itself, from a signed feed only
+
+The last desktop item with nothing outside the repository in its way: Tauri's updater
+(`tauri-plugin-updater`), behind *Help ▸ Check for Updates…* and a notice the page shows
+when a newer version is offered (`features/updates/UpdateNotice.tsx`; *Install and
+restart*). `desktop/shell/src-tauri/src/updates.rs` decides where updates come from: the
+public key and the feed are compiled in (`CURVEVISION_UPDATER_PUBKEY`,
+`CURVEVISION_UPDATE_URL`); a build without them — every build from a checkout — says updates
+are not configured; only a **debug** build reads either from the environment, so a release
+build's feed cannot be redirected by whoever controls its environment.
+
+`desktop.yml` passes both, and Tauri's signing key, from repository secrets, and signs the
+updater's downloads only when the key is there. `scripts/updater_manifest.py` makes a
+release's `latest.json` from the signed files. **Not done, and not ours**: generating the
+key pair and publishing a release — the steps are in `desktop/README.md`, *Releasing an
+update*.
+
+Tested without the maintainers' key: `scripts/minisign.py` writes minisign keys and
+signatures from the published format (a Rust test pins its output against the
+`minisign-verify` crate the updater uses), and check 9 of `verify_desktop_shell.py` serves a
+feed of its own to the real application: the newer version is found and offered, a tampered
+download is refused ("The signature verification failed"), and one signed with another key
+is refused. Installing a *good* update is not driven — it would replace the binary under
+test with whatever the feed served; Tauri's install step is theirs, and tested by them.
+
+Also: the harness now restarts WebKitWebDriver when a session's DELETE goes unanswered,
+which had left the driver counting a dead session and refusing the next.
+
+Verified: see *Verification performed*.
+
+## Iteration 91
+
+### 91 — SAML single sign-on, each sign-in tied to the tab that began it; a demo video
+
+The last 1.0 item that needed no one else. `services/saml.py`: SP-initiated Web SSO — the
+HTTP-Redirect AuthnRequest and the HTTP-POST Response — with OneLogin's python3-saml (MIT)
+doing what must not be written twice: parsing safely and checking the assertion's XML
+signature, issuer, audience, destination, recipient and validity window. The provider is
+configured by its metadata URL or by entity ID, sign-in URL and certificate; this service
+provider's metadata is served at `/api/v1/auth/saml/metadata`.
+
+What this project adds is how a sign-in stays stateless and cookie-free yet belongs to the
+tab that began it. The tab keeps a random verifier and sends its SHA-256; the server mints
+the AuthnRequest's ID as an HMAC over that hash and a timestamp. The ACS refuses a response
+that answers no request it minted in the last ten minutes (so unsolicited, provider-initiated
+ones too), and sends the browser back with a two-minute login code; only the tab holding the
+verifier can exchange it. A captured response, or a login code leaking through history or a
+referrer, signs nobody in. RelayState carries only the return path, inside SAML's 80 bytes.
+
+Account linking moved out of `oidc.py` into `services/external_identity.py`, so OIDC and SAML
+follow one set of rules (`saml_create_users`, `saml_allowed_domains`,
+`saml_default_workspace`, and `saml_trust_email` — a SAML provider is the operator's own).
+`tests/api/test_saml.py` signs real assertions with xmlsec against a test provider: 23 tests,
+including forged, tampered, wrapped (a second assertion smuggled beside the signed one),
+misdirected, expired and unsolicited answers and a stolen login code; three sabotages caught
+(9, 1 and 1 failures). `scripts/verify_saml.py` drives it in Chromium against a provider that
+posts back as a real one does. Single logout is not implemented.
+
+Also this session: **a one-minute demo video**, `docs/demo/curvevision-demo.mp4`, recorded
+from the running application by `scripts/record_demo.py` (sign-in, a project, boxes and a
+polygon on the README's photographs, a real COCO export, which the script checks holds all
+six annotations); and the desktop WebDriver harness now takes a session that ends by
+dropping its connection as ended (see *Known issues*).
+
+Verified: see *Verification performed*.
+
+## Iteration 90
+
+### 90 — the Datumaro bridge, its formats measured rather than declared
+
+The 1.0 list's Datumaro bridge, as ADR 0004 planned it ([ADR 0011](./docs/adr/0011-datumaro-bridge.md)).
+With the optional `datumaro` extra, `formats/datumaro_bridge.py` offers fourteen more formats
+as `datumaro-<name>`: ImageNet (folders and text), CIFAR, MNIST, LFW, VGGFace2, WIDER FACE,
+DOTA, CamVid, Pascal VOC segmentation and instance segmentation, COCO panoptic, LabelMe 3.0
+XML and Datumaro's own. Without the extra nothing is registered or imported — found with
+`find_spec`, so a server without Datumaro does not pay for importing it.
+
+**What each carries is measured.** `scripts/datumaro_bridge_probe.py` round-trips one shape
+of every type, a tag and an attribute through each candidate and the bridge, keeps what
+comes back with its label and its box within a pixel and a half, and writes
+`datumaro_formats.json` — which the export API's warnings come from. Eight candidates carry
+nothing and are not offered: Datumaro cannot read back its own MNIST-CSV or MVTec exports,
+and its Segment Anything and ICDAR readers give annotations no class. The first run also
+found the bridge's own bug: Datumaro names ImageNet items `label:name`, so they matched no
+frame until the image's file name was tried too. CI re-measures with `--check`
+(`.github/workflows/datumaro.yml`).
+
+Datumaro holds a dataset in memory — ADR 0004's reason for not building on it — so the bridge
+keeps only the annotations there: images go to temporary files as they stream past and masks
+are drawn when Datumaro asks. Bridged ids use `datumaro-`, not a colon, because an export's
+download is named after its format and Windows refuses a colon in a file name. The server
+image adds the extra with `--build-arg SERVER_EXTRAS=...,datumaro` (docs/OPERATIONS.md).
+
+Verified: see *Verification performed*.
+
+## Iteration 89
+
+### 89 — TFRecord, written without TensorFlow and read by it
+
+The last of the 1.0 list's additional formats, so that row is **Done**: the TensorFlow
+Object Detection API's `tf.train.Example` records with `label_map.pbtxt`, both ways. Nothing
+here depends on TensorFlow or protobuf: TFRecord's framing (a length and its masked CRC-32C,
+the record and its masked CRC-32C), the CRC-32C itself (slicing-by-8, 12 MB/s in pure
+Python; `google-crc32c` is used when installed) and the protocol buffer are written by hand.
+Because a hand-written encoding could be wrong everywhere at once, each layer is pinned on
+its own — the CRC to its published check value, the encoding byte for byte to what protobuf
+serialises — and then the real readers check the whole: `scripts/verify_tfrecord.py`
+(`.github/workflows/tfrecord.yml`) has TensorFlow read every record, verifying each
+checksum, and parse it with the Object Detection API's own feature specification, decoding
+the image and every mask; Datumaro reads the export; and we read what Datumaro writes
+through TensorFlow's own writer. It passed first time against TensorFlow; four sabotages
+(the CRC mask, big-endian floats, a coordinate normalised by the wrong side, label ids from
+0) each caught.
+
+Masks are written only on an image where every object has one, because the API reads a mask
+for every object or for none. The import route test found that a normalised float32 reads
+back as 64.00000095 of 640, so imported pixel coordinates are rounded to a thousandth. Open
+Images and TFRecord now share one rasteriser (`formats/raster.py`) rather than two.
+
+Verified: see *Verification performed*.
+
+## Iteration 88
+
+### 88 — Open Images (CSV), both ways, against Datumaro in both directions
+
+The third of the 1.0 list's additional formats: the annotation files Google's Open Images
+ships — class descriptions (V5 without a header, V6 and V7 with one, MIDs such as `/m/0k4j`
+mapped to their display names), boxes normalised to the image with `IsOccluded` as the
+shape's occlusion and the other four flags as checkbox attributes under Datumaro's names,
+human-verified image labels as tags, and masks as one binary PNG each. Two of the dataset's
+conventions matter more than they look: an image label with confidence 0 says the class was
+verified **absent**, so it is not a tag; and the dataset's masks are not at the image's
+resolution, so they are scaled to it, to the nearest pixel, as Datumaro does. Polygons and
+ellipses are written as the masks they cover; every mask is also its box, as in the dataset,
+and a box that a mask names arrives once — as the mask, with the box's flags. `images.meta`
+carries each image's size, so the export reads without its images.
+
+Held to Datumaro both ways: `scripts/verify_open_images.py`
+(`.github/workflows/open_images.yml`) has it read an export with and without the images, and
+imports what its own exporter writes. Passed first time; four sabotages (box coordinates,
+the mask/box merge, the flags, a mirrored mask) each caught. The dataset conventions Datumaro
+does not write — MIDs, absent labels, low-resolution masks — are unit tests, each failing
+under its own sabotage.
+
+Verified: see *Verification performed*.
+
+## Iteration 87
+
+### 87 — Cityscapes, both ways, drawn exactly as the dataset's own tools draw it
+
+The second of the 1.0 list's additional formats: the `gtFine` layout — per image the
+polygons file and the label-id, instance-id, training-id and colour images drawn from it,
+the image under `leftImg8bit/`. A project whose labels are all Cityscapes classes keeps
+Cityscapes' ids, colours and training ids (crowds such as `cargroup` drawn with the class id
+and no instance number, `license plate` listed and never drawn, as cityscapesScripts does);
+any other project is numbered after a background in `label_colors.txt`. Import reads the
+polygons file when there is one and otherwise makes each instance — or each class of a
+label-id image — the mask of exactly its pixels. Boxes and ellipses are written as the
+polygons they are; masks are painted into the images only, since the polygons file has no
+place for them.
+
+Held to the dataset's own tools: `scripts/verify_cityscapes.py`
+(`.github/workflows/cityscapes.yml`) has cityscapesScripts draw every exported polygons file
+and requires each of the four images to equal its drawing pixel for pixel; imports instance
+images cityscapesScripts drew; and has Datumaro read both kinds of export. It passed first
+time on the drawing. What it found was elsewhere: **Pillow 13 (due 2026-10-15) stops writing
+32-bit PNGs** and deprecates `getdata`, so the instance image is written 16-bit, as the
+dataset's own are, and read from raw bytes; and **Datumaro 1.x reads Cityscapes differently
+from the dataset** (see *Known issues*). One rule the cross-check cannot see — which shape
+wins a pixel, since the polygons file and the images come from one loop — is pinned by a unit
+test, and that test fails when the order is reversed.
+
+Verified: see *Verification performed*.
+
+## Iteration 86
+
+### 86 — LabelMe (JSON), both ways; labels an import creates keep their attributes
+
+The first of the 1.0 list's additional formats, and the one most individual annotators
+already have on disk: the `labelme` tool's JSON beside each image. Import and export of
+boxes, rotated boxes (`oriented_rectangle`), polygons, polylines, points, circles and masks
+(a PNG of the shape's own box), checkbox attributes as shape flags, a `description`, groups,
+and tags as the image's flags. labelme is GPL-3.0, so it was written from the format —
+labelme's loader read for its rules, nothing copied — and is held to labelme itself:
+`scripts/verify_labelme.py` (`.github/workflows/labelme.yml`) opens an export with labelme's
+`LabelFile`, draws every shape with its rasteriser and compares the pixels with the source
+geometry, then imports a file written by labelme's own writer. Not LabelMe 3.0 (MIT XML).
+
+The API-level test found a bug older than the format: **labels an import created were
+created without the attributes the file declared**, and since an import keeps only declared
+attributes, every value on them was dropped — for the "lossless" native format too, into
+any project that lacked its labels. The import route now creates them with their attributes.
+
+Verified: see *Verification performed*.
+
+## Iteration 85
+
+### 85 — the desktop app on a team server; the shell's commands granted at last
+
+The last desktop item that needed nobody's certificates. *File ▸ Connect to a Team
+Server…* (and a *Team server* link in the desktop build): this computer's server checks the
+address — `POST /local/team-server-check`, local mode only, fetching the health check with
+nothing of this installation's, through the OS trust store (`truststore`) — and the shell
+opens the team server in a window of its own. That window (`team`) is named by no
+capability, so its pages cannot use the shell, and has no initialization script, so none of
+this computer's credentials reach it; the local window's script now checks the origin
+before handing the connection over. The choice is remembered (origin only); *Use This
+Computer* switches back. The check is server-side because the page's CSP is `connect-src
+'self'`, and loosening it for one feature was the wrong trade — the first design (a CORS
+grant on the team server's health check) was dropped for that reason.
+
+Driving the **real** application found a much older bug. Over WebDriver (`tauri-driver`
+and WebKitGTK's driver, under Xvfb — `scripts/verify_desktop_shell.py`), the first
+`invoke()` was refused: the page is served from `http://127.0.0.1`, a remote origin to
+Tauri, and no capability granted the app's own commands. **The folder and file pickers have
+never worked in a built application**, and ADR 0008 said IPC was "verified by hand". Now
+`build.rs` declares the commands, the capability grants them to the local window only, a
+Rust test pins both, and the harness runs in the installers workflow.
+
+**Deployments that had never started.** Neither Docker Compose nor the Helm chart had ever
+been brought up in CI before this PR. Doing it found, in order, each hiding the next:
+
+1. **Every API and worker process crashed at start**: list settings set as text
+   (`CURVEVISION_CORS_ORIGINS=http://localhost:8080`, as compose and the chart set them)
+   were JSON-decoded by pydantic-settings before any validator saw them. Now `NoDecode`.
+2. **No image could reach a browser**: frames redirected to a presigned URL for
+   `http://s3:9000`, which only the server can resolve. Media is now streamed by the API
+   unless `s3_public_endpoint_url` names an address browsers can reach.
+3. **No background job was ever enqueued or consumed**: `@dramatiq.actor` bound the actor
+   to Dramatiq's default broker, localhost:6379, in both processes.
+4. **A worker failed every job as unknown**: it never imported the job handlers.
+5. **`curvevision-server backup` failed in every real process** (`KeyError: 'media_blobs'`):
+   it read table metadata only the test process had filled. And compose's `./backups`
+   bind mount was not writable by the server's non-root user — now a named volume.
+
+Each has a regression test written first and seen failing; the smoke script now also
+waits for a worker to finish a queued job. On Ubuntu 22.04 the WebDriver harness lost its connection
+in two runs of three, a moment after the shell closed a window: tauri-driver reported its
+upstream — WebKitGTK 2.50's own driver — resetting the connection, and the shell printed
+no panic. It never happened on WebKitGTK 2.52 (24.04, and here). The harness now runs in a
+job of its own on 24.04; whether a 22.04 *user* could meet anything like it is not
+established — see *Known issues*.
+
+Verified: see *Verification performed*.
+
+## Iteration 84
+
+### 84 — desktop installers on every platform, and what building them found
+
+`.github/workflows/desktop.yml` builds the installers on each platform's runner (PyInstaller
+does not cross-compile): `.deb`, `.rpm`, `.AppImage`; `.dmg`; NSIS `.exe` — unsigned, kept as
+artifacts. On Linux the `.deb` is installed and the server inside it started and used. The
+first run failed on all three platforms, which is what it was for:
+
+* **`aiosqlite` was a development dependency** while the default database — and every
+  desktop installation's — needs it. Tests install `dev`, so they passed; every installer
+  shipped a server that could not open its database. Now a core dependency, pinned by a test.
+* **On Windows, stopping the server orphaned it.** A one-file PyInstaller executable is a
+  bootloader with the server as its child; killing the bootloader leaves the server holding
+  the database. The smoke test now stops it the way the shell does — end-of-file on its
+  input — and the shell itself closes the input first and kills only after a grace period.
+* **MinIO's images are gone** from Docker Hub, and Quay no longer serves them anonymously
+  (September 2026), so `docker compose up` failed on a fresh machine and the kind job never
+  got past its dependencies. The bundled object store is now Versity Gateway (Apache-2.0), a
+  directory served as S3; `curvevision-server storage-init` makes the bucket; and for the
+  first time CI tests the S3 backend against an S3 server, and brings the compose stack up
+  and uses it. OPERATIONS.md says how an installation with MinIO's data moves across.
+
+Verified: see *Verification performed*.
+
+## Iteration 83
+
+### 83 — the Helm chart installed into a live cluster in CI
+
+The proof iteration 80 lacked. CI's `helm-install` job builds both images, loads them into a
+`kind` cluster with PostgreSQL, Redis and an S3 service in it (`deploy/helm/ci/`), runs
+`helm install --wait`, and uses the release through its web service
+(`scripts/helm_smoke.py`: register, workspace, project, task, an image uploaded and read
+back, an annotation exported as COCO), takes a backup with `kubectl exec`, and runs `helm
+upgrade` so the migration hook runs twice.
+
+Verified: see *Verification performed*.
+
+## Iteration 82
+
+### 82 — a TypeScript client package
+
+The last code item on the 1.0 list. `sdk/typescript` is `@curvevision/client`: a thin
+wrapper over `openapi-fetch` (its only runtime dependency) with every path, body and
+response typed from the server's schema, a bearer token (or a function returning one), and
+problem documents thrown as a typed error. Its types come from the generator the web
+application uses, checked against the server in CI, and its tests run against a real
+server. Not published: that is an outward act under the maintainers' npm account, and a
+manual workflow waits for their token.
+
+Verified: see *Verification performed*.
+
+## Iteration 81
+
+### 81 — single sign-on through OpenID Connect
+
+The largest item left on the 1.0 list, and the third false claim found this session: the
+docs said an `AuthBackend` seam existed; nothing by that name did. `services/oidc.py`
+implements the authorization-code flow with PKCE, the server a confidential client that
+keeps no login state (the signed `state` carries nonce, verifier and destination), and the
+web application checks `state` against what its own tab kept — login CSRF, without a
+cookie. Accounts link by issuer and `sub` (`external_identities`, a migration); a first
+sign-in uses an existing account only through a verified email. The sign-in page asks the
+server what to offer.
+
+Verified: see *Verification performed*.
+
+## Iteration 80
+
+### 80 — a Helm chart
+
+The next 1.0 item. `deploy/helm/curvevision`: the API, workers and web application, a
+migration Job as a pre-install/pre-upgrade hook (migrating in every replica at start would
+race), probes on the health check, non-root pods, an optional ingress; PostgreSQL, Redis and
+S3 are the operator's. The web image hard-coded its API as `api:8000`, which only Compose
+can provide; its nginx config is a template now, filled from the environment. The API trusts
+forwarded client addresses in the chart, without which every anonymous visitor would share
+the proxy's rate limit.
+
+Verified: see *Verification performed*.
+
+---
+
+## Iteration 79
+
+### 79 — backup and restore, either shape, across databases
+
+The next 1.0 item. Backups were two hand-run commands against two systems, for the server
+only, and nothing had ever restored one. `curvevision-server backup` / `restore`
+(`services/backup.py`) write one archive: every row as JSON, in foreign-key order, and every
+stored object a row names, with its SHA-256. Rows as JSON rather than a database dump is
+the design decision: it makes an archive portable between databases, so a desktop user's
+SQLite moves to a team server's PostgreSQL with the same two commands — tested. A restore
+refuses anything but an empty installation at the backup's schema revision.
+
+Verified: see *Verification performed*.
+
+## Iteration 78
+
+### 78 — OpenTelemetry tracing
+
+The next 1.0 item. `core/tracing.py`: requests (FastAPI), SQL (SQLAlchemy), outbound HTTP
+(httpx: model servers, hosted models, webhooks) and background jobs (a span around
+`run_task`), to an OTLP/HTTP collector, with the trace id in every JSON log line written
+inside a span. Optional twice — off by default, and its packages are the `tracing` extra,
+which the server image includes so an operator turns it on with an environment variable.
+
+Verified: see *Verification performed*.
+
+## Iteration 77
+
+### 77 — uploads scanned by ClamAV
+
+The next item on the 1.0 list, and another false claim: `SECURITY.md` and
+`ARCHITECTURE.md` described a `ContentScanner` hook that did not exist. It does now
+(`media/scanning.py`), with ClamAV behind it through clamd's `INSTREAM` command — no client
+library — called in the one path direct and resumable uploads share. Off by default; when
+on, it fails closed, because a scanner an attacker can switch off by overloading it is not a
+control. Docker Compose gets an opt-in `scanning` profile, and its `api` replicas now share
+iteration 76's Redis rate limit by default.
+
+Verified: see *Verification performed*.
 
 ---
 

@@ -35,19 +35,66 @@ class S3Storage:
             ) from exc
 
         self._bucket = settings.s3_bucket
+        self._region = settings.s3_region
         self._presign_ttl = settings.presigned_url_ttl_seconds
-        self._client: Any = boto3.client(
-            "s3",
-            endpoint_url=settings.s3_endpoint_url,
-            region_name=settings.s3_region,
-            aws_access_key_id=settings.s3_access_key_id,
-            aws_secret_access_key=settings.s3_secret_access_key,
-            config=Config(
-                signature_version="s3v4",
-                s3={"addressing_style": "path" if settings.s3_force_path_style else "auto"},
-                retries={"max_attempts": 5, "mode": "standard"},
-            ),
+
+        def client(endpoint_url: str | None) -> Any:
+            return boto3.client(
+                "s3",
+                endpoint_url=endpoint_url,
+                region_name=settings.s3_region,
+                aws_access_key_id=settings.s3_access_key_id,
+                aws_secret_access_key=settings.s3_secret_access_key,
+                config=Config(
+                    signature_version="s3v4",
+                    s3={"addressing_style": "path" if settings.s3_force_path_style else "auto"},
+                    retries={"max_attempts": 5, "mode": "standard"},
+                ),
+            )
+
+        self._client: Any = client(settings.s3_endpoint_url)
+        # A presigned URL names the host it was signed for, so one meant for a browser is
+        # signed against the address the browser uses — and only when there is one.
+        self._presigner: Any = (
+            client(settings.s3_public_endpoint_url) if settings.s3_public_endpoint_url else None
         )
+
+    @property
+    def bucket(self) -> str:
+        return self._bucket
+
+    async def ensure_bucket(self) -> bool:
+        """Create the bucket if it does not exist. Returns whether it had to be created.
+
+        `curvevision-server storage-init` runs this before the server's first upload, so a
+        new installation fails on a clear setup step rather than on a confusing S3 error in
+        the middle of someone's upload.
+        """
+
+        def _ensure() -> bool:
+            from botocore.exceptions import ClientError
+
+            try:
+                self._client.head_bucket(Bucket=self._bucket)
+                return False
+            except ClientError as exc:
+                status = exc.response.get("ResponseMetadata", {}).get("HTTPStatusCode")
+                if status != 404 and exc.response.get("Error", {}).get("Code") not in (
+                    "404",
+                    "NoSuchBucket",
+                    "NotFound",
+                ):
+                    raise
+            # Outside us-east-1, S3 wants to be told where; everywhere else it is the default.
+            location = (
+                {"CreateBucketConfiguration": {"LocationConstraint": self._region}}
+                if self._region and self._region != "us-east-1"
+                else {}
+            )
+            self._client.create_bucket(Bucket=self._bucket, **location)
+            return True
+
+        return await asyncio.to_thread(_ensure)
 
     async def put(
         self,
@@ -120,7 +167,9 @@ class S3Storage:
         return await asyncio.to_thread(_head)
 
     def public_url(self, key: str, *, expires_in: int | None = None) -> str | None:
-        url: str = self._client.generate_presigned_url(
+        if self._presigner is None:
+            return None
+        url: str = self._presigner.generate_presigned_url(
             "get_object",
             Params={"Bucket": self._bucket, "Key": key},
             ExpiresIn=expires_in or self._presign_ttl,

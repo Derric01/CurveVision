@@ -18,6 +18,7 @@ interface SessionState {
   login: (identifier: string, password: string) => Promise<void>;
   /** Finish single sign-on; resolves to the path the person was going to. */
   completeSso: (code: string, state: string) => Promise<string>;
+  completeSaml: (code: string, verifier: string) => Promise<string>;
   register: (input: {
     email: string;
     username: string;
@@ -73,6 +74,18 @@ export const useSession = create<SessionState>((set) => ({
     set({ error: null });
     try {
       const { user, returnTo } = await api.ssoComplete(code, state);
+      set({ user, status: 'authenticated' });
+      return returnTo;
+    } catch (error) {
+      set({ error: error instanceof Error ? error.message : 'Sign-in failed' });
+      throw error;
+    }
+  },
+
+  async completeSaml(code, verifier) {
+    set({ error: null });
+    try {
+      const { user, returnTo } = await api.samlComplete(code, verifier);
       set({ user, status: 'authenticated' });
       return returnTo;
     } catch (error) {

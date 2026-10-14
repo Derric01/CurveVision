@@ -8,6 +8,7 @@ from sqlalchemy import select
 from curvevision.api.deps import JobScopeDep, SessionDep
 from curvevision.core.errors import ConflictError
 from curvevision.core.pagination import Page, PageParamsDep, paginate
+from curvevision.domain.enums import WebhookEvent
 from curvevision.domain.review import AnnotationEvent
 from curvevision.policy import Action, ResourceType
 from curvevision.schemas.annotation import (
@@ -20,7 +21,9 @@ from curvevision.schemas.annotation import (
     TrackOut,
 )
 from curvevision.schemas.system import AnnotationEventOut, SuggestionDecision
+from curvevision.schemas.task import JobOut
 from curvevision.services import annotations as annotation_service
+from curvevision.services import webhooks as webhook_service
 
 router = APIRouter(prefix="/jobs/{job_id}", tags=["annotations"])
 
@@ -65,7 +68,18 @@ async def write_annotations(
         session, scope.job, payload, actor=scope.identity.user, schema=schema
     )
     await session.commit()
-    return AnnotationWriteResult.model_validate(result)
+    written = AnnotationWriteResult.model_validate(result)
+    await webhook_service.emit_for_project(
+        session,
+        WebhookEvent.ANNOTATIONS_UPDATED,
+        {
+            "job": JobOut.model_validate(scope.job).model_dump(mode="json"),
+            "annotation_version": written.annotation_version,
+        },
+        scope.project,
+        actor_id=scope.identity.user.id,
+    )
+    return written
 
 
 @router.delete("/annotations", status_code=status.HTTP_204_NO_CONTENT)

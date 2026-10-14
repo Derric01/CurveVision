@@ -12,13 +12,13 @@
 
 import { desktopToken } from '@/desktop';
 import type {
+  AnnotationDocument,
+  AnnotationImportResult,
+  AnnotationWriteResult,
   ApiToken,
   ApiTokenCreated,
-  AnnotationDocument,
-  AnnotationWriteResult,
   Asset,
   BackgroundTaskBrief,
-  AnnotationImportResult,
   DatasetFormat,
   DatasetVersion,
   FrameInfo,
@@ -40,14 +40,20 @@ import type {
   ProjectStatistics,
   QualityReport,
   Role,
+  SamlStarted,
   SignInOptions,
   SsoStarted,
   Task,
   TaskMediaMeta,
   TaskProgress,
+  TeamServerCheck,
   TokenPair,
   UploadSession,
   User,
+  Webhook,
+  WebhookCreated,
+  WebhookDelivery,
+  WebhookEvent,
 } from './types';
 
 const API_PREFIX = '/api/v1';
@@ -236,6 +242,27 @@ export const api = {
     });
   },
 
+  /**
+   * Begin SAML single sign-on. `verifierSha256` is the hash of a secret this tab keeps:
+   * only the tab holding it can finish the sign-in.
+   */
+  samlStart(verifierSha256: string, returnTo: string): Promise<SamlStarted> {
+    return request<SamlStarted>('/auth/saml/start', {
+      method: 'POST',
+      body: { verifier_sha256: verifierSha256, return_to: returnTo },
+    });
+  },
+
+  /** Finish it with the login code the server sent back, and the tab's verifier. */
+  async samlComplete(code: string, verifier: string): Promise<{ user: User; returnTo: string }> {
+    const tokens = await request<TokenPair>('/auth/saml/complete', {
+      method: 'POST',
+      body: { code, verifier },
+    });
+    tokenStore.set(tokens);
+    return { user: await request<User>('/auth/me'), returnTo: tokens.return_to ?? '/' };
+  },
+
   /** Finish it with what the provider sent back; signed in, and where to go next. */
   async ssoComplete(code: string, state: string): Promise<{ user: User; returnTo: string }> {
     const tokens = await request<TokenPair>('/auth/sso/complete', {
@@ -276,6 +303,30 @@ export const api = {
     request<ApiTokenCreated>('/auth/tokens', { method: 'POST', body: input }),
 
   revokeApiToken: (id: string) => request<void>(`/auth/tokens/${id}`, { method: 'DELETE' }),
+
+  // ---------------------------------------------------------------- webhooks
+  webhooks: (organizationId: string) =>
+    request<Webhook[]>(`/webhooks?organization_id=${encodeURIComponent(organizationId)}`),
+
+  createWebhook: (
+    organizationId: string,
+    input: { target_url: string; events: WebhookEvent[]; description?: string | null },
+  ) =>
+    request<WebhookCreated>(`/webhooks?organization_id=${encodeURIComponent(organizationId)}`, {
+      method: 'POST',
+      body: input,
+    }),
+
+  updateWebhook: (id: string, input: { is_active?: boolean; events?: WebhookEvent[] }) =>
+    request<Webhook>(`/webhooks/${id}`, { method: 'PATCH', body: input }),
+
+  deleteWebhook: (id: string) => request<void>(`/webhooks/${id}`, { method: 'DELETE' }),
+
+  /** Send a signed `ping` now; answers with what the receiver said. */
+  pingWebhook: (id: string) =>
+    request<WebhookDelivery>(`/webhooks/${id}/ping`, { method: 'POST' }),
+
+  webhookDeliveries: (id: string) => request<WebhookDelivery[]>(`/webhooks/${id}/deliveries`),
 
   // ---------------------------------------------------------------- organizations
   organizations: () => request<Organization[]>('/organizations'),
@@ -457,6 +508,8 @@ export const api = {
    */
   localImport: (taskId: string, input: { path: string; recursive?: boolean }) =>
     request<LocalImportResult>(`/tasks/${taskId}/local-import`, { method: 'POST', body: input }),
+  checkTeamServer: (address: string) =>
+    request<TeamServerCheck>('/local/team-server-check', { method: 'POST', body: { address } }),
 
   taskJobs: (taskId: string) => request<Job[]>(`/tasks/${taskId}/jobs`),
   taskProgress: (taskId: string) => request<TaskProgress>(`/tasks/${taskId}/progress`),
@@ -684,6 +737,8 @@ export const api = {
        * label space is refused with a 422 rather than silently ignored.
        */
       classes?: string[];
+      /** Clicks for an `interactor` model, in image pixels (`canvas/interactor.ts`). */
+      prompts?: { positive: [number, number][]; negative: [number, number][] };
     },
   ) => request<InferenceResult>(`/jobs/${jobId}/inference`, { method: 'POST', body }),
 

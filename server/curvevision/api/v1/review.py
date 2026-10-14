@@ -8,10 +8,10 @@ from fastapi import APIRouter, Query, status
 from sqlalchemy import select
 from sqlalchemy.orm import selectinload
 
-from curvevision.api.deps import JobScopeDep, SessionDep
+from curvevision.api.deps import JobScope, JobScopeDep, SessionDep
 from curvevision.core.db import utcnow
 from curvevision.core.errors import NotFoundError
-from curvevision.domain.enums import IssueState
+from curvevision.domain.enums import IssueState, WebhookEvent
 from curvevision.domain.review import Comment, Issue
 from curvevision.policy import Action, ResourceContext, ResourceType, require
 from curvevision.schemas.system import (
@@ -21,6 +21,7 @@ from curvevision.schemas.system import (
     IssueOut,
     IssueUpdate,
 )
+from curvevision.services import webhooks as webhook_service
 
 router = APIRouter(prefix="/jobs/{job_id}", tags=["review"])
 
@@ -64,7 +65,20 @@ async def create_issue(payload: IssueCreate, scope: JobScopeDep, session: Sessio
     await session.flush()
     session.add(Comment(issue_id=issue.id, author_id=scope.identity.user.id, body=payload.body))
     await session.commit()
-    return await _issue_out(session, issue.id)
+    return await emit_issue_created(session, scope, issue.id)
+
+
+async def emit_issue_created(session: SessionDep, scope: JobScope, issue_id: uuid.UUID) -> IssueOut:
+    """Announce a new issue — opened here, or by a reviewer sending work back — and return it."""
+    out = await _issue_out(session, issue_id)
+    await webhook_service.emit_for_project(
+        session,
+        WebhookEvent.ISSUE_CREATED,
+        {"issue": out.model_dump(mode="json")},
+        scope.project,
+        actor_id=scope.identity.user.id,
+    )
+    return out
 
 
 @router.patch("/issues/{issue_id}", response_model=IssueOut)

@@ -131,6 +131,44 @@ async def _restore(source: str, desktop: str | None) -> int:
     return 0
 
 
+async def _storage_init(wait: float) -> int:
+    """Make sure the configured object store is ready for a first upload.
+
+    Waits up to `wait` seconds for the store to answer, because this runs as a one-shot
+    container started alongside it, and an S3 server that is still starting refuses
+    connections for a moment.
+    """
+    import time
+
+    from curvevision.storage import get_storage
+
+    settings = get_settings()
+    storage = get_storage(settings)
+    ensure = getattr(storage, "ensure_bucket", None)
+    if ensure is None:
+        # A folder, which local storage creates as it writes: there is nothing to set up.
+        print(f"Local storage at {settings.storage_local_root}: nothing to create.")
+        return 0
+
+    deadline = time.monotonic() + wait
+    while True:
+        try:
+            created = await ensure()
+            break
+        except Exception as exc:
+            if time.monotonic() >= deadline:
+                print(
+                    f"Object storage at {settings.s3_endpoint_url or 'AWS S3'} is not usable: "
+                    f"{exc}",
+                    file=sys.stderr,
+                )
+                return 1
+            await asyncio.sleep(1)
+    bucket = storage.bucket  # type: ignore[attr-defined]
+    print(f"Created bucket {bucket}." if created else f"Bucket {bucket} already exists.")
+    return 0
+
+
 def _run_worker(queues: list[str]) -> int:
     """Start a Dramatiq worker.
 
@@ -177,6 +215,18 @@ def main(argv: list[str] | None = None) -> int:
     restore.add_argument("archive")
     restore.add_argument("--desktop", nargs="?", const="", metavar="DIR", help=desktop_help)
 
+    storage_init = sub.add_parser(
+        "storage-init",
+        help="Create the object storage bucket if it does not exist (safe to run again)",
+    )
+    storage_init.add_argument(
+        "--wait",
+        type=float,
+        default=60.0,
+        metavar="SECONDS",
+        help="how long to wait for the object store to start answering (default: 60)",
+    )
+
     worker = sub.add_parser("worker", help="Run a background worker")
     worker.add_argument(
         "--queues",
@@ -195,6 +245,7 @@ def main(argv: list[str] | None = None) -> int:
         "formats": lambda: asyncio.run(_list_formats()),
         "backup": lambda: asyncio.run(_backup(args.archive, args.desktop)),
         "restore": lambda: asyncio.run(_restore(args.archive, args.desktop)),
+        "storage-init": lambda: asyncio.run(_storage_init(args.wait)),
         "worker": lambda: _run_worker(args.queues),
     }
     return int(handlers[args.command]())

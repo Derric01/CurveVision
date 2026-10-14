@@ -211,7 +211,10 @@ already the seam.
 * **API tokens** for SDK/CLI/CI: `cv_<id>_<secret>` displayed once, stored as a SHA-256
   hash, with optional expiry and last-used tracking.
 * Single sign-on — **OIDC Done** (iteration 81: authorization code with PKCE, accounts
-  linked by issuer and subject, driven in a browser against a provider); **SAML Planned**.
+  linked by issuer and subject, driven in a browser against a provider); **SAML Done**
+  (iteration 91: SP-initiated Web SSO, the HTTP-Redirect request and HTTP-POST response,
+  python3-saml validating; the request ID minted from a verifier the browser tab keeps, so
+  only that tab can finish; one account-linking module, `external_identity.py`, for both).
   (This line used to say an `AuthBackend` seam existed; it did not.)
 
 ### 0.7 Authorization
@@ -532,10 +535,11 @@ class DatasetFormat(Protocol):
 `DatasetView` is a read-only, streaming projection over jobs/frames/annotations, so exporting
 a 500k-image dataset never materialises it in memory.
 
-Shipped, eleven: **CurveVision JSON** (lossless native), **CVAT XML 1.1**, **COCO**
+Shipped, fifteen: **CurveVision JSON** (lossless native), **CVAT XML 1.1**, **COCO**
 (instances + keypoints), **YOLO** (detection + segmentation), **YOLO OBB**, **YOLO Pose**,
-**YOLO Classification**, **Pascal VOC**, **KITTI**, **MOTChallenge**, and **segmentation
-mask** (indexed PNG). Each declares its capabilities, and the export API warns which
+**YOLO Classification**, **Pascal VOC**, **KITTI**, **MOTChallenge**, **LabelMe (JSON)**,
+**Cityscapes**, **Open Images (CSV)**, **TFRecord** (TF Object Detection API), and
+**segmentation mask** (indexed PNG). Each declares its capabilities, and the export API warns which
 annotations will be dropped *before* running (e.g. polylines are not representable in COCO
 instances).
 
@@ -560,9 +564,63 @@ classes, with every label compared against the source geometry, and trains one e
 each (`scripts/verify_ultralytics.py`, `.github/workflows/ultralytics.yml`). Its first run
 found that every `data.yaml` failed unless training started inside the export (`path: .`
 resolves against the working directory); pose now writes `flip_idx` from joint names.
-The workflow has run locally, not yet on a GitHub runner.
+It runs on GitHub for every pull request that touches the formats, and weekly (`ultralytics.yml`).
 
-Planned: LabelMe, Open Images, TFRecord, Datumaro bridge.
+**LabelMe (JSON)** (iteration 86): the labelme tool's per-image files, both ways — boxes,
+rotated boxes as `oriented_rectangle`, polygons, polylines, points, circles, masks (a PNG of
+the shape's own box), checkbox attributes as shape flags, tags as image flags. Written from
+the format, since labelme is GPL-3.0; held to labelme itself by
+`scripts/verify_labelme.py` (`.github/workflows/labelme.yml`), which opens an export with
+labelme's own loader, draws every shape with its rasteriser and compares the pixels, and
+imports a file written by labelme's own writer. Not *LabelMe 3.0*, the MIT CSAIL XML.
+
+**Cityscapes** (iteration 87): the `gtFine` layout both ways — per image the polygons file
+and the label-id, instance-id, training-id and colour images drawn from it, the image under
+`leftImg8bit/`. A project whose labels are all Cityscapes classes (crowds such as `cargroup`
+and `license plate` included) keeps Cityscapes' ids, colours and training ids; any other is
+numbered after a background in `label_colors.txt`. Import reads the polygons file when there
+is one, and otherwise makes each instance of the instance image (or each class of the label
+image) the mask of exactly its pixels. Held to the dataset's own tools by
+`scripts/verify_cityscapes.py` (`.github/workflows/cityscapes.yml`): cityscapesScripts draws
+every exported polygons file, and each image must equal its drawing pixel for pixel;
+cityscapesScripts' own instance images are imported; Datumaro reads the export.
+
+**Open Images (CSV)** (iteration 88): the dataset's annotation files both ways — class
+descriptions (V5 without a header, V6/V7 with one, MIDs mapped to display names), boxes
+normalised to the image with `IsOccluded` as occlusion and the other four flags as checkbox
+attributes, human-verified image labels as tags (a label verified *absent*, confidence 0, is
+not one; machine labels are predictions and are not read), and masks as one binary PNG each,
+scaled to the image when the dataset's are not at its resolution. Polygons and ellipses are
+written as the masks they cover; every mask is also written as its box, as the dataset does,
+and a box a mask names arrives once, as the mask. `images.meta` carries each image's size,
+so the files are readable without the images. Held to Datumaro by
+`scripts/verify_open_images.py` (`.github/workflows/open_images.yml`): it reads our export
+with and without the images, and we read what its own exporter writes.
+
+**TFRecord** (iteration 89): the TensorFlow Object Detection API's `tf.train.Example`
+records, one file per subset, with `label_map.pbtxt` — written without TensorFlow or
+protobuf: TFRecord's framing and CRC-32C (slicing-by-8 in pure Python; `google-crc32c` is
+used when installed) and the protocol buffer are encoded by hand, the encoding pinned byte
+for byte to protobuf's own. Boxes normalised to the image, class text and label-map id,
+`difficult` and `truncated` from checkbox attributes; polygons, ellipses and masks as their
+box plus a PNG mask, on an image where every object has one (the API reads all or none).
+Import reads sharded files (`train.record-00000-of-00010`), takes classes from the record or
+the label map, checks every checksum, and rounds pixel coordinates to a thousandth, which is
+all a float32 can mean. Held to the real readers by `scripts/verify_tfrecord.py`
+(`.github/workflows/tfrecord.yml`): TensorFlow reads every record and parses it with the
+Object Detection API's own feature specification; Datumaro reads the export; we read what
+Datumaro writes through TensorFlow's own writer.
+
+**The Datumaro bridge** (iteration 90, [ADR 0011](./adr/0011-datumaro-bridge.md)): with the
+optional `datumaro` extra installed, `formats/datumaro_bridge.py` offers fourteen more formats
+as `datumaro-<name>` — ImageNet (folders and text), CIFAR, MNIST, LFW, VGGFace2, WIDER FACE,
+DOTA, CamVid, Pascal VOC segmentation and instance segmentation, COCO panoptic, LabelMe 3.0
+XML and Datumaro's own format. What each carries is **measured**, not declared:
+`scripts/datumaro_bridge_probe.py` round-trips every shape type, a tag and an attribute
+through each and writes `datumaro_formats.json`, which the export API's warnings come from;
+`.github/workflows/datumaro.yml` re-measures with `--check` and runs real data through a
+sample. Images go to temporary files and masks are drawn on demand, so memory holds the
+annotations only. Without the extra, nothing is registered or imported.
 
 ---
 
@@ -733,8 +791,9 @@ Providers:
   is how self-hosters attach their own SAM/YOLO/DETR service without CurveVision depending on
   torch.
 * `builtin` — **Planned.** Optional ONNX Runtime provider for a few small bundled models.
-* Hosted vendors — **Planned**, as separate optional packages so the core never imports a
-  vendor SDK.
+* Hosted vision-language models (Claude, OpenAI-compatible) — **In Progress**: built and
+  tested against fakes of each API (ADR 0010, iteration 63), not yet run against the real
+  services. Plain `httpx`, so the core still imports no vendor SDK.
 
 Running a model over a job — **Done.** The editor's right rail has an auto-annotate panel:
 pick a model, and for an open-vocabulary one type the classes to look for. It states before
@@ -742,6 +801,14 @@ the run what it will search for and where those classes came from, and names any
 project label can receive, since the server can only report that afterwards. Driven end to
 end against a real model server by `scripts/verify_auto_annotate.py`. The kinds that need a
 different interaction (`interactor`, `tracker`) are listed with the reason rather than hidden.
+
+Click-to-segment with an `interactor` model — **Done** (iteration 98). The editor's *Outline*
+tool (`I`): a click on the object, right-click (or Alt-click) on what is not it, and after
+each the model's outline is redrawn; Enter keeps it as a polygon with `source = "model"`.
+The clicks go to the server as `prompts` with `persist: false` — the path that existed for
+this and had no caller. Answers can arrive out of order, so each is numbered and only the
+newest shown (`canvas/interactor.ts`). Driven in a browser against a model server that
+answers clicks (`scripts/verify_interactor.py`). Trackers still have no interaction.
 
 Predictions land as **suggestions**: annotations with `source = "model"` and a confidence,
 drawn dashed in the editor and editable or deletable like any other annotation — **Done**.
@@ -780,8 +847,13 @@ editing it and rejected by deleting it.
 * **REST API** — **Done**, OpenAPI 3.1 at `/api/v1/openapi.json`.
 * **API tokens** — **Done**, and minted, listed and revoked from the *Workspace* page
   since iteration 66.
-* **Webhooks** — **In Progress**: HMAC-SHA256 signed deliveries with retry/backoff for
-  project and task lifecycle events.
+* **Webhooks** — **Done** (iterations 96–97): HMAC-SHA256 signed deliveries with retry/backoff for
+  twelve project, task, job, annotation, issue and release events — **emitted since
+  iteration 96**; before it nothing queued a delivery, so no webhook ever received
+  anything. A ping and a recent-deliveries list for integrators; a webhook can name only a
+  project in its own workspace (iteration 96 closed a hole that let it name any). Managed
+  from the Workspace page (iteration 97), shown to maintainers and above; driven in a browser
+  against a real receiver by `scripts/verify_webhooks.py`.
 * **Python SDK** — **Done** for core resources; typed, `httpx`-based, sync client.
 * **CLI** — **Done** for auth, project/task creation, upload, export.
 * **TypeScript client** — **Done** (iteration 82): `sdk/typescript`, `@curvevision/client`,
@@ -833,14 +905,31 @@ Not an add-on: one of the two shapes the product ships in ([Two deployment shape
   does the same. The result is reported honestly — the count imported, and the per-file
   reasons when the server skipped something, which it does rather than failing a folder over
   one corrupt file. `scripts/verify_local_import.py` drives the whole thing in a browser
-  against the packaged server. One seam is genuinely uncovered and says so: `invoke()`
-  across the Tauri IPC bridge, because Playwright drives Chromium and not the webview — see
-  [ADR 0008](./adr/0008-calling-the-desktop-shell.md).
-* **Signed installers** — *Planned*. `.dmg`, `.msi`, `.AppImage` built per platform in CI;
-  PyInstaller does not cross-compile, so this needs one runner per OS.
-* **Auto-update** — *Planned*.
-* **Pointing the desktop app at a shared team server** — *Planned*. The application is
-  already origin-agnostic; this is UI work, not architecture.
+  against the packaged server. The seam that harness cannot reach — `invoke()` across the
+  Tauri IPC bridge — is driven since iteration 85 in the real application over WebDriver
+  (`scripts/verify_desktop_shell.py`, Linux), and its first run found every command refused:
+  the shell had never granted them, so the pickers never worked in a built app. Fixed; see
+  [ADR 0008](./adr/0008-calling-the-desktop-shell.md), *Update*.
+* **Installers** — **Done, unsigned** (iteration 84). `.deb`, `.rpm`, `.AppImage`, `.dmg`
+  and an NSIS `.exe`, each built on its own platform's runner — PyInstaller does not
+  cross-compile — with the packaged server smoke-tested on each and the `.deb` installed and
+  used. **Signing is Blocked**: it needs an Apple Developer ID and a Windows code-signing
+  certificate the project does not have.
+* **Auto-update** — **Done, unreleased** (iteration 92). Tauri's updater, behind *Help ▸
+  Check for Updates…* and a notice the page shows when a newer version is offered. The
+  public key and the feed are compiled in from repository secrets (`src/updates.rs`); a build
+  without them says updates are not configured, and only a debug build reads either from the
+  environment. `verify_desktop_shell.py` check 9 serves a feed of its own with a throwaway
+  minisign key (`scripts/minisign.py`): the newer version is found, a tampered download and
+  one signed with another key are refused. Not done, and not ours to do: generating the
+  release key pair and publishing a release with `latest.json`
+  (`scripts/updater_manifest.py`) — both are acts under the maintainers' names.
+* **Pointing the desktop app at a shared team server** — **Done** (iteration 85). *File ▸
+  Connect to a Team Server…* checks the address through this computer's server (local mode
+  only: `POST /local/team-server-check`), and the shell opens the team server in a window of
+  its own — no capability, so no access to the shell, and no initialization script, so none
+  of this computer's credentials. The choice is remembered; *File ▸ Use This Computer*
+  switches back.
 
 Explicit non-goal, unchanged: a second implementation of the product. The shell supervises a
 process and opens dialogs. Adding the whole desktop application changed **1,460 lines added

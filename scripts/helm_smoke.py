@@ -120,6 +120,18 @@ def main() -> int:
     if len(document.get("annotations", [])) != 1:
         raise SystemExit(f"FAIL the COCO export holds {document.get('annotations')}")
     print("ok   an annotation is saved and exported")
+
+    # A job the API queues and a worker runs: in a deployment with a broker, this is the
+    # only check that the two are connected through the same Redis.
+    queued = api.json("POST", f"/tasks/{task['id']}/media/recount", expect=202)  # type: ignore[index]
+    for _ in range(60):
+        ran = api.json("GET", f"/background-tasks/{queued['id']}")  # type: ignore[index]
+        if ran["state"] in ("succeeded", "failed", "cancelled"):  # type: ignore[index]
+            break
+        time.sleep(2)
+    if ran["state"] != "succeeded":  # type: ignore[index]
+        raise SystemExit(f"FAIL the background job did not run: {ran}")
+    print("ok   a background job queued by the API is run by a worker")
     print("\nevery check passed")
     return 0
 

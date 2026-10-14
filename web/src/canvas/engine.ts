@@ -17,6 +17,7 @@ import {
 } from './renderer';
 import { Scene } from './scene';
 import { createTool, PathTool, TOOL_SHORTCUTS, type Tool, type ToolContext } from './tools';
+import type { Interact } from './interactor';
 import {
   createViewport,
   fitToImage,
@@ -76,6 +77,7 @@ export class AnnotationEngine {
   private cachedImageData: ImageData | null = null;
   private cachedImageDataSource: CanvasImageSource | null = null;
   private tool: Tool = createTool('select');
+  private interact: Interact | null = null;
   private overlay: OverlayState = { ...EMPTY_OVERLAY };
   private pickingPoint = false;
 
@@ -158,6 +160,11 @@ export class AnnotationEngine {
     this.invalidate('shapes');
   }
 
+  /** How the click-to-segment tool asks a model; `null` when the workspace has none. */
+  setInteractor(interact: Interact | null): void {
+    this.interact = interact;
+  }
+
   setActiveLabel(labelId: string | null): void {
     this.activeLabel = labelId;
   }
@@ -197,6 +204,7 @@ export class AnnotationEngine {
   }
 
   private context(): ToolContext {
+    const tool = this.tool;
     return {
       scene: this.scene,
       viewport: () => this.viewportState,
@@ -204,6 +212,12 @@ export class AnnotationEngine {
       activeLabelId: () => this.activeLabel,
       snapEnabled: () => this.snapEnabled,
       imageData: () => this.frameImageData(),
+      currentFrame: () => this.currentFrame,
+      interact: this.interact,
+      // A late answer is applied only while the tool that asked is still the active one.
+      deliver: (result) => {
+        if (this.tool === tool) this.applyResult(result);
+      },
     };
   }
 

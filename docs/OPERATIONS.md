@@ -19,8 +19,21 @@ Six services:
 | `worker` | Background jobs (media, import, export, inference, webhooks) | no |
 | `web` | Static bundle plus reverse proxy | no |
 | `postgres` | Every row of annotation and metadata | **yes** |
-| `minio` | Media, thumbnails, export artifacts | **yes** |
+| `s3` | Media, thumbnails, export artifacts — [Versity Gateway](https://github.com/versity/versitygw), a directory served as S3 | **yes** |
 | `redis` | Cache and job broker | no — safe to lose |
+
+Plus `storage-init`, a one-shot that creates the bucket (`curvevision-server storage-init`)
+and exits before `api` starts. Any S3 service can stand in for `s3` — AWS, R2, Ceph,
+Backblaze: set `CURVEVISION_S3_ENDPOINT_URL`, `S3_ACCESS_KEY` and `S3_SECRET_KEY` in `.env`.
+Until October 2026 `s3` was MinIO, whose images can no longer be pulled anonymously; see
+[Upgrading](#from-the-minio-based-stack) if your installation still has its data.
+
+**How images reach the browser.** By default the API streams them: browsers cannot reach
+`http://s3:9000`, and a presigned URL naming it would fail. When browsers *can* reach the
+store — AWS S3, R2, a public gateway — set `CURVEVISION_S3_PUBLIC_ENDPOINT_URL` to that
+address and allow this application's origin in the bucket's CORS rules; images are then
+fetched from the store directly by short-lived presigned URL, which takes their bandwidth
+off the API.
 
 Scale `api` and `worker` horizontally; they hold no local state. Redis is deliberately not
 a source of truth: media chunks live in object storage, so losing Redis costs a cache, not
@@ -48,6 +61,24 @@ each time; choose it only if an outage of the scanner must not stop uploads. Rai
 
 Folders imported in place by the desktop application are not scanned: they are already on
 the machine that would be protected.
+
+### More dataset formats, through Datumaro
+
+Fifteen formats are built in. Fourteen more — ImageNet, CIFAR, MNIST, LFW, VGGFace2, WIDER
+FACE, DOTA, CamVid, Pascal VOC's segmentation layouts, COCO panoptic, LabelMe 3.0 and
+Datumaro's own — are offered as `datumaro-<name>` when the server has the optional `datumaro`
+extra ([ADR 0011](./adr/0011-datumaro-bridge.md)):
+
+```bash
+pip install 'curvevision-server[datumaro]'
+# or, for the image:
+docker build -f deploy/Dockerfile.server \
+  --build-arg SERVER_EXTRAS=postgres,s3,media,worker,tracing,oidc,saml,datumaro .
+```
+
+It adds a few hundred megabytes, which is why it is not in the default image. Install it in
+the worker too: exports and imports run there. Datumaro holds a dataset's annotations in
+memory, so a very large project is better exported in one of the built-in formats.
 
 ## Single sign-on
 
@@ -78,11 +109,49 @@ The sign-in page then offers the provider. Who gets in, and as whom:
 The server image includes what this needs; a pip install needs `curvevision-server[oidc]`.
 The desktop application has no sign-in, and ignores all of this.
 
+### SAML 2.0
+
+For a provider that speaks SAML rather than OpenID Connect — AD FS, Shibboleth, or Entra ID,
+Okta and Google Workspace configured that way. Give the provider this service provider's
+metadata, from `https://<api>/api/v1/auth/saml/metadata`, or these two values:
+
+* **ACS URL** (reply URL): `https://<api>/api/v1/auth/saml/acs`, HTTP-POST.
+* **Entity ID** (audience): the metadata URL above, unless `CURVEVISION_SAML_SP_ENTITY_ID` says
+  otherwise.
+
+```bash
+CURVEVISION_SAML_ENABLED=true
+CURVEVISION_SAML_ACS_URL=https://cv.example.com/api/v1/auth/saml/acs
+CURVEVISION_SAML_CALLBACK_URL=https://cv.example.com/auth/callback
+# Either the provider's metadata...
+CURVEVISION_SAML_IDP_METADATA_URL=https://idp.example.com/saml/metadata
+# ...or its entity ID, sign-in URL and signing certificate:
+# CURVEVISION_SAML_IDP_ENTITY_ID=https://idp.example.com/saml
+# CURVEVISION_SAML_IDP_SSO_URL=https://idp.example.com/saml/sso
+# CURVEVISION_SAML_IDP_X509_CERT="MIIC..."
+CURVEVISION_SAML_DISPLAY_NAME="Acme sign-in"
+```
+
+The provider must **sign the assertion** (not only the response) with SHA-256 or better, and
+release a stable `NameID` — persistent, ideally — which is what the account is linked by. The
+email address is read from the `email` or `mail` attribute, or the usual URI forms of them
+(`CURVEVISION_SAML_EMAIL_ATTRIBUTE` names another), and is trusted to link an existing account
+or make a new one: this is the operator's own provider (`CURVEVISION_SAML_TRUST_EMAIL=false`
+lets in only people already linked). `CURVEVISION_SAML_CREATE_USERS`,
+`CURVEVISION_SAML_ALLOWED_DOMAINS` and `CURVEVISION_SAML_DEFAULT_WORKSPACE` do what their OIDC
+counterparts do. Sign-ins must start here: an unsolicited, provider-initiated response is
+refused. The server image includes the `saml` extra; a pip install needs
+`curvevision-server[saml]`.
+
 ## Kubernetes
 
 A Helm chart is in [`deploy/helm/curvevision`](../deploy/helm/curvevision): the API, the
-workers and the web application, with a migration Job that runs once before each install
-and upgrade. **PostgreSQL, Redis and S3-compatible storage are yours to provide** — every
+workers and the web application, with Jobs that run before each install and upgrade: one
+makes the bucket if it does not exist (`curvevision-server storage-init`, as Docker Compose
+runs it), then one migrates the database. Turn the first off with
+`storage.s3.createBucket=false` when the bucket is made elsewhere and the release's
+credentials may not list it — without `s3:ListBucket`, S3 answers 403 and the install would
+stop there. **PostgreSQL, Redis and S3-compatible storage are yours to provide** — every
 cluster already runs those its own way, and a copy bundled here would be one more thing to
 back up.
 
@@ -99,16 +168,20 @@ helm install cv deploy/helm/curvevision \
   --set secretKey=$(python3 -c 'import secrets; print(secrets.token_urlsafe(48))') \
   --set database.url=postgresql+asyncpg://curvevision:PASSWORD@postgres:5432/curvevision \
   --set redis.url=redis://redis:6379/0 \
-  --set storage.s3.endpointUrl=http://minio:9000 \
+  --set storage.s3.endpointUrl=https://s3.example.com \
   --set storage.s3.accessKeyId=... --set storage.s3.secretAccessKey=... \
   --set ingress.enabled=true --set ingress.host=curvevision.example.com
 ```
 
 Or keep the credentials in a Secret of your own (`existingSecret`; its keys are listed in
 `values.yaml`). Every API replica counts against one rate limit, in that Redis; malware
-scanning and tracing are `config.contentScanner` and `config.tracing`. The chart is linted
-and its manifests validated against the Kubernetes 1.30 schemas on every CI run; it has
-not yet been installed into a running cluster in CI.
+scanning and tracing are `config.contentScanner` and `config.tracing`.
+
+Every CI run lints the chart, validates its manifests against the Kubernetes 1.30 schemas,
+and installs it into a `kind` cluster with PostgreSQL, Redis and an S3 service in it
+(`deploy/helm/ci/`), whose S3 starts with no bucket, so the chart's hook has to make one: it waits for every pod, uses the release through its web service —
+sign-up, an image uploaded and read back, an annotation exported, a background job run by
+a worker — takes a backup from inside the cluster, and runs `helm upgrade`.
 
 ## Backups
 
@@ -118,17 +191,20 @@ does both, into one archive:
 
 ```bash
 docker compose exec api curvevision-server backup /backups/cv-$(date +%F).tar
+docker compose cp api:/backups/cv-$(date +%F).tar .     # then copy it off the machine
 ```
 
 Every row of every table, as JSON, and every stored object a row refers to — images,
 video, thumbnails, frame chunks, each released dataset version's frozen copy — with its
 SHA-256. Because the rows are not a database dump, **an archive restores into either
 database**: a desktop installation's SQLite into a team server's PostgreSQL is the same
-command. Mount `/backups` as a volume, and copy the archive off the machine.
+command. `/backups` is a named volume (`backups`), so archives survive the containers; copy
+them off the machine all the same.
 
 ```bash
 # Restore, into a NEW installation: migrations are run first, and a database with any
 # rows in it, or at another schema revision, is refused rather than merged into.
+docker compose cp cv-2026-01-15.tar api:/backups/
 docker compose exec api curvevision-server restore /backups/cv-2026-01-15.tar
 ```
 
@@ -151,8 +227,8 @@ The archive is written row by row and object by object; with millions of images,
 # Database
 docker compose exec -T postgres pg_dump -U curvevision -Fc curvevision > cv-$(date +%F).dump
 
-# Object storage
-docker compose exec -T minio mc mirror --overwrite local/curvevision /backup/curvevision
+# Object storage: the bundled `s3` service keeps objects as plain files
+docker compose exec -T s3 tar -C / -cf - objects meta > s3-$(date +%F).tar
 ```
 
 Take the object-storage snapshot **after** the database dump. Media is content-addressed
@@ -162,9 +238,9 @@ other order can leave a row pointing at a blob that was never captured.
 Restore:
 
 ```bash
-docker compose up -d postgres minio
+docker compose up -d postgres s3
 docker compose exec -T postgres pg_restore -U curvevision -d curvevision --clean < cv-2026-01-15.dump
-docker compose exec -T minio mc mirror --overwrite /backup/curvevision local/curvevision
+docker compose exec -T s3 tar -C / -xf - < s3-2026-01-15.tar
 docker compose up -d
 ```
 
@@ -178,6 +254,35 @@ docker compose up -d
 
 The `api` container runs `alembic upgrade head` on start. Take a database dump first: a
 migration is the one operation that can lose data if it goes wrong.
+
+### From the MinIO-based stack
+
+Until October 2026 the bundled object store was MinIO. Its images were withdrawn from
+Docker Hub, and Quay stopped serving them anonymously, so a fresh `docker compose pull` of
+the old file fails — and the new `s3` service cannot read MinIO's on-disk format. Move the
+data across with a backup, which holds the database and every stored object together:
+
+```bash
+# 1. With the old stack still running, and before pulling this version. (/tmp, because
+#    the old stack's ./backups mount was not writable by the server's user.)
+docker compose exec api curvevision-server backup /tmp/before-s3.tar
+docker compose cp api:/tmp/before-s3.tar .
+docker compose down
+
+# 2. Once before-s3.tar is safely copied somewhere, start from an empty database
+#    (a restore refuses to merge into one with rows in it):
+docker volume rm curvevision_postgres-data
+git pull
+docker compose up -d --build
+
+# 3. Restore into the new, empty installation:
+docker compose cp before-s3.tar api:/backups/
+docker compose exec api curvevision-server restore /backups/before-s3.tar
+```
+
+The old `minio-data` volume is left alone; remove it when you are satisfied. An `.env` that
+sets `MINIO_ROOT_USER` and `MINIO_ROOT_PASSWORD` keeps working: they are read as the new
+service's keys.
 
 ## Monitoring
 

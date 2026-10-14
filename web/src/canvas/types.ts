@@ -161,7 +161,8 @@ export type ToolName =
   | 'scissors'
   | 'skeleton'
   | 'brush'
-  | 'cuboid';
+  | 'cuboid'
+  | 'interactor';
 
 export interface PointerInput {
   /** Position in image space. */

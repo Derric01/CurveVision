@@ -29,6 +29,10 @@ which drives the real application in a real browser and draws those boxes with r
 on a real photograph. Nothing here is a mockup.
 </sub></div>
 
+<p align="center"><b><a href="docs/demo/curvevision-demo.mp4">▶ Watch the one-minute demo</a></b> —
+sign in, a project, boxes and a polygon on real photographs, a real COCO export.
+Recorded from the running application by <a href="scripts/record_demo.py"><code>scripts/record_demo.py</code></a>.</p>
+
 ---
 
 ## Why
@@ -89,8 +93,10 @@ AI-assisted     upload → run your model → accept or correct → review → e
 
 ### The desktop application
 
-There are no signed installers yet — we would rather say so than link a download that does
-not exist. Building it takes three commands:
+There is no signed installer or published release yet — we would rather say so than link a
+download that does not exist. CI builds unsigned installers for Linux, macOS and Windows
+(`.github/workflows/desktop.yml`, kept as workflow artifacts); building one yourself takes
+three commands:
 
 ```bash
 pip install -e 'server[dev,media,desktop]'
@@ -161,12 +167,12 @@ Point it at any inference endpoint. Predictions arrive as suggestions you accept
 reject. No bundled weights, no vendor SDK.
 
 **Export**
-Eleven formats — COCO, all five Ultralytics YOLO tasks (detection, segmentation, OBB, pose,
-classification), Pascal VOC, KITTI, MOTChallenge, CVAT XML, segmentation masks and a
-lossless native one — each declaring honestly what it can represent, *before* you rely on it.
+Fifteen formats — COCO, all five Ultralytics YOLO tasks (detection, segmentation, OBB, pose,
+classification), Pascal VOC, KITTI, MOTChallenge, CVAT XML, LabelMe, Cityscapes, Open Images,
+TFRecord, segmentation masks and a lossless native one — each declaring honestly what it can represent, *before* you rely on it.
 **CVAT XML imports and exports**, so work done there is not stranded here. Each is checked
-against the reader that consumes it — pycocotools, Datumaro, CVAT's own reader, Ultralytics'
-loader rules — not only against this project's importer.
+against the reader that consumes it — pycocotools, Datumaro, CVAT's own reader, Ultralytics,
+labelme's own loader, cityscapesScripts, TensorFlow — not only against this project's importer.
 
 </td></tr>
 </table>
@@ -177,6 +183,7 @@ loader rules — not only against this project's importer.
 | --- | --- |
 | Rectangles, polygons, polylines, points, ellipses | **Done** |
 | **Intelligent scissors** — click once and the boundary snaps to the edge under your cursor | **Done** |
+| **Click-to-segment** — click an object and an interactor model (SAM or your own) outlines it | **Done** — needs an `interactor` model server; none is bundled |
 | Selection, move, vertex editing, marquee | **Done** |
 | Undo/redo with drag coalescing | **Done** |
 | Zoom, pan, vertex snapping | **Done** |
@@ -296,7 +303,10 @@ visibly scrambles a shape the moment an annotator inserts a vertex.
 
 ### Import and export
 
-Eleven formats, each declaring **honestly** what it can represent:
+Fifteen formats, each declaring **honestly** what it can represent — and, with the optional
+`datumaro` extra, fourteen more through [Datumaro](https://github.com/openvinotoolkit/datumaro)
+(ImageNet, CIFAR, MNIST, LFW, VGGFace2, WIDER FACE, DOTA, CamVid, COCO panoptic, LabelMe 3.0
+and others), what each carries measured by round-tripping every shape type through it:
 
 | Format | Round-trips |
 | --- | --- |
@@ -309,6 +319,10 @@ Eleven formats, each declaring **honestly** what it can represent:
 | **YOLO Classification** | whole-image tags — export only |
 | **Pascal VOC** | bounding boxes |
 | **KITTI** | 2D boxes |
+| **LabelMe (JSON)** | boxes, rotated boxes, polygons, polylines, points, circles, **masks**, checkbox attributes, tags — read and written by labelme itself in CI |
+| **Cityscapes** | polygons, boxes and ellipses (as polygons), **masks**, as the gtFine polygons file and its label, instance and training-id images — every image identical to cityscapesScripts' own drawing, checked in CI |
+| **Open Images (CSV)** | boxes with their occluded/truncated/group-of/depiction/inside flags, **masks** (polygons and ellipses written as the masks they cover), image-level labels as tags — read and written by Datumaro in CI |
+| **TFRecord** (TF Object Detection API) | boxes, **masks** (polygons and ellipses as the masks they cover), difficult/truncated flags — read by TensorFlow and Datumaro in CI; written without either |
 | **MOTChallenge** | boxes with object identity across frames |
 | **Segmentation mask** | masks, polygons, boxes and ellipses, rasterised — export only |
 
@@ -349,7 +363,7 @@ requests — so it cannot drift from the implementation. Swagger UI at `/api/doc
   Browser ──┐
   SDK/CLI ──┼──▶  FastAPI (async)  ──▶  PostgreSQL
   CI      ──┘      │  policy · services · domain        Redis (cache + broker)
-                   │  ┌────────┬─────────┬────────┐     S3 / MinIO
+                   │  ┌────────┬─────────┬────────┐     S3-compatible storage
                    │  │storage │ formats │   ml   │
                    │  └────────┴─────────┴────────┘
                    └──▶ Dramatiq worker ──▶ your model server

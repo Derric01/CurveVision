@@ -208,6 +208,30 @@ class TestRoundTrips:
         }
         assert parked == {0: True, 2: False}
 
+    async def test_a_native_archive_into_a_project_without_its_labels_keeps_its_attributes(
+        self, owner: ApiActor, organization: dict[str, Any]
+    ) -> None:
+        """The labels an import creates carry the attributes the file declares. Until
+        iteration 86 they were created bare, and the import — which keeps only declared
+        attributes — then dropped every value: "lossless" lost them all."""
+        archive = await self.draw_and_export(owner, organization, "curvevision")
+        bare = await owner.post(
+            "/api/v1/projects",
+            json={"organization_id": organization["id"], "slug": "bare", "name": "Bare"},
+        )
+        assert bare.status_code == 201, bare.text
+
+        _result, document = await import_into(owner, bare.json(), "curvevision", archive, frames=6)
+
+        labels = (await owner.get(f"/api/v1/projects/{bare.json()['id']}/labels")).json()
+        car = next(label for label in labels if label["name"] == "car")
+        assert {a["name"]: a["attribute_type"] for a in car["attributes"]} == {
+            "colour": "select",
+            "parked": "checkbox",
+        }
+        [shape] = document["shapes"]
+        assert shape["attributes"] == {"colour": "blue", "parked": True}
+
 
 def cvat_archive(xml: str) -> bytes:
     buffer = io.BytesIO()
@@ -471,3 +495,235 @@ class TestATrackWithAGap:
 
         [track] = document["tracks"]
         assert present_on(track) == [0, 1, 4, 5]
+
+
+async def test_tfrecord_examples_arrive_through_the_import_route(
+    owner: ApiActor, organization: dict[str, Any]
+) -> None:
+    """TFRecord (iteration 89), through the real import route: records written by hand to
+    the TensorFlow Object Detection API's layout — a label map, boxes normalised to the size
+    each record states, the flags as attributes."""
+    from curvevision.formats.tfrecord import encode_example, frame_record
+
+    def example(name: bytes, boxes: list[list[float]], labels: list[int]) -> bytes:
+        return frame_record(
+            encode_example(
+                {
+                    "image/filename": ("bytes", [name]),
+                    "image/height": ("int", [480]),
+                    "image/width": ("int", [640]),
+                    "image/object/bbox/xmin": ("float", [b[0] for b in boxes]),
+                    "image/object/bbox/ymin": ("float", [b[1] for b in boxes]),
+                    "image/object/bbox/xmax": ("float", [b[2] for b in boxes]),
+                    "image/object/bbox/ymax": ("float", [b[3] for b in boxes]),
+                    "image/object/class/label": ("int", labels),
+                    "image/object/truncated": ("int", [1] * len(labels)),
+                }
+            )
+        )
+
+    project = await street_project(owner, organization, "tfrecord-import")
+    archive = io.BytesIO()
+    with zipfile.ZipFile(archive, "w") as bundle:
+        bundle.writestr(
+            "label_map.pbtxt", "item { id: 1 name: 'car' }\nitem { id: 2 name: 'bus' }\n"
+        )
+        bundle.writestr(
+            "train.tfrecord",
+            example(b"f0.png", [[0.1, 0.1, 0.5, 0.5]], [1])
+            + example(b"f1.png", [[0.25, 0.5, 0.75, 1.0]], [2]),
+        )
+
+    _summary, document = await import_into(owner, project, "tfrecord", archive.getvalue(), frames=2)
+
+    labels = {
+        label["name"]: label
+        for label in (await owner.get(f"/api/v1/projects/{project['id']}/labels")).json()
+    }
+    # The flag the records carry is declared on the label the import made.
+    assert [(a["name"], a["attribute_type"]) for a in labels["bus"]["attributes"]] == [
+        ("truncated", "checkbox")
+    ]
+    by_frame = {shape["frame"]: shape for shape in document["shapes"]}
+    assert by_frame[0]["points"] == [64, 48, 320, 240]
+    assert by_frame[0]["label_id"] == labels["car"]["id"]
+    assert by_frame[1]["points"] == [160, 240, 480, 480]
+    assert by_frame[1]["attributes"]["truncated"] is True
+
+
+async def test_open_images_files_arrive_at_the_images_own_size(
+    owner: ApiActor, organization: dict[str, Any]
+) -> None:
+    """Open Images (iteration 88), through the real import route: normalised boxes become
+    pixels at the size the task knows each image to be, a mask at another resolution is
+    scaled to it, and a label the dataset verified absent is not a tag."""
+    from PIL import Image
+
+    small = Image.new("L", (40, 30), 0)
+    for x in (2, 3):
+        for y in (1, 2):
+            small.putpixel((x, y), 255)
+    encoded = io.BytesIO()
+    small.save(encoded, format="PNG")
+
+    project = await street_project(owner, organization, "open-images-import")
+    archive = io.BytesIO()
+    with zipfile.ZipFile(archive, "w") as bundle:
+        bundle.writestr("annotations/class-descriptions.csv", "/m/0k4j,car\n/m/01,daytime\n")
+        bundle.writestr(
+            "annotations/train-annotations-bbox.csv",
+            "ImageID,Source,LabelName,Confidence,XMin,XMax,YMin,YMax,"
+            "IsOccluded,IsTruncated,IsGroupOf,IsDepiction,IsInside\n"
+            "f0,xclick,/m/0k4j,1,0.1,0.5,0.1,0.5,1,-1,-1,-1,-1\n",
+        )
+        bundle.writestr(
+            "annotations/train-annotations-object-segmentation.csv",
+            "MaskPath,ImageID,LabelName,BoxID,BoxXMin,BoxXMax,BoxYMin,BoxYMax,"
+            "PredictedIoU,Clicks\nf1_car_0.png,f1,/m/0k4j,0,,,,,,\n",
+        )
+        bundle.writestr("masks/train/f1_car_0.png", encoded.getvalue())
+        bundle.writestr(
+            "annotations/train-annotations-human-imagelabels.csv",
+            "ImageID,Source,LabelName,Confidence\nf0,verification,/m/01,1\n"
+            "f1,verification,/m/01,0\n",
+        )
+
+    _summary, document = await import_into(
+        owner, project, "open_images", archive.getvalue(), frames=2
+    )
+
+    labels = {
+        label["name"]: label
+        for label in (await owner.get(f"/api/v1/projects/{project['id']}/labels")).json()
+    }
+    by_frame = {shape["frame"]: shape for shape in document["shapes"]}
+    box, mask = by_frame[0], by_frame[1]
+    assert box["points"] == [64, 48, 320, 240]  # of 640 x 480
+    assert box["occluded"] is True
+    assert mask["shape_type"] == "mask" and mask["label_id"] == labels["car"]["id"]
+    # Two by two pixels of a 40 x 30 mask: thirty-two by thirty-two of the 640 x 480 image.
+    assert (mask["mask"]["left"], mask["mask"]["top"]) == (32, 16)
+    assert (mask["mask"]["width"], mask["mask"]["height"]) == (32, 32)
+    assert [(tag["frame"], tag["label_id"]) for tag in document["tags"]] == [
+        (0, labels["daytime"]["id"])
+    ]
+
+
+async def test_cityscapes_label_images_and_polygons_arrive_through_the_import_route(
+    owner: ApiActor, organization: dict[str, Any]
+) -> None:
+    """Cityscapes (iteration 87), through the real import route: one frame from its polygons
+    file, another from its instance image alone — each instance a mask of its pixels, the
+    road (which has no instances) one mask, and a label the project lacks made in
+    Cityscapes' colour."""
+    import json
+
+    from PIL import Image
+
+    instance = Image.new("I", (8, 6), 0)
+    for x, y in [(1, 1), (2, 1), (2, 2)]:
+        instance.putpixel((x, y), 26000)
+    for x in range(8):
+        instance.putpixel((x, 5), 7)
+    encoded = io.BytesIO()
+    instance.convert("I;16").save(encoded, format="PNG")
+
+    project = await street_project(owner, organization, "cityscapes-import")
+    archive = io.BytesIO()
+    with zipfile.ZipFile(archive, "w") as bundle:
+        bundle.writestr("gtFine/train/f0_gtFine_instanceIds.png", encoded.getvalue())
+        bundle.writestr(
+            "gtFine/train/f1_gtFine_polygons.json",
+            json.dumps(
+                {
+                    "imgHeight": 48,
+                    "imgWidth": 64,
+                    "objects": [{"label": "car", "polygon": [[10, 10], [50, 10], [30, 40]]}],
+                }
+            ),
+        )
+
+    _summary, document = await import_into(
+        owner, project, "cityscapes", archive.getvalue(), frames=2
+    )
+
+    labels = {
+        label["name"]: label
+        for label in (await owner.get(f"/api/v1/projects/{project['id']}/labels")).json()
+    }
+    assert labels["road"]["color"] == "#804080"
+    on_first = sorted(
+        (shape for shape in document["shapes"] if shape["frame"] == 0),
+        key=lambda shape: shape["label_id"] == labels["road"]["id"],
+    )
+    car, road = on_first
+    assert (car["label_id"], car["shape_type"]) == (labels["car"]["id"], "mask")
+    assert (car["mask"]["left"], car["mask"]["top"]) == (1, 1)
+    assert (car["mask"]["width"], car["mask"]["height"]) == (2, 2)
+    assert (road["label_id"], road["mask"]["width"]) == (labels["road"]["id"], 8)
+    polygon = next(shape for shape in document["shapes"] if shape["frame"] == 1)
+    assert polygon["shape_type"] == "polygon"
+    assert polygon["points"] == [10, 10, 50, 10, 30, 40]
+
+
+async def test_labelme_files_arrive_with_their_flags_groups_and_tags(
+    owner: ApiActor, organization: dict[str, Any]
+) -> None:
+    """LabelMe (iteration 86), through the real import route: a checkbox the project
+    declares keeps its flag, a label it does not have is made with the flags the file gives
+    it, and the image's flag is a tag."""
+    import json
+
+    project = await street_project(owner, organization, "labelme-import")
+    archive = io.BytesIO()
+    with zipfile.ZipFile(archive, "w") as bundle:
+        bundle.writestr(
+            "f0.json",
+            json.dumps(
+                {
+                    "version": "5.5.0",
+                    "flags": {"daytime": True},
+                    "imagePath": "f0.png",
+                    "imageData": None,
+                    "shapes": [
+                        {
+                            "label": "car",
+                            "points": [[10, 10], [50, 50]],
+                            "shape_type": "rectangle",
+                            "group_id": 2,
+                            "flags": {"parked": True},
+                            "description": "",
+                        },
+                        {
+                            "label": "tree",
+                            "points": [[1, 1], [9, 1], [5, 9]],
+                            "shape_type": "polygon",
+                            "group_id": None,
+                            "flags": {"bare": True},
+                            "description": "an oak",
+                        },
+                    ],
+                }
+            ),
+        )
+
+    summary, document = await import_into(owner, project, "labelme", archive.getvalue(), frames=2)
+
+    labels = {
+        label["name"]: label
+        for label in (await owner.get(f"/api/v1/projects/{project['id']}/labels")).json()
+    }
+    assert {"car", "tree", "daytime"} <= set(labels)
+    assert {(a["name"], a["attribute_type"]) for a in labels["tree"]["attributes"]} == {
+        ("bare", "checkbox"),
+        ("description", "text"),
+    }
+    by_label = {shape["label_id"]: shape for shape in document["shapes"]}
+    car = by_label[labels["car"]["id"]]
+    assert car["points"] == BOX_AT_0
+    assert car["group"] == 2
+    assert car["attributes"]["parked"] is True
+    tree = by_label[labels["tree"]["id"]]
+    assert tree["attributes"] == {"bare": True, "description": "an oak"}
+    assert [tag["label_id"] for tag in document["tags"]] == [labels["daytime"]["id"]]
+    assert summary

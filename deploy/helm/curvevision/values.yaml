@@ -39,13 +39,22 @@ redis:
 
 storage:
   s3:
-    # Leave empty for AWS S3 itself; set for MinIO, Ceph, R2 and the like.
+    # Leave empty for AWS S3 itself; set for Ceph, R2, Versity Gateway and the like.
     endpointUrl: ""
     bucket: curvevision
+    # Make the bucket on install and upgrade if it does not exist (a hook running
+    # `curvevision-server storage-init`). Turn off when the bucket is made elsewhere and the
+    # credentials below may not list it (no `s3:ListBucket`): S3 then answers 403 and the
+    # hook, and the install, would fail.
+    createBucket: true
     region: ""
     accessKeyId: ""
     secretAccessKey: ""
     forcePathStyle: true
+    # Where browsers reach the store, if they can: media is then fetched from it directly
+    # by presigned URL (the bucket must allow this application's origin by CORS). Empty,
+    # the API streams media itself, which works whatever the network.
+    publicEndpointUrl: ""
 
 api:
   replicas: 2

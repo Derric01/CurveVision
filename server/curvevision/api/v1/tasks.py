@@ -11,15 +11,17 @@ from sqlalchemy.orm import selectinload
 
 from curvevision.api.deps import (
     IdentityDep,
+    JobScope,
     JobScopeDep,
     ProjectScopeDep,
     SessionDep,
     SettingsDep,
+    TaskScope,
     TaskScopeDep,
 )
 from curvevision.core.errors import NotFoundError, ValidationError
 from curvevision.core.pagination import Page, PageParamsDep, paginate
-from curvevision.domain.enums import JobState, MediaKind, TaskStatus
+from curvevision.domain.enums import JobState, MediaKind, TaskStatus, WebhookEvent
 from curvevision.domain.identity import OrganizationMembership
 from curvevision.domain.media import MediaBlob
 from curvevision.domain.project import Project
@@ -46,6 +48,7 @@ from curvevision.schemas.task import (
 from curvevision.services import background as background_service
 from curvevision.services import media as media_service
 from curvevision.services import tasks as task_service
+from curvevision.services import webhooks as webhook_service
 from curvevision.storage import ObjectNotFoundError, get_storage
 
 router = APIRouter(tags=["tasks"])
@@ -106,7 +109,15 @@ async def create_task(
         owner=identity.user,
     )
     await session.commit()
-    return TaskDetail.model_validate(task)
+    detail = TaskDetail.model_validate(task)
+    await webhook_service.emit_for_project(
+        session,
+        WebhookEvent.TASK_CREATED,
+        {"task": detail.model_dump(mode="json")},
+        scope.project,
+        actor_id=identity.user.id,
+    )
+    return detail
 
 
 @router.get("/tasks/{task_id}", response_model=TaskDetail)
@@ -130,6 +141,7 @@ async def _task_detail(session: SessionDep, task: Task) -> TaskDetail:
 async def update_task(payload: TaskUpdate, scope: TaskScopeDep, session: SessionDep) -> TaskDetail:
     scope.authorize(Action.UPDATE)
     task = scope.task
+    was = task.status
     sent = payload.model_fields_set
     if payload.name is not None:
         task.name = payload.name
@@ -149,7 +161,63 @@ async def update_task(payload: TaskUpdate, scope: TaskScopeDep, session: Session
         # `assignee` is eagerly loaded and the sessionmaker is `expire_on_commit=False`, so
         # writing the *id* leaves the loaded relationship holding whoever was there before.
         await session.refresh(task, ["assignee_id", "assignee"])
-    return await _task_detail(session, task)
+    detail = await _task_detail(session, task)
+    await _emit_task(session, scope, WebhookEvent.TASK_UPDATED, detail)
+    if was is not TaskStatus.COMPLETED and task.status is TaskStatus.COMPLETED:
+        await _emit_task(session, scope, WebhookEvent.TASK_COMPLETED, detail)
+    return detail
+
+
+async def _emit_task(
+    session: SessionDep,
+    scope: TaskScope | JobScope,
+    event: WebhookEvent,
+    detail: TaskDetail | None = None,
+) -> None:
+    detail = detail or await _task_detail(session, scope.task)
+    await webhook_service.emit_for_project(
+        session,
+        event,
+        {"task": detail.model_dump(mode="json")},
+        scope.project,
+        actor_id=scope.identity.user.id,
+    )
+
+
+#: The event each review state announces, beside `job.updated`.
+_STATE_EVENTS = {
+    JobState.SUBMITTED: WebhookEvent.JOB_SUBMITTED,
+    JobState.ACCEPTED: WebhookEvent.JOB_ACCEPTED,
+    JobState.REJECTED: WebhookEvent.JOB_REJECTED,
+}
+
+
+async def _emit_job(
+    session: SessionDep,
+    scope: JobScope,
+    out: JobOut,
+    *,
+    updated: bool,
+    state_was: JobState,
+    task_was: TaskStatus,
+) -> None:
+    """What a change to a job announces: itself, its new review state, its task finishing."""
+
+    async def send(event: WebhookEvent) -> None:
+        await webhook_service.emit_for_project(
+            session,
+            event,
+            {"job": out.model_dump(mode="json")},
+            scope.project,
+            actor_id=scope.identity.user.id,
+        )
+
+    if updated:
+        await send(WebhookEvent.JOB_UPDATED)
+    if scope.job.state is not state_was and scope.job.state in _STATE_EVENTS:
+        await send(_STATE_EVENTS[scope.job.state])
+    if task_was is not TaskStatus.COMPLETED and scope.task.status is TaskStatus.COMPLETED:
+        await _emit_task(session, scope, WebhookEvent.TASK_COMPLETED)
 
 
 @router.delete("/tasks/{task_id}", status_code=status.HTTP_204_NO_CONTENT)
@@ -580,6 +648,7 @@ async def update_job(
     payload: JobUpdate, scope: JobScopeDep, session: SessionDep, identity: IdentityDep
 ) -> JobOut:
     job = scope.job
+    state_was, task_was = job.state, scope.task.status
     # `model_fields_set` rather than a None check, because for these two fields the
     # difference matters: an omitted field means "leave it alone" and an explicit null means
     # "unassign". Reading both as None made a job assignable and never unassignable -- the
@@ -611,7 +680,16 @@ async def update_job(
         # the previous holder -- or `null` for a job that just gained its first one, which
         # is what a picker would render straight back at the person who just assigned it.
         await session.refresh(job, list(assignment_fields | {"assignee", "reviewer"}))
-    return JobOut.model_validate(job)
+    out = JobOut.model_validate(job)
+    await _emit_job(
+        session,
+        scope,
+        out,
+        updated=bool(payload.model_fields_set),
+        state_was=state_was,
+        task_was=task_was,
+    )
+    return out
 
 
 @router.post("/jobs/{job_id}/review", response_model=JobOut)
@@ -629,6 +707,8 @@ async def review_job(
     scope.authorize(Action.REVIEW)
     if scope.job.state is not JobState.SUBMITTED:
         raise ValidationError("Only submitted jobs can be reviewed")
+    state_was, task_was = scope.job.state, scope.task.status
+    issue = None
 
     new_state = JobState.ACCEPTED if payload.accepted else JobState.REJECTED
     await task_service.transition_job(session, scope.job, new_state, actor=identity.user)
@@ -646,7 +726,13 @@ async def review_job(
         session.add(Comment(issue_id=issue.id, author_id=identity.user.id, body=payload.comment))
 
     await session.commit()
-    return JobOut.model_validate(scope.job)
+    out = JobOut.model_validate(scope.job)
+    await _emit_job(session, scope, out, updated=True, state_was=state_was, task_was=task_was)
+    if issue is not None:
+        from curvevision.api.v1.review import emit_issue_created
+
+        await emit_issue_created(session, scope, issue.id)
+    return out
 
 
 @router.get("/projects/{project_id}/tasks", response_model=Page[TaskOut])

@@ -9,7 +9,7 @@ from sqlalchemy import select
 
 from curvevision.api.deps import ProjectScopeDep, SessionDep, SettingsDep, TaskScopeDep
 from curvevision.core.errors import ValidationError
-from curvevision.domain.enums import DatasetVersionState
+from curvevision.domain.enums import DatasetVersionState, WebhookEvent
 from curvevision.domain.system import DatasetVersion
 from curvevision.domain.task import Job
 from curvevision.formats import ZipImportSource, get_format
@@ -23,6 +23,7 @@ from curvevision.schemas.system import (
 )
 from curvevision.services import annotations as annotation_service
 from curvevision.services import datasets as dataset_service
+from curvevision.services import webhooks as webhook_service
 from curvevision.storage import get_storage
 
 router = APIRouter(tags=["datasets"])
@@ -93,14 +94,16 @@ async def import_annotations(
     # Create any labels the file referenced that the project does not have yet.
     label_ids = dict(context.known_labels)
     if create_missing_labels and result.new_labels:
-        from curvevision.schemas.project import LabelIn
+        from curvevision.schemas.project import AttributeIn, LabelIn
         from curvevision.services import projects as project_service
 
         for spec in result.new_labels:
             if spec.name in label_ids:
                 continue
             # With its joints, for a skeleton: without them, the label exists and none of
-            # its imported skeletons has a joint to be stored under.
+            # its imported skeletons has a joint to be stored under. And with the attributes
+            # the file declares for it: the import keeps only declared attributes, so a label
+            # made without them dropped every value it had just been given (iteration 86).
             label = await project_service.create_label(
                 session,
                 scope.project,
@@ -109,6 +112,15 @@ async def import_annotations(
                     color=spec.color,
                     children=[LabelIn(name=keypoint) for keypoint in spec.keypoints],
                     skeleton_edges=[list(edge) for edge in spec.skeleton_edges],
+                    attributes=[
+                        AttributeIn(
+                            name=attribute.name,
+                            attribute_type=attribute.attribute_type,
+                            values=list(attribute.values),
+                            mutable=attribute.mutable,
+                        )
+                        for attribute in spec.attributes
+                    ],
                 ),
             )
             label_ids[spec.name] = str(label.id)
@@ -195,7 +207,15 @@ async def release_version(
         session, scope.project, version, get_storage(settings)
     )
     await session.commit()
-    return DatasetVersionOut.model_validate(version)
+    out = DatasetVersionOut.model_validate(version)
+    await webhook_service.emit_for_project(
+        session,
+        WebhookEvent.DATASET_RELEASED,
+        {"version": out.model_dump(mode="json")},
+        scope.project,
+        actor_id=scope.identity.user.id,
+    )
+    return out
 
 
 @router.post("/projects/{project_id}/versions/{version_id}/export")

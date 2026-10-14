@@ -71,13 +71,40 @@ Open the printed URL in any browser and you get the complete application.
 | Annotating local folders in place, nothing copied | **Done** |
 | The editor served by the app itself, same-origin with its API | **Done** |
 | Frontend reads the injected connection and skips the sign-in screen | **Done** |
-| Open-folder flow wired to the shell's native picker | **In Progress** — the server endpoint and the shell command exist; the web UI does not call them yet |
-| Signed installers (`.dmg`, `.msi`, `.AppImage`) built per platform in CI | **Planned** |
-| Auto-update | **Planned** |
-| Pointing the desktop app at a shared team server | **Planned** |
+| Open-folder and choose-files flows wired to the shell's native pickers | **Done** — but refused by Tauri in every built application until iteration 85: the shell's commands were never granted (ADR 0008, *Update*). Since iteration 95 the whole flow is driven in the real application on Linux: *Open Folder…* (Ctrl+O) and *Choose files…* open GTK's own dialogs, a path is chosen in them at the keyboard, and the task gains the frames, read in place (check 11 of `verify_desktop_shell.py`). macOS's and Windows' dialogs are not driven |
+| The real application driven in CI — shell, webview, server — over WebDriver (`scripts/verify_desktop_shell.py`, Linux), including the webview keeping IndexedDB across launches | **Done** |
+| Installers built per platform in CI: `.deb`, `.rpm`, `.AppImage`; `.dmg`; NSIS `.exe` (`.github/workflows/desktop.yml`) | **Done, unsigned** — the `.deb` is installed and the server inside it used on every run |
+| Code signing (Apple Developer ID and notarisation, Windows Authenticode) | **Blocked** — needs the project's own certificates |
+| Auto-update | **Done, unreleased** — *Help ▸ Check for Updates…* and a notice in the app; an update installs only if its signature verifies against the key built in. Driven over WebDriver against a local feed: a newer version is found, and a tampered download or one signed with another key is refused. A real update needs the maintainers' key pair in the repository's secrets and a release carrying `latest.json` — see *Releasing an update* below |
+| Pointing the desktop app at a shared team server | **Done** — *File ▸ Connect to a Team Server…*; the team server opens in a window with no access to the shell and none of this computer's credentials. Both menu items are driven at the keyboard under Xvfb (`xdotool`), since WebDriver cannot reach a native menu (check 10 of `verify_desktop_shell.py`) |
 
 Measurements are from this repository's own Linux build, not targets. They will differ on
 other platforms.
+
+## Releasing an update
+
+The application installs an update only when the download's minisign signature verifies
+against the public key built into it; the feed (`latest.json`) is not trusted, the signature
+is. Neither key is in this repository. To turn updates on, a maintainer:
+
+1. Makes the key pair once — `npx @tauri-apps/cli signer generate -w curvevision.key` — and
+   keeps the private half somewhere only maintainers reach.
+2. Adds the repository secrets `TAURI_SIGNING_PRIVATE_KEY` (the private key's text),
+   `TAURI_SIGNING_PRIVATE_KEY_PASSWORD`, and `CURVEVISION_UPDATER_PUBKEY` (the `.pub` file's
+   text, as Tauri prints it). From then on `.github/workflows/desktop.yml` builds the public
+   key and the feed — this repository's `releases/latest/download/latest.json` — into the
+   installers, and signs the AppImage, the NSIS installer and the macOS `.app.tar.gz`.
+3. Makes the feed from those artifacts and attaches it, with them, to the release:
+
+   ```sh
+   python scripts/updater_manifest.py --version 0.2.0 \
+       --base-url https://github.com/Derric01/CurveVision/releases/download/v0.2.0 \
+       --notes "What changed" downloaded-artifacts/ > latest.json
+   ```
+
+Installs that predate step 2 have no key and cannot update themselves; they say so under
+*Help ▸ Check for Updates…*. Losing the private key means every install must be updated by
+hand once, to a build with a new public key.
 
 ## Where your data lives
 

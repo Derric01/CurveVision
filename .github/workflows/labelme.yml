@@ -1,0 +1,62 @@
+# CurveVision's LabelMe export, read by labelme itself — and labelme's files, read by us.
+#
+# `scripts/verify_labelme.py` exports every shape the format writes, opens the result with
+# labelme's own `LabelFile` and draws each shape with labelme's own rasteriser, comparing
+# the pixels with the source geometry; then imports a file written by labelme's own writer.
+#
+# Not in `ci.yml`: labelme brings Qt and a scientific stack for code that changes rarely.
+# The core suite holds the format to the same rules (`test_formats_labelme.py`); this job
+# is the real tool, run whenever a format changes, weekly against labelme's latest release,
+# and on demand. labelme is GPL-3.0 and is installed here only as a separate program used
+# to check our files; it is never a dependency of CurveVision.
+name: LabelMe
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'server/curvevision/formats/**'
+      - 'scripts/verify_labelme.py'
+      - '.github/workflows/labelme.yml'
+  pull_request:
+    paths:
+      - 'server/curvevision/formats/**'
+      - 'scripts/verify_labelme.py'
+      - '.github/workflows/labelme.yml'
+  schedule:
+    # Mondays 05:10 UTC: catches a labelme release that changes what it accepts.
+    - cron: '10 5 * * 1'
+  workflow_dispatch:
+
+concurrency:
+  group: labelme-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  read-and-write:
+    name: Our LabelMe files in labelme, and labelme's in ours
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.11'
+          cache: pip
+          cache-dependency-path: server/pyproject.toml
+
+      - name: Install the server and labelme
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e "server[media]"
+          pip install labelme
+
+      - name: Read and write
+        env:
+          QT_QPA_PLATFORM: offscreen
+        run: python scripts/verify_labelme.py

@@ -73,6 +73,12 @@ Stating the design so you know what to test *against*, and so operators know wha
   is not observable.
 * List endpoints filter by membership **in the query**, so an invisible row never enters a
   result set or a pagination count.
+* An id inside a request body is checked against the workspace the request acts in, not
+  only the id in the path. Iteration 96 found one that was not: a webhook took any
+  `project_id`, so a maintainer of one workspace could subscribe to another workspace's
+  project and receive its events. It could not be exploited in practice before then, only
+  because no event was being sent at all. Creation now refuses it, and deliveries are matched
+  on the workspace too, so a row written earlier stays inert.
 
 ### Input and file handling
 
@@ -91,9 +97,28 @@ Stating the design so you know what to test *against*, and so operators know wha
   on the JSON API, `Referrer-Policy`, and `Permissions-Policy` on every response.
 * CORS uses an explicit allow-list — never `*`, because the API accepts credentials.
 * Media is never served from a public bucket. It goes through an authenticated endpoint or
-  a short-lived presigned URL.
+  a short-lived presigned URL — the latter only when the operator names an address browsers
+  can reach the store at (`s3_public_endpoint_url`).
 * Errors are RFC 9457 problem documents. Unexpected exceptions return a generic message;
   the detail goes to the structured log, not to the caller.
+
+### The desktop application
+
+* The local server binds to loopback only, and authenticates its window with a token minted
+  at each launch; the previous launch's token is revoked.
+* The routes that read the local disk (`/tasks/{id}/local-import`) or fetch an address a
+  client names (`/local/team-server-check`) exist only in local mode. On a shared server
+  they return 404: there, the first would be arbitrary file disclosure and the second a
+  server-side request forgery.
+* The shell's commands (native dialogs, opening the data folder, switching servers) are
+  granted to the local window only (`desktop/shell/src-tauri/capabilities/default.json`),
+  and Tauri refuses any command from a remote origin no capability names.
+* **A team server is shown in a window of its own** (iteration 85), with no access to the
+  shell and no initialization script, so none of this computer's credentials reach it. The
+  local window's script, which carries the token, also checks the page's origin before
+  handing it over, in case that window is ever navigated elsewhere.
+* The shell stores the chosen team server's address only — origin, never a user name or
+  password — in the application's config folder.
 
 ### Auditing
 
@@ -129,10 +154,14 @@ Stated plainly, because a security document that only lists strengths is not use
   (`content_scanner = "clamd"`, [OPERATIONS.md](./OPERATIONS.md#scanning-uploads-for-malware));
   it fails closed. Another scanner is one class implementing `ContentScanner` in
   `media/scanning.py`.
-* **Single sign-on is OpenID Connect only.** OIDC works ([OPERATIONS.md](./OPERATIONS.md#single-sign-on));
-  SAML does not. An account is linked by the provider's issuer and subject; a first
-  sign-in links to an existing account only through an email the provider says is
-  verified.
+* **Single sign-on: OpenID Connect and SAML 2.0** ([OPERATIONS.md](./OPERATIONS.md#single-sign-on)).
+  An account is linked by the provider's issuer and subject (`services/external_identity.py`,
+  one set of rules for both); a first sign-in links to an existing account only through an
+  email the provider vouches for. SAML responses are validated by python3-saml (signature
+  over the assertion, issuer, audience, destination, recipient, validity window); the
+  request ID is an HMAC over the hash of a verifier the starting browser tab keeps, so a
+  response captured or a login code leaked signs nobody in without that tab, and an
+  unsolicited response is refused. Single logout is not implemented.
 * **No audit-log tamper protection.** Audit events live in the same database as everything
   else; an attacker with database write access can alter them.
 * **CurveVision is young.** It has not had an external security audit. Weigh that when

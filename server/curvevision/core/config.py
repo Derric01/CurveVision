@@ -7,12 +7,19 @@ what stops secrets leaking into import-time state.
 
 from __future__ import annotations
 
+import json
 import secrets
 from functools import lru_cache
-from typing import Literal
+from typing import Annotated, Literal
 
 from pydantic import Field, field_validator, model_validator
-from pydantic_settings import BaseSettings, SettingsConfigDict
+from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
+
+#: A list setting, written in the environment as comma-separated text
+#: (`CURVEVISION_CORS_ORIGINS=https://a.example,https://b.example`) or as a JSON list.
+#: `NoDecode`, because pydantic-settings otherwise decodes a list-typed variable as JSON
+#: before any validator runs, and every deployment that set one as text failed to start.
+CommaSeparated = Annotated[tuple[str, ...], NoDecode]
 
 Environment = Literal["development", "test", "staging", "production"]
 
@@ -66,6 +73,12 @@ class Settings(BaseSettings):
     s3_access_key_id: str | None = None
     s3_secret_access_key: str | None = None
     s3_force_path_style: bool = True
+    #: Where browsers reach the object store, when they can: media is then fetched from it
+    #: directly, by presigned URL, rather than through the API (the bucket must allow the
+    #: application's origin by CORS). Unset, the API streams media itself — which is right
+    #: whenever `s3_endpoint_url` is an address only the server can reach, as `http://s3:9000`
+    #: is under Docker Compose and in a cluster.
+    s3_public_endpoint_url: str | None = None
     presigned_url_ttl_seconds: int = 3600
 
     # --- jobs ---------------------------------------------------------------------
@@ -76,7 +89,7 @@ class Settings(BaseSettings):
     frames_per_chunk: int = 36
     thumbnail_max_edge: int = 320
     max_upload_bytes: int = 5 * 1024 * 1024 * 1024
-    allowed_image_extensions: tuple[str, ...] = (
+    allowed_image_extensions: CommaSeparated = (
         ".jpg",
         ".jpeg",
         ".png",
@@ -85,7 +98,7 @@ class Settings(BaseSettings):
         ".tif",
         ".tiff",
     )
-    allowed_video_extensions: tuple[str, ...] = (".mp4", ".mov", ".mkv", ".avi", ".webm")
+    allowed_video_extensions: CommaSeparated = (".mp4", ".mov", ".mkv", ".avi", ".webm")
 
     #: Scanning uploads for malware before they are stored (`media/scanning.py`). ``none``
     #: by default; ``clamd`` sends each upload to ClamAV and refuses what it flags.
@@ -118,15 +131,45 @@ class Settings(BaseSettings):
     #: by verified email) or an existing link can sign in this way.
     oidc_create_users: bool = True
     #: Only these email domains may sign in (comma-separated); empty allows any.
-    oidc_allowed_domains: tuple[str, ...] = ()
+    oidc_allowed_domains: CommaSeparated = ()
     #: A workspace (by slug) a newly created account joins, as an annotator.
     oidc_default_workspace: str = ""
     #: Disable the password sign-in form, when every person signs in through the provider.
     oidc_only: bool = False
 
+    # --- single sign-on (SAML 2.0; `services/saml.py`) ---------------------------------
+    #: Sign-in through a SAML identity provider: Entra ID, Okta, AD FS, Keycloak, Shibboleth,
+    #: Google Workspace... Server shape only. Needs the `saml` extra.
+    saml_enabled: bool = False
+    #: The assertion consumer service the provider posts to: this deployment's API address
+    #: plus ``/api/v1/auth/saml/acs``, registered with the provider exactly so.
+    saml_acs_url: str = ""
+    #: Where the browser is sent once the answer is read: the web address plus
+    #: ``/auth/callback``.
+    saml_callback_url: str = ""
+    #: This service provider's entity ID; empty is the metadata URL beside the ACS.
+    saml_sp_entity_id: str = ""
+    #: The provider's metadata, from which its entity ID, sign-in URL and keys are read...
+    saml_idp_metadata_url: str = ""
+    #: ...or the three of them given directly.
+    saml_idp_entity_id: str = ""
+    saml_idp_sso_url: str = ""
+    #: The provider's signing certificate, PEM or bare base64.
+    saml_idp_x509_cert: str = ""
+    #: The attribute holding the email address; empty tries the usual ones.
+    saml_email_attribute: str = ""
+    #: Trust the email address the provider asserts to link an existing account and make
+    #: new ones — it is the operator's own provider. Off: only existing links sign in.
+    saml_trust_email: bool = True
+    #: The sign-in button's label: "Sign in with <this>".
+    saml_display_name: str = "SAML single sign-on"
+    saml_create_users: bool = True
+    saml_allowed_domains: CommaSeparated = ()
+    saml_default_workspace: str = ""
+
     # --- api ----------------------------------------------------------------------
     api_prefix: str = "/api/v1"
-    cors_origins: tuple[str, ...] = ("http://localhost:5173", "http://127.0.0.1:5173")
+    cors_origins: CommaSeparated = ("http://localhost:5173", "http://127.0.0.1:5173")
     default_page_size: int = 50
     max_page_size: int = 500
     rate_limit_per_minute: int = 600
@@ -156,11 +199,14 @@ class Settings(BaseSettings):
         "allowed_image_extensions",
         "allowed_video_extensions",
         "oidc_allowed_domains",
+        "saml_allowed_domains",
         mode="before",
     )
     @classmethod
     def _split_csv(cls, value: object) -> object:
         if isinstance(value, str):
+            if value.lstrip().startswith("["):
+                return json.loads(value)
             return tuple(part.strip() for part in value.split(",") if part.strip())
         return value
 

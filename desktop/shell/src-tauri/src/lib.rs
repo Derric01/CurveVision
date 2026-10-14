@@ -11,20 +11,25 @@
 //! 3. **Opens folders.** A native directory picker, so a folder of images on an external
 //!    drive can be annotated where it sits instead of uploaded first.
 //!
+//! It can also show a team's shared server instead of this computer's — see `team`.
+//!
 //! Everything else — the editor, the API, the exporters — is the same code the server
 //! deployment runs. This is deliberately not a second implementation of the product.
 
 mod sidecar;
+mod team;
+mod updates;
 
 use std::path::PathBuf;
 use std::sync::Arc;
 
 use serde::Serialize;
 use tauri::menu::{AboutMetadata, Menu, MenuItem, PredefinedMenuItem, Submenu};
-use tauri::{AppHandle, Emitter, Manager, RunEvent, State, WebviewUrl, WebviewWindowBuilder};
+use tauri::{AppHandle, Emitter, Manager, RunEvent, State, Url, WebviewUrl, WebviewWindowBuilder};
 use tauri_plugin_dialog::DialogExt;
 
 use sidecar::{Handshake, Sidecar};
+use team::{LOCAL_WINDOW, TEAM_WINDOW};
 
 /// The executable the server is packaged as, built by `desktop/sidecar/build.py`.
 #[cfg(windows)]
@@ -130,29 +135,115 @@ fn locate_sidecar(app: &AppHandle) -> PathBuf {
         .join(SIDECAR_NAME)
 }
 
+/// Where the team server choice is remembered between launches.
+fn remembered_path(app: &AppHandle) -> Option<PathBuf> {
+    app.path()
+        .app_config_dir()
+        .ok()
+        .map(|folder| folder.join("connection.json"))
+}
+
 /// The window is created here rather than declared in `tauri.conf.json` because it cannot
 /// exist until the server does: its URL contains a port the OS chose a moment ago, and its
 /// initialization script contains a token that was minted at the same time.
-fn open_main_window(app: &AppHandle, handshake: &Handshake) -> tauri::Result<()> {
+fn open_local_window(app: &AppHandle, handshake: &Handshake, path: &str) -> tauri::Result<()> {
     let connection = Connection::from(handshake);
     let injected = serde_json::to_string(&connection).unwrap_or_else(|_| "null".to_string());
 
-    let url = handshake
+    let local: Url = handshake
         .url
         .parse()
         .map_err(|_| tauri::Error::WebviewNotFound)?;
+    let url = local
+        .join(path)
+        .map_err(|_| tauri::Error::WebviewNotFound)?;
 
-    WebviewWindowBuilder::new(app, "main", WebviewUrl::External(url))
+    WebviewWindowBuilder::new(app, LOCAL_WINDOW, WebviewUrl::External(url))
         .title("CurveVision")
         .inner_size(1440.0, 900.0)
         .min_inner_size(960.0, 600.0)
         .resizable(true)
         .center()
         // Runs before any of the page's own scripts, so the application never renders a
-        // signed-out state it would immediately have to replace.
-        .initialization_script(format!("window.__CURVEVISION__ = {injected};"))
+        // signed-out state it would immediately have to replace — and only on this
+        // computer's server, so the credential goes nowhere else.
+        .initialization_script(team::initialization_script(
+            &local.origin().ascii_serialization(),
+            &injected,
+        ))
         .build()?;
     Ok(())
+}
+
+/// A team server's pages, in a window with no initialization script and — because the
+/// capability file names only the local window — no access to the shell.
+fn open_team_window(app: &AppHandle, url: &Url) -> tauri::Result<()> {
+    WebviewWindowBuilder::new(app, TEAM_WINDOW, WebviewUrl::External(url.clone()))
+        .title(format!(
+            "CurveVision — {}",
+            url.host_str().unwrap_or_default()
+        ))
+        .inner_size(1440.0, 900.0)
+        .min_inner_size(960.0, 600.0)
+        .resizable(true)
+        .center()
+        .build()?;
+    Ok(())
+}
+
+/// Show `url`'s pages instead of whatever the window shows now. The new window opens
+/// before the old one closes: closing the last window would quit the application.
+fn switch_to_team(app: &AppHandle, url: &Url) -> tauri::Result<()> {
+    if let Some(previous) = app.get_webview_window(TEAM_WINDOW) {
+        previous.destroy()?;
+    }
+    open_team_window(app, url)?;
+    if let Some(local) = app.get_webview_window(LOCAL_WINDOW) {
+        local.close()?;
+    }
+    Ok(())
+}
+
+/// Show this computer's server, at `path`, instead of a team server.
+fn switch_to_local(app: &AppHandle, path: &str) -> tauri::Result<()> {
+    let Some(server) = app.try_state::<Arc<Sidecar>>() else {
+        return Ok(());
+    };
+    match app.get_webview_window(LOCAL_WINDOW) {
+        Some(local) => {
+            if let Ok(url) = server
+                .handshake
+                .url
+                .parse::<Url>()
+                .and_then(|u| u.join(path))
+            {
+                local.navigate(url)?;
+            }
+            local.set_focus()?;
+        }
+        None => open_local_window(app, &server.handshake, path)?,
+    }
+    if let Some(team) = app.get_webview_window(TEAM_WINDOW) {
+        team.close()?;
+    }
+    Ok(())
+}
+
+/// Switch the window to a team server, and remember it for the next launch.
+///
+/// Called by the local window's Team server page once it has checked the address with the
+/// server itself; the shell checks only what it would be unsafe to open or store.
+///
+/// `async` because it creates a window: a synchronous command runs on the main thread,
+/// and creating a window from one deadlocks on Windows.
+#[tauri::command]
+async fn connect_to_team_server(app: AppHandle, url: String) -> Result<(), String> {
+    let url = team::team_server_url(&url)?;
+    if let Some(path) = remembered_path(&app) {
+        team::remember(&path, Some(&url))
+            .map_err(|error| format!("Could not remember the team server: {error}"))?;
+    }
+    switch_to_team(&app, &url).map_err(|error| format!("Could not open {url}: {error}"))
 }
 
 fn build_menu(app: &AppHandle) -> tauri::Result<Menu<tauri::Wry>> {
@@ -165,6 +256,20 @@ fn build_menu(app: &AppHandle) -> tauri::Result<Menu<tauri::Wry>> {
     )?;
     let show_data =
         MenuItem::with_id(app, "show-data-dir", "Show Data Folder", true, None::<&str>)?;
+    let team_server = MenuItem::with_id(
+        app,
+        "team-server",
+        "Connect to a Team Server…",
+        true,
+        None::<&str>,
+    )?;
+    let this_computer = MenuItem::with_id(
+        app,
+        "use-this-computer",
+        "Use This Computer",
+        true,
+        None::<&str>,
+    )?;
 
     let file = Submenu::with_items(
         app,
@@ -173,6 +278,9 @@ fn build_menu(app: &AppHandle) -> tauri::Result<Menu<tauri::Wry>> {
         &[
             &open_folder,
             &show_data,
+            &PredefinedMenuItem::separator(app)?,
+            &team_server,
+            &this_computer,
             &PredefinedMenuItem::separator(app)?,
             &PredefinedMenuItem::close_window(app, None)?,
         ],
@@ -195,20 +303,94 @@ fn build_menu(app: &AppHandle) -> tauri::Result<Menu<tauri::Wry>> {
         app,
         "Help",
         true,
-        &[&PredefinedMenuItem::about(
-            app,
-            Some("About CurveVision"),
-            Some(AboutMetadata {
-                name: Some("CurveVision".into()),
-                version: Some(env!("CARGO_PKG_VERSION").into()),
-                license: Some("MIT".into()),
-                website: Some("https://github.com/Derric01/CurveVision".into()),
-                ..Default::default()
-            }),
-        )?],
+        &[
+            &MenuItem::with_id(
+                app,
+                "check-for-updates",
+                "Check for Updates…",
+                true,
+                None::<&str>,
+            )?,
+            &PredefinedMenuItem::separator(app)?,
+            &PredefinedMenuItem::about(
+                app,
+                Some("About CurveVision"),
+                Some(AboutMetadata {
+                    name: Some("CurveVision".into()),
+                    version: Some(env!("CARGO_PKG_VERSION").into()),
+                    license: Some("MIT".into()),
+                    website: Some("https://github.com/Derric01/CurveVision".into()),
+                    ..Default::default()
+                }),
+            )?,
+        ],
     )?;
 
     Menu::with_items(app, &[&file, &edit, &help])
+}
+
+/// Whether a newer version is offered (`updates.rs`), for the page's update notice.
+#[tauri::command]
+async fn check_for_update(app: AppHandle) -> Result<updates::UpdateStatus, String> {
+    updates::check(&app).await
+}
+
+/// Download, verify and install the newer version, then restart. Returns only on failure.
+#[tauri::command]
+async fn install_update(app: AppHandle) -> Result<(), String> {
+    updates::install(&app).await
+}
+
+/// Help ▸ Check for Updates…: say what the feed says, and offer to install.
+async fn check_from_menu(app: AppHandle) {
+    use tauri_plugin_dialog::{MessageDialogButtons, MessageDialogKind};
+    let (message, offer) = match updates::check(&app).await {
+        Ok(status) if !status.configured => (
+            "Updates are not configured for this build of CurveVision.".to_owned(),
+            false,
+        ),
+        Ok(updates::UpdateStatus {
+            available: Some(version),
+            current,
+            ..
+        }) => (
+            format!(
+                "CurveVision {version} is available (this is {current}). Install it and restart?"
+            ),
+            true,
+        ),
+        Ok(status) => (
+            format!("CurveVision {} is the latest version.", status.current),
+            false,
+        ),
+        Err(error) => (format!("Could not check for updates: {error}"), false),
+    };
+    let dialog = app
+        .dialog()
+        .message(message)
+        .title("Updates")
+        .kind(MessageDialogKind::Info);
+    let install = if offer {
+        dialog
+            .buttons(MessageDialogButtons::OkCancelCustom(
+                "Install and Restart".into(),
+                "Later".into(),
+            ))
+            .blocking_show()
+    } else {
+        dialog.buttons(MessageDialogButtons::Ok).blocking_show();
+        false
+    };
+    if install {
+        if let Err(error) = updates::install(&app).await {
+            app.dialog()
+                .message(error)
+                .title("Updates")
+                .kind(MessageDialogKind::Error)
+                .buttons(MessageDialogButtons::Ok)
+                .blocking_show();
+        }
+    }
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -216,10 +398,16 @@ pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_opener::init())
+        // The key and the feed are given per check (`updates.rs`), so the configuration's
+        // own pubkey is left empty and unused.
+        .plugin(tauri_plugin_updater::Builder::new().build())
         .invoke_handler(tauri::generate_handler![
             connection,
             choose_folder,
-            choose_files
+            choose_files,
+            connect_to_team_server,
+            check_for_update,
+            install_update
         ])
         .setup(|app| {
             let handle = app.handle().clone();
@@ -243,7 +431,11 @@ pub fn run() {
                 }
             };
 
-            open_main_window(&handle, &server.handshake)?;
+            // Where it was left: the team server chosen last time, or this computer.
+            match remembered_path(&handle).and_then(|path| team::remembered(&path)) {
+                Some(url) => open_team_window(&handle, &url)?,
+                None => open_local_window(&handle, &server.handshake, "/")?,
+            }
             app.set_menu(build_menu(&handle)?)?;
             app.manage(server);
             Ok(())
@@ -252,7 +444,25 @@ pub fn run() {
             // The menu only signals intent; the web application owns what happens next,
             // because only it knows which task the folder should be imported into.
             "open-folder" => {
-                let _ = app.emit("menu:open-folder", ());
+                let _ = app.emit_to(LOCAL_WINDOW, "menu:open-folder", ());
+            }
+            // The local window's Team server page asks for the address and checks it.
+            "team-server" => {
+                if app.get_webview_window(LOCAL_WINDOW).is_some() {
+                    let _ = app.emit_to(LOCAL_WINDOW, "menu:team-server", ());
+                } else {
+                    let _ = switch_to_local(app, "/team-server");
+                }
+            }
+            "use-this-computer" => {
+                if let Some(path) = remembered_path(app) {
+                    let _ = team::remember(&path, None);
+                }
+                let _ = switch_to_local(app, "/");
+            }
+            "check-for-updates" => {
+                let app = app.clone();
+                tauri::async_runtime::spawn(check_from_menu(app));
             }
             "show-data-dir" => {
                 if let Some(server) = app.try_state::<Arc<Sidecar>>() {
@@ -316,10 +526,11 @@ mod tests {
     #[test]
     fn the_initialization_script_is_one_valid_statement() {
         let injected = serde_json::to_string(&Connection::from(&sample())).expect("serialisable");
-        let script = format!("window.__CURVEVISION__ = {injected};");
+        let script = team::initialization_script("http://127.0.0.1:49312", &injected);
 
-        assert!(script.starts_with("window.__CURVEVISION__ = {"));
-        assert!(script.ends_with("};"));
+        assert!(script.starts_with("if (window.location.origin === \"http://127.0.0.1:49312\") {"));
+        assert!(script.contains("window.__CURVEVISION__ = {"));
+        assert!(script.ends_with("}; }"));
         assert!(!script.contains('\n'));
         // Round-trips, so the page receives what the shell meant to send.
         let parsed: serde_json::Value = serde_json::from_str(&injected).expect("valid JSON");

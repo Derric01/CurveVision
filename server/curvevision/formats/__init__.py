@@ -5,13 +5,18 @@ themselves through the ``curvevision.formats`` entry-point group.
 """
 
 from curvevision.formats import (  # noqa: F401
+    cityscapes,
     coco,
     cvat_xml,
+    datumaro_bridge,
     kitti,
+    labelme,
     mot,
     native,
+    open_images,
     registry,
     segmentation,
+    tfrecord,
     voc,
     yolo,
     yolo_variants,
@@ -37,6 +42,9 @@ from curvevision.formats.io import (
     ZipImportSource,
 )
 from curvevision.formats.registry import all_formats, get_format, register
+
+# The long tail, through Datumaro, when the optional `datumaro` extra is installed.
+datumaro_bridge.register_available()
 
 __all__ = [
     "AttributeSpec",
