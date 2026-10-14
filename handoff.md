@@ -23,7 +23,7 @@
 > **Keep the session short.** One iteration, then commit, push, update this file and report —
 > `AGENTS.md` § *Continue* and the `start-work` skill both say so now, because they did not
 > before and a single session ran six iterations and roughly a third of a week's budget. The
-> concrete costs, in rough order: re-reading this file (iterations 1–83 now live in
+> concrete costs, in rough order: re-reading this file (iterations 1–84 now live in
 > [`docs/iterations/ARCHIVE.md`](./docs/iterations/ARCHIVE.md), which cut it from 3,800
 > lines to 1,000 — keep it that way); `python desktop/sidecar/build.py`, which is a
 > PyInstaller run of a minute or two and is needed *again* for every sabotage-and-restore
@@ -49,7 +49,7 @@ Windows (unsigned), and a switch to a team's shared server. Since iteration 85 t
 application is driven in CI over WebDriver — which found that the shell had never granted
 its commands, so the native pickers had never worked in a built app until then.
 
-**The tree is green.** `./scripts/check.sh` passes all fifteen steps: 894 server tests (the
+**The tree is green.** `./scripts/check.sh` passes all fifteen steps: 904 server tests (the
 PostgreSQL and S3 ones skip without a server; CI provides both), 16 SDK, 771 web, and
 `scripts/` is lint-clean under its own `ruff.toml`. Thirty-four browser harnesses drive the application in a real Chromium, nightly and on every push to `main` —
 thirty-one against the packaged desktop server, and `verify_workspace.py` against the real
@@ -508,8 +508,10 @@ was the last unconnected piece of the desktop application.
 
 ## Next best action
 
-*The desktop app on a team server, and the shell's commands granted — the pickers had never
-worked in a built app — iteration 85; desktop installers on every platform, `aiosqlite` made
+*Every additional format on the 1.0 list — LabelMe, Cityscapes, Open Images, TFRecord — each
+held in CI to a reader written by other people, iterations 86–89; the Datumaro bridge, its
+formats measured, 90. The desktop app on a team server, and the shell's commands granted — the
+pickers had never worked in a built app — iteration 85; desktop installers on every platform, `aiosqlite` made
 a real dependency, Windows shutdown fixed, MinIO replaced by Versity Gateway and the S3
 backend tested for the first time, 84; the Helm chart installed into a live cluster in CI,
 83; a TypeScript client, 82; OIDC sign-on, 81; a Helm chart, 80. Iterations 1–79 are in the
@@ -520,9 +522,9 @@ the desktop and on tags; `browser.yml` and `ultralytics.yml` only when dispatche
 are recorded under *Verification performed* for iteration 85's commit.
 
 **The 1.0 list in `docs/ROADMAP.md` is done** except what needs someone else (signing
-certificates, an npm token, real AI keys, an external security review), SAML and a Datumaro
-bridge — the additional formats shipped in iterations 86–89. What remains with no dependency
-on the user, in order:
+certificates, an npm token, real AI keys, an external security review) and SAML — the
+additional formats shipped in iterations 86–89 and the Datumaro bridge in 90. What remains
+with no dependency on the user, in order:
 
 1. ~~The desktop webview's storage across launches~~ — done for Linux in iteration 85
    (check 8 of `verify_desktop_shell.py`); Windows and macOS have no WebDriver bridge.
@@ -1057,6 +1059,21 @@ being updated and this one was not. Check it against* Completed *before trusting
 ---
 
 ## Verification performed
+
+Iteration 90:
+
+* `tests/unit/test_formats_datumaro_bridge.py`, 10 tests. Without Datumaro (the core suite):
+  the measured table names real shape types, nothing registers without Datumaro, a bridged
+  format declares what was measured, archive paths outside the archive are refused. With
+  Datumaro 1.13.11 (`datumaro.yml`): every measured format is offered; Datumaro's own format
+  keeps every shape it can hold, with occlusion, z-order, attributes and a mask pixel for
+  pixel; ImageNet folders as image labels; DOTA keeping a rotated box turned the right way;
+  items not in the task reported once; an unreadable dataset a warning. Two sabotages (the
+  rotation's sign, an ellipse built from the wrong corners) each caught.
+* `scripts/datumaro_bridge_probe.py --check`: the table matches a fresh measurement, 14
+  formats bridged.
+* `./scripts/check.sh`: all fifteen steps green; 904 server tests (16 skip: PostgreSQL, S3, and the
+  Datumaro round trips, which run in `datumaro.yml`), 16 SDK, 771 web.
 
 Iteration 89:
 
@@ -2109,6 +2126,35 @@ Iteration 54:
 
 ## Last iteration
 
+### 90 — the Datumaro bridge, its formats measured rather than declared
+
+The 1.0 list's Datumaro bridge, as ADR 0004 planned it ([ADR 0011](./docs/adr/0011-datumaro-bridge.md)).
+With the optional `datumaro` extra, `formats/datumaro_bridge.py` offers fourteen more formats
+as `datumaro-<name>`: ImageNet (folders and text), CIFAR, MNIST, LFW, VGGFace2, WIDER FACE,
+DOTA, CamVid, Pascal VOC segmentation and instance segmentation, COCO panoptic, LabelMe 3.0
+XML and Datumaro's own. Without the extra nothing is registered or imported — found with
+`find_spec`, so a server without Datumaro does not pay for importing it.
+
+**What each carries is measured.** `scripts/datumaro_bridge_probe.py` round-trips one shape
+of every type, a tag and an attribute through each candidate and the bridge, keeps what
+comes back with its label and its box within a pixel and a half, and writes
+`datumaro_formats.json` — which the export API's warnings come from. Eight candidates carry
+nothing and are not offered: Datumaro cannot read back its own MNIST-CSV or MVTec exports,
+and its Segment Anything and ICDAR readers give annotations no class. The first run also
+found the bridge's own bug: Datumaro names ImageNet items `label:name`, so they matched no
+frame until the image's file name was tried too. CI re-measures with `--check`
+(`.github/workflows/datumaro.yml`).
+
+Datumaro holds a dataset in memory — ADR 0004's reason for not building on it — so the bridge
+keeps only the annotations there: images go to temporary files as they stream past and masks
+are drawn when Datumaro asks. Bridged ids use `datumaro-`, not a colon, because an export's
+download is named after its format and Windows refuses a colon in a file name. The server
+image adds the extra with `--build-arg SERVER_EXTRAS=...,datumaro` (docs/OPERATIONS.md).
+
+Verified: see *Verification performed*.
+
+## Iteration 89
+
 ### 89 — TFRecord, written without TensorFlow and read by it
 
 The last of the 1.0 list's additional formats, so that row is **Done**: the TensorFlow
@@ -2257,34 +2303,9 @@ established — see *Known issues*.
 
 Verified: see *Verification performed*.
 
-## Iteration 84
-
-### 84 — desktop installers on every platform, and what building them found
-
-`.github/workflows/desktop.yml` builds the installers on each platform's runner (PyInstaller
-does not cross-compile): `.deb`, `.rpm`, `.AppImage`; `.dmg`; NSIS `.exe` — unsigned, kept as
-artifacts. On Linux the `.deb` is installed and the server inside it started and used. The
-first run failed on all three platforms, which is what it was for:
-
-* **`aiosqlite` was a development dependency** while the default database — and every
-  desktop installation's — needs it. Tests install `dev`, so they passed; every installer
-  shipped a server that could not open its database. Now a core dependency, pinned by a test.
-* **On Windows, stopping the server orphaned it.** A one-file PyInstaller executable is a
-  bootloader with the server as its child; killing the bootloader leaves the server holding
-  the database. The smoke test now stops it the way the shell does — end-of-file on its
-  input — and the shell itself closes the input first and kills only after a grace period.
-* **MinIO's images are gone** from Docker Hub, and Quay no longer serves them anonymously
-  (September 2026), so `docker compose up` failed on a fresh machine and the kind job never
-  got past its dependencies. The bundled object store is now Versity Gateway (Apache-2.0), a
-  directory served as S3; `curvevision-server storage-init` makes the bucket; and for the
-  first time CI tests the S3 backend against an S3 server, and brings the compose stack up
-  and uses it. OPERATIONS.md says how an installation with MinIO's data moves across.
-
-Verified: see *Verification performed*.
-
 ## Earlier iterations
 
-Iterations **1–83** are in [`docs/iterations/ARCHIVE.md`](./docs/iterations/ARCHIVE.md) —
+Iterations **1–84** are in [`docs/iterations/ARCHIVE.md`](./docs/iterations/ARCHIVE.md) —
 moved there so that orienting costs a few hundred lines rather than four thousand. Read them
 when `git log` points you at an iteration number, or when you are about to build something
 and want to know whether it was already tried and rejected. The lessons from them that are

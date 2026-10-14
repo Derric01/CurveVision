@@ -1,6 +1,6 @@
 # Iteration archive
 
-> The narrative record of iterations **1–83**, moved out of
+> The narrative record of iterations **1–84**, moved out of
 > [`handoff.md`](../../handoff.md) so that orienting on this project costs a few hundred
 > lines rather than four thousand.
 >
@@ -15,6 +15,31 @@
 > window, append it to the top of this file rather than deleting it.
 
 ---
+
+## Iteration 84
+
+### 84 — desktop installers on every platform, and what building them found
+
+`.github/workflows/desktop.yml` builds the installers on each platform's runner (PyInstaller
+does not cross-compile): `.deb`, `.rpm`, `.AppImage`; `.dmg`; NSIS `.exe` — unsigned, kept as
+artifacts. On Linux the `.deb` is installed and the server inside it started and used. The
+first run failed on all three platforms, which is what it was for:
+
+* **`aiosqlite` was a development dependency** while the default database — and every
+  desktop installation's — needs it. Tests install `dev`, so they passed; every installer
+  shipped a server that could not open its database. Now a core dependency, pinned by a test.
+* **On Windows, stopping the server orphaned it.** A one-file PyInstaller executable is a
+  bootloader with the server as its child; killing the bootloader leaves the server holding
+  the database. The smoke test now stops it the way the shell does — end-of-file on its
+  input — and the shell itself closes the input first and kills only after a grace period.
+* **MinIO's images are gone** from Docker Hub, and Quay no longer serves them anonymously
+  (September 2026), so `docker compose up` failed on a fresh machine and the kind job never
+  got past its dependencies. The bundled object store is now Versity Gateway (Apache-2.0), a
+  directory served as S3; `curvevision-server storage-init` makes the bucket; and for the
+  first time CI tests the S3 backend against an S3 server, and brings the compose stack up
+  and uses it. OPERATIONS.md says how an installation with MinIO's data moves across.
+
+Verified: see *Verification performed*.
 
 ## Iteration 83
 

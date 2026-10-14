@@ -298,7 +298,10 @@ visibly scrambles a shape the moment an annotator inserts a vertex.
 
 ### Import and export
 
-Fifteen formats, each declaring **honestly** what it can represent:
+Fifteen formats, each declaring **honestly** what it can represent — and, with the optional
+`datumaro` extra, fourteen more through [Datumaro](https://github.com/openvinotoolkit/datumaro)
+(ImageNet, CIFAR, MNIST, LFW, VGGFace2, WIDER FACE, DOTA, CamVid, COCO panoptic, LabelMe 3.0
+and others), what each carries measured by round-tripping every shape type through it:
 
 | Format | Round-trips |
 | --- | --- |

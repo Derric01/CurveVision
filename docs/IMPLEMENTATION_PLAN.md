@@ -608,7 +608,16 @@ all a float32 can mean. Held to the real readers by `scripts/verify_tfrecord.py`
 Object Detection API's own feature specification; Datumaro reads the export; we read what
 Datumaro writes through TensorFlow's own writer.
 
-Planned: Datumaro bridge.
+**The Datumaro bridge** (iteration 90, [ADR 0011](./adr/0011-datumaro-bridge.md)): with the
+optional `datumaro` extra installed, `formats/datumaro_bridge.py` offers fourteen more formats
+as `datumaro-<name>` — ImageNet (folders and text), CIFAR, MNIST, LFW, VGGFace2, WIDER FACE,
+DOTA, CamVid, Pascal VOC segmentation and instance segmentation, COCO panoptic, LabelMe 3.0
+XML and Datumaro's own format. What each carries is **measured**, not declared:
+`scripts/datumaro_bridge_probe.py` round-trips every shape type, a tag and an attribute
+through each and writes `datumaro_formats.json`, which the export API's warnings come from;
+`.github/workflows/datumaro.yml` re-measures with `--check` and runs real data through a
+sample. Images go to temporary files and masks are drawn on demand, so memory holds the
+annotations only. Without the extra, nothing is registered or imported.
 
 ---
 

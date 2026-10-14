@@ -16,6 +16,7 @@ weighed, the decision, and the consequences we accept.
 | [0008](./0008-calling-the-desktop-shell.md) | How the page calls the desktop shell |
 | [0009](./0009-intelligent-scissors.md) | Implementing intelligent scissors, not loading OpenCV |
 | [0010](./0010-hosted-vision-language-models.md) | Hosted vision-language models (Claude, OpenAI-compatible) as built-in providers — amends 0005 |
+| [0011](./0011-datumaro-bridge.md) | The Datumaro bridge for the long tail of formats, as 0004 planned it |
 
 ## Writing one
 

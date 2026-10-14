@@ -62,6 +62,24 @@ each time; choose it only if an outage of the scanner must not stop uploads. Rai
 Folders imported in place by the desktop application are not scanned: they are already on
 the machine that would be protected.
 
+### More dataset formats, through Datumaro
+
+Fifteen formats are built in. Fourteen more — ImageNet, CIFAR, MNIST, LFW, VGGFace2, WIDER
+FACE, DOTA, CamVid, Pascal VOC's segmentation layouts, COCO panoptic, LabelMe 3.0 and
+Datumaro's own — are offered as `datumaro-<name>` when the server has the optional `datumaro`
+extra ([ADR 0011](./adr/0011-datumaro-bridge.md)):
+
+```bash
+pip install 'curvevision-server[datumaro]'
+# or, for the image:
+docker build -f deploy/Dockerfile.server \
+  --build-arg SERVER_EXTRAS=postgres,s3,media,worker,tracing,oidc,datumaro .
+```
+
+It adds a few hundred megabytes, which is why it is not in the default image. Install it in
+the worker too: exports and imports run there. Datumaro holds a dataset's annotations in
+memory, so a very large project is better exported in one of the built-in formats.
+
 ## Single sign-on
 
 People can sign in through any OpenID Connect provider — Keycloak, Okta, Microsoft Entra

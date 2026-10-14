@@ -92,7 +92,7 @@ Beta named is finished, and the label waits for use.
 | Backup and restore tooling | **Done** — `curvevision-server backup` / `restore`, either shape, across databases, restored in CI |
 | TypeScript client package | **Done** — `sdk/typescript` (`@curvevision/client`), typed from the server's schema and tested against a real server in CI. **Publishing to npm needs the maintainers' account**: a manual workflow is ready for an `NPM_TOKEN` |
 | Additional formats: LabelMe, Open Images, TFRecord, Cityscapes | **Done** — all four both ways, each held in CI to a reader written by other people: **LabelMe (JSON)** (iteration 86) read and written by labelme's own code; **Cityscapes** (87) every label image identical to cityscapesScripts' own drawing, and read by Datumaro; **Open Images (CSV)** (88) read and written by Datumaro; **TFRecord** (89) written without TensorFlow, read by TensorFlow with the Object Detection API's own feature specification and by Datumaro. KITTI, MOTChallenge, CVAT XML and segmentation masks shipped ahead of this list |
-| Datumaro bridge for the long tail of formats | **Planned** |
+| Datumaro bridge for the long tail of formats | **Done** — iteration 90 ([ADR 0011](./adr/0011-datumaro-bridge.md)): with the optional `datumaro` extra, fourteen more formats (ImageNet, CIFAR, MNIST, LFW, VGGFace2, WIDER FACE, DOTA, CamVid, Pascal VOC segmentation layouts, COCO panoptic, LabelMe 3.0, Datumaro's own). What each carries is measured by round-tripping every shape type through it, and re-measured in CI |
 | An external security review | **Planned** |
 
 We will not call a release 1.0 until backup/restore is documented and tested, and the

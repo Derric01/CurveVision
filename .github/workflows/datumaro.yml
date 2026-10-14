@@ -1,0 +1,62 @@
+# The Datumaro bridge: the long tail of formats, through Datumaro.
+#
+# What each bridged format carries is measured, not declared: `datumaro_bridge_probe.py`
+# round-trips every shape type, a tag and an attribute through each format and the bridge,
+# and `--check` fails when the result no longer matches `datumaro_formats.json` — a Datumaro
+# release that changes what a format keeps changes what CurveVision says before export. The
+# bridge's own tests then round-trip real data through a sample of the formats.
+#
+# Not in `ci.yml`: Datumaro is an optional extra (`curvevision[datumaro]`) with a scientific
+# stack behind it. The core suite covers what the bridge registers without it.
+name: Datumaro
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'server/curvevision/formats/**'
+      - 'scripts/datumaro_bridge_probe.py'
+      - '.github/workflows/datumaro.yml'
+  pull_request:
+    paths:
+      - 'server/curvevision/formats/**'
+      - 'scripts/datumaro_bridge_probe.py'
+      - '.github/workflows/datumaro.yml'
+  schedule:
+    # Mondays 05:50 UTC: catches a Datumaro release that changes what a format carries.
+    - cron: '50 5 * * 1'
+  workflow_dispatch:
+
+concurrency:
+  group: datumaro-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  bridge:
+    name: Every bridged format measured, and real data through a sample
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.11'
+          cache: pip
+          cache-dependency-path: server/pyproject.toml
+
+      - name: Install the server with the Datumaro bridge
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e "server[media,datumaro,dev]"
+
+      - name: What each format carries is still what was measured
+        run: python scripts/datumaro_bridge_probe.py --check
+
+      - name: Real data through the bridge
+        working-directory: server
+        run: python -m pytest tests/unit/test_formats_datumaro_bridge.py

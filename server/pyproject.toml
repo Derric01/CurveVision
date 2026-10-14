@@ -52,6 +52,9 @@ tracing = [
     "opentelemetry-instrumentation-sqlalchemy>=0.46b0",
     "opentelemetry-instrumentation-httpx>=0.46b0",
 ]
+# The long tail of dataset formats (ImageNet, MNIST, WIDER FACE, DOTA, CamVid, ...), through
+# Datumaro: `formats/datumaro_bridge.py`. Heavy, so not in the desktop build or the default image.
+datumaro = ["datumaro>=1.10"]
 # Everything needed to package the local server for the desktop application. `media` is
 # included because a desktop build without image probing would ship an annotation tool
 # that cannot read image dimensions.
@@ -123,7 +126,7 @@ no_implicit_optional = true
 exclude = ["curvevision/migrations/", "tests/"]
 
 [[tool.mypy.overrides]]
-module = ["dramatiq.*", "boto3.*", "botocore.*", "av.*", "PIL.*", "argon2.*", "prometheus_client.*"]
+module = ["dramatiq.*", "boto3.*", "botocore.*", "av.*", "PIL.*", "argon2.*", "prometheus_client.*", "datumaro.*"]
 ignore_missing_imports = true
 
 [tool.pytest.ini_options]

@@ -80,6 +80,7 @@ Full license texts for permissive licenses used here are reproduced under
 | [opentelemetry-instrumentation-fastapi](https://github.com/open-telemetry/opentelemetry-python-contrib) | Apache-2.0 | The OpenTelemetry Authors | Request spans (`tracing` extra) |
 | [opentelemetry-instrumentation-sqlalchemy](https://github.com/open-telemetry/opentelemetry-python-contrib) | Apache-2.0 | The OpenTelemetry Authors | SQL spans (`tracing` extra) |
 | [opentelemetry-instrumentation-httpx](https://github.com/open-telemetry/opentelemetry-python-contrib) | Apache-2.0 | The OpenTelemetry Authors | Outbound HTTP spans (`tracing` extra) |
+| [Datumaro](https://github.com/openvinotoolkit/datumaro) | MIT | Intel Corporation | The long tail of dataset formats, through `formats/datumaro_bridge.py` (`datumaro` extra; [ADR 0011](./adr/0011-datumaro-bridge.md)). Not in the desktop application or the default server image. |
 
 ## Desktop shell (Rust)
 
@@ -157,7 +158,7 @@ These run as unmodified services; CurveVision links to none of them.
 
 | Project | License | Relationship |
 | --- | --- | --- |
-| [Datumaro](https://github.com/openvinotoolkit/datumaro) | MIT — © Intel Corporation | Evaluated for dataset format conversion and not adopted, for the streaming reasons in [ADR 0004](./adr/0004-streaming-format-registry.md). An optional bridge is planned. |
+| [Datumaro](https://github.com/openvinotoolkit/datumaro) | MIT — © Intel Corporation | Not the core of the format registry, for the streaming reasons in [ADR 0004](./adr/0004-streaming-format-registry.md); bridged to for the long tail as an optional extra ([ADR 0011](./adr/0011-datumaro-bridge.md)), listed above. The conformance checks also use it as a separate program's reader and writer. |
 
 CurveVision claims no affiliation with, or endorsement by, any project listed in this file.
 Where source is adapted, the copyright holders are named in [Adapted source](#adapted-source)
