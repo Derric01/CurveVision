@@ -1,6 +1,6 @@
 # Iteration archive
 
-> The narrative record of iterations **1–92**, moved out of
+> The narrative record of iterations **1–93**, moved out of
 > [`handoff.md`](../../handoff.md) so that orienting on this project costs a few hundred
 > lines rather than four thousand.
 >
@@ -15,6 +15,26 @@
 > window, append it to the top of this file rather than deleting it.
 
 ---
+
+## Iteration 93
+
+### 93 — the Helm chart makes its bucket, as Compose does, and can be told not to
+
+A `pre-install,pre-upgrade` hook (`templates/storage-init.yaml`, weight -1, so before the
+migrations) runs `curvevision-server storage-init`: a fresh install now fails on a clear
+setup step when the store is unusable, instead of on somebody's first upload. It is on by
+default and turned off with `storage.s3.createBucket=false`, for a bucket made elsewhere by
+credentials that may not list it — S3 answers that `HeadBucket` with 403, and the hook, so
+the install, would stop. Like the migration hook, it runs before the release's ConfigMap
+and Secret exist, so it carries its own settings, its credentials from `existingSecret`
+when there is one.
+
+CI's `kind` install no longer makes the bucket for the chart: `deploy/helm/ci/dependencies.yaml`
+starts S3 empty, so the smoke test's upload passes only if the hook made it, and `helm
+upgrade` runs it again against a bucket that exists. A render check proves the opt-out
+leaves the hook out.
+
+Verified: see *Verification performed*.
 
 ## Iteration 92
 

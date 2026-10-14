@@ -5,10 +5,11 @@
 > [`AGENTS.md`](./AGENTS.md) first; it is the working contract. Update this file after every
 > iteration, including the ones that mostly failed.
 >
-> **Last updated:** 2026-10-14 (iteration 98) · branch `claude/start-work-yx080h` · PRs
-> [#1](https://github.com/Derric01/CurveVision/pull/1)–[#36](https://github.com/Derric01/CurveVision/pull/36)
-> **all merged**. Iterations 84 (the rest) to 98 are
-> [#37](https://github.com/Derric01/CurveVision/pull/37).
+> **Last updated:** 2026-10-14 (iteration 99) · branch `claude/start-work-yx080h` · PRs
+> [#1](https://github.com/Derric01/CurveVision/pull/1)–[#37](https://github.com/Derric01/CurveVision/pull/37)
+> **all merged**, #37 carrying iterations 84 (the rest) to 98. Iteration 99 is
+> [#38](https://github.com/Derric01/CurveVision/pull/38) — pushed just after #37 merged, so
+> the branch carries a merge of `main` rather than a rewritten history.
 >
 > *Two things worth knowing about this repository's PR rhythm, which replace the
 > PR-by-PR changelog that used to sit here and had stopped helping anybody.* **PRs are
@@ -22,7 +23,7 @@
 > **Keep the session short.** One iteration, then commit, push, update this file and report —
 > `AGENTS.md` § *Continue* and the `start-work` skill both say so now, because they did not
 > before and a single session ran six iterations and roughly a third of a week's budget. The
-> concrete costs, in rough order: re-reading this file (iterations 1–92 now live in
+> concrete costs, in rough order: re-reading this file (iterations 1–93 now live in
 > [`docs/iterations/ARCHIVE.md`](./docs/iterations/ARCHIVE.md), which cut it from 3,800
 > lines to 1,000 — keep it that way); `python desktop/sidecar/build.py`, which is a
 > PyInstaller run of a minute or two and is needed *again* for every sabotage-and-restore
@@ -507,7 +508,7 @@ was the last unconnected piece of the desktop application.
 
 ## Next best action
 
-*Click-to-segment with an interactor model, 98. Webhooks on the Workspace page, 97; delivering for the first time, and only their own workspace's, 96. The system's file dialogs driven in the real application, 95. The native menu driven at the keyboard, 94. The Helm chart making its own bucket, 93. Desktop auto-update, wired and tested short of the maintainers' key, 92. SAML single sign-on, 91. Every additional format on the 1.0 list — LabelMe, Cityscapes, Open Images, TFRecord — each
+*Model suggestions decided one at a time, 99. Click-to-segment with an interactor model, 98. Webhooks on the Workspace page, 97; delivering for the first time, and only their own workspace's, 96. The system's file dialogs driven in the real application, 95. The native menu driven at the keyboard, 94. The Helm chart making its own bucket, 93. Desktop auto-update, wired and tested short of the maintainers' key, 92. SAML single sign-on, 91. Every additional format on the 1.0 list — LabelMe, Cityscapes, Open Images, TFRecord — each
 held in CI to a reader written by other people, iterations 86–89; the Datumaro bridge, its
 formats measured, 90. The desktop app on a team server, and the shell's commands granted — the
 pickers had never worked in a built app — iteration 85; desktop installers on every platform, `aiosqlite` made
@@ -1025,7 +1026,7 @@ full docs set including seven ADRs.
 | Webhooks | Complete since iterations 96–97 — before 96 nothing was ever sent. Signed delivery, capped exponential backoff with jitter, a retry policy that distinguishes "the receiver is struggling" from "the receiver said no"; twelve events emitted; ping and recent deliveries; a panel on the Workspace page, driven in a browser against a real receiver. |
 | Keypoint (skeleton) tool | Complete and driven in a browser, through to the exported `yolo_pose` rows: joints placed in declared order, `X` skips one, `Enter` finishes early, `Alt`-click marks a joint occluded, and the bones are drawn. |
 | Masks | Stored, **exported** (`cvat_xml` writes CVAT's real mask element and reads it back; `segmentation_mask` paints the pixels), **drawn** — the editor renders the pixels and picks by them — and now **paintable**: the brush creates, grows, shrinks and (by erasing every pixel) deletes one, driven end to end in a browser. Nothing outstanding. |
-| Reviewing suggestions | Complete and measured in a browser: a job-wide count, accept and reject in bulk over shapes, tracks and tags, and an accepted suggestion drawn solid rather than dashed. Per-object accept/reject buttons do not exist — an individual suggestion is accepted by editing it and rejected by deleting it, which is what the editor already does. |
+| Reviewing suggestions | Complete and measured in a browser: a job-wide count, accept and reject in bulk over shapes, tracks and tags, and an accepted suggestion drawn solid rather than dashed. Since iteration 99 the selected ones are accepted or rejected on their own, and *Next suggestion* walks the waiting ones frame by frame. |
 | Auto-annotate | Complete for the "run over these frames" kinds and driven in a browser against a real model server: a model is **added from the Models page** with an endpoint and a key (iteration 61), and the editor offers the job's workspace's models; model picker, class box for an open-vocabulary model, the plan stated before the run, unmatched classes named before the run, predictions stored as reviewable suggestions. Interactive kinds (`interactor`, `tracker`) are listed with the reason this panel cannot drive them rather than hidden. |
 | Quality reports | Complete end to end and driven in a browser: the task page creates the answer key and shows each job's latest F1, the editor shows the report and seeks to a conflict on click, and a stale report is marked stale. The comparison runs **inline, deliberately and measurably** — 200,000 shapes a side over 10,000 frames score in 4.4s. Nothing outstanding. |
 | View settings (label chips, suggestions, fill opacity) | Complete and measured in a browser: three `Scene` fields that had always been read by the renderer but never written to from anywhere now have a getter/setter pair and a control each in the Labels panel. |
@@ -1057,6 +1058,18 @@ being updated and this one was not. Check it against* Completed *before trusting
 ---
 
 ## Verification performed
+
+Iteration 99:
+
+* `suggestions.test.ts`, 20 tests (6 new): only the selected suggestions still waiting, never
+  tags; the next one on or after the frame on screen, moving on from the one selected,
+  wrapping round, nothing when nothing waits.
+* `./scripts/check.sh` all fifteen steps green: 940 server tests, 806 web, 16 SDK.
+* `scripts/verify_suggestion_review.py` in Chromium against the real server, with
+  suggestions written by a real model run through the inference route: 6 checks, all
+  passing — Next selects the first; Accept keeps only it, still `source="model"`; Next moves
+  frame; Reject deletes only it; an unsaved drag is kept through Accept; no page errors.
+  Sabotaged (the flush removed): the drag check failed, the edit lost.
 
 Iteration 98:
 
@@ -2256,6 +2269,25 @@ Iteration 54:
 
 ## Last iteration
 
+### 99 — model suggestions, one at a time
+
+Suggestions could be accepted or rejected only all at once; one was "accepted" by editing
+it and "rejected" by deleting it, which a reviewer had to know, and *Reject all* to drop one
+bad box was not an option. The suggestions panel now decides the suggestions among the
+selected objects on their own (*Accept* / *Reject*, `selectedForReview`), and *Next
+suggestion* walks the job's waiting ones by frame — a track at its first frame — selecting
+each and changing frame to it, round to the start after the last (`nextSuggestion`). The
+endpoint always took ids; nothing sent a subset.
+
+The browser harness found the one thing the unit tests could not: a suggestion dragged and
+then decided before autosave ran **lost the drag** — the decision's refetch replaced what
+the editor held. The panel now saves first (`beforeDeciding = autosave.flush`), for the bulk
+buttons too. Removing that flush fails the check that covers it.
+
+Verified: see *Verification performed*.
+
+## Iteration 98
+
 ### 98 — click an object, a model outlines it
 
 The roadmap's *Future* named interactive segmentation, and everything below the editor was
@@ -2374,29 +2406,9 @@ checks failed, the other fourteen passing.
 
 Verified: see *Verification performed*.
 
-## Iteration 93
-
-### 93 — the Helm chart makes its bucket, as Compose does, and can be told not to
-
-A `pre-install,pre-upgrade` hook (`templates/storage-init.yaml`, weight -1, so before the
-migrations) runs `curvevision-server storage-init`: a fresh install now fails on a clear
-setup step when the store is unusable, instead of on somebody's first upload. It is on by
-default and turned off with `storage.s3.createBucket=false`, for a bucket made elsewhere by
-credentials that may not list it — S3 answers that `HeadBucket` with 403, and the hook, so
-the install, would stop. Like the migration hook, it runs before the release's ConfigMap
-and Secret exist, so it carries its own settings, its credentials from `existingSecret`
-when there is one.
-
-CI's `kind` install no longer makes the bucket for the chart: `deploy/helm/ci/dependencies.yaml`
-starts S3 empty, so the smoke test's upload passes only if the hook made it, and `helm
-upgrade` runs it again against a bucket that exists. A render check proves the opt-out
-leaves the hook out.
-
-Verified: see *Verification performed*.
-
 ## Earlier iterations
 
-Iterations **1–92** are in [`docs/iterations/ARCHIVE.md`](./docs/iterations/ARCHIVE.md) —
+Iterations **1–93** are in [`docs/iterations/ARCHIVE.md`](./docs/iterations/ARCHIVE.md) —
 moved there so that orienting costs a few hundred lines rather than four thousand. Read them
 when `git log` points you at an iteration number, or when you are about to build something
 and want to know whether it was already tried and rejected. The lessons from them that are

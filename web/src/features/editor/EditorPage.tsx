@@ -211,10 +211,20 @@ export function EditorPage() {
   // and deliberately only then: `unsavedOn` is stable, so an edit does not recompute this,
   // and the canvas is not reloaded — clearing its undo stack — under the annotator's hand.
   const { unsavedOn } = autosave;
+  // An object to select once its frame is on the canvas: *Next suggestion* changes frame,
+  // and the frame's objects reach the engine a render later.
+  const [focusId, setFocusId] = useState<string | null>(null);
   const visible = useMemo(
     () => withUnsaved(frameAnnotations(annotations.data, currentFrame), unsavedOn(currentFrame)),
     [annotations.data, currentFrame, unsavedOn],
   );
+
+  useEffect(() => {
+    if (!focusId || !visible.some((annotation) => annotation.id === focusId)) return;
+    canvasRef.current?.engine?.focusAnnotation(focusId);
+    setSelection([focusId]);
+    setFocusId(null);
+  }, [focusId, visible]);
 
   const imageUrl = useFrameObjectUrl(task.data?.id, currentFrame);
 
@@ -684,6 +694,13 @@ export function EditorPage() {
             onDecided={() =>
               void queryClient.invalidateQueries({ queryKey: ['annotations', jobId] })
             }
+            selection={selection}
+            currentFrame={currentFrame}
+            beforeDeciding={autosave.flush}
+            onGoTo={(place) => {
+              setFrame(place.frame);
+              setFocusId(place.id);
+            }}
           />
 
           <IssuesPanel

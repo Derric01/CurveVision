@@ -818,8 +818,11 @@ so the dataset still records that a machine drew it and a human agreed; rejectin
 it. That pair is what the canvas, the object list and the panel all read to tell a
 suggestion awaiting review from one already accepted. Editing one flips `source` to
 `"model_corrected"`, so dataset provenance survives to export either way. Per-object
-accept/reject controls are **Planned**: an individual suggestion is accepted today by
-editing it and rejected by deleting it.
+accept/reject — **Done** (iteration 99): the suggestions among the selected objects are
+accepted or rejected on their own, and *Next suggestion* walks the job's waiting ones frame
+by frame, selecting each. What the editor holds unsaved is saved first — without that, a
+suggestion nudged and then decided lost the nudge to the refetch that follows a decision.
+`scripts/verify_suggestion_review.py`.
 
 ---
 
