@@ -29,7 +29,7 @@ import type { InferenceResult, Label, ModelRegistration } from '@/api/types';
  */
 const NEEDS_ANOTHER_INTERACTION: Record<string, string> = {
   // Wants a click or a box on the canvas to segment around.
-  interactor: 'needs a click on the canvas',
+  interactor: 'answers clicks — use the Outline tool (I) on the canvas',
   // Wants an existing object to follow, not a blank frame.
   tracker: 'needs an existing track to follow',
 };

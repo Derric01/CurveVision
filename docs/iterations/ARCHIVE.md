@@ -1,6 +1,6 @@
 # Iteration archive
 
-> The narrative record of iterations **1–91**, moved out of
+> The narrative record of iterations **1–92**, moved out of
 > [`handoff.md`](../../handoff.md) so that orienting on this project costs a few hundred
 > lines rather than four thousand.
 >
@@ -15,6 +15,38 @@
 > window, append it to the top of this file rather than deleting it.
 
 ---
+
+## Iteration 92
+
+### 92 — the desktop app updates itself, from a signed feed only
+
+The last desktop item with nothing outside the repository in its way: Tauri's updater
+(`tauri-plugin-updater`), behind *Help ▸ Check for Updates…* and a notice the page shows
+when a newer version is offered (`features/updates/UpdateNotice.tsx`; *Install and
+restart*). `desktop/shell/src-tauri/src/updates.rs` decides where updates come from: the
+public key and the feed are compiled in (`CURVEVISION_UPDATER_PUBKEY`,
+`CURVEVISION_UPDATE_URL`); a build without them — every build from a checkout — says updates
+are not configured; only a **debug** build reads either from the environment, so a release
+build's feed cannot be redirected by whoever controls its environment.
+
+`desktop.yml` passes both, and Tauri's signing key, from repository secrets, and signs the
+updater's downloads only when the key is there. `scripts/updater_manifest.py` makes a
+release's `latest.json` from the signed files. **Not done, and not ours**: generating the
+key pair and publishing a release — the steps are in `desktop/README.md`, *Releasing an
+update*.
+
+Tested without the maintainers' key: `scripts/minisign.py` writes minisign keys and
+signatures from the published format (a Rust test pins its output against the
+`minisign-verify` crate the updater uses), and check 9 of `verify_desktop_shell.py` serves a
+feed of its own to the real application: the newer version is found and offered, a tampered
+download is refused ("The signature verification failed"), and one signed with another key
+is refused. Installing a *good* update is not driven — it would replace the binary under
+test with whatever the feed served; Tauri's install step is theirs, and tested by them.
+
+Also: the harness now restarts WebKitWebDriver when a session's DELETE goes unanswered,
+which had left the driver counting a dead session and refusing the next.
+
+Verified: see *Verification performed*.
 
 ## Iteration 91
 

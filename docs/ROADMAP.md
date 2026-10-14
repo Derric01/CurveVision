@@ -109,8 +109,8 @@ Directions we believe in, without commitment:
 * **Model-assisted labelling loops** — train on accepted work, re-run, measure whether
   suggestions are getting better. The `source` provenance chain (`model` →
   `model_corrected`) exists precisely to make this measurable.
-* **Interactive segmentation** — click-to-segment via the `interactor` model kind, which
-  the contract already accommodates.
+* ~~**Interactive segmentation**~~ — shipped in iteration 98: the editor's *Outline* tool
+  sends clicks to an `interactor` model and keeps its outline.
 * **Dataset analytics** — annotation quality over time, inter-annotator agreement,
   per-annotator throughput and drift.
 * **Distributed processing** — parallel frame extraction and export for very large datasets.

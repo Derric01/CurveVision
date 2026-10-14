@@ -737,6 +737,8 @@ export const api = {
        * label space is refused with a 422 rather than silently ignored.
        */
       classes?: string[];
+      /** Clicks for an `interactor` model, in image pixels (`canvas/interactor.ts`). */
+      prompts?: { positive: [number, number][]; negative: [number, number][] };
     },
   ) => request<InferenceResult>(`/jobs/${jobId}/inference`, { method: 'POST', body }),
 

@@ -791,8 +791,9 @@ Providers:
   is how self-hosters attach their own SAM/YOLO/DETR service without CurveVision depending on
   torch.
 * `builtin` — **Planned.** Optional ONNX Runtime provider for a few small bundled models.
-* Hosted vendors — **Planned**, as separate optional packages so the core never imports a
-  vendor SDK.
+* Hosted vision-language models (Claude, OpenAI-compatible) — **In Progress**: built and
+  tested against fakes of each API (ADR 0010, iteration 63), not yet run against the real
+  services. Plain `httpx`, so the core still imports no vendor SDK.
 
 Running a model over a job — **Done.** The editor's right rail has an auto-annotate panel:
 pick a model, and for an open-vocabulary one type the classes to look for. It states before
@@ -800,6 +801,14 @@ the run what it will search for and where those classes came from, and names any
 project label can receive, since the server can only report that afterwards. Driven end to
 end against a real model server by `scripts/verify_auto_annotate.py`. The kinds that need a
 different interaction (`interactor`, `tracker`) are listed with the reason rather than hidden.
+
+Click-to-segment with an `interactor` model — **Done** (iteration 98). The editor's *Outline*
+tool (`I`): a click on the object, right-click (or Alt-click) on what is not it, and after
+each the model's outline is redrawn; Enter keeps it as a polygon with `source = "model"`.
+The clicks go to the server as `prompts` with `persist: false` — the path that existed for
+this and had no caller. Answers can arrive out of order, so each is numbered and only the
+newest shown (`canvas/interactor.ts`). Driven in a browser against a model server that
+answers clicks (`scripts/verify_interactor.py`). Trackers still have no interaction.
 
 Predictions land as **suggestions**: annotations with `source = "model"` and a confidence,
 drawn dashed in the editor and editable or deletable like any other annotation — **Done**.

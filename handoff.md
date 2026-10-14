@@ -5,9 +5,9 @@
 > [`AGENTS.md`](./AGENTS.md) first; it is the working contract. Update this file after every
 > iteration, including the ones that mostly failed.
 >
-> **Last updated:** 2026-10-14 (iteration 97) · branch `claude/start-work-yx080h` · PRs
+> **Last updated:** 2026-10-14 (iteration 98) · branch `claude/start-work-yx080h` · PRs
 > [#1](https://github.com/Derric01/CurveVision/pull/1)–[#36](https://github.com/Derric01/CurveVision/pull/36)
-> **all merged**. Iterations 84 (the rest) to 97 are
+> **all merged**. Iterations 84 (the rest) to 98 are
 > [#37](https://github.com/Derric01/CurveVision/pull/37).
 >
 > *Two things worth knowing about this repository's PR rhythm, which replace the
@@ -22,7 +22,7 @@
 > **Keep the session short.** One iteration, then commit, push, update this file and report —
 > `AGENTS.md` § *Continue* and the `start-work` skill both say so now, because they did not
 > before and a single session ran six iterations and roughly a third of a week's budget. The
-> concrete costs, in rough order: re-reading this file (iterations 1–91 now live in
+> concrete costs, in rough order: re-reading this file (iterations 1–92 now live in
 > [`docs/iterations/ARCHIVE.md`](./docs/iterations/ARCHIVE.md), which cut it from 3,800
 > lines to 1,000 — keep it that way); `python desktop/sidecar/build.py`, which is a
 > PyInstaller run of a minute or two and is needed *again* for every sabotage-and-restore
@@ -507,7 +507,7 @@ was the last unconnected piece of the desktop application.
 
 ## Next best action
 
-*Webhooks on the Workspace page, 97; delivering for the first time, and only their own workspace's, 96. The system's file dialogs driven in the real application, 95. The native menu driven at the keyboard, 94. The Helm chart making its own bucket, 93. Desktop auto-update, wired and tested short of the maintainers' key, 92. SAML single sign-on, 91. Every additional format on the 1.0 list — LabelMe, Cityscapes, Open Images, TFRecord — each
+*Click-to-segment with an interactor model, 98. Webhooks on the Workspace page, 97; delivering for the first time, and only their own workspace's, 96. The system's file dialogs driven in the real application, 95. The native menu driven at the keyboard, 94. The Helm chart making its own bucket, 93. Desktop auto-update, wired and tested short of the maintainers' key, 92. SAML single sign-on, 91. Every additional format on the 1.0 list — LabelMe, Cityscapes, Open Images, TFRecord — each
 held in CI to a reader written by other people, iterations 86–89; the Datumaro bridge, its
 formats measured, 90. The desktop app on a team server, and the shell's commands granted — the
 pickers had never worked in a built app — iteration 85; desktop installers on every platform, `aiosqlite` made
@@ -1057,6 +1057,20 @@ being updated and this one was not. Check it against* Completed *before trusting
 ---
 
 ## Verification performed
+
+Iteration 98:
+
+* `interactorTool.test.ts`, 11 tests: clicks on and off the object become prompts in image
+  pixels; the answer is drawn and Enter keeps it as a model-drawn polygon; a late answer to
+  older clicks does not replace a newer one; Enter while waiting refuses; Backspace re-asks,
+  and the last one clears; a failing model is reported with the clicks kept; another frame
+  starts again; no model says where to add one; Escape drops an answer in flight.
+  `interactorModels.test.ts`, 4: which models qualify, and the outline chosen from an answer.
+* `./scripts/check.sh` all fifteen steps green: 940 server tests, 802 web, 16 SDK.
+* `scripts/verify_interactor.py` in Chromium against the real server and a click-answering
+  model server: 6 checks, all passing. Sabotaged in one build (every click sent as on the
+  object; the kept shape marked manual): the two checks that cover those failed, recorded
+  as failures rather than a crash after making the harness's waits non-fatal.
 
 Iteration 97:
 
@@ -2242,6 +2256,32 @@ Iteration 54:
 
 ## Last iteration
 
+### 98 — click an object, a model outlines it
+
+The roadmap's *Future* named interactive segmentation, and everything below the editor was
+there: the inference contract carried `prompts` for `interactor` models, the route took
+them, `persist: false` returned predictions without storing them. Nothing sent a click; the
+auto-annotate panel listed interactor models only to say it could not run them.
+
+The *Outline* tool (`I`, `canvas/interactor.ts`), after CVAT's interactors: left-click the
+object, right-click (or Alt-click) what is not it; after each click the model's outline is
+redrawn, and Enter keeps it as a polygon with `source = "model"` and no confidence — the
+pair an accepted suggestion carries. Model answers arrive after the click that asked, and a
+later one can arrive first, so requests are numbered and only the newest answer is shown;
+an answer for clicks taken back (Backspace), for a cancelled outline, or for another frame
+is dropped. The engine gained `setInteractor` and a `deliver` callback for results that come
+later than the event that caused them, applied only while the asking tool is still active.
+The editor asks the workspace's active interactor (a picker when there are several) for the
+frame on screen. Prompt shape documented in `docs/API.md`: `{"positive": [[x, y]],
+"negative": [[x, y]]}`, answered with a polygon.
+
+Also: `IMPLEMENTATION_PLAN.md` still listed hosted vendors as *Planned* (iteration 63 built
+them) — corrected.
+
+Verified: see *Verification performed*.
+
+## Iteration 97
+
 ### 97 — webhooks on the Workspace page
 
 The last feature with an API and no way in through the application. `WebhooksPanel`, shown
@@ -2354,41 +2394,9 @@ leaves the hook out.
 
 Verified: see *Verification performed*.
 
-## Iteration 92
-
-### 92 — the desktop app updates itself, from a signed feed only
-
-The last desktop item with nothing outside the repository in its way: Tauri's updater
-(`tauri-plugin-updater`), behind *Help ▸ Check for Updates…* and a notice the page shows
-when a newer version is offered (`features/updates/UpdateNotice.tsx`; *Install and
-restart*). `desktop/shell/src-tauri/src/updates.rs` decides where updates come from: the
-public key and the feed are compiled in (`CURVEVISION_UPDATER_PUBKEY`,
-`CURVEVISION_UPDATE_URL`); a build without them — every build from a checkout — says updates
-are not configured; only a **debug** build reads either from the environment, so a release
-build's feed cannot be redirected by whoever controls its environment.
-
-`desktop.yml` passes both, and Tauri's signing key, from repository secrets, and signs the
-updater's downloads only when the key is there. `scripts/updater_manifest.py` makes a
-release's `latest.json` from the signed files. **Not done, and not ours**: generating the
-key pair and publishing a release — the steps are in `desktop/README.md`, *Releasing an
-update*.
-
-Tested without the maintainers' key: `scripts/minisign.py` writes minisign keys and
-signatures from the published format (a Rust test pins its output against the
-`minisign-verify` crate the updater uses), and check 9 of `verify_desktop_shell.py` serves a
-feed of its own to the real application: the newer version is found and offered, a tampered
-download is refused ("The signature verification failed"), and one signed with another key
-is refused. Installing a *good* update is not driven — it would replace the binary under
-test with whatever the feed served; Tauri's install step is theirs, and tested by them.
-
-Also: the harness now restarts WebKitWebDriver when a session's DELETE goes unanswered,
-which had left the driver counting a dead session and refusing the next.
-
-Verified: see *Verification performed*.
-
 ## Earlier iterations
 
-Iterations **1–91** are in [`docs/iterations/ARCHIVE.md`](./docs/iterations/ARCHIVE.md) —
+Iterations **1–92** are in [`docs/iterations/ARCHIVE.md`](./docs/iterations/ARCHIVE.md) —
 moved there so that orienting costs a few hundred lines rather than four thousand. Read them
 when `git log` points you at an iteration number, or when you are about to build something
 and want to know whether it was already tried and rejected. The lessons from them that are

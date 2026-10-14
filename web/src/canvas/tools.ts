@@ -38,6 +38,7 @@ import type {
   ViewportState,
 } from './types';
 import { MIN_VERTICES } from './types';
+import { InteractorTool, type Interact } from './interactor';
 import { computeFeatures, LiveWire, simplify, type EdgeFeatures } from './scissors';
 import {
   buildElements,
@@ -67,6 +68,12 @@ export interface ToolContext {
    * is loaded, or when the browser refuses the read.
    */
   imageData?: () => ImageData | null;
+  /** The frame being viewed, for a tool whose answer arrives after the click that asked. */
+  currentFrame?: () => number;
+  /** Ask the workspace's interactor model to outline what was clicked (`interactor.ts`). */
+  interact?: Interact | null;
+  /** Apply a result that arrived later than the event that caused it. */
+  deliver?: (result: ToolResult) => void;
 }
 
 export interface ToolResult {
@@ -1243,6 +1250,8 @@ export function createTool(name: ToolName): Tool {
   switch (name) {
     case 'scissors':
       return new ScissorsTool();
+    case 'interactor':
+      return new InteractorTool();
     case 'skeleton':
       return new SkeletonTool();
     case 'brush':
@@ -1278,6 +1287,8 @@ export const TOOL_SHORTCUTS: Record<string, ToolName> = {
   j: 'skeleton',
   b: 'brush',
   c: 'cuboid',
+  // `i` for the model that outlines what you click; `s` was taken by scissors.
+  i: 'interactor',
 };
 
 export { boundsOf };

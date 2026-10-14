@@ -7,6 +7,7 @@
  * changes.
  */
 
+import type { Interact } from '@/canvas/interactor';
 import { useEffect, useImperativeHandle, useRef, forwardRef, useCallback } from 'react';
 import { AnnotationEngine } from '@/canvas/engine';
 import type { Annotation, AnnotationChange, LabelStyle, Point, ToolName } from '@/canvas/types';
@@ -48,6 +49,8 @@ interface Props {
    * the toolbar highlighted on whatever was active before it was pressed.
    */
   onToolChange?: (tool: ToolName) => void;
+  /** How the click-to-segment tool asks a model; `null` when the workspace has none. */
+  interact?: Interact | null;
 }
 
 export const AnnotationCanvas = forwardRef<CanvasHandle, Props>(function AnnotationCanvas(
@@ -66,6 +69,7 @@ export const AnnotationCanvas = forwardRef<CanvasHandle, Props>(function Annotat
     onPointPicked,
     onToolStatus,
     onToolChange,
+    interact = null,
     showLabels = true,
     showSuggestions = true,
     fillOpacity = 0.18,
@@ -209,6 +213,10 @@ export const AnnotationCanvas = forwardRef<CanvasHandle, Props>(function Annotat
   useEffect(() => {
     engineRef.current?.setActiveLabel(activeLabelId);
   }, [activeLabelId]);
+
+  useEffect(() => {
+    engineRef.current?.setInteractor(interact);
+  }, [interact]);
 
   useEffect(() => {
     engineRef.current?.setPins(pins ?? []);

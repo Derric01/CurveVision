@@ -35,6 +35,7 @@ import {
   Scissors,
   Undo2,
   Wand2,
+  WandSparkles,
 } from 'lucide-react';
 import clsx from 'clsx';
 import { api } from '@/api/client';
@@ -67,6 +68,8 @@ import { canSubmit, submitBlocker } from './review';
 import { useAutosave, type Recovered, type Refusal } from './useAutosave';
 import { AttributesPanel } from './AttributesPanel';
 import { attributesFor, mutableNames } from './attributeValues';
+import { interactorModels, outlineFrom } from './interactorModels';
+import { describeInteraction, type Interact } from '@/canvas/interactor';
 
 const TOOLS: { name: ToolName; icon: typeof Square; label: string; key: string }[] = [
   { name: 'select', icon: MousePointer2, label: 'Select', key: 'V' },
@@ -79,6 +82,12 @@ const TOOLS: { name: ToolName; icon: typeof Square; label: string; key: string }
   { name: 'scissors', icon: Scissors, label: 'Scissors (snaps to edges)', key: 'S' },
   { name: 'skeleton', icon: PersonStanding, label: 'Skeleton (joints, in order)', key: 'J' },
   { name: 'brush', icon: Brush, label: 'Brush (paint a mask)', key: 'B' },
+  {
+    name: 'interactor',
+    icon: WandSparkles,
+    label: 'Outline with a model (click the object)',
+    key: 'I',
+  },
 ];
 
 export function EditorPage() {
@@ -173,6 +182,31 @@ export function EditorPage() {
   useEffect(() => setLiveAttributes({}), [annotations.data]);
 
   const currentFrame = frame ?? job.data?.start_frame ?? 0;
+
+  // Click-to-segment. The same query the auto-annotate panel makes, so it is one request;
+  // a viewer without the permission gets a 403 and simply has no interactor.
+  const models = useQuery({
+    queryKey: ['models', project.data?.organization_id],
+    queryFn: () => api.models({ organization_id: project.data!.organization_id }),
+    enabled: !!project.data?.organization_id,
+    retry: false,
+  });
+  const interactors = useMemo(() => interactorModels(models.data), [models.data]);
+  const [interactorId, setInteractorId] = useState('');
+  const interactor = interactors.find((model) => model.id === interactorId) ?? interactors[0];
+  const interact = useMemo<Interact | null>(() => {
+    if (!interactor) return null;
+    return async (prompt) => {
+      const result = await api.runInference(jobId, {
+        model_id: interactor.id,
+        job_id: jobId,
+        frames: [currentFrame],
+        persist: false,
+        prompts: prompt,
+      });
+      return outlineFrom(result.shapes, currentFrame);
+    };
+  }, [interactor, jobId, currentFrame]);
   // What autosave holds is laid back over the server's frame when that frame is (re)loaded,
   // and deliberately only then: `unsavedOn` is stable, so an edit does not recompute this,
   // and the canvas is not reloaded — clearing its undo stack — under the annotator's hand.
@@ -500,6 +534,7 @@ export function EditorPage() {
               setPicking(false);
             }}
             onToolStatus={setToolStatus}
+            interact={interact}
             // The engine is the source of truth for which tool is active: a keyboard
             // shortcut calls `engine.handleKey` directly, with no other path back to this
             // component's own `tool` state. Without this, the toolbar highlight and any
@@ -526,6 +561,39 @@ export function EditorPage() {
               data-brush-status=""
             >
               {brushHint(toolStatus)}
+            </div>
+          )}
+
+          {tool === 'interactor' && (
+            <div
+              className="absolute left-1/2 top-3 flex -translate-x-1/2 items-center gap-2 rounded-md border border-curve-500/40 bg-ink-900/90 px-3 py-1.5 text-xs text-ink-200 shadow-lg"
+              data-interactor-status=""
+            >
+              <span>
+                {toolStatus ??
+                  describeInteraction({
+                    available: Boolean(interactor),
+                    positive: 0,
+                    negative: 0,
+                    waiting: false,
+                    outlined: false,
+                  })}
+              </span>
+              {interactors.length > 1 && (
+                <select
+                  className="rounded border border-ink-700 bg-ink-950 px-1.5 py-0.5"
+                  value={interactor?.id}
+                  onChange={(event) => setInteractorId(event.target.value)}
+                  aria-label="Interactor model"
+                  data-interactor-model=""
+                >
+                  {interactors.map((model) => (
+                    <option key={model.id} value={model.id}>
+                      {model.name}
+                    </option>
+                  ))}
+                </select>
+              )}
             </div>
           )}
 

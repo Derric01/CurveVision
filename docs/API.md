@@ -653,7 +653,21 @@ vendor, or a script. **Request:**
 ```
 
 `classes` is empty for a fixed-head model, and a server that does not read open-vocabulary
-prompts can ignore the key entirely. `GET <endpoint>/models` may advertise
+prompts can ignore the key entirely.
+
+An **`interactor`** model (SAM and its kind) is asked about one frame at a time, with the
+annotator's clicks in `prompts`, in image pixels:
+
+```json
+{ "model": "sam", "frames": [ { "frame": 7, "...": "..." } ],
+  "prompts": { "positive": [[212, 148]], "negative": [[301, 150]] } }
+```
+
+`positive` are clicks on the object, `negative` clicks on what is not it. Answer with a
+`polygon` outlining the object; the editor shows the most confident one after every click
+and keeps it when the annotator presses Enter, as a shape with `source: "model"` and no
+confidence (a model drew it, a person accepted it). An answer that is not a polygon is
+reported to the annotator as such, and no shape at all as "found nothing there". `GET <endpoint>/models` may advertise
 `"open_vocabulary": true` per model for discovery.
 
 **Response:**
