@@ -15,6 +15,8 @@ on:
       - '.github/workflows/desktop.yml'
       # What the application's own harness exercises across the shell boundary.
       - 'scripts/verify_desktop_shell.py'
+      - 'scripts/minisign.py'
+      - 'web/src/features/updates/**'
       - 'web/src/desktop.ts'
       - 'web/src/features/desktop/**'
       - 'server/curvevision/desktop.py'
@@ -181,7 +183,7 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y libwebkit2gtk-4.1-dev librsvg2-dev \
-            libayatana-appindicator3-dev webkit2gtk-driver xvfb
+            libayatana-appindicator3-dev webkit2gtk-driver xvfb xdotool
           cargo install tauri-driver --locked
 
       - name: The editor, the packaged server, and the shell beside it

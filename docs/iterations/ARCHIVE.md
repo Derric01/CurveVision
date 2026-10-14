@@ -1,6 +1,6 @@
 # Iteration archive
 
-> The narrative record of iterations **1–87**, moved out of
+> The narrative record of iterations **1–88**, moved out of
 > [`handoff.md`](../../handoff.md) so that orienting on this project costs a few hundred
 > lines rather than four thousand.
 >
@@ -15,6 +15,31 @@
 > window, append it to the top of this file rather than deleting it.
 
 ---
+
+## Iteration 88
+
+### 88 — Open Images (CSV), both ways, against Datumaro in both directions
+
+The third of the 1.0 list's additional formats: the annotation files Google's Open Images
+ships — class descriptions (V5 without a header, V6 and V7 with one, MIDs such as `/m/0k4j`
+mapped to their display names), boxes normalised to the image with `IsOccluded` as the
+shape's occlusion and the other four flags as checkbox attributes under Datumaro's names,
+human-verified image labels as tags, and masks as one binary PNG each. Two of the dataset's
+conventions matter more than they look: an image label with confidence 0 says the class was
+verified **absent**, so it is not a tag; and the dataset's masks are not at the image's
+resolution, so they are scaled to it, to the nearest pixel, as Datumaro does. Polygons and
+ellipses are written as the masks they cover; every mask is also its box, as in the dataset,
+and a box that a mask names arrives once — as the mask, with the box's flags. `images.meta`
+carries each image's size, so the export reads without its images.
+
+Held to Datumaro both ways: `scripts/verify_open_images.py`
+(`.github/workflows/open_images.yml`) has it read an export with and without the images, and
+imports what its own exporter writes. Passed first time; four sabotages (box coordinates,
+the mask/box merge, the flags, a mirrored mask) each caught. The dataset conventions Datumaro
+does not write — MIDs, absent labels, low-resolution masks — are unit tests, each failing
+under its own sabotage.
+
+Verified: see *Verification performed*.
 
 ## Iteration 87
 

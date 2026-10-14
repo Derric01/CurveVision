@@ -27,15 +27,16 @@ what was until now only claimed:
 9. updates (`updates.rs`): against a release feed this script serves, signed with a
    throwaway key (`scripts/minisign.py`), the application finds the newer version and the
    page offers it; a download that is not what was signed is refused on its signature, and
-   one signed by another key is refused too — and the application stays as it was.
+   one signed by another key is refused too — and the application stays as it was;
+10. the native menu, which WebDriver cannot reach, chosen at the keyboard as a person would
+    (`xdotool`: F10, then the arrow keys): *File ▸ Connect to a Team Server…* brings up the
+    page that asks for the address, and *File ▸ Use This Computer*, in a launch that opened
+    the team server, goes back to this computer's and forgets the choice.
 
-Not covered: the native menu (File ▸ Use This Computer), which WebDriver cannot click; its
-handler shares `switch_to_local` with the code exercised here.
-
-Needs: Linux, Xvfb, `WebKitWebDriver` (Debian/Ubuntu: `webkit2gtk-driver`), `tauri-driver`
-(`cargo install tauri-driver --locked`), the shell built with `cargo build` and the packaged
-server beside it (`desktop/sidecar/build.py`, then copy `curvevision-local` next to
-`curvevision-desktop`), and the built web application.
+Needs: Linux, Xvfb, `xdotool`, `WebKitWebDriver` (Debian/Ubuntu: `webkit2gtk-driver`),
+`tauri-driver` (`cargo install tauri-driver --locked`), the shell built with `cargo build`
+and the packaged server beside it (`desktop/sidecar/build.py`, then copy
+`curvevision-local` next to `curvevision-desktop`), and the built web application.
 """
 
 from __future__ import annotations
@@ -58,6 +59,10 @@ from verify_workspace import ROOT, free_port, start_web_server
 
 DEFAULT_APP = ROOT / "desktop" / "shell" / "src-tauri" / "target" / "debug" / "curvevision-desktop"
 IDENTIFIER = "dev.curvevision.desktop"  # tauri.conf.json: where the config folder is named
+# File menu items, counted as the arrow keys reach them (`build_menu` in lib.rs; separators
+# are skipped): Open Folder…, Show Data Folder, Connect to a Team Server…, Use This Computer.
+TEAM_SERVER_ITEM = 3
+THIS_COMPUTER_ITEM = 4
 PASSWORD = "desktop-shell-password-1"
 
 
@@ -202,7 +207,7 @@ def servers_for(data_dir: Path) -> list[str]:
 
 def main() -> int:
     application = Path(sys.argv[1]) if len(sys.argv) > 1 else DEFAULT_APP
-    for tool in ("Xvfb", "tauri-driver", "WebKitWebDriver"):
+    for tool in ("Xvfb", "xdotool", "tauri-driver", "WebKitWebDriver"):
         if shutil.which(tool) is None:
             raise SystemExit(f"{tool} is not installed; see this script's docstring")
     if not application.is_file():
@@ -314,8 +319,25 @@ def main() -> int:
             # Kept for check 8: written now, read back two launches later.
             stored_mark = wd.run_async(MARK_WRITE, "launch one")
 
+            # ------------------------------------------------------------ 10
+            # The native menu's Connect to a Team Server…, which the page answers.
+            choose_from_menu(display, TEAM_SERVER_ITEM)
+            asked = until(
+                lambda: wd.run(
+                    "return document.querySelector('input[name=team-server-address]')"
+                    " ? location.pathname : null"
+                ),
+                20,
+            )
+            check(
+                asked == "/team-server",
+                "File ▸ Connect to a Team Server… in the native menu brings up its page",
+                f"after choosing it from the menu the page was at {wd.url()}",
+            )
+
             # ------------------------------------------------------------ 3
-            wd.click("a[href='/team-server']")
+            if asked is None:
+                wd.click("a[href='/team-server']")  # so the checks after this one still run
             wd.type("input[name=team-server-address]", team_base)
             # This click closes the window it is made in, and WebKitWebDriver can drop the
             # connection rather than answer it; what it did is checked just below.
@@ -388,11 +410,29 @@ def main() -> int:
                 "the next launch opens the team server directly",
                 f"the next launch opened {wd.url()}",
             )
+
+            # ------------------------------------------------------------ 10
+            # And the native menu's Use This Computer, back from it.
+            choose_from_menu(display, THIS_COMPUTER_ITEM)
+            back = until(lambda: next((h for h in wd.handles() if _is_local(wd, h)), None), 30)
+            forgotten = until(
+                lambda: (
+                    remembered.is_file()
+                    and json.loads(remembered.read_text()) == {"team_server": None}
+                ),
+                10,
+            )
+            check(
+                back is not None and bool(forgotten),
+                "File ▸ Use This Computer goes back to this computer's and forgets the team server",
+                f"after choosing it: windows {wd.handles()}; {remembered} holds "
+                f"{remembered.read_text() if remembered.is_file() else None}",
+            )
             quit_app()
 
             # ------------------------------------------------------------ 8
-            # Back to this computer for the next launch, as Use This Computer leaves it.
-            remembered.write_text(json.dumps({"team_server": None}))
+            if not forgotten:  # so check 8 still runs on this computer's server
+                remembered.write_text(json.dumps({"team_server": None}))
             wd.start(application)
             until(lambda: wd.run("return window.__CURVEVISION__ || null"), 60)
             read_back = wd.run_async(MARK_READ)
@@ -547,6 +587,53 @@ def _answers(port: int) -> bool:
         urllib.request.urlopen(f"http://127.0.0.1:{port}/status", timeout=2).close()
         return True
     except OSError:
+        return False
+
+
+def choose_from_menu(display: str, item: int) -> None:
+    """Choose the `item`-th entry of the application's File menu, at the keyboard.
+
+    The menu is GTK's own, outside the webview, so WebDriver cannot reach it. F10 opens a
+    GTK window's menu bar on its first menu with nothing selected; each Down then moves one
+    item. The window is the one large visible one: there is one application window at a time.
+    """
+    env = {**os.environ, "DISPLAY": display}
+
+    def xdotool(*args: str) -> str:
+        return subprocess.run(
+            ["xdotool", *args], env=env, capture_output=True, text=True, timeout=20
+        ).stdout
+
+    def width(window: str) -> int:
+        shell = dict(
+            line.split("=", 1)
+            for line in xdotool("getwindowgeometry", "--shell", window).split()
+            if "=" in line
+        )
+        return int(shell.get("WIDTH", 0))
+
+    windows = until(
+        lambda: [
+            w for w in xdotool("search", "--onlyvisible", "--name", ".").split() if width(w) >= 800
+        ],
+        20,
+    )
+    if not windows:
+        return
+    xdotool("windowfocus", "--sync", windows[0])
+    xdotool("key", "F10")
+    time.sleep(0.7)
+    xdotool("key", *["Down"] * item)
+    time.sleep(0.3)
+    xdotool("key", "Return")
+
+
+def _is_local(wd: WebDriver, handle: str) -> bool:
+    # This computer's window is the one the shell gives a connection to.
+    try:
+        wd.switch_to(handle)
+        return bool(wd.run("return window.__CURVEVISION__ || null"))
+    except (RuntimeError, OSError):
         return False
 
 

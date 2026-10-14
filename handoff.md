@@ -5,9 +5,9 @@
 > [`AGENTS.md`](./AGENTS.md) first; it is the working contract. Update this file after every
 > iteration, including the ones that mostly failed.
 >
-> **Last updated:** 2026-10-14 (iteration 93) · branch `claude/start-work-yx080h` · PRs
+> **Last updated:** 2026-10-14 (iteration 94) · branch `claude/start-work-yx080h` · PRs
 > [#1](https://github.com/Derric01/CurveVision/pull/1)–[#36](https://github.com/Derric01/CurveVision/pull/36)
-> **all merged**. Iterations 84 (the rest) to 93 are
+> **all merged**. Iterations 84 (the rest) to 94 are
 > [#37](https://github.com/Derric01/CurveVision/pull/37).
 >
 > *Two things worth knowing about this repository's PR rhythm, which replace the
@@ -22,7 +22,7 @@
 > **Keep the session short.** One iteration, then commit, push, update this file and report —
 > `AGENTS.md` § *Continue* and the `start-work` skill both say so now, because they did not
 > before and a single session ran six iterations and roughly a third of a week's budget. The
-> concrete costs, in rough order: re-reading this file (iterations 1–87 now live in
+> concrete costs, in rough order: re-reading this file (iterations 1–88 now live in
 > [`docs/iterations/ARCHIVE.md`](./docs/iterations/ARCHIVE.md), which cut it from 3,800
 > lines to 1,000 — keep it that way); `python desktop/sidecar/build.py`, which is a
 > PyInstaller run of a minute or two and is needed *again* for every sabotage-and-restore
@@ -507,7 +507,7 @@ was the last unconnected piece of the desktop application.
 
 ## Next best action
 
-*The Helm chart making its own bucket, 93. Desktop auto-update, wired and tested short of the maintainers' key, 92. SAML single sign-on, 91. Every additional format on the 1.0 list — LabelMe, Cityscapes, Open Images, TFRecord — each
+*The native menu driven at the keyboard, 94. The Helm chart making its own bucket, 93. Desktop auto-update, wired and tested short of the maintainers' key, 92. SAML single sign-on, 91. Every additional format on the 1.0 list — LabelMe, Cityscapes, Open Images, TFRecord — each
 held in CI to a reader written by other people, iterations 86–89; the Datumaro bridge, its
 formats measured, 90. The desktop app on a team server, and the shell's commands granted — the
 pickers had never worked in a built app — iteration 85; desktop installers on every platform, `aiosqlite` made
@@ -527,9 +527,10 @@ with no dependency on the user, in order:
 
 1. ~~The desktop webview's storage across launches~~ — done for Linux in iteration 85
    (check 8 of `verify_desktop_shell.py`); Windows and macOS have no WebDriver bridge.
-2. **The native menu** (*Use This Computer*, *Open Folder…*) is the one part of the shell no
-   test reaches: WebDriver cannot click a native menu. An `xdotool` keystroke under Xvfb
-   might; worth an hour, not more.
+2. ~~**The native menu**~~ — *Connect to a Team Server…* and *Use This Computer* are driven
+   at the keyboard since iteration 94 (`xdotool`, F10 and the arrow keys). *Open Folder…*
+   and the native folder dialog it leads to are still not: the dialog is GTK's, and the
+   same approach (Ctrl+L, a typed path) is the next thing to try.
 3. ~~**The Helm chart could run `storage-init`**~~ — done in iteration 93, with the
    opt-out (`storage.s3.createBucket`) it needed first.
 4. ~~The additional formats on the 1.0 list~~ — done: LabelMe (86), Cityscapes (87), Open
@@ -1057,6 +1058,14 @@ being updated and this one was not. Check it against* Completed *before trusting
 ---
 
 ## Verification performed
+
+Iteration 94:
+
+* `verify_desktop_shell.py`, all 16 checks passing locally (Ubuntu 24.04, xdotool 3.20160805,
+  WebKitWebDriver 2.52.6), the two new ones included. Sabotaged — the shell's team-server
+  menu event renamed and *Use This Computer*'s forgetting removed — and exactly those two
+  failed.
+* `desktop.yml` installs `xdotool` for the WebDriver job; see the PR's checks.
 
 Iteration 93:
 
@@ -2184,6 +2193,26 @@ Iteration 54:
 
 ## Last iteration
 
+### 94 — the native menu, chosen at the keyboard
+
+The one part of the shell no test reached: its menu, which is GTK's, outside the webview,
+where WebDriver cannot go. `verify_desktop_shell.py` check 10 now chooses from it as a
+person at the keyboard would — `xdotool` under the harness's Xvfb: focus the window, F10
+opens the menu bar on *File* with nothing selected, the arrow keys move, Return chooses.
+*File ▸ Connect to a Team Server…* brings up the page that asks for the address (the menu
+event crossing into the page), and *File ▸ Use This Computer*, in a launch that opened the
+team server, goes back to this computer's window and writes the choice away. That replaces
+the line that wrote `connection.json` by hand before check 8, which is what had stood in
+for the menu. When a menu check fails, the harness falls back to the old way so the checks
+after it still run.
+
+Sabotaged in one build — the team-server event renamed, the forgetting removed — and both
+checks failed, the other fourteen passing.
+
+Verified: see *Verification performed*.
+
+## Iteration 93
+
 ### 93 — the Helm chart makes its bucket, as Compose does, and can be told not to
 
 A `pre-install,pre-upgrade` hook (`templates/storage-init.yaml`, weight -1, so before the
@@ -2325,34 +2354,9 @@ Images and TFRecord now share one rasteriser (`formats/raster.py`) rather than t
 
 Verified: see *Verification performed*.
 
-## Iteration 88
-
-### 88 — Open Images (CSV), both ways, against Datumaro in both directions
-
-The third of the 1.0 list's additional formats: the annotation files Google's Open Images
-ships — class descriptions (V5 without a header, V6 and V7 with one, MIDs such as `/m/0k4j`
-mapped to their display names), boxes normalised to the image with `IsOccluded` as the
-shape's occlusion and the other four flags as checkbox attributes under Datumaro's names,
-human-verified image labels as tags, and masks as one binary PNG each. Two of the dataset's
-conventions matter more than they look: an image label with confidence 0 says the class was
-verified **absent**, so it is not a tag; and the dataset's masks are not at the image's
-resolution, so they are scaled to it, to the nearest pixel, as Datumaro does. Polygons and
-ellipses are written as the masks they cover; every mask is also its box, as in the dataset,
-and a box that a mask names arrives once — as the mask, with the box's flags. `images.meta`
-carries each image's size, so the export reads without its images.
-
-Held to Datumaro both ways: `scripts/verify_open_images.py`
-(`.github/workflows/open_images.yml`) has it read an export with and without the images, and
-imports what its own exporter writes. Passed first time; four sabotages (box coordinates,
-the mask/box merge, the flags, a mirrored mask) each caught. The dataset conventions Datumaro
-does not write — MIDs, absent labels, low-resolution masks — are unit tests, each failing
-under its own sabotage.
-
-Verified: see *Verification performed*.
-
 ## Earlier iterations
 
-Iterations **1–87** are in [`docs/iterations/ARCHIVE.md`](./docs/iterations/ARCHIVE.md) —
+Iterations **1–88** are in [`docs/iterations/ARCHIVE.md`](./docs/iterations/ARCHIVE.md) —
 moved there so that orienting costs a few hundred lines rather than four thousand. Read them
 when `git log` points you at an iteration number, or when you are about to build something
 and want to know whether it was already tried and rejected. The lessons from them that are

@@ -76,7 +76,7 @@ Open the printed URL in any browser and you get the complete application.
 | Installers built per platform in CI: `.deb`, `.rpm`, `.AppImage`; `.dmg`; NSIS `.exe` (`.github/workflows/desktop.yml`) | **Done, unsigned** — the `.deb` is installed and the server inside it used on every run |
 | Code signing (Apple Developer ID and notarisation, Windows Authenticode) | **Blocked** — needs the project's own certificates |
 | Auto-update | **Done, unreleased** — *Help ▸ Check for Updates…* and a notice in the app; an update installs only if its signature verifies against the key built in. Driven over WebDriver against a local feed: a newer version is found, and a tampered download or one signed with another key is refused. A real update needs the maintainers' key pair in the repository's secrets and a release carrying `latest.json` — see *Releasing an update* below |
-| Pointing the desktop app at a shared team server | **Done** — *File ▸ Connect to a Team Server…*; the team server opens in a window with no access to the shell and none of this computer's credentials. *Use This Computer* is not driven by any test: WebDriver cannot click a native menu |
+| Pointing the desktop app at a shared team server | **Done** — *File ▸ Connect to a Team Server…*; the team server opens in a window with no access to the shell and none of this computer's credentials. Both menu items are driven at the keyboard under Xvfb (`xdotool`), since WebDriver cannot reach a native menu (check 10 of `verify_desktop_shell.py`) |
 
 Measurements are from this repository's own Linux build, not targets. They will differ on
 other platforms.
