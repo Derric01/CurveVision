@@ -16,6 +16,8 @@
     "allow-choose-folder",
     "allow-choose-files",
     "allow-connect-to-team-server",
+    "allow-check-for-update",
+    "allow-install-update",
     "core:default",
     "core:event:allow-listen",
     "core:event:allow-unlisten",

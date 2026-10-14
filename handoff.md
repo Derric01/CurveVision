@@ -5,11 +5,10 @@
 > [`AGENTS.md`](./AGENTS.md) first; it is the working contract. Update this file after every
 > iteration, including the ones that mostly failed.
 >
-> **Last updated:** 2026-10-13 (iteration 86) · branch `claude/start-work-yx080h` · PRs
-> [#1](https://github.com/Derric01/CurveVision/pull/1)–[#35](https://github.com/Derric01/CurveVision/pull/35)
-> **all merged**, #35 carrying iterations 70–82 and #36 the start of 84. The rest of 84,
-> and 85–86, are [#37](https://github.com/Derric01/CurveVision/pull/37) — green on GitHub
-> at `a45d734` (all 13 jobs), before iteration 86 was pushed.
+> **Last updated:** 2026-10-14 (iteration 92) · branch `claude/start-work-yx080h` · PRs
+> [#1](https://github.com/Derric01/CurveVision/pull/1)–[#36](https://github.com/Derric01/CurveVision/pull/36)
+> **all merged**. Iterations 84 (the rest) to 92 are
+> [#37](https://github.com/Derric01/CurveVision/pull/37).
 >
 > *Two things worth knowing about this repository's PR rhythm, which replace the
 > PR-by-PR changelog that used to sit here and had stopped helping anybody.* **PRs are
@@ -23,7 +22,7 @@
 > **Keep the session short.** One iteration, then commit, push, update this file and report —
 > `AGENTS.md` § *Continue* and the `start-work` skill both say so now, because they did not
 > before and a single session ran six iterations and roughly a third of a week's budget. The
-> concrete costs, in rough order: re-reading this file (iterations 1–85 now live in
+> concrete costs, in rough order: re-reading this file (iterations 1–86 now live in
 > [`docs/iterations/ARCHIVE.md`](./docs/iterations/ARCHIVE.md), which cut it from 3,800
 > lines to 1,000 — keep it that way); `python desktop/sidecar/build.py`, which is a
 > PyInstaller run of a minute or two and is needed *again* for every sabotage-and-restore
@@ -508,7 +507,7 @@ was the last unconnected piece of the desktop application.
 
 ## Next best action
 
-*SAML single sign-on, 91. Every additional format on the 1.0 list — LabelMe, Cityscapes, Open Images, TFRecord — each
+*Desktop auto-update, wired and tested short of the maintainers' key, 92. SAML single sign-on, 91. Every additional format on the 1.0 list — LabelMe, Cityscapes, Open Images, TFRecord — each
 held in CI to a reader written by other people, iterations 86–89; the Datumaro bridge, its
 formats measured, 90. The desktop app on a team server, and the shell's commands granted — the
 pickers had never worked in a built app — iteration 85; desktop installers on every platform, `aiosqlite` made
@@ -523,7 +522,7 @@ are recorded under *Verification performed* for iteration 85's commit.
 
 **The 1.0 list in `docs/ROADMAP.md` is done** except what needs someone else: signing
 certificates, an npm token, real AI keys, an external security review. The additional
-formats shipped in iterations 86–89, the Datumaro bridge in 90 and SAML in 91. What remains
+formats shipped in iterations 86–89, the Datumaro bridge in 90, SAML in 91 and the auto-update wiring in 92. What remains
 with no dependency on the user, in order:
 
 1. ~~The desktop webview's storage across launches~~ — done for Linux in iteration 85
@@ -537,8 +536,9 @@ with no dependency on the user, in order:
    it needs an opt-out value first.
 4. ~~The additional formats on the 1.0 list~~ — done: LabelMe (86), Cityscapes (87), Open
    Images (88), TFRecord (89), each held in CI to a reader written by other people.
-5. **Auto-update** — Tauri's updater, which needs a key pair the maintainers hold; the
-   wiring can be built and tested with a throwaway key.
+5. ~~**Auto-update**~~ — wired and tested with a throwaway key in iteration 92; turning it
+   on is the maintainers' (their key pair in the repository's secrets, a release with
+   `latest.json` — `desktop/README.md`, *Releasing an update*).
 
 **First, if a key is available: try iteration 63 against the real services.** Add Claude,
 OpenAI and one OpenRouter vision model on the Models page with real keys, run each on a few
@@ -1059,6 +1059,24 @@ being updated and this one was not. Check it against* Completed *before trusting
 ---
 
 ## Verification performed
+
+Iteration 92:
+
+* `cargo test` in the shell: 18 tests, including `resolve` each way it can go (built, absent,
+  blank, a release build ignoring the environment, a debug build preferring it) and
+  `a_python_made_signature_verifies`; `cargo clippy --all-targets -D warnings` and `cargo
+  fmt --check` clean.
+* `verify_desktop_shell.py` check 9, in its own launch against a local feed announcing
+  9.9.9: found, offered, a tampered download refused, another key's signature refused —
+  passing every time it was reached; each refusal's message is the one minisign gives for
+  that fault, so neither is a download or parse error passing for a refusal. The whole harness, four local runs: two passed all 14 checks, two hit the
+  check-3 window-swap flake described under *Known issues*, which predates this iteration.
+* `UpdateNotice.test.tsx`: no notice when unconfigured or current, the version and notes
+  when one is offered.
+* `scripts/updater_manifest.py` on a fake release (the three platforms' names as Tauri
+  writes them): the feed names each with its signature; a folder of unsigned files is
+  refused.
+* `./scripts/check.sh`: all fifteen steps green; 927 server tests (16 skip), 16 SDK, 777 web.
 
 Iteration 91:
 
@@ -1948,6 +1966,11 @@ Iteration 54:
 
 ## Known issues
 
+* **Check 3 of `verify_desktop_shell.py` flakes locally** (iteration 92, seen twice in four
+  runs on Ubuntu 24.04, WebKitWebDriver 2.52.6): the switch to the team-server window drops
+  the driver's connection. Not seen in CI, which passed on every run since iteration 85;
+  not caused by the update feed — it happened with check 9 removed. If CI starts showing
+  it, the next thing to try is waiting for the window handle to appear before switching.
 * **Datumaro 1.x reads Cityscapes differently from the dataset** (iteration 87). It takes
   `instanceIds` values as class ids, where the dataset (and cityscapesScripts, and this
   export) write class x 1000 + instance, so it finds no car or person in real Cityscapes
@@ -2153,6 +2176,38 @@ Iteration 54:
 
 ## Last iteration
 
+### 92 — the desktop app updates itself, from a signed feed only
+
+The last desktop item with nothing outside the repository in its way: Tauri's updater
+(`tauri-plugin-updater`), behind *Help ▸ Check for Updates…* and a notice the page shows
+when a newer version is offered (`features/updates/UpdateNotice.tsx`; *Install and
+restart*). `desktop/shell/src-tauri/src/updates.rs` decides where updates come from: the
+public key and the feed are compiled in (`CURVEVISION_UPDATER_PUBKEY`,
+`CURVEVISION_UPDATE_URL`); a build without them — every build from a checkout — says updates
+are not configured; only a **debug** build reads either from the environment, so a release
+build's feed cannot be redirected by whoever controls its environment.
+
+`desktop.yml` passes both, and Tauri's signing key, from repository secrets, and signs the
+updater's downloads only when the key is there. `scripts/updater_manifest.py` makes a
+release's `latest.json` from the signed files. **Not done, and not ours**: generating the
+key pair and publishing a release — the steps are in `desktop/README.md`, *Releasing an
+update*.
+
+Tested without the maintainers' key: `scripts/minisign.py` writes minisign keys and
+signatures from the published format (a Rust test pins its output against the
+`minisign-verify` crate the updater uses), and check 9 of `verify_desktop_shell.py` serves a
+feed of its own to the real application: the newer version is found and offered, a tampered
+download is refused ("The signature verification failed"), and one signed with another key
+is refused. Installing a *good* update is not driven — it would replace the binary under
+test with whatever the feed served; Tauri's install step is theirs, and tested by them.
+
+Also: the harness now restarts WebKitWebDriver when a session's DELETE goes unanswered,
+which had left the driver counting a dead session and refusing the next.
+
+Verified: see *Verification performed*.
+
+## Iteration 91
+
 ### 91 — SAML single sign-on, each sign-in tied to the tab that began it; a demo video
 
 The last 1.0 item that needed no one else. `services/saml.py`: SP-initiated Web SSO — the
@@ -2295,30 +2350,9 @@ test, and that test fails when the order is reversed.
 
 Verified: see *Verification performed*.
 
-## Iteration 86
-
-### 86 — LabelMe (JSON), both ways; labels an import creates keep their attributes
-
-The first of the 1.0 list's additional formats, and the one most individual annotators
-already have on disk: the `labelme` tool's JSON beside each image. Import and export of
-boxes, rotated boxes (`oriented_rectangle`), polygons, polylines, points, circles and masks
-(a PNG of the shape's own box), checkbox attributes as shape flags, a `description`, groups,
-and tags as the image's flags. labelme is GPL-3.0, so it was written from the format —
-labelme's loader read for its rules, nothing copied — and is held to labelme itself:
-`scripts/verify_labelme.py` (`.github/workflows/labelme.yml`) opens an export with labelme's
-`LabelFile`, draws every shape with its rasteriser and compares the pixels with the source
-geometry, then imports a file written by labelme's own writer. Not LabelMe 3.0 (MIT XML).
-
-The API-level test found a bug older than the format: **labels an import created were
-created without the attributes the file declared**, and since an import keeps only declared
-attributes, every value on them was dropped — for the "lossless" native format too, into
-any project that lacked its labels. The import route now creates them with their attributes.
-
-Verified: see *Verification performed*.
-
 ## Earlier iterations
 
-Iterations **1–85** are in [`docs/iterations/ARCHIVE.md`](./docs/iterations/ARCHIVE.md) —
+Iterations **1–86** are in [`docs/iterations/ARCHIVE.md`](./docs/iterations/ARCHIVE.md) —
 moved there so that orienting costs a few hundred lines rather than four thousand. Read them
 when `git log` points you at an iteration number, or when you are about to build something
 and want to know whether it was already tried and rejected. The lessons from them that are

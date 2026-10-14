@@ -13,6 +13,8 @@ const COMMANDS: &[&str] = &[
     "choose_folder",
     "choose_files",
     "connect_to_team_server",
+    "check_for_update",
+    "install_update",
 ];
 
 fn main() {

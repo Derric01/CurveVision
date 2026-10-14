@@ -1,6 +1,6 @@
 # Iteration archive
 
-> The narrative record of iterations **1–85**, moved out of
+> The narrative record of iterations **1–86**, moved out of
 > [`handoff.md`](../../handoff.md) so that orienting on this project costs a few hundred
 > lines rather than four thousand.
 >
@@ -15,6 +15,27 @@
 > window, append it to the top of this file rather than deleting it.
 
 ---
+
+## Iteration 86
+
+### 86 — LabelMe (JSON), both ways; labels an import creates keep their attributes
+
+The first of the 1.0 list's additional formats, and the one most individual annotators
+already have on disk: the `labelme` tool's JSON beside each image. Import and export of
+boxes, rotated boxes (`oriented_rectangle`), polygons, polylines, points, circles and masks
+(a PNG of the shape's own box), checkbox attributes as shape flags, a `description`, groups,
+and tags as the image's flags. labelme is GPL-3.0, so it was written from the format —
+labelme's loader read for its rules, nothing copied — and is held to labelme itself:
+`scripts/verify_labelme.py` (`.github/workflows/labelme.yml`) opens an export with labelme's
+`LabelFile`, draws every shape with its rasteriser and compares the pixels with the source
+geometry, then imports a file written by labelme's own writer. Not LabelMe 3.0 (MIT XML).
+
+The API-level test found a bug older than the format: **labels an import created were
+created without the attributes the file declared**, and since an import keeps only declared
+attributes, every value on them was dropped — for the "lossless" native format too, into
+any project that lacked its labels. The import route now creates them with their attributes.
+
+Verified: see *Verification performed*.
 
 ## Iteration 85
 

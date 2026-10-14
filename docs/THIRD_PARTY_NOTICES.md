@@ -94,6 +94,7 @@ part of the server or web distributions.
 | [tauri-build](https://github.com/tauri-apps/tauri) | Apache-2.0 OR MIT | Tauri Programme within The Commons Conservancy | Build-time code generation |
 | [tauri-plugin-dialog](https://github.com/tauri-apps/plugins-workspace) | Apache-2.0 OR MIT | Tauri Programme within The Commons Conservancy | Native file and folder pickers |
 | [tauri-plugin-opener](https://github.com/tauri-apps/plugins-workspace) | Apache-2.0 OR MIT | Tauri Programme within The Commons Conservancy | Opening the data folder in the OS file manager |
+| [tauri-plugin-updater](https://github.com/tauri-apps/plugins-workspace) | Apache-2.0 OR MIT | Tauri Programme within The Commons Conservancy | Checking a release feed and installing a signed update |
 | [serde](https://github.com/serde-rs/serde) | Apache-2.0 OR MIT | Erick Tryzelaar, David Tolnay | Serialisation |
 | [serde_json](https://github.com/serde-rs/json) | Apache-2.0 OR MIT | Erick Tryzelaar, David Tolnay | Parsing the sidecar handshake |
 

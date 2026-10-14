@@ -23,7 +23,11 @@ what was until now only claimed:
    launch opens the team server directly;
 7. quitting the application stops the server it started;
 8. the webview keeps what a page stores (IndexedDB) from one launch to the next — the
-   property the editor's crash recovery rests on (`features/editor/drafts.ts`).
+   property the editor's crash recovery rests on (`features/editor/drafts.ts`);
+9. updates (`updates.rs`): against a release feed this script serves, signed with a
+   throwaway key (`scripts/minisign.py`), the application finds the newer version and the
+   page offers it; a download that is not what was signed is refused on its signature, and
+   one signed by another key is refused too — and the application stays as it was.
 
 Not covered: the native menu (File ▸ Use This Computer), which WebDriver cannot click; its
 handler shares `switch_to_local` with the code exercised here.
@@ -49,6 +53,7 @@ import urllib.request
 from pathlib import Path
 from typing import Any
 
+import minisign
 from verify_workspace import ROOT, free_port, start_web_server
 
 DEFAULT_APP = ROOT / "desktop" / "shell" / "src-tauri" / "target" / "debug" / "curvevision-desktop"
@@ -65,7 +70,8 @@ class WebDriver:
 
     def call(self, method: str, path: str, body: object = None) -> Any:
         request = urllib.request.Request(
-            f"{self.base}{path}", method=method,
+            f"{self.base}{path}",
+            method=method,
             data=None if body is None else json.dumps(body).encode(),
             headers={"Content-Type": "application/json"},
         )
@@ -76,18 +82,29 @@ class WebDriver:
             raise RuntimeError(f"{method} {path}: {exc.read().decode()[:400]}") from None
 
     def start(self, application: Path) -> None:
-        value = self.call("POST", "/session", {"capabilities": {"alwaysMatch": {
-            "tauri:options": {"application": str(application)}}}})
+        value = self.call(
+            "POST",
+            "/session",
+            {"capabilities": {"alwaysMatch": {"tauri:options": {"application": str(application)}}}},
+        )
         self.session = value["sessionId"]
 
-    def quit(self) -> None:
-        if self.session:
-            session, self.session = self.session, ""
-            # Ending the session closes the application, and WebKitWebDriver can drop the
-            # connection as it goes rather than answer. The session is over either way; the
-            # checks after each quit establish that the application really stopped.
-            with contextlib.suppress(OSError):
-                self.call("DELETE", f"/session/{session}")
+    def quit(self) -> bool:
+        """End the session. False when WebKitWebDriver dropped the connection instead.
+
+        Ending the session closes the application, and WebKitWebDriver can drop the
+        connection as it goes rather than answer — and then still counts the session as
+        active, refusing the next one ("Maximum number of active sessions"). The caller
+        restarts the driver when this returns False.
+        """
+        if not self.session:
+            return True
+        session, self.session = self.session, ""
+        try:
+            self.call("DELETE", f"/session/{session}")
+        except OSError:
+            return False
+        return True
 
     def s(self, path: str) -> str:
         return f"/session/{self.session}{path}"
@@ -205,26 +222,67 @@ def main() -> int:
         (home / "team").mkdir()
         team, team_base = start_web_server(home / "team")
         request = urllib.request.Request(
-            f"{team_base}/api/v1/auth/register", method="POST",
-            data=json.dumps({"email": "kim@example.com", "username": "kim",
-                             "password": PASSWORD}).encode(),
+            f"{team_base}/api/v1/auth/register",
+            method="POST",
+            data=json.dumps(
+                {"email": "kim@example.com", "username": "kim", "password": PASSWORD}
+            ).encode(),
             headers={"Content-Type": "application/json"},
         )
         urllib.request.urlopen(request, timeout=30).close()
 
+        # The release feed for check 9: a newer version, its download, and its signature.
+        keys, forger = minisign.generate(), minisign.generate()
+        feed = UpdateFeed(keys)
         display = f":{free_port() % 400 + 100}"
         env = {
-            **os.environ, "DISPLAY": display, "HOME": str(home),
-            "XDG_DATA_HOME": str(home / "data"), "XDG_CONFIG_HOME": str(home / "config"),
+            **os.environ,
+            "DISPLAY": display,
+            "HOME": str(home),
+            "XDG_DATA_HOME": str(home / "data"),
+            "XDG_CONFIG_HOME": str(home / "config"),
+        }
+        # Given to the last launch only (check 9), so the launches before it run as they
+        # did before updates existed. A debug build reads these at run time; a release
+        # build only at compile time.
+        updating = {
+            **env,
+            "CURVEVISION_UPDATE_URL": f"{feed.base}/latest.json",
+            "CURVEVISION_UPDATER_PUBKEY": keys.tauri_pubkey,
         }
         remembered = home / "config" / IDENTIFIER / "connection.json"
-        xvfb = subprocess.Popen(["Xvfb", display, "-screen", "0", "1600x1000x24"],
-                                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        xvfb = subprocess.Popen(
+            ["Xvfb", display, "-screen", "0", "1600x1000x24"],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+        )
         port = free_port()
         driver_log = (home / "driver.log").open("w")
-        driver = subprocess.Popen(["tauri-driver", "--port", str(port)], env=env,
-                                  stdout=driver_log, stderr=subprocess.STDOUT)
+        driver = subprocess.Popen(
+            ["tauri-driver", "--port", str(port)],
+            env=env,
+            stdout=driver_log,
+            stderr=subprocess.STDOUT,
+        )
         wd = WebDriver(port)
+
+        def restart_driver(with_env: dict[str, str]) -> None:
+            """A fresh tauri-driver, and so a fresh WebKitWebDriver, on the same port."""
+            nonlocal driver
+            driver.terminate()
+            driver.wait(timeout=20)
+            driver = subprocess.Popen(
+                ["tauri-driver", "--port", str(port)],
+                env=with_env,
+                stdout=driver_log,
+                stderr=subprocess.STDOUT,
+            )
+            until(lambda: _answers(port), timeout=30)
+
+        def quit_app() -> None:
+            if not wd.quit():
+                restart_driver(env)
+
         crashed = False
         try:
             until(lambda: _answers(port), timeout=30)
@@ -233,19 +291,25 @@ def main() -> int:
             wd.start(application)
             injected = until(lambda: wd.run("return window.__CURVEVISION__ || null"), 60) or {}
             local = str(injected.get("url", ""))
-            check(injected.get("desktop") is True and local.startswith("http://127.0.0.1:")
-                  and wd.url().startswith(local),
-                  "the application starts its server and opens it, signed in",
-                  f"injected {injected} at {wd.url()}")
+            check(
+                injected.get("desktop") is True
+                and local.startswith("http://127.0.0.1:")
+                and wd.url().startswith(local),
+                "the application starts its server and opens it, signed in",
+                f"injected {injected} at {wd.url()}",
+            )
 
             # ------------------------------------------------------------ 2
             answered = wd.run_async(
                 "const done = arguments[arguments.length - 1];"
                 "window.__TAURI_INTERNALS__.invoke('connection')"
-                "  .then(c => done({ok: c}), e => done({error: String(e)}));")
-            check(answered.get("ok", {}).get("token") == injected.get("token"),
-                  "invoke() crosses the IPC bridge and the shell answers",
-                  f"invoke('connection') gave {answered}")
+                "  .then(c => done({ok: c}), e => done({error: String(e)}));"
+            )
+            check(
+                answered.get("ok", {}).get("token") == injected.get("token"),
+                "invoke() crosses the IPC bridge and the shell answers",
+                f"invoke('connection') gave {answered}",
+            )
 
             # Kept for check 8: written now, read back two launches later.
             stored_mark = wd.run_async(MARK_WRITE, "launch one")
@@ -253,54 +317,78 @@ def main() -> int:
             # ------------------------------------------------------------ 3
             wd.click("a[href='/team-server']")
             wd.type("input[name=team-server-address]", team_base)
-            wd.click("button[type=submit]")
+            # This click closes the window it is made in, and WebKitWebDriver can drop the
+            # connection rather than answer it; what it did is checked just below.
+            with contextlib.suppress(OSError):
+                wd.click("button[type=submit]")
             team_handle = until(
-                lambda: next((h for h in wd.handles() if _shows(wd, h, team_base)), None), 60)
+                lambda: next((h for h in wd.handles() if _shows(wd, h, team_base)), None), 60
+            )
             if team_handle is None:
                 check(False, "", f"no window showed {team_base}; windows: {wd.handles()}")
                 return _finish(failures)
             wd.switch_to(team_handle)
             closed = until(lambda: len(wd.handles()) == 1, 20)
-            check(bool(closed), "the team server opens in a window of its own, replacing this one",
-                  "the local window stayed open beside the team server's")
+            check(
+                bool(closed),
+                "the team server opens in a window of its own, replacing this one",
+                "the local window stayed open beside the team server's",
+            )
             wd.wait_for("input[name=identifier]")
             leaked = wd.run("return window.__CURVEVISION__ || null")
-            check(leaked is None, "the team server's page is its own sign-in, given nothing",
-                  f"the team server's page received {leaked}")
+            check(
+                leaked is None,
+                "the team server's page is its own sign-in, given nothing",
+                f"the team server's page received {leaked}",
+            )
 
             # ------------------------------------------------------------ 4
             refused = wd.run_async(
                 "const done = arguments[arguments.length - 1];"
                 "const ipc = window.__TAURI_INTERNALS__;"
                 "if (!ipc) { done({error: 'no IPC at all'}); return; }"
-                "ipc.invoke('connection').then(c => done({ok: c}), e => done({error: String(e)}));")
-            check("ok" not in refused,
-                  "a team server's page cannot use the shell: its command is refused",
-                  f"the shell answered the team server's page: {refused}")
+                "ipc.invoke('connection').then(c => done({ok: c}), e => done({error: String(e)}));"
+            )
+            check(
+                "ok" not in refused,
+                "a team server's page cannot use the shell: its command is refused",
+                f"the shell answered the team server's page: {refused}",
+            )
 
             # ------------------------------------------------------------ 5
             wd.type("input[name=identifier]", "kim")
             wd.type("input[name=password]", PASSWORD)
             wd.click("button[type=submit]")
             signed_in = until(lambda: wd.url().rstrip("/").endswith("/projects"), 30)
-            check(bool(signed_in), "signing in to the team server works there",
-                  f"after signing in the window showed {wd.url()}")
+            check(
+                bool(signed_in),
+                "signing in to the team server works there",
+                f"after signing in the window showed {wd.url()}",
+            )
 
             # ------------------------------------------------------------ 6
             stored = json.loads(remembered.read_text()) if remembered.is_file() else None
-            check(stored == {"team_server": team_base},
-                  "the choice is written to the application's config folder",
-                  f"{remembered} holds {stored}")
-            wd.quit()
+            check(
+                stored == {"team_server": team_base},
+                "the choice is written to the application's config folder",
+                f"{remembered} holds {stored}",
+            )
+            quit_app()
             stopped = until(lambda: not servers_for(home / "data"), 30)
-            check(bool(stopped), "quitting the application stops the server it started",
-                  f"still running: {servers_for(home / 'data')}")
+            check(
+                bool(stopped),
+                "quitting the application stops the server it started",
+                f"still running: {servers_for(home / 'data')}",
+            )
 
             wd.start(application)
             reopened = until(lambda: wd.url().startswith(team_base), 60)
-            check(bool(reopened), "the next launch opens the team server directly",
-                  f"the next launch opened {wd.url()}")
-            wd.quit()
+            check(
+                bool(reopened),
+                "the next launch opens the team server directly",
+                f"the next launch opened {wd.url()}",
+            )
+            quit_app()
 
             # ------------------------------------------------------------ 8
             # Back to this computer for the next launch, as Use This Computer leaves it.
@@ -308,10 +396,57 @@ def main() -> int:
             wd.start(application)
             until(lambda: wd.run("return window.__CURVEVISION__ || null"), 60)
             read_back = wd.run_async(MARK_READ)
-            check(stored_mark == "stored" and read_back == "launch one",
-                  "the webview keeps IndexedDB from one launch to the next",
-                  f"wrote {stored_mark!r}; two launches later read {read_back!r}")
-            wd.quit()
+            check(
+                stored_mark == "stored" and read_back == "launch one",
+                "the webview keeps IndexedDB from one launch to the next",
+                f"wrote {stored_mark!r}; two launches later read {read_back!r}",
+            )
+
+            # ------------------------------------------------------------ 9
+            # A launch of its own, with the release feed: the driver passes its environment
+            # on to the application it starts.
+            quit_app()
+            restart_driver(updating)
+            wd.start(application)
+            until(lambda: wd.run("return window.__CURVEVISION__ || null"), 60)
+            status = wd.run_async(INVOKE, "check_for_update")
+            notice = until(
+                lambda: wd.run(
+                    "const n = document.querySelector('[data-update-notice]');"
+                    "return n ? n.textContent : null;"
+                ),
+                30,
+            )
+            check(
+                status.get("ok", {}).get("available") == "9.9.9"
+                and status["ok"].get("configured") is True
+                and "9.9.9" in (notice or ""),
+                "the application finds the newer version in the feed, and the page offers it",
+                f"check_for_update gave {status}; the notice said {notice!r}",
+            )
+            feed.tamper()
+            refused = wd.run_async(INVOKE, "install_update")
+            # "verification failed", not "invalid encoding": the signature was well formed
+            # (the shell's Rust test pins that) and the download was not what it signed.
+            check(
+                "signature verification failed" in str(refused.get("error", "")),
+                "a download that is not what was signed is refused on its signature",
+                f"install_update gave {refused}",
+            )
+            feed.sign_with(forger)
+            refused = wd.run_async(INVOKE, "install_update")
+            check(
+                "created with a different key" in str(refused.get("error", "")),
+                "one signed by another key is refused too",
+                f"install_update gave {refused}",
+            )
+            alive = wd.run("return window.__CURVEVISION__ ? 'running' : null")
+            check(
+                alive == "running" and application.is_file(),
+                "and the application stays as it was",
+                f"after the refusals: {alive!r}",
+            )
+            quit_app()
         except Exception:
             crashed = True
             raise
@@ -320,6 +455,7 @@ def main() -> int:
                 wd.quit()
             driver.terminate()
             driver.wait(timeout=20)
+            feed.close()
             xvfb.terminate()
             team.terminate()
             team.wait(timeout=20)
@@ -329,6 +465,81 @@ def main() -> int:
                 # The server's request log would push everything else out of the tail.
                 print("\n".join([line for line in lines if "curvevision.access" not in line][-60:]))
     return _finish(failures)
+
+
+#: Call a shell command from the page; the result, or the shell's refusal, as data.
+INVOKE = """
+const done = arguments[arguments.length - 1];
+window.__TAURI_INTERNALS__.invoke(arguments[0])
+  .then((value) => done({ok: value === undefined ? null : value}),
+        (error) => done({error: String(error)}));
+"""
+
+
+class UpdateFeed:
+    """A release feed: `latest.json` announcing 9.9.9, its download, and its signature."""
+
+    DOWNLOAD = b"a CurveVision 9.9.9 update, as signed"
+
+    def __init__(self, keys: minisign.KeyPair) -> None:
+        import http.server
+        import threading
+
+        self.served = self.DOWNLOAD
+        self.signature = keys.tauri_signature(self.DOWNLOAD)
+        feed = self
+
+        class Handler(http.server.BaseHTTPRequestHandler):
+            def log_message(self, *args: object) -> None:
+                pass
+
+            def do_GET(self) -> None:
+                if self.path.startswith("/latest.json"):
+                    body = json.dumps(
+                        {
+                            "version": "9.9.9",
+                            "notes": "A newer CurveVision",
+                            "pub_date": "2026-10-14T00:00:00Z",
+                            "platforms": {
+                                platform: {
+                                    "signature": feed.signature,
+                                    "url": f"{feed.base}/update.bin",
+                                }
+                                for platform in (
+                                    "linux-x86_64",
+                                    "linux-x86_64-appimage",
+                                    "linux-x86_64-deb",
+                                    "linux-x86_64-rpm",
+                                )
+                            },
+                        }
+                    ).encode()
+                elif self.path.startswith("/update.bin"):
+                    body = feed.served
+                else:
+                    self.send_response(404)
+                    self.end_headers()
+                    return
+                self.send_response(200)
+                self.send_header("Content-Length", str(len(body)))
+                self.end_headers()
+                self.wfile.write(body)
+
+        self.server = http.server.ThreadingHTTPServer(("127.0.0.1", free_port()), Handler)
+        self.base = f"http://127.0.0.1:{self.server.server_address[1]}"
+        threading.Thread(target=self.server.serve_forever, daemon=True).start()
+
+    def tamper(self) -> None:
+        """Serve something other than what was signed."""
+        self.served = self.DOWNLOAD + b" -- and then some"
+
+    def sign_with(self, keys: minisign.KeyPair) -> None:
+        """Serve the download as signed, but signed by someone else's key."""
+        self.served = self.DOWNLOAD
+        self.signature = keys.tauri_signature(self.DOWNLOAD)
+
+    def close(self) -> None:
+        self.server.shutdown()
 
 
 def _answers(port: int) -> bool:

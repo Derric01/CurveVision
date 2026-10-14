@@ -901,8 +901,15 @@ Not an add-on: one of the two shapes the product ships in ([Two deployment shape
   cross-compile — with the packaged server smoke-tested on each and the `.deb` installed and
   used. **Signing is Blocked**: it needs an Apple Developer ID and a Windows code-signing
   certificate the project does not have.
-* **Auto-update** — *Planned*. Tauri's updater verifies updates with a key pair the
-  maintainers would hold.
+* **Auto-update** — **Done, unreleased** (iteration 92). Tauri's updater, behind *Help ▸
+  Check for Updates…* and a notice the page shows when a newer version is offered. The
+  public key and the feed are compiled in from repository secrets (`src/updates.rs`); a build
+  without them says updates are not configured, and only a debug build reads either from the
+  environment. `verify_desktop_shell.py` check 9 serves a feed of its own with a throwaway
+  minisign key (`scripts/minisign.py`): the newer version is found, a tampered download and
+  one signed with another key are refused. Not done, and not ours to do: generating the
+  release key pair and publishing a release with `latest.json`
+  (`scripts/updater_manifest.py`) — both are acts under the maintainers' names.
 * **Pointing the desktop app at a shared team server** — **Done** (iteration 85). *File ▸
   Connect to a Team Server…* checks the address through this computer's server (local mode
   only: `POST /local/team-server-check`), and the shell opens the team server in a window of

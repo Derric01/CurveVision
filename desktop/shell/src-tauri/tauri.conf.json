@@ -16,6 +16,11 @@
       "capabilities": ["default"]
     }
   },
+  "plugins": {
+    "updater": {
+      "pubkey": ""
+    }
+  },
   "bundle": {
     "active": true,
     "targets": ["deb", "appimage", "rpm", "nsis", "dmg"],

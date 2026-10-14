@@ -6,6 +6,7 @@ import { desktop, onTeamServerMenu } from '@/desktop';
 import { Button, Spinner } from '@/ui/primitives';
 import { LoginPage } from '@/features/auth/LoginPage';
 import { SsoCallback } from '@/features/auth/SsoCallback';
+import { UpdateNotice } from '@/features/updates/UpdateNotice';
 import { CALLBACK_PATH } from '@/features/auth/sso';
 import { ProjectsPage } from '@/features/projects/ProjectsPage';
 import { ProjectPage } from '@/features/projects/ProjectPage';
@@ -186,6 +187,7 @@ export default function App() {
   return (
     <div className="flex h-full flex-col">
       <TopBar />
+      <UpdateNotice />
       <main className="min-h-0 flex-1 overflow-auto">
         <Routes>
           <Route path="/projects" element={<ProjectsPage />} />

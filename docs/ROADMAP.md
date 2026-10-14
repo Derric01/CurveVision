@@ -143,7 +143,7 @@ Redis and no object store.
 | Installers built per platform in CI (`.deb`, `.rpm`, `.AppImage`, `.dmg`, NSIS `.exe`) | **Done, unsigned** — the `.deb` is installed and its server used on every run |
 | Code signing for macOS and Windows | **Blocked** — needs the project's certificates |
 | The real application driven in CI over WebDriver (Linux) | **Done** — it found that the shell's commands had never been granted, so the native pickers never worked in a built app; fixed in iteration 85 |
-| Auto-update | **Planned** |
+| Auto-update | **Done, unreleased** — wired and tested to the refusal of a bad signature; real updates need the maintainers' key and a release |
 | Pointing the desktop app at a shared team server | **Done** — the team server opens in a window of its own, with no access to the shell and none of this computer's credentials |
 
 Explicitly **not** a second implementation of the product: the shell is ~450 lines of Rust

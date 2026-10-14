@@ -18,6 +18,7 @@
 
 mod sidecar;
 mod team;
+mod updates;
 
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -302,20 +303,94 @@ fn build_menu(app: &AppHandle) -> tauri::Result<Menu<tauri::Wry>> {
         app,
         "Help",
         true,
-        &[&PredefinedMenuItem::about(
-            app,
-            Some("About CurveVision"),
-            Some(AboutMetadata {
-                name: Some("CurveVision".into()),
-                version: Some(env!("CARGO_PKG_VERSION").into()),
-                license: Some("MIT".into()),
-                website: Some("https://github.com/Derric01/CurveVision".into()),
-                ..Default::default()
-            }),
-        )?],
+        &[
+            &MenuItem::with_id(
+                app,
+                "check-for-updates",
+                "Check for Updates…",
+                true,
+                None::<&str>,
+            )?,
+            &PredefinedMenuItem::separator(app)?,
+            &PredefinedMenuItem::about(
+                app,
+                Some("About CurveVision"),
+                Some(AboutMetadata {
+                    name: Some("CurveVision".into()),
+                    version: Some(env!("CARGO_PKG_VERSION").into()),
+                    license: Some("MIT".into()),
+                    website: Some("https://github.com/Derric01/CurveVision".into()),
+                    ..Default::default()
+                }),
+            )?,
+        ],
     )?;
 
     Menu::with_items(app, &[&file, &edit, &help])
+}
+
+/// Whether a newer version is offered (`updates.rs`), for the page's update notice.
+#[tauri::command]
+async fn check_for_update(app: AppHandle) -> Result<updates::UpdateStatus, String> {
+    updates::check(&app).await
+}
+
+/// Download, verify and install the newer version, then restart. Returns only on failure.
+#[tauri::command]
+async fn install_update(app: AppHandle) -> Result<(), String> {
+    updates::install(&app).await
+}
+
+/// Help ▸ Check for Updates…: say what the feed says, and offer to install.
+async fn check_from_menu(app: AppHandle) {
+    use tauri_plugin_dialog::{MessageDialogButtons, MessageDialogKind};
+    let (message, offer) = match updates::check(&app).await {
+        Ok(status) if !status.configured => (
+            "Updates are not configured for this build of CurveVision.".to_owned(),
+            false,
+        ),
+        Ok(updates::UpdateStatus {
+            available: Some(version),
+            current,
+            ..
+        }) => (
+            format!(
+                "CurveVision {version} is available (this is {current}). Install it and restart?"
+            ),
+            true,
+        ),
+        Ok(status) => (
+            format!("CurveVision {} is the latest version.", status.current),
+            false,
+        ),
+        Err(error) => (format!("Could not check for updates: {error}"), false),
+    };
+    let dialog = app
+        .dialog()
+        .message(message)
+        .title("Updates")
+        .kind(MessageDialogKind::Info);
+    let install = if offer {
+        dialog
+            .buttons(MessageDialogButtons::OkCancelCustom(
+                "Install and Restart".into(),
+                "Later".into(),
+            ))
+            .blocking_show()
+    } else {
+        dialog.buttons(MessageDialogButtons::Ok).blocking_show();
+        false
+    };
+    if install {
+        if let Err(error) = updates::install(&app).await {
+            app.dialog()
+                .message(error)
+                .title("Updates")
+                .kind(MessageDialogKind::Error)
+                .buttons(MessageDialogButtons::Ok)
+                .blocking_show();
+        }
+    }
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -323,11 +398,16 @@ pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_opener::init())
+        // The key and the feed are given per check (`updates.rs`), so the configuration's
+        // own pubkey is left empty and unused.
+        .plugin(tauri_plugin_updater::Builder::new().build())
         .invoke_handler(tauri::generate_handler![
             connection,
             choose_folder,
             choose_files,
-            connect_to_team_server
+            connect_to_team_server,
+            check_for_update,
+            install_update
         ])
         .setup(|app| {
             let handle = app.handle().clone();
@@ -379,6 +459,10 @@ pub fn run() {
                     let _ = team::remember(&path, None);
                 }
                 let _ = switch_to_local(app, "/");
+            }
+            "check-for-updates" => {
+                let app = app.clone();
+                tauri::async_runtime::spawn(check_from_menu(app));
             }
             "show-data-dir" => {
                 if let Some(server) = app.try_state::<Arc<Sidecar>>() {

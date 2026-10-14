@@ -153,6 +153,36 @@ export async function connectToTeamServer(url: string): Promise<void> {
   await invoke('connect_to_team_server', { url });
 }
 
+/** What the shell knows about updates (`updates.rs`). */
+export interface UpdateStatus {
+  /** Whether this build can check at all: a build without the release key cannot. */
+  configured: boolean;
+  current: string;
+  /** A newer version the release feed offers. */
+  available: string | null;
+  notes: string | null;
+}
+
+/**
+ * Ask the shell whether a newer version is offered. `null` in a browser, where there is
+ * nothing to update.
+ */
+export async function checkForUpdate(): Promise<UpdateStatus | null> {
+  if (!isDesktop()) return null;
+  const { invoke } = await import('@tauri-apps/api/core');
+  return invoke<UpdateStatus>('check_for_update');
+}
+
+/**
+ * Download the newer version, have the shell verify its signature against the release key
+ * built into it, install it and restart. Resolves only if it did not — with the reason.
+ */
+export async function installUpdate(): Promise<void> {
+  if (!isDesktop()) throw new Error('Only the desktop application updates itself.');
+  const { invoke } = await import('@tauri-apps/api/core');
+  await invoke('install_update');
+}
+
 /**
  * Run `handler` when the shell's Open Folder menu item is used. Returns an unsubscribe.
  */
