@@ -31,7 +31,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent))
 
-from screenshot import (  # noqa: E402  (the shared harness helpers)
+from screenshot import (
     BOXES,
     FRAMES,
     LABELS,
@@ -42,7 +42,7 @@ from screenshot import (  # noqa: E402  (the shared harness helpers)
     frame_bytes,
     frame_size,
 )
-from verify_workspace import start_web_server  # noqa: E402
+from verify_workspace import start_web_server
 
 REPO = Path(__file__).resolve().parents[1]
 OUT = REPO / "docs" / "demo"
