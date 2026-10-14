@@ -1,6 +1,6 @@
 # Iteration archive
 
-> The narrative record of iterations **1–88**, moved out of
+> The narrative record of iterations **1–89**, moved out of
 > [`handoff.md`](../../handoff.md) so that orienting on this project costs a few hundred
 > lines rather than four thousand.
 >
@@ -15,6 +15,32 @@
 > window, append it to the top of this file rather than deleting it.
 
 ---
+
+## Iteration 89
+
+### 89 — TFRecord, written without TensorFlow and read by it
+
+The last of the 1.0 list's additional formats, so that row is **Done**: the TensorFlow
+Object Detection API's `tf.train.Example` records with `label_map.pbtxt`, both ways. Nothing
+here depends on TensorFlow or protobuf: TFRecord's framing (a length and its masked CRC-32C,
+the record and its masked CRC-32C), the CRC-32C itself (slicing-by-8, 12 MB/s in pure
+Python; `google-crc32c` is used when installed) and the protocol buffer are written by hand.
+Because a hand-written encoding could be wrong everywhere at once, each layer is pinned on
+its own — the CRC to its published check value, the encoding byte for byte to what protobuf
+serialises — and then the real readers check the whole: `scripts/verify_tfrecord.py`
+(`.github/workflows/tfrecord.yml`) has TensorFlow read every record, verifying each
+checksum, and parse it with the Object Detection API's own feature specification, decoding
+the image and every mask; Datumaro reads the export; and we read what Datumaro writes
+through TensorFlow's own writer. It passed first time against TensorFlow; four sabotages
+(the CRC mask, big-endian floats, a coordinate normalised by the wrong side, label ids from
+0) each caught.
+
+Masks are written only on an image where every object has one, because the API reads a mask
+for every object or for none. The import route test found that a normalised float32 reads
+back as 64.00000095 of 640, so imported pixel coordinates are rounded to a thousandth. Open
+Images and TFRecord now share one rasteriser (`formats/raster.py`) rather than two.
+
+Verified: see *Verification performed*.
 
 ## Iteration 88
 

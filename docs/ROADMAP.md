@@ -142,7 +142,7 @@ Redis and no object store.
 | Open-folder and choose-files flows wired to the shell's native pickers | **Done** — *Add media from this computer* and File ▸ Open Folder… call the folder picker; a second button calls the file picker for individual files, one `local-import` call per file, a failed one reported without aborting the rest |
 | Installers built per platform in CI (`.deb`, `.rpm`, `.AppImage`, `.dmg`, NSIS `.exe`) | **Done, unsigned** — the `.deb` is installed and its server used on every run |
 | Code signing for macOS and Windows | **Blocked** — needs the project's certificates |
-| The real application driven in CI over WebDriver (Linux) | **Done** — it found that the shell's commands had never been granted, so the native pickers never worked in a built app; fixed in iteration 85 |
+| The real application driven in CI over WebDriver (Linux) | **Done** — it found that the shell's commands had never been granted, so the native pickers never worked in a built app; fixed in iteration 85. Since iterations 94–95 the native menu and the system's folder and file dialogs are driven too, at the keyboard (`xdotool`) |
 | Auto-update | **Done, unreleased** — wired and tested to the refusal of a bad signature; real updates need the maintainers' key and a release |
 | Pointing the desktop app at a shared team server | **Done** — the team server opens in a window of its own, with no access to the shell and none of this computer's credentials |
 

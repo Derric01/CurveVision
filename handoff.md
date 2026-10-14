@@ -5,9 +5,9 @@
 > [`AGENTS.md`](./AGENTS.md) first; it is the working contract. Update this file after every
 > iteration, including the ones that mostly failed.
 >
-> **Last updated:** 2026-10-14 (iteration 94) · branch `claude/start-work-yx080h` · PRs
+> **Last updated:** 2026-10-14 (iteration 95) · branch `claude/start-work-yx080h` · PRs
 > [#1](https://github.com/Derric01/CurveVision/pull/1)–[#36](https://github.com/Derric01/CurveVision/pull/36)
-> **all merged**. Iterations 84 (the rest) to 94 are
+> **all merged**. Iterations 84 (the rest) to 95 are
 > [#37](https://github.com/Derric01/CurveVision/pull/37).
 >
 > *Two things worth knowing about this repository's PR rhythm, which replace the
@@ -22,7 +22,7 @@
 > **Keep the session short.** One iteration, then commit, push, update this file and report —
 > `AGENTS.md` § *Continue* and the `start-work` skill both say so now, because they did not
 > before and a single session ran six iterations and roughly a third of a week's budget. The
-> concrete costs, in rough order: re-reading this file (iterations 1–88 now live in
+> concrete costs, in rough order: re-reading this file (iterations 1–89 now live in
 > [`docs/iterations/ARCHIVE.md`](./docs/iterations/ARCHIVE.md), which cut it from 3,800
 > lines to 1,000 — keep it that way); `python desktop/sidecar/build.py`, which is a
 > PyInstaller run of a minute or two and is needed *again* for every sabotage-and-restore
@@ -507,7 +507,7 @@ was the last unconnected piece of the desktop application.
 
 ## Next best action
 
-*The native menu driven at the keyboard, 94. The Helm chart making its own bucket, 93. Desktop auto-update, wired and tested short of the maintainers' key, 92. SAML single sign-on, 91. Every additional format on the 1.0 list — LabelMe, Cityscapes, Open Images, TFRecord — each
+*The system's file dialogs driven in the real application, 95. The native menu driven at the keyboard, 94. The Helm chart making its own bucket, 93. Desktop auto-update, wired and tested short of the maintainers' key, 92. SAML single sign-on, 91. Every additional format on the 1.0 list — LabelMe, Cityscapes, Open Images, TFRecord — each
 held in CI to a reader written by other people, iterations 86–89; the Datumaro bridge, its
 formats measured, 90. The desktop app on a team server, and the shell's commands granted — the
 pickers had never worked in a built app — iteration 85; desktop installers on every platform, `aiosqlite` made
@@ -527,10 +527,10 @@ with no dependency on the user, in order:
 
 1. ~~The desktop webview's storage across launches~~ — done for Linux in iteration 85
    (check 8 of `verify_desktop_shell.py`); Windows and macOS have no WebDriver bridge.
-2. ~~**The native menu**~~ — *Connect to a Team Server…* and *Use This Computer* are driven
-   at the keyboard since iteration 94 (`xdotool`, F10 and the arrow keys). *Open Folder…*
-   and the native folder dialog it leads to are still not: the dialog is GTK's, and the
-   same approach (Ctrl+L, a typed path) is the next thing to try.
+2. ~~**The native menu**~~ and ~~**the native dialogs**~~ — driven at the keyboard since
+   iterations 94–95 (`xdotool` under Xvfb). What is left of the desktop is per-platform:
+   macOS's and Windows' webviews and dialogs have no WebDriver bridge, so they are covered
+   by the installer builds and nothing more.
 3. ~~**The Helm chart could run `storage-init`**~~ — done in iteration 93, with the
    opt-out (`storage.s3.createBucket`) it needed first.
 4. ~~The additional formats on the 1.0 list~~ — done: LabelMe (86), Cityscapes (87), Open
@@ -1059,13 +1059,23 @@ being updated and this one was not. Check it against* Completed *before trusting
 
 ## Verification performed
 
+Iteration 95:
+
+* `verify_desktop_shell.py`, all 18 checks passing locally; sabotaged (`choose_folder` and
+  `choose_files` returning nothing whatever was chosen) and exactly the two new ones failed.
+  A first attempt at that sabotage did not compile and so tested the unchanged binary —
+  caught because it passed, and redone in a form that compiled. Check a sabotage's build
+  before believing its run.
+* Web lint, types and build; the sidecar rebuilt with the new page.
+
 Iteration 94:
 
 * `verify_desktop_shell.py`, all 16 checks passing locally (Ubuntu 24.04, xdotool 3.20160805,
   WebKitWebDriver 2.52.6), the two new ones included. Sabotaged — the shell's team-server
   menu event renamed and *Use This Computer*'s forgetting removed — and exactly those two
   failed.
-* `desktop.yml` installs `xdotool` for the WebDriver job; see the PR's checks.
+* On GitHub at `2ed6a57`: the WebDriver job, with `xdotool` installed, passed — the
+  menu checks included.
 
 Iteration 93:
 
@@ -1075,7 +1085,8 @@ Iteration 93:
 * The hook's command with exactly the hook's environment — no database, no secret key —
   against Versity Gateway: "Created bucket curvevision.", exit 0; again, "already exists",
   exit 0; with credentials the store refuses, the 403 named and exit 1.
-* CI's `kind` job with S3 starting empty: see the PR's checks on the commit.
+* On GitHub at `2ed6a57`: *Helm chart installs and serves, in kind* passed with S3
+  starting empty — the bucket the upload used was the hook's.
 
 Iteration 92:
 
@@ -2193,6 +2204,26 @@ Iteration 54:
 
 ## Last iteration
 
+### 95 — folders and files chosen in the system's own dialogs, in the real application
+
+The desktop's reason to exist — annotating files where they are — had never been driven
+through the dialog a person actually uses: the IPC bridge was (iteration 85), the GTK
+dialog was not. `verify_desktop_shell.py` check 11 now does it on a task's page: *File ▸
+Open Folder…* by its accelerator (Ctrl+O) opens GTK's folder dialog, which is focused (there
+is no window manager under Xvfb), sent home with Alt+Home — it opens on *Recent*, where a
+typed location goes nowhere — given the path with Ctrl+L, and chosen with Return twice (the
+first only completes the path); the task gains three frames, read in place, and the page
+says so. *Choose files…* does the same for one file through the multi-file dialog, the
+filter included. The page's two buttons and its import summary gained `data-` hooks for it.
+
+Sabotaged — the shell dropping whatever each dialog returned — and both checks failed, the
+sixteen others passing. One earlier sabotaged run ended in a traceback whose log was not
+kept, most likely the check-3 flake under *Known issues*; the rerun was clean.
+
+Verified: see *Verification performed*.
+
+## Iteration 94
+
 ### 94 — the native menu, chosen at the keyboard
 
 The one part of the shell no test reached: its menu, which is GTK's, outside the webview,
@@ -2328,35 +2359,9 @@ image adds the extra with `--build-arg SERVER_EXTRAS=...,datumaro` (docs/OPERATI
 
 Verified: see *Verification performed*.
 
-## Iteration 89
-
-### 89 — TFRecord, written without TensorFlow and read by it
-
-The last of the 1.0 list's additional formats, so that row is **Done**: the TensorFlow
-Object Detection API's `tf.train.Example` records with `label_map.pbtxt`, both ways. Nothing
-here depends on TensorFlow or protobuf: TFRecord's framing (a length and its masked CRC-32C,
-the record and its masked CRC-32C), the CRC-32C itself (slicing-by-8, 12 MB/s in pure
-Python; `google-crc32c` is used when installed) and the protocol buffer are written by hand.
-Because a hand-written encoding could be wrong everywhere at once, each layer is pinned on
-its own — the CRC to its published check value, the encoding byte for byte to what protobuf
-serialises — and then the real readers check the whole: `scripts/verify_tfrecord.py`
-(`.github/workflows/tfrecord.yml`) has TensorFlow read every record, verifying each
-checksum, and parse it with the Object Detection API's own feature specification, decoding
-the image and every mask; Datumaro reads the export; and we read what Datumaro writes
-through TensorFlow's own writer. It passed first time against TensorFlow; four sabotages
-(the CRC mask, big-endian floats, a coordinate normalised by the wrong side, label ids from
-0) each caught.
-
-Masks are written only on an image where every object has one, because the API reads a mask
-for every object or for none. The import route test found that a normalised float32 reads
-back as 64.00000095 of 640, so imported pixel coordinates are rounded to a thousandth. Open
-Images and TFRecord now share one rasteriser (`formats/raster.py`) rather than two.
-
-Verified: see *Verification performed*.
-
 ## Earlier iterations
 
-Iterations **1–88** are in [`docs/iterations/ARCHIVE.md`](./docs/iterations/ARCHIVE.md) —
+Iterations **1–89** are in [`docs/iterations/ARCHIVE.md`](./docs/iterations/ARCHIVE.md) —
 moved there so that orienting costs a few hundred lines rather than four thousand. Read them
 when `git log` points you at an iteration number, or when you are about to build something
 and want to know whether it was already tried and rejected. The lessons from them that are

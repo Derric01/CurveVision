@@ -31,7 +31,11 @@ what was until now only claimed:
 10. the native menu, which WebDriver cannot reach, chosen at the keyboard as a person would
     (`xdotool`: F10, then the arrow keys): *File ▸ Connect to a Team Server…* brings up the
     page that asks for the address, and *File ▸ Use This Computer*, in a launch that opened
-    the team server, goes back to this computer's and forgets the choice.
+    the team server, goes back to this computer's and forgets the choice;
+11. annotating files where they are, through the operating system's own dialogs — GTK's,
+    driven at the keyboard too: *File ▸ Open Folder…* (Ctrl+O) on a task's page opens the
+    folder dialog, a folder chosen there is attached in place, and the page's *Choose
+    files…* does the same for one file.
 
 Needs: Linux, Xvfb, `xdotool`, `WebKitWebDriver` (Debian/Ubuntu: `webkit2gtk-driver`),
 `tauri-driver` (`cargo install tauri-driver --locked`), the shell built with `cargo build`
@@ -53,6 +57,8 @@ import urllib.error
 import urllib.request
 from pathlib import Path
 from typing import Any
+
+from PIL import Image
 
 import minisign
 from verify_workspace import ROOT, free_port, start_web_server
@@ -168,6 +174,10 @@ open.onsuccess = () => {
   tx.oncomplete = () => done('stored');
   tx.onerror = () => done('could not write: ' + tx.error);
 };
+"""
+SUMMARY = """
+const summary = document.querySelector('[data-import-summary]');
+return summary ? summary.textContent : null;
 """
 MARK_READ = """
 const done = arguments[arguments.length - 1];
@@ -442,6 +452,51 @@ def main() -> int:
                 f"wrote {stored_mark!r}; two launches later read {read_back!r}",
             )
 
+            # ------------------------------------------------------------ 11
+            photos = home / "photos"
+            photos.mkdir()
+            for shade in range(3):
+                Image.new("RGB", (64, 48), (shade * 80, 40, 90)).save(photos / f"{shade}.png")
+            single = home / "one more.png"
+            Image.new("RGB", (64, 48), (200, 200, 40)).save(single)
+            connection = wd.run("return window.__CURVEVISION__")
+            workspace = local_api(connection, "GET", "/organizations")[0]
+            project = local_api(
+                connection,
+                "POST",
+                "/projects",
+                {"organization_id": workspace["id"], "slug": "photos", "name": "Photos"},
+            )
+            task = local_api(
+                connection, "POST", "/tasks", {"project_id": project["id"], "name": "In place"}
+            )
+            wd.call("POST", wd.s("/url"), {"url": f"{connection['url']}/tasks/{task['id']}"})
+            wd.wait_for("[data-choose-files]")
+
+            press_in_window(display, "ctrl+o")  # the menu's accelerator for Open Folder…
+            chose = choose_in_dialog(display, "Choose a folder", photos)
+
+            def frames() -> int:
+                return int(local_api(connection, "GET", f"/tasks/{task['id']}")["frame_count"])
+
+            attached = until(lambda: frames() == 3, 30)
+            summary = until(lambda: wd.run(SUMMARY), 10)
+            check(
+                chose and bool(attached) and "3 frames" in (summary or ""),
+                "Open Folder… and the system's folder dialog attach a folder in place",
+                f"dialog answered: {chose}; the task has {frames()} frames; the page said "
+                f"{summary!r}",
+            )
+
+            wd.click("[data-choose-files]")
+            chose = choose_in_dialog(display, "Choose images", single)
+            attached = until(lambda: frames() == 4, 30)
+            check(
+                chose and bool(attached),
+                "Choose files… and the system's file dialog attach one file in place",
+                f"dialog answered: {chose}; the task has {frames()} frames",
+            )
+
             # ------------------------------------------------------------ 9
             # A launch of its own, with the release feed: the driver passes its environment
             # on to the application it starts.
@@ -595,37 +650,104 @@ def choose_from_menu(display: str, item: int) -> None:
 
     The menu is GTK's own, outside the webview, so WebDriver cannot reach it. F10 opens a
     GTK window's menu bar on its first menu with nothing selected; each Down then moves one
-    item. The window is the one large visible one: there is one application window at a time.
+    item.
     """
-    env = {**os.environ, "DISPLAY": display}
+    window = _application_window(display)
+    if not window:
+        return
+    _xdotool(display, "windowfocus", "--sync", window)
+    _xdotool(display, "key", "F10")
+    time.sleep(0.7)
+    _xdotool(display, "key", *["Down"] * item)
+    time.sleep(0.3)
+    _xdotool(display, "key", "Return")
 
-    def xdotool(*args: str) -> str:
-        return subprocess.run(
-            ["xdotool", *args], env=env, capture_output=True, text=True, timeout=20
-        ).stdout
+
+def _xdotool(display: str, *args: str) -> str:
+    return subprocess.run(
+        ["xdotool", *args],
+        env={**os.environ, "DISPLAY": display},
+        capture_output=True,
+        text=True,
+        timeout=20,
+    ).stdout
+
+
+def press_in_window(display: str, keys: str) -> None:
+    """Press `keys` in the application's window (the one large visible window)."""
+    window = _application_window(display)
+    if window:
+        _xdotool(display, "windowfocus", "--sync", window)
+        _xdotool(display, "key", keys)
+
+
+def choose_in_dialog(display: str, title: str, path: Path) -> bool:
+    """Choose `path` in the GTK file dialog whose title starts with `title`, at the keyboard.
+
+    With no window manager, the dialog is not focused on its own. It opens on *Recent*,
+    where a typed location goes nowhere, so first Alt+Home (the home folder), then Ctrl+L and
+    the path. A folder takes two Returns — the first completes the path, the second chooses
+    it — and a file one; a second Return when the dialog has gone lands in the page, harmless.
+    False when no such dialog appeared, or it was still open afterwards.
+    """
+    found = until(
+        lambda: _xdotool(display, "search", "--onlyvisible", "--name", f"^{title}").split(), 20
+    )
+    if not found:
+        return False
+    _xdotool(display, "windowfocus", "--sync", found[0])
+    for keys in ("alt+Home", "ctrl+l"):
+        _xdotool(display, "key", keys)
+        time.sleep(0.6)
+    _xdotool(display, "type", "--delay", "20", str(path))
+    time.sleep(0.5)
+    for _ in range(2 if path.is_dir() else 1):
+        _xdotool(display, "key", "Return")
+        time.sleep(1.5)
+    gone = until(
+        lambda: not _xdotool(display, "search", "--onlyvisible", "--name", f"^{title}").split(),
+        10,
+    )
+    return bool(gone)
+
+
+def local_api(connection: dict[str, Any], method: str, path: str, body: object = None) -> Any:
+    """This computer's server, as the page reaches it: the connection the shell injected."""
+    request = urllib.request.Request(
+        f"{connection['url']}/api/v1{path}",
+        method=method,
+        data=None if body is None else json.dumps(body).encode(),
+        headers={
+            "Content-Type": "application/json",
+            "Authorization": f"Bearer {connection['token']}",
+        },
+    )
+    with urllib.request.urlopen(request, timeout=30) as response:
+        payload = json.loads(response.read())
+    return payload.get("results", payload) if isinstance(payload, dict) else payload
+
+
+def _application_window(display: str) -> str | None:
+    """The application's window: the one wide visible window, there being one at a time
+    (GTK's dialogs and menus are narrower)."""
 
     def width(window: str) -> int:
         shell = dict(
             line.split("=", 1)
-            for line in xdotool("getwindowgeometry", "--shell", window).split()
+            for line in _xdotool(display, "getwindowgeometry", "--shell", window).split()
             if "=" in line
         )
         return int(shell.get("WIDTH", 0))
 
     windows = until(
         lambda: [
-            w for w in xdotool("search", "--onlyvisible", "--name", ".").split() if width(w) >= 800
+            w
+            for w in _xdotool(display, "search", "--onlyvisible", "--name", ".").split()
+            if width(w) >= 1200
         ],
         20,
     )
-    if not windows:
-        return
-    xdotool("windowfocus", "--sync", windows[0])
-    xdotool("key", "F10")
-    time.sleep(0.7)
-    xdotool("key", *["Down"] * item)
-    time.sleep(0.3)
-    xdotool("key", "Return")
+    return windows[0] if windows else None
 
 
 def _is_local(wd: WebDriver, handle: str) -> bool:

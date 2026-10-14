@@ -18,6 +18,7 @@ on:
       - 'scripts/minisign.py'
       - 'web/src/features/updates/**'
       - 'web/src/desktop.ts'
+      - 'web/src/features/tasks/TaskPage.tsx'
       - 'web/src/features/desktop/**'
       - 'server/curvevision/desktop.py'
       - 'server/pyproject.toml'
