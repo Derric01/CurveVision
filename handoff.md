@@ -1983,7 +1983,10 @@ Iteration 54:
   happened, so the harness runs on 24.04. Unknown: whether the shell itself misbehaves on
   22.04 when it swaps windows. Iteration 86 saw the same reset once on 2.52, and it was the
   harness probing the window being closed (now tolerated) — so the 22.04 failures may have
-  been that too; unproven until the harness runs there again. Worth checking by hand on a 22.04 desktop: connect to a team
+  been that too; unproven until the harness runs there again. Iterations 88 and 89 met the
+  same reset at the other end, ending a session (the application closing as WebKitWebDriver
+  answers); `quit()` now takes a dropped connection as the session over, and the checks
+  after each quit still establish that the application stopped. Worth checking by hand on a 22.04 desktop: connect to a team
   server and back a few times.
 * **The native menus are driven by no test.** WebDriver cannot click them; *Use This
   Computer* shares `switch_to_local` with the code the WebDriver harness does exercise.

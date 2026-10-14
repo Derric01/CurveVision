@@ -82,8 +82,12 @@ class WebDriver:
 
     def quit(self) -> None:
         if self.session:
-            self.call("DELETE", f"/session/{self.session}")
-            self.session = ""
+            session, self.session = self.session, ""
+            # Ending the session closes the application, and WebKitWebDriver can drop the
+            # connection as it goes rather than answer. The session is over either way; the
+            # checks after each quit establish that the application really stopped.
+            with contextlib.suppress(OSError):
+                self.call("DELETE", f"/session/{session}")
 
     def s(self, path: str) -> str:
         return f"/session/{self.session}{path}"
