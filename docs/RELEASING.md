@@ -26,7 +26,7 @@ The draft carries, from that tag and nothing else:
 
 | What | Built by | Checked by |
 | --- | --- | --- |
-| Windows `.exe`, macOS `.dmg`, Linux `.deb` / `.rpm` / `.AppImage` | `desktop.yml`, each on its own platform | the `.deb` installed and its server used; the real app driven over WebDriver |
+| Windows `.exe`, macOS `.dmg` for Apple Silicon and for Intel, Linux `.deb` / `.rpm` / `.AppImage` | `desktop.yml`, each on its own platform | the `.deb` installed and its server used; the real app driven over WebDriver |
 | `ghcr.io/<owner>/curvevision-server` and `-web` at the version and `latest` | `release.yml` | built from the same Dockerfiles CI builds |
 | `SHA256SUMS` | `release.yml` | — |
 | `latest.json`, the desktop update feed | `scripts/updater_manifest.py` | only when the updater's signing key is configured (`desktop/README.md`) |
@@ -49,7 +49,11 @@ them from this repository's tagged source, in this workflow.
 
 * **Code signing.** The installers are unsigned until the project has an Apple Developer ID
   (and notarisation) and a Windows code-signing certificate. Windows SmartScreen and macOS
-  Gatekeeper warn until then; the release notes say what to click.
+  Gatekeeper warn until then; the release notes say what to click. The Mac app is signed
+  ad hoc (`signingIdentity: "-"` in `tauri.conf.json`), which a Developer ID replaces:
+  set `APPLE_SIGNING_IDENTITY` and the notarisation credentials Tauri reads, and remove it.
+* **Intel Macs after August 2027.** `macos-15-intel` is GitHub's last Intel image. When it
+  retires, Intel builds need a self-hosted Intel Mac or end.
 * **The updater's signing key.** Without `TAURI_SIGNING_PRIVATE_KEY` and its public half in
   the repository's secrets, the installers cannot update themselves (`desktop/README.md`,
   *Releasing an update*).

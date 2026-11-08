@@ -14,7 +14,7 @@ each installer the updater can use; this collects them into the feed:
 
 * Linux — the AppImage (``linux-x86_64``)
 * Windows — the NSIS installer (``windows-x86_64``)
-* macOS — the ``.app.tar.gz`` (``darwin-aarch64``)
+* macOS — the ``.app.tar.gz``, one per architecture (``darwin-aarch64``, ``darwin-x86_64``)
 
 Publishing the release, with the installers, their signatures and this file, is the
 maintainers' step.
@@ -28,12 +28,14 @@ import json
 import sys
 from pathlib import Path
 
-#: Which file is each platform's update. The macOS installer is built on Apple Silicon
-#: (`macos-14` in `.github/workflows/desktop.yml`), so its archive is ``darwin-aarch64``.
+#: Which file is each platform's update. The two Macs are built separately
+#: (`.github/workflows/desktop.yml`), which names each archive after its architecture as
+#: Tauri already names the .dmg.
 PLATFORMS = (
     ("linux-x86_64", ".AppImage"),
     ("windows-x86_64", "-setup.exe"),
-    ("darwin-aarch64", ".app.tar.gz"),
+    ("darwin-aarch64", "_aarch64.app.tar.gz"),
+    ("darwin-x86_64", "_x64.app.tar.gz"),
 )
 
 

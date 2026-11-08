@@ -99,7 +99,8 @@ one installer per platform, nothing else to install, no account:
 | Your computer | Download | Then |
 | --- | --- | --- |
 | **Windows** 10 / 11 | `CurveVision_<version>_x64-setup.exe` | run it |
-| **macOS** (Apple Silicon) | `CurveVision_<version>_aarch64.dmg` | open it, drag CurveVision to Applications |
+| **macOS** — Apple Silicon (M1 and later) | `CurveVision_<version>_aarch64.dmg` | open it, drag CurveVision to Applications, then [first launch](#opening-it-the-first-time-on-a-mac) |
+| **macOS** — Intel | `CurveVision_<version>_x64.dmg` | the same |
 | **Linux** — Debian, Ubuntu | `curve-vision_<version>_amd64.deb` | `sudo apt install ./curve-vision_*.deb` |
 | **Linux** — Fedora, RHEL | `curve-vision-<version>-1.x86_64.rpm` | `sudo dnf install ./curve-vision-*.rpm` |
 | **Linux** — any | `CurveVision_<version>_amd64.AppImage` | `chmod +x` it, then run it |
@@ -118,10 +119,27 @@ sha256sum --check --ignore-missing SHA256SUMS                       # the bytes 
 gh attestation verify CurveVision_*_x64-setup.exe --repo Derric01/CurveVision   # built here, from this source
 ```
 
-The installers are **not yet code-signed** (that needs an Apple Developer ID and a Windows
-code-signing certificate). Until they are, Windows SmartScreen asks you to confirm — *More
-info → Run anyway* — and macOS asks you to allow the app in *System Settings → Privacy &
-Security*. The checks above are how you know it is the real thing.
+The installers are **not yet code-signed with a publisher certificate** (that needs an Apple
+Developer ID and a Windows code-signing certificate). Until they are, Windows SmartScreen
+asks you to confirm — *More info → Run anyway* — and a Mac asks once, as below. The checks
+above are how you know it is the real thing.
+
+#### Opening it the first time on a Mac
+
+The Mac app is signed *ad hoc* (its contents are sealed, but by no registered publisher),
+so macOS 15 says it "could not verify CurveVision is free of malware" the first time. Once:
+
+1. Open CurveVision from Applications, and choose **Done** at the warning.
+2. Open **System Settings → Privacy & Security**, scroll to *Security*, and choose
+   **Open Anyway** beside CurveVision. Confirm with your password.
+
+It opens normally from then on. (On macOS 14 and earlier, Control-click the app and choose
+**Open** instead.) If your Mac says the app "is damaged and can't be opened", that is the
+same check worded differently. Remove the download's quarantine flag and open it again:
+
+```bash
+xattr -dr com.apple.quarantine /Applications/CurveVision.app
+```
 
 *The link works from the first published release (v1.0.0) onward. Until then, build it
 yourself:*

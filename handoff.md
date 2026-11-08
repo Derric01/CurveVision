@@ -2302,6 +2302,27 @@ Iteration 54:
 
 ## Last iteration
 
+### 102b — a Mac download for every Mac, and one that opens
+
+The macOS build had been cancelled before starting on every run since 2026-11-02: GitHub
+**retired the `macos-14` image** that day, after October brownouts. It was not billing, as
+first guessed. Now:
+
+* Apple Silicon builds on `macos-15` and Intel on `macos-15-intel` (GitHub's last Intel
+  image, until August 2027). Each platform's artifact has its own name.
+* The app is **signed ad hoc** (`signingIdentity: "-"`). Unsigned, a downloaded Apple
+  Silicon app is refused as "damaged". With an ad-hoc seal, macOS offers *Open Anyway*.
+  The CI step runs `codesign --verify --deep --strict`, and `file` checks the binaries
+  are for the runner's architecture.
+* Tauri names the update archive `CurveVision.app.tar.gz` on both Macs, so in a release
+  one would overwrite the other. Each is renamed `CurveVision_<v>_<arch>.app.tar.gz`, and
+  `updater_manifest.py` now writes both `darwin-aarch64` and `darwin-x86_64`.
+* The README and release notes list both `.dmg` files and say how to open the app the
+  first time, with the `xattr` way out if a Mac says "damaged".
+
+**Not verified here:** no Mac in this container. The PR's `desktop.yml` run is the test.
+The first-launch wording is from Apple's current behaviour, not checked on a real Mac.
+
 ### 102 — frame tags in the editor; CurveVision beside CVAT, row by row
 
 Asked to "ensure that all the core features in our application is similar to CVAT". Read

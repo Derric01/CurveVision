@@ -150,7 +150,8 @@ jobs:
           | Your computer | File |
           | --- | --- |
           | Windows 10/11 | \`CurveVision_${version}_x64-setup.exe\` |
-          | macOS (Apple Silicon) | \`CurveVision_${version}_aarch64.dmg\` |
+          | macOS, Apple Silicon (M1 and later) | \`CurveVision_${version}_aarch64.dmg\` |
+          | macOS, Intel | \`CurveVision_${version}_x64.dmg\` |
           | Linux (Debian, Ubuntu) | \`curve-vision_${version}_amd64.deb\` |
           | Linux (Fedora, RHEL) | \`curve-vision-${version}-1.x86_64.rpm\` |
           | Linux (any) | \`CurveVision_${version}_amd64.AppImage\` |
@@ -167,8 +168,9 @@ jobs:
           \`\`\`
 
           The installers are **not yet code-signed**: Windows SmartScreen will ask you to
-          confirm ("More info" → "Run anyway"), and macOS will ask you to allow the app in
-          System Settings → Privacy & Security. Every file was scanned with ClamAV before
+          confirm ("More info" → "Run anyway"). On a Mac, open the app once, then choose
+          "Open Anyway" in System Settings → Privacy & Security; the README's *Opening it
+          the first time on a Mac* has the rest. Every file was scanned with ClamAV before
           this release was made.
           NOTES
           gh release create "${GITHUB_REF_NAME}" release/* \

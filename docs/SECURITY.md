@@ -161,9 +161,11 @@ CurveVision cannot enforce these for you:
 
 Stated plainly, because a security document that only lists strengths is not useful:
 
-* **The installers are not code-signed.** That needs an Apple Developer ID (with
-  notarisation) and a Windows code-signing certificate, which the project does not have
-  yet. Windows SmartScreen and macOS Gatekeeper therefore warn on first run. Checksums and
+* **The installers are not code-signed by a publisher.** That needs an Apple Developer ID
+  (with notarisation) and a Windows code-signing certificate, which the project does not
+  have yet. The Mac app is signed ad hoc, which seals its contents (macOS on Apple Silicon
+  runs nothing unsigned) but names no publisher. Windows SmartScreen and macOS Gatekeeper
+  therefore warn on first run. Checksums and
   provenance attestations (*What you download*, above) are how a download is verified
   until then; they say who built it, which a signature would also say, but the operating
   system does not check them for you.
