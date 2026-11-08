@@ -2302,6 +2302,39 @@ Iteration 54:
 
 ## Last iteration
 
+### 102c — a demo video worth watching, and an editor rail that scrolls by itself
+
+Asked for a marketing video that is "very realistic and effective". `scripts/record_demo.py`
+is rewritten. Every frame is still the real application:
+
+* **A real model.** `scripts/demo_detector.py` serves **YOLO11n** (ONNX, on CPU through
+  onnxruntime) behind the HTTP inference contract. It finds the cup (79%), the cat (87%)
+  and the astronaut (90%); the video reviews those, rejects one, and draws by hand what the
+  model cannot know ("saucer" is no COCO class) or missed (the spoon, the rocket). The
+  weights are AGPL-3.0 and downloaded at run time from Ultralytics' release, never
+  committed. Neither onnxruntime nor the model is a CurveVision dependency.
+* **1080p at 30 fps.** Chromium runs in an app window (no tabs or address bar) on Xvfb,
+  captured with ffmpeg's x11grab, not Playwright's low-bitrate recorder. A drawn pointer,
+  click ripples, a keycap for each shortcut, captions, and a title and closing card with
+  the download link. Chrome's password-manager bubble is off in the profile. Its download
+  animation, which no flag removes in an app window, is painted over from the export on.
+* **Checked, twice.** The COCO export must hold exactly the six objects the video makes,
+  and each hand-drawn shape must land where it was meant to (IoU ≥ 0.8). An earlier take
+  passed a count-only check with the saucer drawn over the whole photograph, because a
+  reviewed suggestion had left the view zoomed in. The video now clicks *Fit to frame*
+  before drawing, as a person would.
+
+Two product fixes the recording exposed:
+
+* **The editor's right rail scrolls on its own** (`EditorPage.tsx`). A long panel used to
+  scroll the whole editor, canvas included, under the pointer. The object list keeps a
+  minimum height. Re-run and passing: `verify_auto_annotate`, `verify_suggestion_review`,
+  `verify_frame_tags`, `verify_issues_panel`, `verify_attribute_editor`,
+  `verify_quality_panel`.
+* **A model with many classes no longer floods the panel.** `listBriefly` names the first
+  eight and counts the rest, in the plan and in the unmatched note (`autoAnnotate.ts`, with
+  tests). An 80-class COCO detector printed all 80, twice.
+
 ### 102b — a Mac download for every Mac, and one that opens
 
 The macOS build had been cancelled before starting on every run since 2026-11-02: GitHub

@@ -648,7 +648,9 @@ export function EditorPage() {
         </div>
 
         {/* Right panel */}
-        <aside className="flex w-72 shrink-0 flex-col border-l border-ink-800">
+        {/* The rail scrolls on its own: a long panel (a model with eighty classes, a busy
+            issue list) used to scroll the whole editor, canvas included, under the pointer. */}
+        <aside className="flex min-h-0 w-72 shrink-0 flex-col overflow-y-auto border-l border-ink-800">
           <LabelPanel
             labels={drawableLabels(labelStyles)}
             activeLabelId={activeLabelId}
@@ -1112,7 +1114,7 @@ function ObjectList({
   const nameOf = (labelId: string) => labels.find((l) => l.id === labelId)?.name ?? 'unlabelled';
 
   return (
-    <div className="min-h-0 flex-1 overflow-auto">
+    <div className="min-h-36 flex-1 overflow-auto">
       <h3 className="sticky top-0 bg-ink-950 px-3 py-2 text-xs font-medium uppercase tracking-wide text-ink-500">
         Objects ({annotations.length})
       </h3>

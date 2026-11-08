@@ -29,9 +29,11 @@ which drives the real application in a real browser and draws those boxes with r
 on a real photograph. Nothing here is a mockup.
 </sub></div>
 
-<p align="center"><b><a href="docs/demo/curvevision-demo.mp4">▶ Watch the one-minute demo</a></b> —
-sign in, a project, boxes and a polygon on real photographs, a real COCO export.
-Recorded from the running application by <a href="scripts/record_demo.py"><code>scripts/record_demo.py</code></a>.</p>
+<p align="center"><b><a href="docs/demo/curvevision-demo.mp4">▶ Watch the 90-second demo (1080p)</a></b> —
+a real detector (YOLO11n, on a laptop CPU) labels the job first; its guesses are reviewed one
+by one; what it missed is drawn by hand; a real COCO export comes out the other end.
+Recorded from the running application by <a href="scripts/record_demo.py"><code>scripts/record_demo.py</code></a>,
+which then opens the export and checks it holds exactly what the video made.</p>
 
 ---
 
