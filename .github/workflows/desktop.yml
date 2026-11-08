@@ -7,11 +7,13 @@ name: Desktop installers
 
 on:
   workflow_dispatch:
-  push:
-    tags: ['v*']
+  # A release (`release.yml`) builds its installers by calling this workflow, rather than
+  # this one also running on the same tag and building them twice.
+  workflow_call:
   pull_request:
     paths:
       - 'desktop/**'
+      - 'server/constraints.txt'
       - '.github/workflows/desktop.yml'
       # What the application's own harness exercises across the shell boundary.
       - 'scripts/verify_desktop_shell.py'
@@ -24,7 +26,7 @@ on:
       - 'server/pyproject.toml'
 
 concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
+  group: desktop-installers-${{ github.ref }}
   cancel-in-progress: true
 
 permissions:
@@ -80,7 +82,7 @@ jobs:
 
       - name: The server, packaged — and smoke-tested by the script that builds it
         run: |
-          pip install -e "./server[media,desktop]"
+          pip install -c server/constraints.txt -e "./server[media,desktop]"
           python desktop/sidecar/build.py
 
       # The shell's own tests, on each platform it ships to — including starting and
@@ -191,7 +193,7 @@ jobs:
         run: |
           npm ci --prefix web --no-audit --no-fund
           npm --prefix web run build
-          pip install -e "./server[media,desktop]"
+          pip install -c server/constraints.txt -e "./server[media,desktop]"
           # The harness signs its own update feed with a throwaway key (scripts/minisign.py).
           pip install cryptography
           python desktop/sidecar/build.py

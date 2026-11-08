@@ -1,6 +1,7 @@
 {
   "name": "@curvevision/client",
-  "version": "0.1.0",
+  "version": "1.0.0",
+  "homepage": "https://github.com/Derric01/CurveVision#download-the-desktop-application",
   "description": "Typed client for the CurveVision annotation platform's REST API",
   "license": "MIT",
   "type": "module",

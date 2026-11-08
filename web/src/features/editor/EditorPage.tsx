@@ -67,6 +67,8 @@ import { ReviewPanel } from './ReviewPanel';
 import { canSubmit, submitBlocker } from './review';
 import { useAutosave, type Recovered, type Refusal } from './useAutosave';
 import { AttributesPanel } from './AttributesPanel';
+import { FrameTagsPanel } from './FrameTagsPanel';
+import { tagsOn } from './frameTags';
 import { attributesFor, mutableNames } from './attributeValues';
 import { interactorModels, outlineFrom } from './interactorModels';
 import { describeInteraction, type Interact } from '@/canvas/interactor';
@@ -226,6 +228,10 @@ export function EditorPage() {
     setFocusId(null);
   }, [focusId, visible]);
 
+  const frameTags = useMemo(
+    () => tagsOn(annotations.data, currentFrame, labelStyles),
+    [annotations.data, currentFrame, labelStyles],
+  );
   const imageUrl = useFrameObjectUrl(task.data?.id, currentFrame);
 
   // The same query key the issues panel uses, so react-query serves both from one fetch
@@ -616,6 +622,23 @@ export function EditorPage() {
             </div>
           )}
 
+          {frameTags.length > 0 && (
+            <div
+              className="pointer-events-none absolute right-2 top-2 flex max-w-[50%] flex-wrap justify-end gap-1"
+              data-frame-tags-overlay=""
+            >
+              {frameTags.map((tag) => (
+                <span
+                  key={tag.id}
+                  className="rounded bg-ink-900/85 px-1.5 py-0.5 text-[11px] text-ink-100"
+                  style={{ borderLeft: `3px solid ${tag.color}` }}
+                >
+                  {tag.name}
+                </span>
+              ))}
+            </div>
+          )}
+
           <div className="pointer-events-none absolute bottom-2 left-2 flex gap-2 text-[11px] text-ink-500">
             <span className="rounded bg-ink-900/80 px-1.5 py-0.5">{Math.round(zoom * 100)}%</span>
             <span className="rounded bg-ink-900/80 px-1.5 py-0.5">
@@ -676,6 +699,13 @@ export function EditorPage() {
               />
             );
           })()}
+
+          <FrameTagsPanel
+            tags={frameTags}
+            labels={labelStyles}
+            currentFrame={currentFrame}
+            onWrite={autosave.writeTags}
+          />
 
           <AutoAnnotatePanel
             jobId={jobId}

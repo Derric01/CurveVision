@@ -129,6 +129,17 @@ class WebDriver:
     def url(self) -> str:
         return str(self.call("GET", self.s("/url")))
 
+    def where(self) -> str:
+        """The URL for a failure message: never itself the reason a run crashes.
+
+        A message is built whether its check passes or not, so a connection the driver drops
+        here would end the run before the check reported (handoff.md, *Known issues*).
+        """
+        try:
+            return self.url()
+        except OSError as exc:
+            return f"<unknown: the driver dropped the connection ({exc})>"
+
     def handles(self) -> list[str]:
         return list(self.call("GET", self.s("/window/handles")))
 
@@ -316,12 +327,16 @@ def main() -> int:
             wd.start(application)
             injected = until(lambda: wd.run("return window.__CURVEVISION__ || null"), 60) or {}
             local = str(injected.get("url", ""))
+            # Asked once, through `until`: the failure message used to ask again, and as an
+            # argument it was asked whether the check passed or not, so a connection the
+            # driver dropped there crashed the run before any check had reported.
+            opened = str(until(wd.url, 30) or "")
             check(
                 injected.get("desktop") is True
                 and local.startswith("http://127.0.0.1:")
-                and wd.url().startswith(local),
+                and opened.startswith(local),
                 "the application starts its server and opens it, signed in",
-                f"injected {injected} at {wd.url()}",
+                f"injected {injected} at {opened!r}",
             )
 
             # ------------------------------------------------------------ 2
@@ -348,7 +363,7 @@ def main() -> int:
             check(
                 asked == "/team-server",
                 "File ▸ Connect to a Team Server… in the native menu brings up its page",
-                f"after choosing it from the menu the page was at {wd.url()}",
+                f"after choosing it from the menu the page was at {wd.where()}",
             )
 
             # ------------------------------------------------------------ 3
@@ -396,7 +411,7 @@ def main() -> int:
             check(
                 bool(signed_in),
                 "signing in to the team server works there",
-                f"after signing in the window showed {wd.url()}",
+                f"after signing in the window showed {wd.where()}",
             )
 
             # ------------------------------------------------------------ 6
@@ -419,7 +434,7 @@ def main() -> int:
             check(
                 bool(reopened),
                 "the next launch opens the team server directly",
-                f"the next launch opened {wd.url()}",
+                f"the next launch opened {wd.where()}",
             )
 
             # ------------------------------------------------------------ 10

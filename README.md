@@ -15,7 +15,7 @@ Same editor, same exporters, same code — your images never leave your infrastr
 [![Node 22+](https://img.shields.io/badge/node-22%2B-5fa04e.svg)](web/package.json)
 [![PRs welcome](https://img.shields.io/badge/PRs-welcome-f59e0b.svg)](docs/CONTRIBUTING.md)
 
-[**Quick start**](#quick-start) · [Features](#what-it-does) · [Architecture](docs/ARCHITECTURE.md) · [API](docs/API.md) · [Roadmap](docs/ROADMAP.md) · [Contributing](docs/CONTRIBUTING.md)
+[**⬇ Download**](https://github.com/Derric01/CurveVision/releases/latest) · [**Quick start**](#quick-start) · [Features](#what-it-does) · [Architecture](docs/ARCHITECTURE.md) · [API](docs/API.md) · [Roadmap](docs/ROADMAP.md) · [Contributing](docs/CONTRIBUTING.md)
 
 </div>
 
@@ -91,12 +91,42 @@ AI-assisted     upload → run your model → accept or correct → review → e
 
 ## Quick start
 
-### The desktop application
+### Download the desktop application
 
-There is no signed installer or published release yet — we would rather say so than link a
-download that does not exist. CI builds unsigned installers for Linux, macOS and Windows
-(`.github/workflows/desktop.yml`, kept as workflow artifacts); building one yourself takes
-three commands:
+**[⬇ Download CurveVision from the latest release](https://github.com/Derric01/CurveVision/releases/latest)** —
+one installer per platform, nothing else to install, no account:
+
+| Your computer | Download | Then |
+| --- | --- | --- |
+| **Windows** 10 / 11 | `CurveVision_<version>_x64-setup.exe` | run it |
+| **macOS** (Apple Silicon) | `CurveVision_<version>_aarch64.dmg` | open it, drag CurveVision to Applications |
+| **Linux** — Debian, Ubuntu | `curve-vision_<version>_amd64.deb` | `sudo apt install ./curve-vision_*.deb` |
+| **Linux** — Fedora, RHEL | `curve-vision-<version>-1.x86_64.rpm` | `sudo dnf install ./curve-vision-*.rpm` |
+| **Linux** — any | `CurveVision_<version>_amd64.AppImage` | `chmod +x` it, then run it |
+
+The app runs its own server on your machine, on `127.0.0.1` only; your images are read
+where they are and never uploaded anywhere.
+
+**Is it safe?** Every file on a release page is built by this repository's own release
+workflow ([`release.yml`](.github/workflows/release.yml)) from the tagged source — never on
+someone's laptop — scanned with ClamAV before the release is made, listed with its SHA-256
+in `SHA256SUMS`, and given a signed provenance attestation that says which commit and which
+workflow run built it. Check a download in two commands:
+
+```bash
+sha256sum --check --ignore-missing SHA256SUMS                       # the bytes are the ones published
+gh attestation verify CurveVision_*_x64-setup.exe --repo Derric01/CurveVision   # built here, from this source
+```
+
+The installers are **not yet code-signed** (that needs an Apple Developer ID and a Windows
+code-signing certificate). Until they are, Windows SmartScreen asks you to confirm — *More
+info → Run anyway* — and macOS asks you to allow the app in *System Settings → Privacy &
+Security*. The checks above are how you know it is the real thing.
+
+*The link works from the first published release (v1.0.0) onward. Until then, build it
+yourself:*
+
+#### Build it yourself
 
 ```bash
 pip install -e 'server[dev,media,desktop]'
@@ -120,6 +150,11 @@ cd desktop/shell/src-tauri && cargo build --release
 See [`desktop/`](desktop/) for what works today, what does not, and where your data lives.
 
 ### As a server
+
+Each release also publishes the server and web images, with the same provenance
+attestations: `ghcr.io/derric01/curvevision-server` and `ghcr.io/derric01/curvevision-web`
+(the Helm chart uses them by default — see [Operations](docs/OPERATIONS.md#kubernetes)).
+To run the whole stack with Docker Compose:
 
 ```bash
 git clone https://github.com/Derric01/CurveVision.git
@@ -181,7 +216,8 @@ labelme's own loader, cityscapesScripts, TensorFlow — not only against this pr
 
 | | |
 | --- | --- |
-| Rectangles, polygons, polylines, points, ellipses | **Done** |
+| Rectangles, polygons, polylines, points, ellipses, cuboids | **Done** |
+| Skeletons (keypoints), placed joint by joint in the label's order | **Done** |
 | **Intelligent scissors** — click once and the boundary snaps to the edge under your cursor | **Done** |
 | **Click-to-segment** — click an object and an interactor model (SAM or your own) outlines it | **Done** — needs an `interactor` model server; none is bundled |
 | Selection, move, vertex editing, marquee | **Done** |
@@ -190,7 +226,11 @@ labelme's own loader, cityscapesScripts, TensorFlow — not only against this pr
 | Per-label visibility and locking | **Done** |
 | Crash-resilient autosave | **Done** |
 | Track keyframes: add, remove and mark a departure from the timeline | **Done** |
-| Mask brush — masks are stored, drawn pixel for pixel in the editor, and exported (CVAT XML and indexed PNG); no brush tool creates one | *Planned* |
+| Mask brush — paint, grow, shrink and erase masks; stored and exported pixel for pixel (CVAT XML, COCO RLE, indexed PNG) | **Done** |
+| Frame tags — a label for the whole frame ("night", "blurred"), added and removed beside the canvas | **Done** |
+
+**Coming from CVAT?** [docs/CVAT_PARITY.md](docs/CVAT_PARITY.md) sets every core CVAT feature beside
+CurveVision's, with what is done, partial and missing.
 
 **It stays fast.** The canvas is a Canvas2D engine with an R-tree spatial index, so
 rendering costs what is *on screen* rather than what is in the dataset.
@@ -257,7 +297,7 @@ what makes an active-learning loop measurable.
 | Hosted AI by API key: Claude, OpenAI, Gemini, xAI, OpenRouter, Mistral, Groq, Together, Ollama | **Done** — boxes only |
 | A reference model server to point it at | *Planned* — a separate repository (ADR 0005) |
 | Provenance chain (`model` → `model_corrected`) | **Done** |
-| Interactive segmentation (click-to-segment) | *Planned* |
+| Interactive segmentation (click-to-segment) | **Done** — the editor's *Outline* tool (iteration 98) |
 | Trackers, OCR, classification model kinds | *Planned* |
 
 ### Datasets, review and release

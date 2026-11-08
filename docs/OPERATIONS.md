@@ -156,15 +156,10 @@ cluster already runs those its own way, and a copy bundled here would be one mor
 back up.
 
 ```bash
-# No images are published yet: build and push both to a registry your cluster pulls from.
-docker build -f deploy/Dockerfile.server -t registry.example.com/curvevision-server:0.1.0 .
-docker build -f deploy/Dockerfile.web    -t registry.example.com/curvevision-web:0.1.0 .
-docker push registry.example.com/curvevision-server:0.1.0
-docker push registry.example.com/curvevision-web:0.1.0
-
+# The chart pulls each release's published images (ghcr.io/derric01/curvevision-server and
+# -web, at the chart's appVersion). To run your own build, push it to a registry your
+# cluster pulls from and add --set image.server.repository=... / image.web.repository=...
 helm install cv deploy/helm/curvevision \
-  --set image.server.repository=registry.example.com/curvevision-server \
-  --set image.web.repository=registry.example.com/curvevision-web \
   --set secretKey=$(python3 -c 'import secrets; print(secrets.token_urlsafe(48))') \
   --set database.url=postgresql+asyncpg://curvevision:PASSWORD@postgres:5432/curvevision \
   --set redis.url=redis://redis:6379/0 \

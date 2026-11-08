@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "curvevision-server"
-version = "0.1.0"
+version = "1.0.0"
 description = "CurveVision — open-source annotation and dataset infrastructure for computer vision"
 readme = "README.md"
 requires-python = ">=3.11"
@@ -34,6 +34,12 @@ dependencies = [
     # makes to another server: checking a team server before switching to it.
     "truststore>=0.10",
 ]
+
+[project.urls]
+Homepage = "https://github.com/Derric01/CurveVision"
+Download = "https://github.com/Derric01/CurveVision/releases/latest"
+Documentation = "https://github.com/Derric01/CurveVision/tree/main/docs"
+Issues = "https://github.com/Derric01/CurveVision/issues"
 
 [project.optional-dependencies]
 postgres = ["asyncpg>=0.29", "psycopg[binary]>=3.1"]

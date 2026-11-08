@@ -4,14 +4,16 @@
 # more thing to back up and upgrade. docs/OPERATIONS.md#kubernetes walks through an install.
 
 image:
-  # No images are published yet: build both from this repository and push them to a
-  # registry your cluster can pull from (`docker build -f deploy/Dockerfile.server .`).
+  # Published by each release (`.github/workflows/release.yml`), with a signed provenance
+  # attestation: `gh attestation verify oci://ghcr.io/derric01/curvevision-server:1.0.0
+  # --repo Derric01/CurveVision`. To run your own build instead, push it to a registry your
+  # cluster can pull from and set these (`docker build -f deploy/Dockerfile.server .`).
   server:
-    repository: curvevision-server
+    repository: ghcr.io/derric01/curvevision-server
     # Defaults to the chart's appVersion.
     tag: ""
   web:
-    repository: curvevision-web
+    repository: ghcr.io/derric01/curvevision-web
     tag: ""
   pullPolicy: IfNotPresent
 imagePullSecrets: []

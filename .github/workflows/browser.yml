@@ -67,7 +67,7 @@ jobs:
         working-directory: server
         run: |
           python -m pip install --upgrade pip
-          pip install -e ".[dev,media,desktop,saml]"
+          pip install -c constraints.txt -e ".[dev,media,desktop,saml]"
           pip install playwright
 
       - name: Install Chromium
@@ -137,6 +137,8 @@ jobs:
               scripts/verify_interactor.py
               # Deciding model suggestions one at a time: the real server shape again.
               scripts/verify_suggestion_review.py
+              # Tagging whole frames, and taking a tag off: the real server shape.
+              scripts/verify_frame_tags.py
               # Also starts the real server (uvicorn on SQLite, serving `web/dist`): the
               # desktop build has one person and no registration, and members need several.
               scripts/verify_workspace.py
