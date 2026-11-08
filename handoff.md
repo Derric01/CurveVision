@@ -5,10 +5,9 @@
 > [`AGENTS.md`](./AGENTS.md) first; it is the working contract. Update this file after every
 > iteration, including the ones that mostly failed.
 >
-> **Last updated:** 2026-11-08 (iteration 100) · branch `claude/start-work-yx080h` · PRs
-> [#1](https://github.com/Derric01/CurveVision/pull/1)–[#38](https://github.com/Derric01/CurveVision/pull/38)
-> **all merged**, #37 carrying iterations 84 (the rest) to 98 and #38 iteration 99. Iteration
-> 100 is the next PR from this branch.
+> **Last updated:** 2026-11-08 (iteration 101) · branch `claude/start-work-yx080h` · PRs
+> [#1](https://github.com/Derric01/CurveVision/pull/1)–[#39](https://github.com/Derric01/CurveVision/pull/39)
+> **all merged**, #37 carrying iterations 84 (the rest) to 98, #38 iteration 99 and #39 iteration 100.
 >
 > *Two things worth knowing about this repository's PR rhythm, which replace the
 > PR-by-PR changelog that used to sit here and had stopped helping anybody.* **PRs are
@@ -22,7 +21,7 @@
 > **Keep the session short.** One iteration, then commit, push, update this file and report —
 > `AGENTS.md` § *Continue* and the `start-work` skill both say so now, because they did not
 > before and a single session ran six iterations and roughly a third of a week's budget. The
-> concrete costs, in rough order: re-reading this file (iterations 1–94 now live in
+> concrete costs, in rough order: re-reading this file (iterations 1–95 now live in
 > [`docs/iterations/ARCHIVE.md`](./docs/iterations/ARCHIVE.md), which cut it from 3,800
 > lines to 1,000 — keep it that way); `python desktop/sidecar/build.py`, which is a
 > PyInstaller run of a minute or two and is needed *again* for every sabotage-and-restore
@@ -507,7 +506,7 @@ was the last unconnected piece of the desktop application.
 
 ## Next best action
 
-*Least confident first, and a fresh install that did not start, 100. Model suggestions decided one at a time, 99. Click-to-segment with an interactor model, 98. Webhooks on the Workspace page, 97; delivering for the first time, and only their own workspace's, 96. The system's file dialogs driven in the real application, 95. The native menu driven at the keyboard, 94. The Helm chart making its own bucket, 93. Desktop auto-update, wired and tested short of the maintainers' key, 92. SAML single sign-on, 91. Every additional format on the 1.0 list — LabelMe, Cityscapes, Open Images, TFRecord — each
+*Releases people can download and check, 101. Least confident first, and a fresh install that did not start, 100. Model suggestions decided one at a time, 99. Click-to-segment with an interactor model, 98. Webhooks on the Workspace page, 97; delivering for the first time, and only their own workspace's, 96. The system's file dialogs driven in the real application, 95. The native menu driven at the keyboard, 94. The Helm chart making its own bucket, 93. Desktop auto-update, wired and tested short of the maintainers' key, 92. SAML single sign-on, 91. Every additional format on the 1.0 list — LabelMe, Cityscapes, Open Images, TFRecord — each
 held in CI to a reader written by other people, iterations 86–89; the Datumaro bridge, its
 formats measured, 90. The desktop app on a team server, and the shell's commands granted — the
 pickers had never worked in a built app — iteration 85; desktop installers on every platform, `aiosqlite` made
@@ -520,7 +519,7 @@ archive.*
 the desktop and on tags; `browser.yml` and `ultralytics.yml` only when dispatched. All
 are recorded under *Verification performed* for iteration 85's commit.
 
-**Before launch: pin what an install resolves to** (found in iteration 100). The server's
+~~**Before launch: pin what an install resolves to**~~ — done in iteration 101 (`server/constraints.txt`). The server's
 dependencies are lower bounds only; a fresh install picked FastAPI 0.162 and the server did
 not start. A constraints or lock file — generated, checked by CI, used by the Dockerfile,
 `ci.yml` and `desktop/sidecar/build.py` — so an install made on launch day is the one that
@@ -1063,6 +1062,17 @@ being updated and this one was not. Check it against* Completed *before trusting
 ---
 
 ## Verification performed
+
+Iteration 101:
+
+* `./scripts/check.sh`, sixteen steps green (the pin check is new): 940 server tests, 809
+  web, 16 SDK, at version 1.0.0.
+* `scripts/check_constraints.py` fails when a pin is removed (`fastapi` deleted: "pins no
+  version for: fastapi"); `scripts/release_check.py` passes at v1.0.0 and names all eleven
+  places at v0.9.0.
+* The constraints resolve, in a dry run, for the Docker image's extras and for the desktop
+  set with the SDK.
+* `actionlint` on `release.yml`, `desktop.yml`, `ci.yml` and `browser.yml`: clean.
 
 Iteration 100:
 
@@ -2286,6 +2296,40 @@ Iteration 54:
 
 ## Last iteration
 
+### 101 — a download page people can trust: releases, checksums, provenance, pinned versions
+
+Asked to make CurveVision "easy for others to download and try, and safe". Until now a
+version tag built installers into workflow artifacts that expired in 14 days; nothing made
+a release, and nothing published the images.
+
+* **`release.yml`**, on a `v*` tag: checks every declared version matches the tag
+  (`scripts/release_check.py`, eleven places); builds the installers by calling
+  `desktop.yml` (now `workflow_call`, its tag trigger removed so nothing builds twice; its
+  concurrency group renamed, since a called workflow takes the caller's name); pushes the
+  server and web images to GHCR with provenance; scans every file with ClamAV (a detection
+  stops it), writes `SHA256SUMS`, attests every file, builds the update feed when the
+  updater key exists, and leaves a **draft** release a maintainer publishes.
+* **Pinned versions.** `server/constraints.txt` (104 packages, `scripts/update_constraints.sh`)
+  is used by the Dockerfile, CI, the browser job and the desktop builds;
+  `scripts/check_constraints.py` (in `check.sh` and CI) fails when a declared dependency
+  has no pin. This closes iteration 100's open cause.
+* **Version 1.0.0** across every manifest, and the Helm chart now pulls the published
+  images by default.
+* **README**: a *Download* section with the file for each platform, how to verify it, and
+  what the unsigned-installer warnings look like; stale rows corrected (the mask brush and
+  click-to-segment said *Planned*). `docs/RELEASING.md` for maintainers; SECURITY.md says
+  what a download is and is not (not code-signed).
+
+**Not run:** `release.yml` itself. It runs on a tag, and tagging is the maintainers' call.
+It is linted (actionlint, clean) and its parts are each exercised elsewhere (installers in
+`desktop.yml`, images in `ci.yml`), but the first tag is its first run: watch it, and expect
+to fix something small. The installer names in the notes follow Tauri's conventions and are
+not yet confirmed against a real run.
+
+Verified: see *Verification performed*.
+
+## Iteration 100
+
 ### 100 — review the model's least confident guesses first; a fresh install that did not start
 
 The first step on the roadmap's *active learning*: where a model was least sure is where a
@@ -2410,29 +2454,9 @@ Shaped after CVAT's webhook ping and deliveries list.
 
 Verified: see *Verification performed*.
 
-## Iteration 95
-
-### 95 — folders and files chosen in the system's own dialogs, in the real application
-
-The desktop's reason to exist — annotating files where they are — had never been driven
-through the dialog a person actually uses: the IPC bridge was (iteration 85), the GTK
-dialog was not. `verify_desktop_shell.py` check 11 now does it on a task's page: *File ▸
-Open Folder…* by its accelerator (Ctrl+O) opens GTK's folder dialog, which is focused (there
-is no window manager under Xvfb), sent home with Alt+Home — it opens on *Recent*, where a
-typed location goes nowhere — given the path with Ctrl+L, and chosen with Return twice (the
-first only completes the path); the task gains three frames, read in place, and the page
-says so. *Choose files…* does the same for one file through the multi-file dialog, the
-filter included. The page's two buttons and its import summary gained `data-` hooks for it.
-
-Sabotaged — the shell dropping whatever each dialog returned — and both checks failed, the
-sixteen others passing. One earlier sabotaged run ended in a traceback whose log was not
-kept, most likely the check-3 flake under *Known issues*; the rerun was clean.
-
-Verified: see *Verification performed*.
-
 ## Earlier iterations
 
-Iterations **1–94** are in [`docs/iterations/ARCHIVE.md`](./docs/iterations/ARCHIVE.md) —
+Iterations **1–95** are in [`docs/iterations/ARCHIVE.md`](./docs/iterations/ARCHIVE.md) —
 moved there so that orienting costs a few hundred lines rather than four thousand. Read them
 when `git log` points you at an iteration number, or when you are about to build something
 and want to know whether it was already tried and rejected. The lessons from them that are

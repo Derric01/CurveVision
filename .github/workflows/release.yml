@@ -1,0 +1,179 @@
+# A release: push a version tag (`git tag v1.0.0 && git push origin v1.0.0`) and this builds
+# everything a person downloads, checks it, and leaves a **draft** GitHub Release for a
+# maintainer to read and publish. Nothing becomes public without that click.
+#
+#   1. The versions in every manifest match the tag (scripts/release_check.py).
+#   2. The installers, on each platform's own runner, and the real application driven over
+#      WebDriver (desktop.yml, called here).
+#   3. The server and web images, pushed to GitHub's container registry with provenance.
+#   4. Every file scanned with ClamAV, listed in SHA256SUMS, and given a signed build
+#      provenance attestation (`gh attestation verify <file> --repo <this repo>`).
+#   5. The draft release: installers, SHA256SUMS, the update feed when the release is signed
+#      for the updater, and notes generated from the merged pull requests.
+name: Release
+
+on:
+  push:
+    tags: ['v*']
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  versions:
+    name: Versions match the tag
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.11'
+      - run: python scripts/release_check.py "${GITHUB_REF_NAME}"
+
+  installers:
+    name: Installers
+    needs: versions
+    uses: ./.github/workflows/desktop.yml
+    # The updater's public key, feed and signing key, when the repository has them.
+    secrets: inherit
+
+  images:
+    name: Server and web images
+    needs: versions
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+      id-token: write
+      attestations: write
+    strategy:
+      matrix:
+        image: [server, web]
+    steps:
+      - uses: actions/checkout@v5
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Image name
+        id: name
+        run: |
+          owner="${GITHUB_REPOSITORY_OWNER,,}"
+          echo "image=ghcr.io/${owner}/curvevision-${{ matrix.image }}" >> "$GITHUB_OUTPUT"
+          echo "version=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
+      - name: Build and push
+        id: push
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: deploy/Dockerfile.${{ matrix.image }}
+          push: true
+          tags: |
+            ${{ steps.name.outputs.image }}:${{ steps.name.outputs.version }}
+            ${{ steps.name.outputs.image }}:latest
+          labels: |
+            org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
+            org.opencontainers.image.version=${{ steps.name.outputs.version }}
+            org.opencontainers.image.revision=${{ github.sha }}
+            org.opencontainers.image.licenses=MIT
+      - uses: actions/attest-build-provenance@v2
+        with:
+          subject-name: ${{ steps.name.outputs.image }}
+          subject-digest: ${{ steps.push.outputs.digest }}
+          push-to-registry: true
+
+  draft:
+    name: Scan, checksum, attest, draft the release
+    needs: [installers, images]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      id-token: write
+      attestations: write
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/download-artifact@v5
+        with:
+          pattern: curvevision-desktop-*
+          path: downloads
+      - name: Collect the files a person downloads
+        run: |
+          mkdir release
+          find downloads -type f -exec cp {} release/ \;
+          ls -la release
+
+      # The same scanner the server uses on uploads. A hit fails the release: nothing is
+      # published that a common antivirus flags.
+      - name: Scan with ClamAV
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y clamav
+          sudo systemctl stop clamav-freshclam || true
+          sudo freshclam
+          clamscan --recursive --infected --no-summary release
+          echo "clean: $(ls release | wc -l) files"
+
+      - name: The update feed, when the installers were signed for the updater
+        run: |
+          if ls release/*.sig >/dev/null 2>&1; then
+            python scripts/updater_manifest.py \
+              --version "${GITHUB_REF_NAME}" \
+              --base-url "${{ github.server_url }}/${{ github.repository }}/releases/download/${GITHUB_REF_NAME}" \
+              release > latest.json
+            mv latest.json release/
+          else
+            echo "No .sig files: the updater's signing key is not configured, so no feed."
+          fi
+
+      - name: Checksums
+        working-directory: release
+        run: sha256sum * | grep -v ' SHA256SUMS$' > SHA256SUMS && cat SHA256SUMS
+
+      - uses: actions/attest-build-provenance@v2
+        with:
+          subject-path: 'release/*'
+
+      - name: Draft the release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          version="${GITHUB_REF_NAME#v}"
+          cat > notes.md <<NOTES
+          ## Download
+
+          | Your computer | File |
+          | --- | --- |
+          | Windows 10/11 | \`CurveVision_${version}_x64-setup.exe\` |
+          | macOS (Apple Silicon) | \`CurveVision_${version}_aarch64.dmg\` |
+          | Linux (Debian, Ubuntu) | \`curve-vision_${version}_amd64.deb\` |
+          | Linux (Fedora, RHEL) | \`curve-vision-${version}-1.x86_64.rpm\` |
+          | Linux (any) | \`CurveVision_${version}_amd64.AppImage\` |
+
+          For a team server instead: \`ghcr.io/${GITHUB_REPOSITORY_OWNER,,}/curvevision-server:${version}\`
+          and \`curvevision-web:${version}\` — see docs/OPERATIONS.md.
+
+          **Check what you downloaded** — every file is listed in \`SHA256SUMS\` and carries a
+          signed record of the workflow run that built it from this repository:
+
+          \`\`\`
+          sha256sum --check --ignore-missing SHA256SUMS
+          gh attestation verify <file> --repo ${GITHUB_REPOSITORY}
+          \`\`\`
+
+          The installers are **not yet code-signed**: Windows SmartScreen will ask you to
+          confirm ("More info" → "Run anyway"), and macOS will ask you to allow the app in
+          System Settings → Privacy & Security. Every file was scanned with ClamAV before
+          this release was made.
+          NOTES
+          gh release create "${GITHUB_REF_NAME}" release/* \
+            --draft \
+            --verify-tag \
+            --title "CurveVision ${version}" \
+            --notes-file notes.md \
+            --generate-notes

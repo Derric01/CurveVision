@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "curvevision-sdk"
-version = "0.1.0"
+version = "1.0.0"
 description = "Python SDK and CLI for CurveVision, the open-source annotation platform"
 readme = "README.md"
 requires-python = ">=3.11"

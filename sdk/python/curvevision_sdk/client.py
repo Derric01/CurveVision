@@ -23,7 +23,7 @@ from typing import Any
 import httpx
 
 DEFAULT_TIMEOUT = 60.0
-USER_AGENT = "curvevision-sdk/0.1.0"
+USER_AGENT = "curvevision-sdk/1.0.0"
 
 
 class CurveVisionError(Exception):

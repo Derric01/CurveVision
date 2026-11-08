@@ -1,6 +1,6 @@
 # Iteration archive
 
-> The narrative record of iterations **1–94**, moved out of
+> The narrative record of iterations **1–95**, moved out of
 > [`handoff.md`](../../handoff.md) so that orienting on this project costs a few hundred
 > lines rather than four thousand.
 >
@@ -15,6 +15,26 @@
 > window, append it to the top of this file rather than deleting it.
 
 ---
+
+## Iteration 95
+
+### 95 — folders and files chosen in the system's own dialogs, in the real application
+
+The desktop's reason to exist — annotating files where they are — had never been driven
+through the dialog a person actually uses: the IPC bridge was (iteration 85), the GTK
+dialog was not. `verify_desktop_shell.py` check 11 now does it on a task's page: *File ▸
+Open Folder…* by its accelerator (Ctrl+O) opens GTK's folder dialog, which is focused (there
+is no window manager under Xvfb), sent home with Alt+Home — it opens on *Recent*, where a
+typed location goes nowhere — given the path with Ctrl+L, and chosen with Return twice (the
+first only completes the path); the task gains three frames, read in place, and the page
+says so. *Choose files…* does the same for one file through the multi-file dialog, the
+filter included. The page's two buttons and its import summary gained `data-` hooks for it.
+
+Sabotaged — the shell dropping whatever each dialog returned — and both checks failed, the
+sixteen others passing. One earlier sabotaged run ended in a traceback whose log was not
+kept, most likely the check-3 flake under *Known issues*; the rerun was clean.
+
+Verified: see *Verification performed*.
 
 ## Iteration 94
 

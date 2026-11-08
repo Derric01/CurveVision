@@ -120,6 +120,21 @@ Stating the design so you know what to test *against*, and so operators know wha
 * The shell stores the chosen team server's address only — origin, never a user name or
   password — in the application's config folder.
 
+### What you download
+
+* **Built by the repository, not by a person.** Installers and images are built from a
+  version tag by [`release.yml`](../.github/workflows/release.yml) on GitHub's runners,
+  and published only after a maintainer reads the draft ([RELEASING.md](./RELEASING.md)).
+* **Checkable.** Each file is listed in `SHA256SUMS` and carries a signed build-provenance
+  attestation naming the commit and workflow run that built it:
+  `gh attestation verify <file> --repo Derric01/CurveVision`.
+* **Scanned.** Every file is scanned with ClamAV before the release is drafted; a detection
+  stops the release.
+* **Pinned.** What a release installs is `server/constraints.txt` — the versions CI tested
+  — not whatever a package index served that day. CI fails if a declared dependency has no
+  pinned version.
+* **Not yet code-signed** — see *Known limitations*.
+
 ### Auditing
 
 `AuditEvent` records security-relevant actions — authentication, permission changes, token
@@ -146,6 +161,12 @@ CurveVision cannot enforce these for you:
 
 Stated plainly, because a security document that only lists strengths is not useful:
 
+* **The installers are not code-signed.** That needs an Apple Developer ID (with
+  notarisation) and a Windows code-signing certificate, which the project does not have
+  yet. Windows SmartScreen and macOS Gatekeeper therefore warn on first run. Checksums and
+  provenance attestations (*What you download*, above) are how a download is verified
+  until then; they say who built it, which a signature would also say, but the operating
+  system does not check them for you.
 * **Rate limiting is per-process unless Redis backs it.** The default keeps counts in each
   process; a server run as several instances should set `rate_limit_backend = "redis"`
   ([API.md](./API.md#rate-limiting)), which shares one limit between them. It **fails

@@ -1,6 +1,6 @@
 [package]
 name = "curvevision-desktop"
-version = "0.1.0"
+version = "1.0.0"
 description = "CurveVision — annotate computer-vision datasets on your own machine"
 authors = ["CurveVision contributors"]
 license = "MIT"
