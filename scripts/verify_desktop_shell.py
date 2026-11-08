@@ -380,7 +380,10 @@ def main() -> int:
             if team_handle is None:
                 check(False, "", f"no window showed {team_base}; windows: {wd.handles()}")
                 return _finish(failures)
-            wd.switch_to(team_handle)
+            # `_shows` has just switched to it; this makes sure, through `until`, because this
+            # is the moment the shell closes the local window, when WebKitWebDriver drops
+            # connections (handoff.md, *Known issues*). One drop here ended the run in CI.
+            until(lambda: wd.switch_to(team_handle) is None, 20)
             closed = until(lambda: len(wd.handles()) == 1, 20)
             check(
                 bool(closed),
