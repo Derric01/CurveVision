@@ -77,9 +77,9 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         lifespan=lifespan,
         docs_url="/api/docs",
         redoc_url="/api/redoc",
+        # OpenAPI 3.1, which the SDK and TypeScript client generate from, is FastAPI's default;
+        # it stopped taking `openapi_version` as an argument in 0.162, so it is not passed.
         openapi_url=f"{settings.api_prefix}/openapi.json",
-        # OpenAPI 3.1 so the schema matches what the SDK and TypeScript client generate from.
-        openapi_version="3.1.0",
     )
     app.state.settings = settings
 

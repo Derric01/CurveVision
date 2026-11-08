@@ -13,7 +13,9 @@ model run wrote (a detector behind the inference contract, one box per frame):
 3. *Next suggestion* moves to the next frame's and selects it there;
 4. *Reject* deletes that one and nothing else;
 5. an edit made to a suggestion and not yet saved is saved before the decision, so
-   accepting it keeps the edit rather than the model's geometry.
+   accepting it keeps the edit rather than the model's geometry;
+6. *Least confident first* goes to the suggestion the model was least sure of, wherever it
+   is in the job, and the panel says how sure (iteration 100).
 
 Needs the built web application (`npm --prefix web run build`) and a Chromium.
 """
@@ -34,7 +36,10 @@ sys.path.insert(0, str(Path(__file__).parent))
 from screenshot import api, find_chromium
 from verify_workspace import PASSWORD, anonymous, start_web_server
 
-FRAMES = 3
+FRAMES = 5
+#: How sure the model is on each frame. Frame 4 is the least sure, and frame 3 comes first
+#: in frame order: so the two orders disagree about what is next.
+CONFIDENCE = [0.9, 0.8, 0.85, 0.6, 0.3]
 BOX = [60.0, 50.0, 200.0, 170.0]
 
 
@@ -47,7 +52,7 @@ class Detector(BaseHTTPRequestHandler):
                 "label": "car",
                 "type": "rectangle",
                 "points": [v + 10 * frame["frame"] for v in BOX],
-                "confidence": 0.8,
+                "confidence": CONFIDENCE[frame["frame"]],
             }
             for frame in request.get("frames", [])
         ]
@@ -172,6 +177,8 @@ def main() -> int:
                     "model_id": detector["id"],
                     "job_id": job["id"],
                     "label_mapping": {"car": project["labels"][0]["id"]},
+                    # Low enough to keep the 30%-sure one: the run's default drops below 50%.
+                    "confidence_threshold": 0.1,
                 },
             )
 
@@ -206,7 +213,7 @@ def main() -> int:
                 # ------------------------------------------------------------ 1
                 page.click("[data-suggestion-next]")
                 check(
-                    appears(selected) and "3 suggestions" in pending.inner_text(),
+                    appears(selected) and "5 suggestions" in pending.inner_text(),
                     "Next suggestion selects the first one waiting, and offers to decide it alone",
                     f"selected block shown: {selected.count()}; pending says "
                     f"{pending.inner_text()!r}",
@@ -214,7 +221,7 @@ def main() -> int:
 
                 # ------------------------------------------------------------ 2
                 page.click("[data-suggestion-accept]")
-                appears(pending.filter(has_text="2 suggestions"))
+                appears(pending.filter(has_text="4 suggestions"))
                 after = shapes()
                 check(
                     after[0]["confidence"] is None
@@ -236,10 +243,10 @@ def main() -> int:
 
                 # ------------------------------------------------------------ 4
                 page.click("[data-suggestion-reject]")
-                appears(pending.filter(has_text="1 suggestion "))
+                appears(pending.filter(has_text="3 suggestions"))
                 after = shapes()
                 check(
-                    sorted(after) == [0, 2] and after[2]["confidence"] is not None,
+                    sorted(after) == [0, 2, 3, 4] and after[2]["confidence"] is not None,
                     "Reject deletes that one and nothing else",
                     f"after rejecting, frames with shapes: {sorted(after)}",
                 )
@@ -273,6 +280,26 @@ def main() -> int:
                     "an unsaved edit is saved before the decision, and accepting keeps it",
                     f"frame 2 now {kept.get('source')} {kept.get('confidence')} "
                     f"{kept.get('points')}",
+                )
+
+                # ------------------------------------------------------------ 6
+                # Frames 3 and 4 are left, 60% and 30% sure, and the reviewer is on frame 2: in
+                # frame order 3 is next, least confident first goes to 4.
+                page.check("[data-suggestion-order]")
+                page.click("[data-suggestion-next]")
+                appears(selected)
+                sure = page.locator("[data-suggestion-confidence]")
+                said = sure.inner_text() if appears(sure, 5_000) else ""
+                page.click("[data-suggestion-accept]")
+                appears(pending.filter(has_text="1 suggestion "))
+                after = shapes()
+                check(
+                    "30% sure" in said
+                    and after[4]["confidence"] is None
+                    and after[3]["confidence"] is not None,
+                    "least confident first reviews the least sure one first, and says how sure",
+                    f"the panel said {said!r}; then frame 3 {after.get(3, {}).get('confidence')}, "
+                    f"frame 4 {after.get(4, {}).get('confidence')}",
                 )
 
                 check(not raised, "no page errors", f"page errors: {raised}")

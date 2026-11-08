@@ -16,11 +16,13 @@ import { api } from '@/api/client';
 import type { AnnotationDocument } from '@/api/types';
 import { Button, ErrorNotice } from '@/ui/primitives';
 import {
+  describeConfidence,
   describeDecision,
   describePending,
   nextSuggestion,
   pendingReview,
   selectedForReview,
+  type ReviewOrder,
   type ReviewSet,
   type SuggestionPlace,
 } from './suggestions';
@@ -53,12 +55,18 @@ export function SuggestionsPanel({
   const [outcome, setOutcome] = useState<string | null>(null);
   const [error, setError] = useState<unknown>(null);
 
+  const [order, setOrder] = useState<ReviewOrder>('frame');
   const review = pendingReview(document);
   const selected = selectedForReview(document, selection);
-  const next = nextSuggestion(document, {
-    frame: currentFrame,
-    id: selected.shapeIds[0] ?? selected.trackIds[0] ?? null,
-  });
+  const selectedId = selected.shapeIds[0] ?? selected.trackIds[0] ?? null;
+  const next = nextSuggestion(document, { frame: currentFrame, id: selectedId }, order);
+  const sureness =
+    selected.total === 1
+      ? describeConfidence(
+          (document?.shapes.find((shape) => shape.id === selectedId) ??
+            document?.tracks.find((track) => track.id === selectedId))?.confidence,
+        )
+      : null;
 
   const decide = useCallback(
     async (accepted: boolean, which: ReviewSet, one: boolean) => {
@@ -108,8 +116,15 @@ export function SuggestionsPanel({
             <div className="mt-2 rounded-md border border-ink-700 p-2" data-suggestion-selected="">
               <p className="text-[11px] text-ink-300">
                 {selected.total === 1
-                  ? 'The selected object is a suggestion.'
+                  ? 'The selected object is a suggestion'
                   : `${selected.total} selected objects are suggestions.`}
+                {sureness && (
+                  <span className="text-ink-400" data-suggestion-confidence="">
+                    {' '}
+                    — the model was {sureness}.
+                  </span>
+                )}
+                {selected.total === 1 && !sureness && '.'}
               </p>
               <div className="mt-1.5 flex gap-1.5">
                 <Button
@@ -136,6 +151,19 @@ export function SuggestionsPanel({
                 </Button>
               </div>
             </div>
+          )}
+          {next && onGoTo && review.total > 1 && (
+            <label className="mt-2 flex items-center gap-1.5 text-[11px] text-ink-400">
+              <input
+                type="checkbox"
+                checked={order === 'confidence'}
+                onChange={(event) => setOrder(event.target.checked ? 'confidence' : 'frame')}
+                data-suggestion-order=""
+              />
+              <span title="Where the model was least sure is where a decision teaches it most">
+                Least confident first
+              </span>
+            </label>
           )}
           {next && onGoTo && (
             <Button

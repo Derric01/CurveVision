@@ -5,11 +5,10 @@
 > [`AGENTS.md`](./AGENTS.md) first; it is the working contract. Update this file after every
 > iteration, including the ones that mostly failed.
 >
-> **Last updated:** 2026-10-14 (iteration 99) · branch `claude/start-work-yx080h` · PRs
-> [#1](https://github.com/Derric01/CurveVision/pull/1)–[#37](https://github.com/Derric01/CurveVision/pull/37)
-> **all merged**, #37 carrying iterations 84 (the rest) to 98. Iteration 99 is
-> [#38](https://github.com/Derric01/CurveVision/pull/38) — pushed just after #37 merged, so
-> the branch carries a merge of `main` rather than a rewritten history.
+> **Last updated:** 2026-11-08 (iteration 100) · branch `claude/start-work-yx080h` · PRs
+> [#1](https://github.com/Derric01/CurveVision/pull/1)–[#38](https://github.com/Derric01/CurveVision/pull/38)
+> **all merged**, #37 carrying iterations 84 (the rest) to 98 and #38 iteration 99. Iteration
+> 100 is the next PR from this branch.
 >
 > *Two things worth knowing about this repository's PR rhythm, which replace the
 > PR-by-PR changelog that used to sit here and had stopped helping anybody.* **PRs are
@@ -23,7 +22,7 @@
 > **Keep the session short.** One iteration, then commit, push, update this file and report —
 > `AGENTS.md` § *Continue* and the `start-work` skill both say so now, because they did not
 > before and a single session ran six iterations and roughly a third of a week's budget. The
-> concrete costs, in rough order: re-reading this file (iterations 1–93 now live in
+> concrete costs, in rough order: re-reading this file (iterations 1–94 now live in
 > [`docs/iterations/ARCHIVE.md`](./docs/iterations/ARCHIVE.md), which cut it from 3,800
 > lines to 1,000 — keep it that way); `python desktop/sidecar/build.py`, which is a
 > PyInstaller run of a minute or two and is needed *again* for every sabotage-and-restore
@@ -508,7 +507,7 @@ was the last unconnected piece of the desktop application.
 
 ## Next best action
 
-*Model suggestions decided one at a time, 99. Click-to-segment with an interactor model, 98. Webhooks on the Workspace page, 97; delivering for the first time, and only their own workspace's, 96. The system's file dialogs driven in the real application, 95. The native menu driven at the keyboard, 94. The Helm chart making its own bucket, 93. Desktop auto-update, wired and tested short of the maintainers' key, 92. SAML single sign-on, 91. Every additional format on the 1.0 list — LabelMe, Cityscapes, Open Images, TFRecord — each
+*Least confident first, and a fresh install that did not start, 100. Model suggestions decided one at a time, 99. Click-to-segment with an interactor model, 98. Webhooks on the Workspace page, 97; delivering for the first time, and only their own workspace's, 96. The system's file dialogs driven in the real application, 95. The native menu driven at the keyboard, 94. The Helm chart making its own bucket, 93. Desktop auto-update, wired and tested short of the maintainers' key, 92. SAML single sign-on, 91. Every additional format on the 1.0 list — LabelMe, Cityscapes, Open Images, TFRecord — each
 held in CI to a reader written by other people, iterations 86–89; the Datumaro bridge, its
 formats measured, 90. The desktop app on a team server, and the shell's commands granted — the
 pickers had never worked in a built app — iteration 85; desktop installers on every platform, `aiosqlite` made
@@ -520,6 +519,12 @@ archive.*
 **CI on GitHub**: `ci.yml` runs for PRs (and on dispatch); `desktop.yml` for PRs touching
 the desktop and on tags; `browser.yml` and `ultralytics.yml` only when dispatched. All
 are recorded under *Verification performed* for iteration 85's commit.
+
+**Before launch: pin what an install resolves to** (found in iteration 100). The server's
+dependencies are lower bounds only; a fresh install picked FastAPI 0.162 and the server did
+not start. A constraints or lock file — generated, checked by CI, used by the Dockerfile,
+`ci.yml` and `desktop/sidecar/build.py` — so an install made on launch day is the one that
+was tested, and upgrading becomes a deliberate change.
 
 **The 1.0 list in `docs/ROADMAP.md` is done** except what needs someone else: signing
 certificates, an npm token, real AI keys, an external security review. The additional
@@ -1058,6 +1063,18 @@ being updated and this one was not. Check it against* Completed *before trusting
 ---
 
 ## Verification performed
+
+Iteration 100:
+
+* `suggestions.test.ts`, 23 tests (3 new): least sure first wherever it is in the job, then
+  ascending and round again; the confidence as a person reads it.
+* `scripts/verify_suggestion_review.py`, now 7 checks with five frames of differing
+  confidence, all passing; the new one fails when the panel ignores the order (it went to
+  the 60% one on the next frame instead of the 30% one after it). The seeding run needed
+  `confidence_threshold: 0.1` — the default 0.5 drops a 30% guess before anyone sees it.
+* On a fresh install (FastAPI 0.162, Starlette 1.10, Pydantic 2.14): the server failed at
+  import before the fix; after it, `./scripts/check.sh` all fifteen steps green — 940
+  server tests, 809 web, 16 SDK — with the generated API types unchanged.
 
 Iteration 99:
 
@@ -2269,6 +2286,33 @@ Iteration 54:
 
 ## Last iteration
 
+### 100 — review the model's least confident guesses first; a fresh install that did not start
+
+The first step on the roadmap's *active learning*: where a model was least sure is where a
+person's decision corrects it most. The suggestions panel's *Next suggestion* can now walk
+the job's waiting suggestions **least confident first** (`ReviewOrder`, a checkbox shown
+when more than one is waiting) instead of by frame, and the selected suggestion says how
+sure the model was ("30% sure"). Ranking frames no model has been run on is still to come;
+the roadmap says so.
+
+The harness check was first written so that frame order would have passed it too — the
+reviewer stood on the frame just before the least-sure one. Rearranged so the two orders
+disagree, and sabotaging the order fails it.
+
+**A fresh install did not start.** This session began in a new container, and installing
+the server as CI does resolved `fastapi>=0.115` to 0.162, whose `FastAPI()` no longer takes
+`openapi_version`: the server failed at import, so every install made since that release —
+a new contributor's, the Docker image's, CI's next run — was broken while `main` looked
+green from its last run weeks earlier. Fixed by dropping the argument (3.1.0 is the default
+throughout the allowed range). **Not fixed: the cause.** Nothing pins what an install
+resolves to, so the next breaking release of any dependency does this again. A lock or
+constraints file for the server, used by CI, the Dockerfile and the desktop sidecar build,
+is the first item under *Next best action*.
+
+Verified: see *Verification performed*.
+
+## Iteration 99
+
 ### 99 — model suggestions, one at a time
 
 Suggestions could be accepted or rejected only all at once; one was "accepted" by editing
@@ -2386,29 +2430,9 @@ kept, most likely the check-3 flake under *Known issues*; the rerun was clean.
 
 Verified: see *Verification performed*.
 
-## Iteration 94
-
-### 94 — the native menu, chosen at the keyboard
-
-The one part of the shell no test reached: its menu, which is GTK's, outside the webview,
-where WebDriver cannot go. `verify_desktop_shell.py` check 10 now chooses from it as a
-person at the keyboard would — `xdotool` under the harness's Xvfb: focus the window, F10
-opens the menu bar on *File* with nothing selected, the arrow keys move, Return chooses.
-*File ▸ Connect to a Team Server…* brings up the page that asks for the address (the menu
-event crossing into the page), and *File ▸ Use This Computer*, in a launch that opened the
-team server, goes back to this computer's window and writes the choice away. That replaces
-the line that wrote `connection.json` by hand before check 8, which is what had stood in
-for the menu. When a menu check fails, the harness falls back to the old way so the checks
-after it still run.
-
-Sabotaged in one build — the team-server event renamed, the forgetting removed — and both
-checks failed, the other fourteen passing.
-
-Verified: see *Verification performed*.
-
 ## Earlier iterations
 
-Iterations **1–93** are in [`docs/iterations/ARCHIVE.md`](./docs/iterations/ARCHIVE.md) —
+Iterations **1–94** are in [`docs/iterations/ARCHIVE.md`](./docs/iterations/ARCHIVE.md) —
 moved there so that orienting costs a few hundred lines rather than four thousand. Read them
 when `git log` points you at an iteration number, or when you are about to build something
 and want to know whether it was already tried and rejected. The lessons from them that are
