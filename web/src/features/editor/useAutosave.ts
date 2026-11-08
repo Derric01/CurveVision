@@ -215,6 +215,22 @@ export interface AutosaveApi {
   /** Queue what was recovered for saving, and save it. */
   restore: () => Promise<void>;
   discard: () => void;
+  /**
+   * Add and remove frame tags, now, in turn with the saves.
+   *
+   * Tags are not canvas objects, so they do not queue with them; but they share the job's
+   * annotation version, and a write made beside autosave would leave its next save one
+   * version behind and refused as a conflict. So this waits for any save in flight, writes
+   * against the version autosave holds, and moves it on. Rejects with the server's reason.
+   */
+  writeTags: (change: { created?: TagWrite[]; deletedIds?: string[] }) => Promise<void>;
+}
+
+/** A frame tag to create: a label on one frame. */
+export interface TagWrite {
+  label_id: string;
+  frame: number;
+  client_id?: string;
 }
 
 export function useAutosave(
@@ -584,6 +600,29 @@ export function useAutosave(
     return { refused: held.current.size, unsaved: sizeOf(batch.current) };
   }, [flushOnce]);
 
+  const writeTags = useCallback(
+    async (change: { created?: TagWrite[]; deletedIds?: string[] }): Promise<void> => {
+      while (running.current) await running.current;
+      const run = (async () => {
+        const result = await api.writeAnnotations(jobId, {
+          annotation_version: versionRef.current,
+          created_tags: change.created ?? [],
+          deleted_tags: change.deletedIds ?? [],
+        });
+        versionRef.current = result.annotation_version;
+        onSaved(result);
+      })();
+      // Others wait for this turn to end, however it ends; this caller hears how.
+      running.current = run.catch(() => undefined);
+      try {
+        await run;
+      } finally {
+        running.current = null;
+      }
+    },
+    [jobId, onSaved],
+  );
+
   const unsavedOn = useCallback((frame: number): UnsavedFrame => {
     const current = batch.current;
     // The batch in flight too: a restore saves at once, so by the time the editor asks,
@@ -738,5 +777,6 @@ export function useAutosave(
     recovered,
     restore,
     discard,
+    writeTags,
   };
 }

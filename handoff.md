@@ -506,7 +506,7 @@ was the last unconnected piece of the desktop application.
 
 ## Next best action
 
-*Releases people can download and check, 101. Least confident first, and a fresh install that did not start, 100. Model suggestions decided one at a time, 99. Click-to-segment with an interactor model, 98. Webhooks on the Workspace page, 97; delivering for the first time, and only their own workspace's, 96. The system's file dialogs driven in the real application, 95. The native menu driven at the keyboard, 94. The Helm chart making its own bucket, 93. Desktop auto-update, wired and tested short of the maintainers' key, 92. SAML single sign-on, 91. Every additional format on the 1.0 list — LabelMe, Cityscapes, Open Images, TFRecord — each
+*Frame tags in the editor, and the editor set beside CVAT's row by row (docs/CVAT_PARITY.md), 102. Releases people can download and check, 101. Least confident first, and a fresh install that did not start, 100. Model suggestions decided one at a time, 99. Click-to-segment with an interactor model, 98. Webhooks on the Workspace page, 97; delivering for the first time, and only their own workspace's, 96. The system's file dialogs driven in the real application, 95. The native menu driven at the keyboard, 94. The Helm chart making its own bucket, 93. Desktop auto-update, wired and tested short of the maintainers' key, 92. SAML single sign-on, 91. Every additional format on the 1.0 list — LabelMe, Cityscapes, Open Images, TFRecord — each
 held in CI to a reader written by other people, iterations 86–89; the Datumaro bridge, its
 formats measured, 90. The desktop app on a team server, and the shell's commands granted — the
 pickers had never worked in a built app — iteration 85; desktop installers on every platform, `aiosqlite` made
@@ -1062,6 +1062,12 @@ being updated and this one was not. Check it against* Completed *before trusting
 ---
 
 ## Verification performed
+
+Iteration 102:
+
+* Web: lint, typecheck, 813 tests (4 new), build.
+* `scripts/verify_frame_tags.py`: all 7 checks pass. A broken build that tags frame 0
+  whatever the frame fails checks 4, 5 and 6.
 
 Iteration 101:
 
@@ -2295,6 +2301,42 @@ Iteration 54:
 ---
 
 ## Last iteration
+
+### 102 — frame tags in the editor; CurveVision beside CVAT, row by row
+
+Asked to "ensure that all the core features in our application is similar to CVAT". Read
+CVAT's annotation UI and server from a source checkout and set each core feature beside this
+code, the result in **`docs/CVAT_PARITY.md`**: what is done, what is partial and what is
+missing, with the gaps ranked.
+
+The biggest gap a CVAT user would meet first was **tags**: the server stored frame tags
+from the start, every tag-carrying format imports and exports them, and the editor could
+neither show nor make one. Now it can:
+
+* `frameTags.ts` lists the frame's tags (named, coloured, a model's unaccepted guess
+  marked) and the labels still on offer, meaning the project's own labels, never a
+  skeleton's joints, and never one the frame already carries. Tests are in
+  `__tests__/frameTags.test.ts`.
+* `FrameTagsPanel` in the right rail shows chips with a remove button and a *Tag this
+  frame…* picker. The tags are also drawn in the canvas's top-right corner.
+* `useAutosave.writeTags` writes `created_tags`/`deleted_tags` **in autosave's turn**: it
+  waits for a save in flight and moves the job's version on as a save does, so a tag never
+  races a shape save on the same job. Putting tags into autosave's queue would have been
+  invasive and was not needed.
+* `scripts/verify_frame_tags.py` (in `browser.yml`) runs 7 checks: add, a second tag,
+  another frame's own tags, a box saved afterwards, remove one only, and no page errors.
+  The panel was deliberately broken to write every tag to frame 0, and checks 4–6 failed.
+  The version hand-off on its own is **not** isolated by the harness: with it removed, the
+  re-read after each write still resynchronises the version and the box saves. The
+  docstring says so.
+
+**Next, from CVAT_PARITY.md's ranked list:** object properties in the editor (relabel —
+`engine.relabelSelection` exists with no caller — occluded, z-order, per-object hide and
+lock), then video playback and brightness/contrast.
+
+Verified: see *Verification performed*.
+
+## Iteration 101
 
 ### 101 — a download page people can trust: releases, checksums, provenance, pinned versions
 

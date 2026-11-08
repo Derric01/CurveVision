@@ -227,6 +227,10 @@ labelme's own loader, cityscapesScripts, TensorFlow — not only against this pr
 | Crash-resilient autosave | **Done** |
 | Track keyframes: add, remove and mark a departure from the timeline | **Done** |
 | Mask brush — paint, grow, shrink and erase masks; stored and exported pixel for pixel (CVAT XML, COCO RLE, indexed PNG) | **Done** |
+| Frame tags — a label for the whole frame ("night", "blurred"), added and removed beside the canvas | **Done** |
+
+**Coming from CVAT?** [docs/CVAT_PARITY.md](docs/CVAT_PARITY.md) sets every core CVAT feature beside
+CurveVision's, with what is done, partial and missing.
 
 **It stays fast.** The canvas is a Canvas2D engine with an R-tree spatial index, so
 rendering costs what is *on screen* rather than what is in the dataset.
