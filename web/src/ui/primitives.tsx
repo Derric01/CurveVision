@@ -13,16 +13,18 @@ import type { ButtonHTMLAttributes, InputHTMLAttributes, ReactNode } from 'react
 type ButtonVariant = 'primary' | 'secondary' | 'ghost' | 'danger';
 type ButtonSize = 'sm' | 'md';
 
+// Monochrome: the primary action is the one solid shape on the page (white on black, or
+// black on white); everything else is an outline or nothing until hovered.
 const BUTTON_VARIANTS: Record<ButtonVariant, string> = {
-  primary: 'bg-curve-500 text-ink-950 hover:bg-curve-400 font-medium',
-  secondary: 'bg-ink-800 text-ink-100 hover:bg-ink-700 border border-ink-700',
-  ghost: 'text-ink-300 hover:bg-ink-800 hover:text-ink-100',
-  danger: 'bg-red-500/90 text-white hover:bg-red-500',
+  primary: 'bg-curve-500 text-ink-950 hover:bg-curve-400 font-medium shadow-sm',
+  secondary: 'border border-ink-700 bg-transparent text-ink-100 hover:bg-ink-850',
+  ghost: 'text-ink-300 hover:bg-ink-850 hover:text-ink-100',
+  danger: 'bg-red-600 text-white hover:bg-red-500 font-medium',
 };
 
 const BUTTON_SIZES: Record<ButtonSize, string> = {
-  sm: 'h-7 px-2.5 text-xs gap-1.5',
-  md: 'h-9 px-3.5 text-sm gap-2',
+  sm: 'h-7 px-3 text-xs gap-1.5',
+  md: 'h-9 px-4 text-sm gap-2',
 };
 
 export interface ButtonProps extends ButtonHTMLAttributes<HTMLButtonElement> {
@@ -42,11 +44,11 @@ export function Button({
     <button
       type="button"
       className={clsx(
-        'inline-flex items-center justify-center rounded-md transition-colors',
+        'inline-flex items-center justify-center rounded-full transition-colors',
         'disabled:cursor-not-allowed disabled:opacity-40',
         BUTTON_SIZES[size],
         BUTTON_VARIANTS[variant],
-        active && 'ring-1 ring-curve-400',
+        active && 'bg-ink-850 ring-1 ring-ink-600',
         className,
       )}
       {...props}
@@ -68,9 +70,10 @@ export function Input({ label, hint, error, className, id, ...props }: InputProp
       <input
         id={inputId}
         className={clsx(
-          'h-9 w-full rounded-md border bg-ink-950 px-3 text-sm text-ink-100',
+          'h-10 w-full rounded-xl border bg-ink-900 px-3.5 text-sm text-ink-100',
+          'transition-colors',
           'placeholder:text-ink-500',
-          error ? 'border-red-500/70' : 'border-ink-700 focus:border-curve-400',
+          error ? 'border-red-500/70' : 'border-ink-700 focus:border-ink-500',
           className,
         )}
         {...props}
@@ -114,7 +117,7 @@ const BADGE_TONES = {
   success: 'bg-emerald-500/10 text-emerald-300 border-emerald-500/30',
   warning: 'bg-amber-500/10 text-amber-300 border-amber-500/30',
   danger: 'bg-red-500/10 text-red-300 border-red-500/30',
-  accent: 'bg-curve-500/10 text-curve-300 border-curve-500/30',
+  accent: 'bg-ink-850 text-ink-100 border-ink-600',
 } as const;
 
 export type BadgeTone = keyof typeof BADGE_TONES;
@@ -131,7 +134,7 @@ export function Badge({
   return (
     <span
       className={clsx(
-        'inline-flex items-center rounded border px-1.5 py-0.5 text-[11px] font-medium',
+        'inline-flex items-center rounded-full border px-2 py-0.5 text-[11px] font-medium',
         BADGE_TONES[tone],
         className,
       )}
@@ -215,7 +218,7 @@ export function ErrorNotice({ error }: { error: unknown }) {
   const message =
     error instanceof Error ? error.message : typeof error === 'string' ? error : 'Request failed';
   return (
-    <div className="rounded-md border border-red-500/30 bg-red-500/10 px-3 py-2 text-sm text-red-300">
+    <div className="rounded-xl border border-red-500/30 bg-red-500/10 px-3 py-2 text-sm text-red-300">
       {message}
     </div>
   );

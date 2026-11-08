@@ -2302,6 +2302,30 @@ Iteration 54:
 
 ## Last iteration
 
+### 102d — pitch black and white: a monochrome look, two themes
+
+Asked for a look like ChatGPT's, "white and black theme, pitch black".
+
+* **Every colour is a CSS variable** (`web/src/index.css`), and `tailwind.config.js` maps
+  the existing `ink` and `curve` names onto them. So no markup changed; the
+  `<alpha-value>` form keeps `bg-ink-900/90` working.
+* **Dark, the default, is pitch black**: page `#000`, panels barely lifted, neutral greys,
+  and white as the only accent (the primary button is white with black text). **Light**
+  is the same scale turned over, with black as the accent. The pale status tints (amber,
+  red, green, sky) get darker shades in light, or they could not be read on white.
+* **A toggle** (sun/moon) in the top bar and on the sign-in page, remembered per browser
+  (`ui/theme.ts`, tested), and applied before React renders, so the page never flashes.
+* Pill buttons, an outlined secondary, rounder inputs and panels. The logo is drawn in
+  `currentColor`, and the favicon is black and white. On the canvas, the marquee, hover
+  and handle colours are monochrome too; label colours are untouched.
+* The demo video and the README screenshots are regenerated in the new look (the
+  screenshot needed the packaged server rebuilt, since it embeds the web build).
+
+Verified: web lint, typecheck, 818 tests (2 new); browser harnesses `verify_tool_sync`,
+`verify_view_settings`, `verify_interactor`, `verify_workspace`, `verify_frame_tags` and
+`verify_mask_brush` pass; both themes screenshotted on sign-in, projects, project and
+editor.
+
 ### 102c — a demo video worth watching, and an editor rail that scrolls by itself
 
 Asked for a marketing video that is "very realistic and effective". `scripts/record_demo.py`

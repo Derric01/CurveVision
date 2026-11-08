@@ -85,17 +85,17 @@ OVERLAY = """
   const css = `
     #demo-caption { position: fixed; left: 50%; bottom: 30px; transform: translate(-50%, 12px);
       max-width: 74%; padding: 14px 26px; border-radius: 14px; z-index: 2147483600;
-      background: rgba(2, 6, 23, 0.9); color: #f8fafc; text-align: center;
+      background: rgba(0, 0, 0, 0.88); color: #f8fafc; text-align: center;
       font: 600 22px/1.35 Inter, system-ui, sans-serif; letter-spacing: -0.01em;
-      box-shadow: 0 12px 40px rgba(0,0,0,0.45); border: 1px solid rgba(45, 212, 191, 0.35);
+      box-shadow: 0 12px 40px rgba(0,0,0,0.45); border: 1px solid rgba(255, 255, 255, 0.16);
       opacity: 0; transition: opacity 280ms, transform 280ms; pointer-events: none; }
     #demo-caption.on { opacity: 1; transform: translate(-50%, 0); }
     #demo-caption small { display: block; margin-top: 4px; font-weight: 500;
-      font-size: 15px; color: #94a3b8; }
+      font-size: 15px; color: #9b9b9b; }
     #demo-key { position: fixed; right: 28px; bottom: 32px; z-index: 2147483601;
       min-width: 54px; padding: 10px 16px; border-radius: 10px; text-align: center;
       background: #f8fafc; color: #0f172a; font: 700 22px/1 ui-monospace, monospace;
-      box-shadow: 0 4px 0 #94a3b8, 0 10px 30px rgba(0,0,0,0.4);
+      box-shadow: 0 4px 0 #9b9b9b, 0 10px 30px rgba(0,0,0,0.4);
       opacity: 0; transform: scale(0.8); transition: opacity 160ms, transform 160ms;
       pointer-events: none; }
     #demo-key.on { opacity: 1; transform: scale(1); }
@@ -103,27 +103,27 @@ OVERLAY = """
       z-index: 2147483602; pointer-events: none; transition: transform 90ms; }
     #demo-pointer.down { transform: scale(0.86); }
     .demo-ripple { position: fixed; width: 44px; height: 44px; margin: -22px 0 0 -22px;
-      border-radius: 50%; border: 3px solid rgba(45, 212, 191, 0.9); z-index: 2147483599;
+      border-radius: 50%; border: 3px solid rgba(255, 255, 255, 0.9); z-index: 2147483599;
       pointer-events: none; animation: demo-ripple 520ms ease-out forwards; }
     @keyframes demo-ripple { from { transform: scale(0.3); opacity: 1 }
                              to { transform: scale(1.4); opacity: 0 } }
     #demo-card { position: fixed; inset: 0; z-index: 2147483640; display: flex;
       flex-direction: column; align-items: center; justify-content: center; gap: 18px;
-      background: radial-gradient(1200px 600px at 50% 30%, #134e4a 0%, #020617 70%);
+      background: radial-gradient(1200px 600px at 50% 30%, #1a1a1a 0%, #000000 70%);
       color: #f8fafc; font-family: Inter, system-ui, sans-serif; text-align: center;
       opacity: 0; transition: opacity 450ms; pointer-events: none; }
     #demo-card.on { opacity: 1; }
     #demo-card img { width: 92px; height: 92px; }
     #demo-card h1 { margin: 0; font-size: 68px; font-weight: 800; letter-spacing: -0.03em; }
     #demo-card p { margin: 0; max-width: 900px; font-size: 27px; line-height: 1.4;
-      color: #cbd5e1; }
+      color: #b4b4b4; }
     #demo-card .chips { display: flex; flex-wrap: wrap; gap: 12px; justify-content: center;
       margin-top: 10px; max-width: 1100px; }
     #demo-card .chips span { padding: 10px 18px; border-radius: 999px; font-size: 19px;
-      background: rgba(20, 184, 166, 0.14); border: 1px solid rgba(45, 212, 191, 0.4);
-      color: #ccfbf1; }
+      background: rgba(255, 255, 255, 0.06); border: 1px solid rgba(255, 255, 255, 0.18);
+      color: #ececec; }
     #demo-card .url { margin-top: 14px; font: 600 24px ui-monospace, monospace;
-      color: #5eead4; }
+      color: #ffffff; }
   `;
   const install = () => {
     if (document.getElementById('demo-caption')) return;
@@ -342,7 +342,7 @@ def record(base: str, job_id: str, project_id: str, raw: Path, workdir: Path) ->
             accept_downloads=True,
             env={**os.environ, "DISPLAY": DISPLAY},
             args=[
-                "--app=data:text/html,<body style='background:%23020617'>",
+                "--app=data:text/html,<body style='background:%23000000'>",
                 "--window-position=0,0",
                 f"--window-size={width},{height}",
                 f"--force-device-scale-factor={SCALE}",
@@ -608,7 +608,7 @@ def finish(raw: Path, mp4: Path, download_at: float) -> None:
     """
     trim = 0.3
     cover = (
-        f"drawbox=x=0:y=40:w=64:h=640:color=0x060912@1:t=fill"
+        f"drawbox=x=0:y=40:w=64:h=640:color=0x000000@1:t=fill"
         f":enable='gte(t,{max(0.0, download_at - trim):.2f})'"
     )
     subprocess.run(

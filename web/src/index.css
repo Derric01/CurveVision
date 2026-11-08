@@ -3,8 +3,83 @@
 @tailwind utilities;
 
 @layer base {
-  :root {
+  /*
+   * Two themes, one scale. Dark is the default and is pitch black: the page is #000,
+   * panels are barely lifted off it, and the accent is white. Light is the same scale
+   * turned over, with black as the accent. Neutral greys only: the colour on screen
+   * belongs to the photographs and the labels, not to the chrome around them.
+   * Values are "R G B" so Tailwind's opacity modifiers (`bg-ink-900/90`) keep working.
+   */
+  :root,
+  :root[data-theme='dark'] {
     color-scheme: dark;
+    --ink-950: 0 0 0;
+    --ink-900: 13 13 13;
+    --ink-850: 23 23 23;
+    --ink-800: 33 33 33;
+    --ink-700: 47 47 47;
+    --ink-600: 82 82 82;
+    --ink-500: 128 128 128;
+    --ink-400: 155 155 155;
+    --ink-300: 180 180 180;
+    --ink-200: 217 217 217;
+    --ink-100: 236 236 236;
+    --curve-950: 26 26 26;
+    --curve-800: 64 64 64;
+    --curve-600: 217 217 217;
+    --curve-500: 255 255 255;
+    --curve-400: 236 236 236;
+    --curve-300: 255 255 255;
+    --curve-200: 255 255 255;
+  }
+
+  :root[data-theme='light'] {
+    color-scheme: light;
+    --ink-950: 255 255 255;
+    --ink-900: 249 249 249;
+    --ink-850: 243 243 243;
+    --ink-800: 229 229 229;
+    --ink-700: 212 212 212;
+    --ink-600: 163 163 163;
+    --ink-500: 110 110 110;
+    --ink-400: 93 93 93;
+    --ink-300: 64 64 64;
+    --ink-200: 38 38 38;
+    --ink-100: 13 13 13;
+    --curve-950: 245 245 245;
+    --curve-800: 212 212 212;
+    --curve-600: 38 38 38;
+    --curve-500: 0 0 0;
+    --curve-400: 38 38 38;
+    --curve-300: 0 0 0;
+    --curve-200: 0 0 0;
+  }
+
+  /* Status colours are pale tints meant for a dark ground; on white they need their
+     darker shades to stay readable. */
+  :root[data-theme='light'] .text-amber-100,
+  :root[data-theme='light'] .text-amber-200,
+  :root[data-theme='light'] .text-amber-300,
+  :root[data-theme='light'] .text-amber-400 {
+    color: rgb(180 83 9);
+  }
+  :root[data-theme='light'] .text-amber-200\/70,
+  :root[data-theme='light'] .text-amber-200\/80,
+  :root[data-theme='light'] .text-amber-300\/80 {
+    color: rgb(180 83 9 / 0.9);
+  }
+  :root[data-theme='light'] .text-red-200,
+  :root[data-theme='light'] .text-red-300,
+  :root[data-theme='light'] .text-red-400 {
+    color: rgb(185 28 28);
+  }
+  :root[data-theme='light'] .text-emerald-200,
+  :root[data-theme='light'] .text-emerald-300,
+  :root[data-theme='light'] .text-emerald-400 {
+    color: rgb(4 120 87);
+  }
+  :root[data-theme='light'] .text-sky-300 {
+    color: rgb(3 105 161);
   }
 
   html,
@@ -16,12 +91,13 @@
   body {
     @apply bg-ink-950 text-ink-100 antialiased;
     margin: 0;
+    transition: background-color 150ms ease;
     font-feature-settings: 'cv02', 'cv03', 'cv04';
   }
 
   /* A visible focus ring is not optional in a keyboard-first tool. */
   :focus-visible {
-    @apply outline-none ring-2 ring-curve-400 ring-offset-2 ring-offset-ink-950;
+    @apply outline-none ring-2 ring-ink-400 ring-offset-2 ring-offset-ink-950;
   }
 
   ::-webkit-scrollbar {
@@ -29,7 +105,7 @@
     height: 10px;
   }
   ::-webkit-scrollbar-thumb {
-    @apply rounded-full bg-ink-700;
+    @apply rounded-full bg-ink-800;
   }
   ::-webkit-scrollbar-track {
     background: transparent;
@@ -38,10 +114,10 @@
 
 @layer components {
   .panel {
-    @apply rounded-lg border border-ink-800 bg-ink-900;
+    @apply rounded-2xl border border-ink-800 bg-ink-900;
   }
 
   .kbd {
-    @apply rounded border border-ink-700 bg-ink-850 px-1.5 py-0.5 font-mono text-[11px] text-ink-300;
+    @apply rounded-md border border-ink-700 bg-ink-850 px-1.5 py-0.5 font-mono text-[11px] text-ink-300;
   }
 }

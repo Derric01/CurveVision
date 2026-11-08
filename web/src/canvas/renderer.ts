@@ -188,8 +188,8 @@ export class Renderer {
       const start = imageToScreen(viewport, { x: overlay.marquee.minX, y: overlay.marquee.minY });
       const end = imageToScreen(viewport, { x: overlay.marquee.maxX, y: overlay.marquee.maxY });
       context.save();
-      context.strokeStyle = '#2dd4bf';
-      context.fillStyle = 'rgba(45, 212, 191, 0.12)';
+      context.strokeStyle = '#ffffff';
+      context.fillStyle = 'rgba(255, 255, 255, 0.10)';
       context.lineWidth = 1;
       context.setLineDash([4, 3]);
       context.fillRect(start.x, start.y, end.x - start.x, end.y - start.y);
@@ -514,7 +514,7 @@ export class Renderer {
     annotation: Annotation,
   ): void {
     context.save();
-    context.strokeStyle = '#5eead4';
+    context.strokeStyle = '#ffffff';
     context.lineWidth = 3;
     context.globalAlpha = 0.9;
     this.tracePath(context, viewport, annotation);
@@ -530,7 +530,7 @@ export class Renderer {
     const half = HANDLE_SIZE / 2;
     context.save();
     context.fillStyle = '#ffffff';
-    context.strokeStyle = '#0d9488';
+    context.strokeStyle = '#000000';
     context.lineWidth = 1.5;
 
     for (const point of handlePoints(annotation)) {
@@ -604,5 +604,5 @@ export function readableTextColor(background: string): string {
   const b = parseInt(hex.slice(4, 6), 16);
   // Rec. 709 luma: matches how the eye weights the channels.
   const luma = (0.2126 * r + 0.7152 * g + 0.0722 * b) / 255;
-  return luma > 0.6 ? '#0d1117' : '#ffffff';
+  return luma > 0.6 ? '#000000' : '#ffffff';
 }
