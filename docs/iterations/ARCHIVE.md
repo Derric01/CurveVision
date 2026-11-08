@@ -1,6 +1,6 @@
 # Iteration archive
 
-> The narrative record of iterations **1–93**, moved out of
+> The narrative record of iterations **1–94**, moved out of
 > [`handoff.md`](../../handoff.md) so that orienting on this project costs a few hundred
 > lines rather than four thousand.
 >
@@ -15,6 +15,26 @@
 > window, append it to the top of this file rather than deleting it.
 
 ---
+
+## Iteration 94
+
+### 94 — the native menu, chosen at the keyboard
+
+The one part of the shell no test reached: its menu, which is GTK's, outside the webview,
+where WebDriver cannot go. `verify_desktop_shell.py` check 10 now chooses from it as a
+person at the keyboard would — `xdotool` under the harness's Xvfb: focus the window, F10
+opens the menu bar on *File* with nothing selected, the arrow keys move, Return chooses.
+*File ▸ Connect to a Team Server…* brings up the page that asks for the address (the menu
+event crossing into the page), and *File ▸ Use This Computer*, in a launch that opened the
+team server, goes back to this computer's window and writes the choice away. That replaces
+the line that wrote `connection.json` by hand before check 8, which is what had stood in
+for the menu. When a menu check fails, the harness falls back to the old way so the checks
+after it still run.
+
+Sabotaged in one build — the team-server event renamed, the forgetting removed — and both
+checks failed, the other fourteen passing.
+
+Verified: see *Verification performed*.
 
 ## Iteration 93
 

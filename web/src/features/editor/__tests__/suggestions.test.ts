@@ -4,10 +4,12 @@ import { isUnreviewed } from '@/canvas/types';
 import {
   NOTHING_TO_REVIEW,
   describeDecision,
+  describeConfidence,
   describePending,
   nextSuggestion,
   pendingReview,
   selectedForReview,
+  type SuggestionPlace,
 } from '../suggestions';
 
 function shape(overrides: Partial<ApiShape> = {}): ApiShape {
@@ -224,17 +226,56 @@ describe('the next suggestion', () => {
   } as unknown as AnnotationDocument;
 
   it('is the first waiting on or after the frame on screen', () => {
-    expect(nextSuggestion(document, { frame: 0 })).toEqual({ frame: 2, id: 'a' });
-    expect(nextSuggestion(document, { frame: 3 })).toEqual({ frame: 4, id: 'trk' });
+    expect(nextSuggestion(document, { frame: 0 })).toMatchObject({ frame: 2, id: 'a' });
+    expect(nextSuggestion(document, { frame: 3 })).toMatchObject({ frame: 4, id: 'trk' });
   });
 
   it('moves on from the one selected, and wraps round after the last', () => {
-    expect(nextSuggestion(document, { frame: 2, id: 'a' })).toEqual({ frame: 2, id: 'b' });
-    expect(nextSuggestion(document, { frame: 9, id: 'late' })).toEqual({ frame: 2, id: 'a' });
-    expect(nextSuggestion(document, { frame: 10 })).toEqual({ frame: 2, id: 'a' });
+    expect(nextSuggestion(document, { frame: 2, id: 'a' })).toMatchObject({ frame: 2, id: 'b' });
+    expect(nextSuggestion(document, { frame: 9, id: 'late' })).toMatchObject({ frame: 2, id: 'a' });
+    expect(nextSuggestion(document, { frame: 10 })).toMatchObject({ frame: 2, id: 'a' });
   });
 
   it('is nothing when nothing is waiting', () => {
     expect(nextSuggestion({ ...document, shapes: [], tracks: [] }, { frame: 0 })).toBeNull();
+  });
+});
+
+describe('least confident first', () => {
+  const document = {
+    job_id: 'j',
+    annotation_version: 1,
+    shapes: [
+      shape({ id: 'sure', frame: 1, confidence: 0.95 }),
+      shape({ id: 'unsure', frame: 8, confidence: 0.31 }),
+      shape({ id: 'middling', frame: 3, confidence: 0.6 }),
+      shape({ id: 'decided', frame: 0, confidence: null }),
+    ],
+    tracks: [track({ id: 'trk', confidence: 0.45, shapes: [{ frame: 5 }] as ApiTrack['shapes'] })],
+    tags: [],
+  } as unknown as AnnotationDocument;
+
+  it('starts with the least sure, wherever it is in the job', () => {
+    expect(nextSuggestion(document, { frame: 0 }, 'confidence')).toMatchObject({
+      id: 'unsure',
+      frame: 8,
+      confidence: 0.31,
+    });
+  });
+
+  it('then goes up in confidence, and wraps round', () => {
+    const walk: string[] = [];
+    let id: string | null = null;
+    for (let step = 0; step < 5; step += 1) {
+      const next: SuggestionPlace = nextSuggestion(document, { frame: 0, id }, 'confidence')!;
+      walk.push(next.id);
+      id = next.id;
+    }
+    expect(walk).toEqual(['unsure', 'trk', 'middling', 'sure', 'unsure']);
+  });
+
+  it('reads as a person would say it', () => {
+    expect(describeConfidence(0.617)).toBe('62% sure');
+    expect(describeConfidence(null)).toBeNull();
   });
 });

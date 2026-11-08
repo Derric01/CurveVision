@@ -97,15 +97,26 @@ export function selectedForReview(
   return { shapeIds, trackIds, tagIds: [], total: shapeIds.length + trackIds.length };
 }
 
-/** Where a suggestion is: the frame it is on (a track's first), and its id. */
+/** Where a suggestion is: the frame it is on (a track's first), its id, and how sure the model was. */
 export interface SuggestionPlace {
   frame: number;
   id: string;
+  confidence: number;
 }
 
 /**
- * The next suggestion awaiting a decision after the one in view, going through the job by
- * frame, and round to the start after the last.
+ * The order *Next suggestion* walks in.
+ *
+ * `frame` goes through the job as it plays. `confidence` goes least sure first — the
+ * active-learning order: where the model was least confident is where a person's decision
+ * corrects it most, and a reviewer short of time spends it there rather than confirming
+ * what the model already got right.
+ */
+export type ReviewOrder = 'frame' | 'confidence';
+
+/**
+ * The next suggestion awaiting a decision after the one in view, in `order`, and round to
+ * the start after the last.
  *
  * `after` is where the annotator is: the frame on screen and, if one is selected, the
  * suggestion selected there, so pressing *Next* again moves on rather than finding the
@@ -114,20 +125,37 @@ export interface SuggestionPlace {
 export function nextSuggestion(
   document: AnnotationDocument | undefined,
   after: { frame: number; id?: string | null },
+  order: ReviewOrder = 'frame',
 ): SuggestionPlace | null {
   if (!document) return null;
   const places: SuggestionPlace[] = [
-    ...document.shapes.filter(isUnreviewed).map((shape) => ({ frame: shape.frame, id: shape.id })),
+    ...document.shapes.filter(isUnreviewed).map((shape) => ({
+      frame: shape.frame,
+      id: shape.id,
+      confidence: shape.confidence ?? 1,
+    })),
     ...document.tracks
       .filter((track) => isUnreviewed(track) && track.shapes.length > 0)
       .map((track) => ({
         frame: Math.min(...track.shapes.map((position) => position.frame)),
         id: track.id,
+        confidence: track.confidence ?? 1,
       })),
   ];
   if (places.length === 0) return null;
-  places.sort((a, b) => a.frame - b.frame || a.id.localeCompare(b.id));
+  const byFrame = (a: SuggestionPlace, b: SuggestionPlace) =>
+    a.frame - b.frame || a.id.localeCompare(b.id);
+  places.sort(
+    order === 'confidence' ? (a, b) => a.confidence - b.confidence || byFrame(a, b) : byFrame,
+  );
   const here = after.id ? places.findIndex((place) => place.id === after.id) : -1;
   if (here >= 0) return places[(here + 1) % places.length]!;
+  if (order === 'confidence') return places[0]!;
   return places.find((place) => place.frame >= after.frame) ?? places[0]!;
+}
+
+/** How sure the model was, as a person reads it: "62% sure". `null` for a non-suggestion. */
+export function describeConfidence(confidence: number | null | undefined): string | null {
+  if (confidence == null) return null;
+  return `${Math.round(confidence * 100)}% sure`;
 }

@@ -822,7 +822,9 @@ accept/reject — **Done** (iteration 99): the suggestions among the selected ob
 accepted or rejected on their own, and *Next suggestion* walks the job's waiting ones frame
 by frame, selecting each. What the editor holds unsaved is saved first — without that, a
 suggestion nudged and then decided lost the nudge to the refetch that follows a decision.
-`scripts/verify_suggestion_review.py`.
+`scripts/verify_suggestion_review.py`. *Least confident first* (iteration 100) walks them in
+ascending confidence instead of by frame — active learning's order — and the selected one
+says how sure the model was.
 
 ---
 
