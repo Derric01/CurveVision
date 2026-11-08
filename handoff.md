@@ -2330,6 +2330,12 @@ neither show nor make one. Now it can:
   re-read after each write still resynchronises the version and the box saves. The
   docstring says so.
 
+**The WebDriver harness crashed on a dropped connection in check 1** (CI, this PR):
+the failure message asked the driver for the URL again, and an argument is built whether
+the check passes or not, so WebKitGTK's known reset there ended the run before any check
+reported. Check 1 now reads the URL once through `until`, and every failure message uses
+`WebDriver.where()`, which cannot raise. The reset itself remains the known issue below.
+
 **Next, from CVAT_PARITY.md's ranked list:** object properties in the editor (relabel —
 `engine.relabelSelection` exists with no caller — occluded, z-order, per-object hide and
 lock), then video playback and brightness/contrast.
