@@ -16,6 +16,12 @@ dependencies = [
     "typer>=0.12",
 ]
 
+[project.urls]
+Homepage = "https://github.com/Derric01/CurveVision"
+Download = "https://github.com/Derric01/CurveVision/releases/latest"
+Documentation = "https://github.com/Derric01/CurveVision/tree/main/docs"
+Issues = "https://github.com/Derric01/CurveVision/issues"
+
 [project.optional-dependencies]
 dev = ["pytest>=8.2", "pytest-asyncio>=0.23", "ruff>=0.5", "mypy>=1.10"]
 

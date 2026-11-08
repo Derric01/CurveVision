@@ -35,6 +35,12 @@ dependencies = [
     "truststore>=0.10",
 ]
 
+[project.urls]
+Homepage = "https://github.com/Derric01/CurveVision"
+Download = "https://github.com/Derric01/CurveVision/releases/latest"
+Documentation = "https://github.com/Derric01/CurveVision/tree/main/docs"
+Issues = "https://github.com/Derric01/CurveVision/issues"
+
 [project.optional-dependencies]
 postgres = ["asyncpg>=0.29", "psycopg[binary]>=3.1"]
 s3 = ["boto3>=1.34"]

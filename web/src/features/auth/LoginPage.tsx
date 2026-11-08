@@ -2,6 +2,7 @@ import { useQuery } from "@tanstack/react-query";
 import { useState } from "react";
 import { api } from "@/api/client";
 import type { SignInOptions } from "@/api/types";
+import { isDesktop } from "@/desktop";
 import { useSession } from "@/store/session";
 import { Button, ErrorNotice, Input } from "@/ui/primitives";
 import { keepState, keepVerifier, newVerifier } from "./sso";
@@ -238,6 +239,21 @@ export function LoginPage() {
           The first account created on a fresh instance becomes its
           administrator.
         </p>
+        {!isDesktop() && (
+          <p className="mt-2 text-center text-xs text-ink-600">
+            Rather work on your own machine?{" "}
+            <a
+              href="https://github.com/Derric01/CurveVision/releases/latest"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="text-curve-400 hover:underline"
+              data-download-desktop=""
+            >
+              Download the desktop application
+            </a>
+            .
+          </p>
+        )}
       </div>
     </div>
   );

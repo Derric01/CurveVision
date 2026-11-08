@@ -5,6 +5,7 @@ description = "CurveVision — annotate computer-vision datasets on your own mac
 authors = ["CurveVision contributors"]
 license = "MIT"
 repository = "https://github.com/Derric01/CurveVision"
+homepage = "https://github.com/Derric01/CurveVision/releases/latest"
 edition = "2021"
 rust-version = "1.77"
 
