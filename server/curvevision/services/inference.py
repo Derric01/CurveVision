@@ -23,6 +23,7 @@ from curvevision.domain.media import MediaBlob
 from curvevision.domain.project import Label
 from curvevision.domain.system import ModelRegistration
 from curvevision.domain.task import Job, Task
+from curvevision.media.probe import upright
 from curvevision.ml import (
     InferenceFrame,
     InferenceRequest,
@@ -71,11 +72,16 @@ async def collect_frames(
         blob = await session.get(MediaBlob, asset.blob_id)
         if blob is None:
             continue
+        # Upright, so a model answers in the same space the annotator draws in (a phone
+        # photo's EXIF rotation applied); see `media.probe.upright`.
+        image, content_type = upright(
+            await media_service.read_blob(blob, storage), blob.content_type
+        )
         collected.append(
             InferenceFrame(
                 frame=frame,
-                image=await media_service.read_blob(blob, storage),
-                content_type=blob.content_type,
+                image=image,
+                content_type=content_type,
                 width=blob.width,
                 height=blob.height,
             )

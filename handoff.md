@@ -5,7 +5,7 @@
 > [`AGENTS.md`](./AGENTS.md) first; it is the working contract. Update this file after every
 > iteration, including the ones that mostly failed.
 >
-> **Last updated:** 2026-11-09 (iteration 102h) · branch `claude/start-work-yx080h` · PRs
+> **Last updated:** 2026-11-09 (iteration 102i) · branch `claude/start-work-yx080h` · PRs
 > [#1](https://github.com/Derric01/CurveVision/pull/1)–[#39](https://github.com/Derric01/CurveVision/pull/39)
 > **all merged**, #37 carrying iterations 84 (the rest) to 98, #38 iteration 99 and #39 iteration 100.
 >
@@ -2301,6 +2301,44 @@ Iteration 54:
 ---
 
 ## Last iteration
+
+### 102i — dependency advisories cleared; phone photos annotated the right way up
+
+* **Advisories.** Every one npm reported was in development tooling: production installs
+  of `web/` and `sdk/typescript` already audited clean. They are cleared all the same:
+  Vite 5 → 7, Vitest 2 → 5, typescript-eslint 7 → 8, and `@vitejs/plugin-react` 4 → 5. Both
+  lockfiles were regenerated, because npm 10's resolver crashes (`edgesOut`) while upgrading
+  Vitest inside the old ones. `minimatch` is overridden to 11 under typescript-estree, since
+  11 is the only patched line. The SDK's `@types/node` moved to 22 because Vitest 5
+  requires it. `npm audit` now reports 0 for both packages, dev dependencies included.
+  Python (`pip-audit` on `server/constraints.txt`) and Rust (`cargo audit`) had no
+  vulnerabilities; Rust shows only "unmaintained" notices on GTK crates that Tauri pulls in.
+* **Benchmarks.** Vitest 5 removed the standalone `bench()`, so `web/src/canvas/__bench__/`
+  was ported to the `bench` test fixture. `npm run bench` prints the same tables as before,
+  using `--reporter=verbose`.
+* **Dependabot PRs held, not merged:** #42 (minisign-verify 0.3 and base64 0.23 in the
+  updater's signature check), #43 (TypeScript 7), #48 (major versions of 15 actions,
+  release pipeline included), #49 (20 web updates) and #50 (anthropic 2, python-dateutil 4).
+  None is a security fix. Each is a major-version change, to read as a contributor's
+  change would be read, after the launch. #44 to #47 are superseded by this change.
+* **EXIF orientation (an annotation-quality defect).** A phone stores a portrait photo
+  as landscape pixels plus an EXIF tag. The browser obeys the tag, so the annotator draws
+  on the upright image. The server read the size from the raw pixels, so for orientations
+  5 to 8 width and height were swapped: YOLO coordinates were divided by the wrong
+  dimensions, and COCO image sizes were wrong. It also sent models the raw pixels; the
+  vision-LLM path even re-encoded them without the tag, so pre-labels came back in a
+  rotated space. Now `media.probe` records the upright size, thumbnails are upright, and
+  `services.inference.collect_frames` hands every model `upright()` bytes. Images without
+  a rotation are passed through untouched. This follows the CVAT and Ultralytics
+  convention, that coordinates are in the EXIF-applied space. Exports still carry the
+  original files.
+  `tests/unit/test_exif_orientation.py` covers all eight orientations, and its rotation
+  tests fail against the old code. Chromium was checked to show the test photo as
+  480×640 with the same corner on top as `upright()`. Media uploaded before this change
+  keeps its old size; nothing has been released, so there was no data to migrate.
+* **Release.** Run 42592224688 succeeded and left a **draft** v1.0.0 built from `c348b10`,
+  before these fixes. It must not be published: delete the draft and the `v1.0.0` tag,
+  then run Release again from `main` once this is merged.
 
 ### 102h — a light landing page, a disclaimer, and reviewing outside pull requests
 
