@@ -7,6 +7,7 @@
  */
 
 import {
+  annotationBounds,
   boundsOf,
   clampToImage,
   cuboidFromFrontFace,
@@ -229,24 +230,21 @@ export class SelectTool implements Tool {
     }
 
     if (!this.last) return {};
-    const dx = input.image.x - this.last.x;
-    const dy = input.image.y - this.last.y;
     this.last = input.image;
     const { width, height } = context.imageSize();
 
-    if (this.mode === 'move') {
-      const after: Annotation[] = [];
-      for (const annotation of context.scene.selected) {
-        const moved: Annotation =
-          annotation.shapeType === 'skeleton' && annotation.elements
-            ? withJoints(annotation, translateJoints(annotation.elements, dx, dy, width, height))
-            : {
-                ...annotation,
-                points: clampToImage(translatePoints(annotation.points, dx, dy), width, height),
-              };
-        context.scene.update(moved);
-        after.push(moved);
-      }
+    if (this.mode === 'move' && this.start) {
+      // From where the drag started, applied to the objects as they were then: no error
+      // accumulates over a long drag, and a mask can move by whole pixels.
+      const [dx, dy] = clampMove(
+        this.before,
+        input.image.x - this.start.x,
+        input.image.y - this.start.y,
+        width,
+        height,
+      );
+      const after = this.before.map((annotation) => moveAnnotation(annotation, dx, dy));
+      for (const moved of after) context.scene.update(moved);
       return { updated: { before: this.before, after }, invalidateShapes: true };
     }
 
@@ -258,6 +256,9 @@ export class SelectTool implements Tool {
         width,
         height,
       });
+      // A resize stops at the size the drawing tools refuse to go below, rather than
+      // collapsing the object to a speck that is then saved into the dataset.
+      if (tooSmall(updated)) return {};
       context.scene.update(updated);
       return { updated: { before: this.before, after: [updated] }, invalidateShapes: true };
     }
@@ -312,6 +313,81 @@ export function findHandle(annotation: Annotation, point: Point, tolerance: numb
     if (distance(point, handles[i]!) <= tolerance) return i;
   }
   return -1;
+}
+
+/** The smallest width or height a box, ellipse or rotated box may be drawn or resized to. */
+export const MIN_SHAPE_SIZE = 2;
+
+/** Whether a resize has made a box, ellipse or rotated box smaller than `MIN_SHAPE_SIZE`. */
+export function tooSmall(annotation: Annotation): boolean {
+  const { shapeType, points } = annotation;
+  if (shapeType === 'ellipse') {
+    const [, , rx = 0, ry = 0] = points;
+    return 2 * rx < MIN_SHAPE_SIZE || 2 * ry < MIN_SHAPE_SIZE;
+  }
+  if (shapeType === 'rectangle' || shapeType === 'rotated_rectangle') {
+    const [x1 = 0, y1 = 0, x2 = 0, y2 = 0] = points;
+    return Math.abs(x2 - x1) < MIN_SHAPE_SIZE || Math.abs(y2 - y1) < MIN_SHAPE_SIZE;
+  }
+  return false;
+}
+
+/**
+ * The move `(dx, dy)`, shortened so that the objects stop at the edge of the image.
+ *
+ * Until this, a move clamped every *coordinate* to the image on its own, so a box pushed
+ * against the edge was squashed instead of stopped -- dragged far enough it was saved with
+ * no width at all. The selection moves as one, so it is limited by its combined bounds. An
+ * object already partly outside (an import can do that) may move back in, never further out.
+ */
+export function clampMove(
+  annotations: readonly Annotation[],
+  dx: number,
+  dy: number,
+  width: number,
+  height: number,
+): [number, number] {
+  if (annotations.length === 0) return [dx, dy];
+  let minX = Infinity;
+  let minY = Infinity;
+  let maxX = -Infinity;
+  let maxY = -Infinity;
+  for (const annotation of annotations) {
+    const box = annotationBounds(annotation);
+    minX = Math.min(minX, box.minX);
+    minY = Math.min(minY, box.minY);
+    maxX = Math.max(maxX, box.maxX);
+    maxY = Math.max(maxY, box.maxY);
+  }
+  // `+ 0` turns the -0 an edge at zero produces into 0, which compares and serialises plainly.
+  const limit = (delta: number, low: number, high: number) =>
+    Math.min(Math.max(delta, Math.min(low, 0)), Math.max(high, 0)) + 0;
+  return [limit(dx, -minX, width - maxX), limit(dy, -minY, height - maxY)];
+}
+
+/**
+ * The annotation moved by `(dx, dy)`, as its shape means it.
+ *
+ * An ellipse moves its centre, not its radii (`[cx, cy, rx, ry]`: translating every pair
+ * used to grow it as it moved). A mask moves its pixels by whole pixels, with its box.
+ */
+export function moveAnnotation(annotation: Annotation, dx: number, dy: number): Annotation {
+  if (annotation.shapeType === 'skeleton' && annotation.elements) {
+    return withJoints(annotation, translateJoints(annotation.elements, dx, dy, Infinity, Infinity));
+  }
+  if (annotation.shapeType === 'ellipse') {
+    const [cx = 0, cy = 0, rx = 0, ry = 0] = annotation.points;
+    return { ...annotation, points: [cx + dx, cy + dy, rx, ry] };
+  }
+  if (annotation.shapeType === 'mask' && annotation.mask) {
+    const [px, py] = [Math.round(dx), Math.round(dy)];
+    return {
+      ...annotation,
+      mask: { ...annotation.mask, left: annotation.mask.left + px, top: annotation.mask.top + py },
+      points: translatePoints(annotation.points, px, py),
+    };
+  }
+  return { ...annotation, points: translatePoints(annotation.points, dx, dy) };
 }
 
 /** Apply a handle drag, respecting each shape's semantics. */

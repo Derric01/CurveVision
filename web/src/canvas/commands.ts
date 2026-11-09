@@ -33,6 +33,12 @@ export class CommandStack {
   private readonly onChange?: () => void;
   /** While true, commands executed are not recorded -- used when replaying an undo. */
   private suppressed = false;
+  /**
+   * Set by `seal`: the next command starts a new entry even if it could merge. Merging is
+   * how a drag's hundred pointer-moves become one undo step; without a boundary, a second
+   * drag of the same box merged into the first and one Ctrl+Z undid both.
+   */
+  private sealed = false;
 
   constructor(options: CommandStackOptions = {}) {
     this.limit = options.limit ?? 200;
@@ -60,7 +66,8 @@ export class CommandStack {
     command.apply();
     if (this.suppressed) return;
 
-    const previous = this.undoStack.at(-1);
+    const previous = this.sealed ? undefined : this.undoStack.at(-1);
+    this.sealed = false;
     if (previous?.coalesceWith?.(command)) {
       // Absorbed into the previous entry; a redo history built on the old state would be
       // wrong, so it is discarded exactly as it would be for a new entry.
@@ -73,6 +80,18 @@ export class CommandStack {
     if (this.undoStack.length > this.limit) this.undoStack.shift();
     this.redoStack.length = 0;
     this.onChange?.();
+  }
+
+  /** End the current gesture: whatever is executed next is its own undo step. */
+  seal(): void {
+    this.sealed = true;
+  }
+
+  /** Run a one-off action -- a relabel, a toggle -- as an undo step of its own. */
+  executeAlone(command: Command): void {
+    this.seal();
+    this.execute(command);
+    this.seal();
   }
 
   undo(): boolean {

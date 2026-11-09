@@ -287,6 +287,8 @@ export class AnnotationEngine {
 
   pointerDown(screen: Point, modifiers: Partial<PointerInput> = {}): void {
     const input = this.toInput(screen, modifiers);
+    // A press starts a new gesture: nothing it does merges into the last one's undo step.
+    this.commands.seal();
 
     // Picking wins over the active tool, and over nothing else: panning still works, so a
     // reviewer can reach the part of the frame they mean before placing the pin.
@@ -479,7 +481,7 @@ export class AnnotationEngine {
     const before = this.scene.selected.map((a) => ({ ...a }));
     if (before.length === 0) return;
     const after = before.map((a) => ({ ...a, labelId }));
-    this.commands.execute(
+    this.commands.executeAlone(
       createUpdateCommand(this.commandTarget(), before, after, 'Change label'),
     );
     this.listeners.annotationsChanged?.({ created: [], updated: after, deletedIds: [] });
@@ -516,7 +518,7 @@ export class AnnotationEngine {
     if (before.length === 0) return;
     const target = !before.every((a) => a.occluded);
     const after = before.map((a) => ({ ...a, occluded: target }));
-    this.commands.execute(
+    this.commands.executeAlone(
       createUpdateCommand(this.commandTarget(), before, after, 'Toggle occluded'),
     );
     this.listeners.annotationsChanged?.({ created: [], updated: after, deletedIds: [] });

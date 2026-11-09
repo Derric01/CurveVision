@@ -5,7 +5,7 @@
 > [`AGENTS.md`](./AGENTS.md) first; it is the working contract. Update this file after every
 > iteration, including the ones that mostly failed.
 >
-> **Last updated:** 2026-11-09 (iteration 102j) · branch `claude/start-work-yx080h` · PRs
+> **Last updated:** 2026-11-09 (iteration 102k) · branch `claude/start-work-yx080h` · PRs
 > [#1](https://github.com/Derric01/CurveVision/pull/1)–[#39](https://github.com/Derric01/CurveVision/pull/39)
 > **all merged**, #37 carrying iterations 84 (the rest) to 98, #38 iteration 99 and #39 iteration 100.
 >
@@ -2301,6 +2301,45 @@ Iteration 54:
 ---
 
 ## Last iteration
+
+### 102k — every format round-tripped; four editor bugs that changed what was saved
+
+The release bar the maintainer agreed to: (1) no lost or corrupted annotations, (2) the
+per-object editor controls and video playback, (3) exports that stream annotations at
+100,000 images, (4) a real end-to-end run. This entry is the first part of (1).
+
+* **Every format, one awkward dataset** (`server/tests/unit/test_round_trip_matrix.py`).
+  It sends sub-pixel coordinates, a box the size of the image, French and Japanese label
+  names, a 1920×1080 frame and every geometry each format declares, to all 12 formats
+  that both write and read. The invariant: every shape comes back under its label,
+  covering the same region (within 0.01 px, or 1 px for raster formats). Type changes
+  the format admits to are allowed; a rotated box becoming a polygon in COCO is one. All
+  12 pass, and none lost data. Swapping width and height (this morning's EXIF bug) fails
+  YOLO, YOLO OBB and Open Images, so the test has teeth.
+  A false alarm, recorded so nobody repeats it: an ellipse is `[cx, cy, rx, ry]`, centre
+  and radii, not a second point. The first probe got that wrong and blamed four formats.
+* **Undo merged separate gestures.** Consecutive edits to the same objects merge, so a
+  drag is one Ctrl+Z, but nothing marked where a gesture ended. Two drags of the same box,
+  two relabels or two occlusion toggles were one undo step. `CommandStack.seal()` marks
+  the boundary on every press, and `executeAlone` wraps one-off actions. The test
+  `canvas/__tests__/undoGestures.test.ts` includes 190 seeded random edits, each undone
+  and redone and checked step by step. History holds 200 steps; a longer random run
+  "fails" for that reason only.
+* **A box pushed against the image edge was squashed**: every coordinate was clamped on
+  its own, so a 40 px box dragged right was saved as `[400, 100, 400, 140]`.
+  `tools.clampMove` limits the move by the whole selection's bounds, so it stops at the
+  edge. An object already partly outside may move back in, never further out.
+* **Moving an ellipse grew it.** `[cx, cy, rx, ry]` was translated pair by pair.
+  `tools.moveAnnotation` moves the centre only.
+* **Moving a mask moved its box, not its pixels.** It now moves both, by whole pixels.
+  Moves are computed from where the drag started, so no error accumulates.
+* **A resize could shrink a box to a speck** (1×1 px), which drawing refuses.
+  `tools.tooSmall` stops it at `MIN_SHAPE_SIZE` (2 px).
+* Tests: `canvas/__tests__/moveAndResize.test.ts` and `undoGestures.test.ts`. Against the
+  old code 11 of their 12 tests fail; the twelfth (one drag undone whole) already worked.
+
+**Next, still on (1):** autosave and crash recovery inside the Tauri shell's own webview
+(checked in a browser only, see *In progress*).
 
 ### 102j — 10,000 and 100,000 images: measured, and the four things that broke
 
