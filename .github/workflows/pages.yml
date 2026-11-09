@@ -35,6 +35,7 @@ jobs:
         run: |
           mkdir -p public/assets
           cp site/index.html public/
+          cp -r site/fonts public/fonts
           cp docs/images/editor.png docs/demo/curvevision-demo.mp4 public/assets/
           cp web/public/favicon.svg public/assets/
       - uses: actions/configure-pages@v5

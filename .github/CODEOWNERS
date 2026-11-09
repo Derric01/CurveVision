@@ -1,0 +1,9 @@
+# Every pull request asks the maintainer for a review. Paths that change what users install,
+# what CI trusts, or how data is secured are listed separately so they can be given more
+# reviewers later without touching the rest.
+*                         @Derric01
+/.github/                 @Derric01
+/deploy/                  @Derric01
+/desktop/                 @Derric01
+/server/curvevision/core/ @Derric01
+/server/constraints.txt   @Derric01
