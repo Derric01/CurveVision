@@ -361,7 +361,9 @@ jobs:
       - name: Lint, render and validate against the Kubernetes schemas
         working-directory: deploy/helm
         run: |
-          curl -sSfL https://github.com/yannh/kubeconform/releases/download/v0.6.7/kubeconform-linux-amd64.tar.gz \
+          # Retried: GitHub's release downloads answer 5xx at times (a 504 failed this job once).
+          curl -sSfL --retry 5 --retry-all-errors --retry-delay 5 \
+            https://github.com/yannh/kubeconform/releases/download/v0.6.7/kubeconform-linux-amd64.tar.gz \
             | tar xz kubeconform
           set -- --set secretKey=s --set database.url=postgresql+asyncpg://u:p@db/cv \
                  --set redis.url=redis://r:6379/0
