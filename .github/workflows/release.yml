@@ -1,4 +1,6 @@
-# A release: push a version tag (`git tag v1.0.0 && git push origin v1.0.0`) and this builds
+# A release: push a version tag (`git tag v1.0.0 && git push origin v1.0.0`), or, from the
+# browser, Actions → Release → Run workflow with the version, and this creates the tag on
+# `main` and builds
 # everything a person downloads, checks it, and leaves a **draft** GitHub Release for a
 # maintainer to read and publish. Nothing becomes public without that click.
 #
@@ -15,10 +17,19 @@ name: Release
 on:
   push:
     tags: ['v*']
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'The version to release, as a tag (e.g. v1.0.0). Created on the commit this runs on.'
+        required: true
 
 concurrency:
-  group: release-${{ github.ref }}
+  group: release-${{ inputs.version || github.ref }}
   cancel-in-progress: false
+
+# The tag being released: pushed, or typed into Run workflow.
+env:
+  TAG: ${{ inputs.version || github.ref_name }}
 
 permissions:
   contents: read
@@ -27,12 +38,29 @@ jobs:
   versions:
     name: Versions match the tag
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
     steps:
       - uses: actions/checkout@v5
       - uses: actions/setup-python@v6
         with:
           python-version: '3.11'
-      - run: python scripts/release_check.py "${GITHUB_REF_NAME}"
+      - name: The version is well formed, and every manifest declares it
+        run: |
+          [[ "$TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+([-.][0-9A-Za-z.]+)?$ ]] || { echo "not a version tag: $TAG"; exit 1; }
+          python scripts/release_check.py "$TAG"
+      # Started from Run workflow: the tag does not exist yet, so it is made here, on the
+      # commit being built, before anything else runs. A tag that already exists stops it.
+      - name: Create the tag
+        if: github.event_name == 'workflow_dispatch'
+        run: |
+          if git ls-remote --exit-code --tags origin "refs/tags/$TAG" >/dev/null; then
+            echo "$TAG already exists; push a new version instead"; exit 1
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git tag -a "$TAG" -m "CurveVision ${TAG#v}" "$GITHUB_SHA"
+          git push origin "refs/tags/$TAG"
 
   installers:
     name: Installers
@@ -66,7 +94,7 @@ jobs:
         run: |
           owner="${GITHUB_REPOSITORY_OWNER,,}"
           echo "image=ghcr.io/${owner}/curvevision-${{ matrix.image }}" >> "$GITHUB_OUTPUT"
-          echo "version=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
+          echo "version=${TAG#v}" >> "$GITHUB_OUTPUT"
       - name: Build and push
         id: push
         uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6
@@ -131,8 +159,8 @@ jobs:
         run: |
           if ls release/*.sig >/dev/null 2>&1; then
             python scripts/updater_manifest.py \
-              --version "${GITHUB_REF_NAME}" \
-              --base-url "${{ github.server_url }}/${{ github.repository }}/releases/download/${GITHUB_REF_NAME}" \
+              --version "${TAG}" \
+              --base-url "${{ github.server_url }}/${{ github.repository }}/releases/download/${TAG}" \
               release > latest.json
             mv latest.json release/
           else
@@ -172,7 +200,7 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          version="${GITHUB_REF_NAME#v}"
+          version="${TAG#v}"
           cat > notes.md <<NOTES
           ## Download
 
@@ -202,7 +230,7 @@ jobs:
           the first time on a Mac* has the rest. Every file was scanned with ClamAV before
           this release was made.
           NOTES
-          gh release create "${GITHUB_REF_NAME}" release/* \
+          gh release create "${TAG}" release/* \
             --draft \
             --verify-tag \
             --title "CurveVision ${version}" \
