@@ -56,6 +56,7 @@ Full license texts for permissive licenses used here are reproduced under
 | [aiosqlite](https://github.com/omnilib/aiosqlite) | MIT | Amethyst Reese | SQLite driver: the default database, and the one every desktop installation uses |
 | [greenlet](https://github.com/python-greenlet/greenlet) | MIT / PSF | Armin Rigo, Christian Tismer and contributors | Required by SQLAlchemy's async support |
 | [argon2-cffi](https://github.com/hynek/argon2-cffi) | MIT | Hynek Schlawack | Argon2id password hashing |
+| [defusedxml](https://github.com/tiran/defusedxml) | PSF-2.0 | Christian Heimes | Parsing imported annotation files (CVAT XML, Pascal VOC) without entity expansion or external entities |
 | [PyJWT](https://github.com/jpadilla/pyjwt) | MIT | José Padilla | JSON Web Tokens |
 | [cryptography](https://github.com/pyca/cryptography) (via `pyjwt[crypto]`) | Apache-2.0 OR BSD-3-Clause | The Python Cryptographic Authority and contributors | Verifying single sign-on ID tokens (RS256/ES256; `oidc` extra) |
 | [email-validator](https://github.com/JoshData/python-email-validator) | Unlicense / CC0 | Joshua Tauberer | Email address validation |

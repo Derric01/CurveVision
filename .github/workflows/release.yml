@@ -131,6 +131,17 @@ jobs:
             echo "No .sig files: the updater's signing key is not configured, so no feed."
           fi
 
+      # A software bill of materials: every component and version in what is released, for
+      # anyone who has to answer "are we affected?" when the next advisory lands.
+      - name: The software bill of materials
+        uses: anchore/sbom-action@v0
+        with:
+          path: .
+          format: spdx-json
+          output-file: release/curvevision-sbom.spdx.json
+          upload-artifact: false
+          upload-release-assets: false
+
       - name: Checksums
         working-directory: release
         run: sha256sum * | grep -v ' SHA256SUMS$' > SHA256SUMS && cat SHA256SUMS

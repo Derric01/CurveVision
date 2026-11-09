@@ -1,0 +1,93 @@
+# Known vulnerabilities in everything a person installs, and code that handles untrusted
+# input: on every pull request, and weekly, because advisories are published against code
+# that has not changed. Each step fails the run on a finding; docs/SECURITY.md says what is
+# checked and why.
+name: Security
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  schedule:
+    - cron: '17 4 * * 1'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: security-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  python:
+    name: Python — pinned dependencies (pip-audit) and server code (bandit)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.11'
+      - run: pip install pip-audit bandit
+      # Every version the server ships with (server/constraints.txt), against PyPI's and
+      # OSV's advisory databases.
+      - run: pip-audit --requirement server/constraints.txt --no-deps --progress-spinner off
+      # Medium severity and confidence or above. Low findings are reviewed by hand; see
+      # docs/SECURITY.md for the ones that are false positives and why.
+      - run: bandit --recursive server/curvevision --severity-level medium --confidence-level medium --quiet
+
+  npm:
+    name: npm — what ships to a browser (npm audit)
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        package: [web, sdk/typescript]
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: '22'
+      # Production dependencies only: test runners and the dev server never reach a user.
+      - run: npm audit --omit=dev --audit-level=moderate
+        working-directory: ${{ matrix.package }}
+
+  rust:
+    name: Rust — the desktop shell (cargo audit)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: desktop/shell/src-tauri
+          cache-targets: false
+      - run: cargo install cargo-audit --locked
+      - run: cargo audit
+        working-directory: desktop/shell/src-tauri
+
+  trivy:
+    name: Trivy — lockfiles, committed secrets, Dockerfiles and the Helm chart
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      # Pinned to a commit, not a tag: a scanner's own release tags are exactly what a
+      # supply-chain attacker would move. This is v0.36.0.
+      - name: Vulnerabilities and secrets (fails the run)
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25
+        with:
+          scan-type: fs
+          scan-ref: .
+          scanners: vuln,secret
+          severity: HIGH,CRITICAL
+          ignore-unfixed: true
+          exit-code: '1'
+      # Configuration advice (a Dockerfile, the Helm chart) is listed for review rather than
+      # failing the run: much of it is a deployment choice the operator makes.
+      - name: Configuration (reported)
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25
+        with:
+          scan-type: config
+          scan-ref: .
+          severity: HIGH,CRITICAL
+          exit-code: '0'

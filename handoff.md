@@ -2302,6 +2302,29 @@ Iteration 54:
 
 ## Last iteration
 
+### 102f — a security audit, and the checks that keep it true
+
+Asked for "more security checks so others can safely install it". Ran every scanner against
+what ships, fixed what they found, and made each a permanent CI check
+(`.github/workflows/security.yml`, on every PR, `main`, and weekly):
+
+* **pip-audit** on `server/constraints.txt`: nothing found.
+* **npm audit** (production): `react-router` 6 had an open redirect and no patched 6.x, so
+  it was upgraded to **7.18.5**. Typecheck, lint, 818 tests and the build pass.
+* **bandit**: the CVAT XML and Pascal VOC importers parsed untrusted XML with the standard
+  library. They now use **defusedxml** (declared, pinned and in THIRD_PARTY_NOTICES).
+  `tests/unit/test_formats_hostile_xml.py` feeds both an entity bomb and an XXE probe;
+  with the old parser restored, all four hostile cases fail.
+* **cargo audit**: 10 vulnerabilities, now 0. The TLS crates moved to patched releases,
+  and `tauri-plugin-updater` went 2.12 → 2.14.1, which takes `zip` 4.6 → 9.5. **Not built
+  here** (no WebKitGTK dev libraries in this container): `desktop.yml` on the PR builds
+  and tests all four platforms.
+* **Secrets**: the whole git history was scanned for common credential patterns. Clean.
+* **Trivy** (pinned to a commit) for lockfiles and secrets, failing on a finding; its
+  configuration scan of the Dockerfiles and Helm chart reports without failing. **Not run
+  here**: downloading the binary was refused in this container, so CI is its first run.
+* **Dependabot** for pip, npm, cargo and actions. Releases now carry an **SPDX SBOM**.
+
 ### 102e — a product website, and the Mac builds proven
 
 * **`site/index.html`**: the landing page, one self-contained file in the app's pitch-black
