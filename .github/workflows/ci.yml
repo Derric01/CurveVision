@@ -404,24 +404,19 @@ jobs:
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
-      # kind, installed here rather than by helm/kind-action, which downloads once and fails on
-      # a bad answer: GitHub's release downloads answered 504 for hours on 2026-11-09, and the
-      # error page failed the checksum. Retried until the checksum matches, then the cluster.
+      # kind, built from its source through Go's module proxy rather than downloaded from
+      # GitHub's release servers, which answered 504 for this file for hours on 2026-11-09
+      # (helm/kind-action fetches only from there). The module proxy is a separate service,
+      # and `go install` checks what it fetches against Go's public checksum database.
+      - uses: actions/setup-go@v5
+        with:
+          go-version: stable
+          cache: false
       - name: A kind cluster
         run: |
-          version=v0.31.0
-          base="https://github.com/kubernetes-sigs/kind/releases/download/${version}"
-          for attempt in 1 2 3 4 5 6; do
-            if curl -sSfL --retry 3 --retry-all-errors -o kind "${base}/kind-linux-amd64" \
-              && curl -sSfL --retry 3 --retry-all-errors -o kind.sha256 "${base}/kind-linux-amd64.sha256sum" \
-              && echo "$(cut -d' ' -f1 kind.sha256)  kind" | sha256sum --check --status; then
-              break
-            fi
-            echo "kind download attempt ${attempt} failed; retrying"
-            [ "$attempt" = 6 ] && exit 1
-            sleep $((attempt * 10))
-          done
-          sudo install -m 0755 kind /usr/local/bin/kind
+          go install sigs.k8s.io/kind@v0.31.0
+          sudo install -m 0755 "$(go env GOPATH)/bin/kind" /usr/local/bin/kind
+          kind version
           kind create cluster --name curvevision --wait 60s
           kubectl cluster-info
       - uses: azure/setup-helm@1a275c3b69536ee54be43f2070a358922e12c8d4 # v4
