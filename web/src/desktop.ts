@@ -134,6 +134,20 @@ export async function chooseFiles(): Promise<string[]> {
   return Array.isArray(chosen) ? chosen.filter((path) => typeof path === 'string' && path.length > 0) : [];
 }
 
+/**
+ * Ask the shell where to save a file, via the operating system's own save dialog.
+ *
+ * Returns the chosen path, or `null` when the user cancelled or there is no shell. Used for
+ * exports: the local server writes the archive there itself, because one carrying its
+ * images can be tens of gigabytes, which a download through the page would hold in memory.
+ */
+export async function chooseSaveFile(defaultName: string): Promise<string | null> {
+  if (!isDesktop()) return null;
+  const { invoke } = await import('@tauri-apps/api/core');
+  const chosen = await invoke<string | null>('choose_save_file', { defaultName });
+  return typeof chosen === 'string' && chosen.length > 0 ? chosen : null;
+}
+
 /** The event the shell emits for File ▸ Connect to a Team Server…. */
 export const TEAM_SERVER_EVENT = 'menu:team-server';
 

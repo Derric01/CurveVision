@@ -12,6 +12,7 @@ const COMMANDS: &[&str] = &[
     "connection",
     "choose_folder",
     "choose_files",
+    "choose_save_file",
     "connect_to_team_server",
     "check_for_update",
     "install_update",

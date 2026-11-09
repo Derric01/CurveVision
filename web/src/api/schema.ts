@@ -322,6 +322,46 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/exports/{task_id}/archive": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Download Export
+         * @description The archive, streamed. Opened by the signed link, so it takes no auth header.
+         */
+        get: operations["download_export_api_v1_exports__task_id__archive_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/exports/{task_id}/link": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Export Download Link
+         * @description A link that downloads a finished export, for ten minutes, without the auth header.
+         */
+        post: operations["export_download_link_api_v1_exports__task_id__link_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/formats": {
         parameters: {
             query?: never;
@@ -891,6 +931,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/projects/{project_id}/exports": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Start Export
+         * @description Start an export in the background. Poll `GET /background-tasks/{id}` for it.
+         */
+        post: operations["start_export_api_v1_projects__project_id__exports_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/projects/{project_id}/labels": {
         parameters: {
             query?: never;
@@ -931,6 +991,32 @@ export interface paths {
         post?: never;
         /** Delete Label */
         delete: operations["delete_label_api_v1_projects__project_id__labels__label_id__delete"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/projects/{project_id}/local-export": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Export To Local Path
+         * @description Export the project straight to a file the user chose in the save dialog.
+         *
+         *     The browser path downloads an archive into the page's memory before saving it, which
+         *     an export with 10,000 photographs -- tens of gigabytes -- cannot survive, least of all
+         *     in the desktop webview. Here nothing passes through the page: the archive is assembled
+         *     beside the destination, with images streamed in from disk, and renamed into place, so
+         *     a half-written file never sits under the name the user chose.
+         */
+        post: operations["export_to_local_path_api_v1_projects__project_id__local_export_post"];
+        delete?: never;
         options?: never;
         head?: never;
         patch?: never;
@@ -1945,6 +2031,16 @@ export interface components {
             /** Shape Types */
             shape_types: string[];
         };
+        /**
+         * DownloadLinkOut
+         * @description A link a browser can follow to download, valid for `expires_in` seconds.
+         */
+        DownloadLinkOut: {
+            /** Expires In */
+            expires_in: number;
+            /** Url */
+            url: string;
+        };
         /** ExportRequest */
         ExportRequest: {
             /**
@@ -2402,6 +2498,37 @@ export interface components {
             project_id: string;
             /** Skeleton Edges */
             skeleton_edges: number[][];
+        };
+        /**
+         * LocalExportRequest
+         * @description Export a project straight to a file on this machine. Desktop (local) mode only.
+         */
+        LocalExportRequest: {
+            /** Destination */
+            destination: string;
+            /** Format */
+            format: string;
+            /**
+             * Include Images
+             * @default false
+             */
+            include_images: boolean;
+            /**
+             * Only Accepted
+             * @default false
+             */
+            only_accepted: boolean;
+            /** Task Ids */
+            task_ids?: string[];
+        };
+        /** LocalExportResult */
+        LocalExportResult: {
+            /** Path */
+            path: string;
+            /** Size Bytes */
+            size_bytes: number;
+            /** Warnings */
+            warnings: string[];
         };
         /**
          * LocalImportRequest
@@ -4383,6 +4510,73 @@ export interface operations {
             };
         };
     };
+    download_export_api_v1_exports__task_id__archive_get: {
+        parameters: {
+            query: {
+                expires: number;
+                signature: string;
+            };
+            header?: never;
+            path: {
+                task_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    export_download_link_api_v1_exports__task_id__link_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                authorization?: string | null;
+            };
+            path: {
+                task_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DownloadLinkOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     list_formats_api_v1_formats_get: {
         parameters: {
             query?: never;
@@ -5833,6 +6027,43 @@ export interface operations {
             };
         };
     };
+    start_export_api_v1_projects__project_id__exports_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                authorization?: string | null;
+            };
+            path: {
+                project_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ExportRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BackgroundTaskOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     list_labels_api_v1_projects__project_id__labels_get: {
         parameters: {
             query?: never;
@@ -5961,6 +6192,43 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content?: never;
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    export_to_local_path_api_v1_projects__project_id__local_export_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                authorization?: string | null;
+            };
+            path: {
+                project_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["LocalExportRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LocalExportResult"];
+                };
             };
             /** @description Validation Error */
             422: {

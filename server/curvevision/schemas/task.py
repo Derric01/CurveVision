@@ -129,6 +129,24 @@ class LocalImportRequest(StrictModel):
     recursive: bool = True
 
 
+class LocalExportRequest(StrictModel):
+    """Export a project straight to a file on this machine. Desktop (local) mode only."""
+
+    #: Where to write the archive: an absolute path, as the save dialog returned it.
+    destination: str = Field(min_length=1, max_length=4000)
+    format: str
+    task_ids: list[uuid.UUID] = Field(default_factory=list)
+    include_images: bool = False
+    only_accepted: bool = False
+
+
+class LocalExportResult(StrictModel):
+    path: str
+    size_bytes: int
+    #: What the chosen format could not carry, as the download's header says it.
+    warnings: list[str]
+
+
 class LocalImportResult(StrictModel):
     task_id: uuid.UUID
     imported: list[AssetOut]

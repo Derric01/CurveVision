@@ -5,7 +5,7 @@
 > [`AGENTS.md`](./AGENTS.md) first; it is the working contract. Update this file after every
 > iteration, including the ones that mostly failed.
 >
-> **Last updated:** 2026-11-09 (iteration 102n) · branch `claude/start-work-yx080h` · PRs
+> **Last updated:** 2026-11-09 (iteration 102o) · branch `claude/start-work-yx080h` · PRs
 > [#1](https://github.com/Derric01/CurveVision/pull/1)–[#39](https://github.com/Derric01/CurveVision/pull/39)
 > **all merged**, #37 carrying iterations 84 (the rest) to 98, #38 iteration 99 and #39 iteration 100.
 >
@@ -1038,7 +1038,7 @@ full docs set including seven ADRs.
 | Cuboid (2D wireframe box) | Complete and measured in a browser: a two-stage tool (drag the front face, then move and click to set the depth), a wireframe renderer, and CVAT XML export/import using CVAT's own real attribute names. The backend needed no new code at all — `ShapeType.CUBOID`, its minimum-points entry, its IoU comparison and its track interpolation were already there, unused. **Not** the 3D/point-cloud kind — see `docs/ROADMAP.md`'s honestly-unchanged limitation on that. |
 | Resumable uploads | Complete and tested end to end — API, SDK, CLI and the web upload panel: create a session, `PATCH` chunks at a stated offset, read the current offset back, complete, resume by id after a crash or a page reload. Driven in a browser through a deliberately dropped chunk and a real resume. Nothing outstanding. |
 | Label schema | Complete, driven in a browser: a label is added, renamed, recoloured and removed, and its **attributes** are added, renamed, extended and removed from the same form — with any edit that would strand a value already recorded refused by the server. Attribute **values** are set from the editor's right rail (iteration 54), and a required one nobody has set no longer poisons autosave (iteration 55). The form offers `required` (iteration 57). |
-| Autosave crash recovery | Complete in a browser (iteration 56), driven through a closed page, a dropped connection, a save that landed unheard and a killed-and-relaunched desktop server. Not yet checked in the Tauri shell's own webview, whose storage persisting across launches is the platform default. |
+| Autosave crash recovery | Complete in a browser (iteration 56), driven through a closed page, a dropped connection, a save that landed unheard and a killed-and-relaunched desktop server (`verify_crash_recovery.py`). The property it rests on in the Tauri shell's own webview, IndexedDB kept from one launch to the next on the same origin, is check 8 of `verify_desktop_shell.py`, which CI runs on Linux. Checked in iteration 102n: this line said it had not been, after the check existed. Not driven end to end inside the shell (draw, kill the app, relaunch, restore), and not on the macOS or Windows webviews. |
 | Job review | Complete end to end and driven in a browser, all three parts: the **assignment** (an annotator picker and a reviewer picker on each job row of the task page, either clearable back to Unassigned), the **queue** (`GET /jobs?reviewing=true`, split on the My work page into what can be reviewed now and what is merely named to you), and the **decision** (accept or send back with a required reason, from the editor's rail). Nothing outstanding. |
 
 *This table went stale once — it still listed the open-folder flow and chunked delivery as
@@ -2301,6 +2301,41 @@ Iteration 54:
 ---
 
 ## Last iteration
+
+### 102o — exports of any size reach the disk; the whole path, end to end
+
+Release bar item (4), and a defect found on the way.
+
+* **The project page held every export in the page before saving it.** `api.exportProject`
+  returns a `Blob`, so an export with 10,000 photographs (tens of GB) could not be
+  downloaded, least of all in the desktop webview, which also has no download handler of
+  its own. Two paths now, by where the app runs:
+  * **Desktop:** the shell's native save dialog (`choose_save_file`, granted in
+    `capabilities/default.json`, generated permission committed). The local server writes
+    the archive there (`POST /projects/{id}/local-export`, local mode only, a 404
+    elsewhere, like `local-import`). It is assembled beside the destination and renamed
+    into place. Tests: `tests/api/test_local_media.py`. In the real shell: check 12 of
+    `scripts/verify_desktop_shell.py`, which answers GTK's save dialog at the keyboard. It
+    runs in CI's WebDriver job; it was not run here (no WebKitWebDriver in this container).
+  * **Browser, with images:** `POST /projects/{id}/exports` runs the existing
+    `dataset.export` job, which nothing used to start. `POST /exports/{task}/link` gives a
+    10-minute HMAC-signed URL (`core/signing.py`; bound to purpose and export, owner only),
+    and `GET /exports/{task}/archive` streams it with no auth header, so the browser's
+    download manager saves it to disk. Annotation-only exports keep the direct download.
+    Tests: `tests/api/test_export_download.py` covers tampered, expired, another export's
+    signature, another user, and a task that is not an export.
+* **End to end** (`scripts/verify_end_to_end.py`), all in the real interface against the
+  real server: draw a box, a polygon, and a box relabelled from the panel; submit;
+  accept; export COCO with images, accepted only, downloaded by Chromium through the
+  signed link; every image byte for byte; re-imported into a fresh task, every shape back
+  on its frame with its label and geometry. Passed on the first run.
+* Stale line corrected: crash recovery's dependency on the desktop webview keeping
+  IndexedDB has been check 8 of `verify_desktop_shell.py` all along (*In progress* table).
+* **Follow-ups:** archives from background exports stay in storage (`exports/…`) with
+  nothing removing them, so a team server's storage grows by every export with images;
+  a sweep after a day is the obvious fix. Crash recovery is not driven end to end inside
+  the shell, and the macOS and Windows webviews are not driven at all: a job for beta
+  testers.
 
 ### 102n — exports write their JSON as they go
 

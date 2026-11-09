@@ -145,6 +145,13 @@ class BackgroundTaskOut(ORMModel):
     finished_at: datetime | None = None
 
 
+class DownloadLinkOut(StrictModel):
+    """A link a browser can follow to download, valid for `expires_in` seconds."""
+
+    url: str
+    expires_in: int
+
+
 # -------------------------------------------------------------------------- webhooks
 
 
