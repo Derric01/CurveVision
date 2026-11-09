@@ -28,8 +28,8 @@ serde_json = "1"
 
 [dev-dependencies]
 # The updater's own verifier and decoding, to pin the harness's test signatures to it.
-minisign-verify = "0.2"
-base64 = "0.22"
+minisign-verify = "0.3"
+base64 = "0.23"
 
 [profile.release]
 # A desktop binary is downloaded once and run many times, so trade build time for size
