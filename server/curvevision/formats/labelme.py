@@ -164,8 +164,8 @@ class LabelMeFormat:
                 "imageWidth": frame.width,
             }
             sink.write(path, json.dumps(document, ensure_ascii=False, indent=2))
-            if frame.media is not None:
-                sink.write(frame.name, frame.media)
+            if frame.has_media:
+                sink.write_media(frame.name, frame)
 
         if left_out:
             logger.info("labelme: shapes with no labelme form left out", extra=left_out)

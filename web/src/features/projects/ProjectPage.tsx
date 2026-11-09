@@ -3,6 +3,7 @@ import { Link, useNavigate, useParams } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Check, Download, ImagePlus, Pencil, Plus, Tag, Trash2, X } from 'lucide-react';
 import { api } from '@/api/client';
+import { uploadInBatches } from '@/features/tasks/uploadBatches';
 import type { Label as LabelSchemaEntry } from '@/api/types';
 import { ManageMenu } from '@/features/common/ManageMenu';
 import { VersionsPanel } from './VersionsPanel';
@@ -62,7 +63,19 @@ export function ProjectPage() {
   const createTask = useMutation({
     mutationFn: async () => {
       const task = await api.createTask({ project_id: projectId, name: taskName });
-      if (pendingFiles.length > 0) await api.uploadAssets(task.id, pendingFiles);
+      if (pendingFiles.length > 0) {
+        // Batched, as the task page uploads; a failed batch fails the creation so the user
+        // is told, rather than landing on a task that silently lacks files.
+        const entries = await uploadInBatches(pendingFiles, (batch) =>
+          api.uploadAssets(task.id, batch),
+        );
+        const failed = entries.filter((entry) => !entry.ok).length;
+        if (failed > 0) {
+          throw new Error(
+            `Task created, but ${failed.toLocaleString()} of ${entries.length.toLocaleString()} files did not upload. Open the task and upload them again.`,
+          );
+        }
+      }
       return task;
     },
     onSuccess: () => {
@@ -71,6 +84,10 @@ export function ProjectPage() {
       if (fileInput.current) fileInput.current.value = '';
       void queryClient.invalidateQueries({ queryKey: ['tasks', projectId] });
       void queryClient.invalidateQueries({ queryKey: ['project-statistics', projectId] });
+    },
+    // The task exists even when some of its files failed; list it so they can be retried.
+    onError: () => {
+      void queryClient.invalidateQueries({ queryKey: ['tasks', projectId] });
     },
   });
 

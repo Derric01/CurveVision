@@ -19,6 +19,7 @@ from __future__ import annotations
 
 from collections.abc import Iterable, Iterator
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import Any, Literal, Protocol, runtime_checkable
 
 from curvevision.domain.enums import AttributeType, ShapeType
@@ -104,6 +105,22 @@ class FrameRecord:
     #: The SHA-256 of the frame's image or video, when known: which picture this is,
     #: independent of its name. Recorded in a released dataset version's frozen copy.
     media_sha256: str | None = None
+    #: The frame's media as a file on disk, instead of `media`'s bytes in memory. An export
+    #: of 10,000 photos is tens of gigabytes; held as bytes it needed twice that in memory.
+    #: Formats write it with `ExportSink.write_media`, which streams it from disk.
+    media_path: Path | None = None
+
+    @property
+    def has_media(self) -> bool:
+        return self.media is not None or self.media_path is not None
+
+    def read_media(self) -> bytes | None:
+        """The media's bytes, wherever they are -- for a format that must embed them."""
+        if self.media is not None:
+            return self.media
+        if self.media_path is not None:
+            return self.media_path.read_bytes()
+        return None
 
 
 @dataclass(slots=True)
@@ -142,6 +159,9 @@ class ExportSink(Protocol):
     """Where a format writes its output files."""
 
     def write(self, path: str, data: bytes | str) -> None: ...
+
+    def write_media(self, path: str, frame: FrameRecord) -> None:
+        """Write the frame's image at `path`, from memory or streamed from disk."""
 
 
 class ImportSource(Protocol):

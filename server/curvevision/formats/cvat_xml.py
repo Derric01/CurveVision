@@ -270,8 +270,8 @@ class CvatXmlFormat:
         sink.write("annotations.xml", "\n".join(lines) + "\n")
 
         for frame in frames:
-            if frame.media is not None:
-                sink.write(f"images/{frame.name}", frame.media)
+            if frame.has_media:
+                sink.write_media(f"images/{frame.name}", frame)
 
     def _image_elements(self, frames: list[Any]) -> list[str]:
         lines: list[str] = []

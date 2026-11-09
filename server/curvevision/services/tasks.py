@@ -5,15 +5,16 @@ from __future__ import annotations
 import uuid
 from typing import Any
 
-from sqlalchemy import func, select
+from sqlalchemy import func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
+from sqlalchemy.orm.attributes import set_committed_value
 
 from curvevision.core.db import utcnow
 from curvevision.core.errors import ConflictError, NotFoundError, ValidationError
 from curvevision.domain.enums import JobKind, JobState, MediaKind, TaskStatus
 from curvevision.domain.identity import User
-from curvevision.domain.media import Asset
+from curvevision.domain.media import Asset, MediaBlob
 from curvevision.domain.task import Job, Task
 
 #: Which transitions the job state machine allows.
@@ -98,6 +99,26 @@ def plan_job_ranges(frame_count: int, segment_size: int, overlap: int) -> list[t
     return ranges
 
 
+#: Frames per job for an image task that did not choose its own job size. One job of
+#: 100,000 images means an editor that opens 70 MB of annotations; jobs of a thousand open
+#: in a blink and can be shared between annotators. Video stays one job unless asked,
+#: because a job boundary cuts every object track that crosses it.
+AUTO_IMAGE_JOB_SIZE = 1_000
+
+
+async def effective_segment_size(session: AsyncSession, task: Task) -> int:
+    """The job size jobs are planned with: the task's own, or the automatic one for images."""
+    if task.segment_size > 0 or task.frame_count <= AUTO_IMAGE_JOB_SIZE:
+        return task.segment_size
+    video = await session.scalar(
+        select(Asset.id)
+        .join(MediaBlob, MediaBlob.id == Asset.blob_id)
+        .where(Asset.task_id == task.id, MediaBlob.kind == MediaKind.VIDEO)
+        .limit(1)
+    )
+    return 0 if video is not None else AUTO_IMAGE_JOB_SIZE
+
+
 async def rebuild_jobs(session: AsyncSession, task: Task) -> list[Job]:
     """(Re)generate a task's jobs to match its current frame count.
 
@@ -119,6 +140,7 @@ async def rebuild_jobs(session: AsyncSession, task: Task) -> list[Job]:
         await session.delete(job)
     await session.flush()
 
+    segment_size = await effective_segment_size(session, task)
     jobs = [
         Job(
             task_id=task.id,
@@ -130,7 +152,7 @@ async def rebuild_jobs(session: AsyncSession, task: Task) -> list[Job]:
             assignee_id=task.assignee_id,
         )
         for index, (start, stop) in enumerate(
-            plan_job_ranges(task.frame_count, task.segment_size, task.overlap)
+            plan_job_ranges(task.frame_count, segment_size, task.overlap)
         )
     ]
     session.add_all(jobs)
@@ -139,15 +161,38 @@ async def rebuild_jobs(session: AsyncSession, task: Task) -> list[Job]:
 
 
 async def recount_frames(session: AsyncSession, task: Task) -> int:
-    """Recompute ``task.frame_count`` from its assets and reindex their frame offsets."""
-    result = await session.execute(
-        select(Asset).where(Asset.task_id == task.id).order_by(Asset.position)
-    )
-    assets = list(result.scalars().all())
+    """Recompute ``task.frame_count`` from its assets and reindex their frame offsets.
+
+    Runs after every upload batch, so it has to stay cheap as a task grows: it reads four
+    columns rather than loading every asset, and writes only the offsets that changed --
+    for an append, just the new files. Loading all of them made the hundredth batch of a
+    10,000-image upload three times slower than the first, and a 100,000-image one
+    impractical.
+    """
+    await session.flush()  # assets added in this transaction must be counted
+    rows = (
+        await session.execute(
+            select(Asset.id, Asset.start_frame, Asset.frame_count)
+            .where(Asset.task_id == task.id)
+            .order_by(Asset.position)
+        )
+    ).all()
+    changed: dict[uuid.UUID, int] = {}
     cursor = 0
-    for asset in assets:
-        asset.start_frame = cursor
-        cursor += max(1, asset.frame_count)
+    for asset_id, start_frame, frame_count in rows:
+        if start_frame != cursor:
+            changed[asset_id] = cursor
+        cursor += max(1, frame_count)
+    if changed:
+        await session.execute(
+            update(Asset),
+            [{"id": asset_id, "start_frame": start} for asset_id, start in changed.items()],
+        )
+        # The bulk update bypasses loaded instances; keep any this session holds -- the
+        # assets an upload just created and is about to return -- in step with the table.
+        for instance in list(session.identity_map.values()):
+            if isinstance(instance, Asset) and instance.id in changed:
+                set_committed_value(instance, "start_frame", changed[instance.id])
     task.frame_count = cursor
     await session.flush()
     return cursor

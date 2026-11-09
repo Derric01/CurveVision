@@ -96,8 +96,8 @@ class CocoFormat:
                     "height": frame.height or 0,
                 }
             )
-            if frame.media is not None:
-                sink.write(f"images/{frame.name}", frame.media)
+            if frame.has_media:
+                sink.write_media(f"images/{frame.name}", frame)
 
             for shape in frame.shapes:
                 entry = self._annotation_entry(

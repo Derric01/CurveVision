@@ -67,6 +67,10 @@ class Settings(BaseSettings):
     # --- storage ------------------------------------------------------------------
     storage_backend: Literal["local", "s3"] = "local"
     storage_local_root: str = "./data/storage"
+    #: Where an export is assembled before it is sent: the archive, and any images fetched
+    #: from S3 for it. An export with images needs about their total size free here. The
+    #: system's temporary directory when unset.
+    export_work_dir: str | None = None
     s3_endpoint_url: str | None = None
     s3_region: str = "us-east-1"
     s3_bucket: str = "curvevision"

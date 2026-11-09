@@ -399,6 +399,14 @@ from `CURVEVISION_S3_BUCKET`.
 **Background jobs never run.** `CURVEVISION_JOB_QUEUE_BACKEND=dramatiq` without a worker
 running, or the worker cannot reach Redis. Check `/api/v1/background-tasks`.
 
-**Editor feels slow on a huge job.** Check `curvevision_http_request_duration_seconds` for
+**An export with images fails with "No space left on device".** An export with images is
+assembled on disk before it is sent, so it needs about the images' total size free: around
+30 GB for 10,000 phone photos. Memory use does not grow with it. Point
+`CURVEVISION_EXPORT_WORK_DIR` at a volume with room; the system temporary directory is
+used otherwise, and in a container that may be small.
+
+**Editor feels slow on a huge job.** An image task that did not choose a job size is split
+into jobs of 1,000 frames for this reason (`AUTO_IMAGE_JOB_SIZE`); a video task stays one
+job unless you set one, because a job boundary cuts the tracks that cross it. Check `curvevision_http_request_duration_seconds` for
 the annotation read. If the server is fast, the bottleneck is the browser; report it with a
 frame count — we benchmark this path and want the data.

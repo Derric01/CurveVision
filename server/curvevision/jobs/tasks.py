@@ -7,7 +7,10 @@ either wiring it up by hand.
 
 from __future__ import annotations
 
+import asyncio
+import tempfile
 import uuid
+from pathlib import Path
 from typing import Any
 
 from sqlalchemy import select
@@ -225,26 +228,33 @@ async def export_dataset_job(payload: dict[str, Any]) -> dict[str, Any]:
     storage = get_storage(settings)
     factory = get_sessionmaker()
 
-    async with factory() as session:
-        project = await session.get(Project, project_id)
-        if project is None:
-            return {"skipped": "project no longer exists"}
-        archive, warnings = await dataset_service.export_dataset(
-            session,
-            project,
-            format_id=format_id,
-            task_ids=[uuid.UUID(value) for value in payload.get("task_ids", [])] or None,
-            only_accepted=bool(payload.get("only_accepted", False)),
-            include_images=bool(payload.get("include_images", False)),
-            storage=storage if payload.get("include_images") else None,
-        )
+    # On disk, start to finish: images streamed in, the archive streamed out to storage.
+    if settings.export_work_dir is not None:
+        await asyncio.to_thread(Path(settings.export_work_dir).mkdir, parents=True, exist_ok=True)
+    with tempfile.TemporaryDirectory(
+        prefix="curvevision-export-", dir=settings.export_work_dir
+    ) as workdir:
+        async with factory() as session:
+            project = await session.get(Project, project_id)
+            if project is None:
+                return {"skipped": "project no longer exists"}
+            archive, warnings = await dataset_service.export_dataset_file(
+                session,
+                project,
+                workdir=Path(workdir),
+                format_id=format_id,
+                task_ids=[uuid.UUID(value) for value in payload.get("task_ids", [])] or None,
+                only_accepted=bool(payload.get("only_accepted", False)),
+                include_images=bool(payload.get("include_images", False)),
+                storage=storage if payload.get("include_images") else None,
+            )
 
-    key = f"exports/{project_id}/{payload.get('_task_row_id', uuid.uuid4())}.zip"
-    await storage.put(key, archive, content_type="application/zip")
+        key = f"exports/{project_id}/{payload.get('_task_row_id', uuid.uuid4())}.zip"
+        stored = await storage.put_file(key, archive, content_type="application/zip")
     BACKGROUND_TASKS.labels("dataset.export", "succeeded").inc()
     return {
         "storage_key": key,
-        "size_bytes": len(archive),
+        "size_bytes": stored.size,
         "format": format_id,
         "warnings": warnings,
     }

@@ -80,8 +80,8 @@ class CurveVisionFormat:
                     "shapes": [self._shape_to_json(shape) for shape in frame.shapes],
                 }
             )
-            if frame.media is not None:
-                sink.write(f"data/{frame.name}", frame.media)
+            if frame.has_media:
+                sink.write_media(f"data/{frame.name}", frame)
 
         document = {
             "schema": "curvevision/dataset",

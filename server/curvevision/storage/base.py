@@ -9,6 +9,7 @@ from __future__ import annotations
 
 from collections.abc import AsyncIterator, Iterable
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Protocol, runtime_checkable
 
 
@@ -35,6 +36,9 @@ class Storage(Protocol):
         self, key: str, data: bytes | Iterable[bytes], *, content_type: str = ...
     ) -> StoredObject:
         """Write ``data`` at ``key``, replacing anything already there."""
+
+    async def put_file(self, key: str, path: Path, *, content_type: str = ...) -> StoredObject:
+        """Write the file at ``path`` to ``key`` without reading it into memory."""
 
     async def append(self, key: str, data: bytes) -> int:
         """Append to ``key``, creating it if absent. Returns the new total size.

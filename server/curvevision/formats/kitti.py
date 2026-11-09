@@ -114,8 +114,8 @@ class KittiFormat:
                 f"label_2/{_stem(frame.name)}.txt", "\n".join(lines) + ("\n" if lines else "")
             )
             written += 1
-            if frame.media is not None:
-                sink.write(f"image_2/{frame.name}", frame.media)
+            if frame.has_media:
+                sink.write_media(f"image_2/{frame.name}", frame)
 
         sink.write(
             "README.txt",

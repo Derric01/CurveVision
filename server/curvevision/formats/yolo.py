@@ -189,9 +189,9 @@ class YoloFormat:
             stem = frame.name.rsplit("/", 1)[-1].rsplit(".", 1)[0]
             pending.append((f"labels/{split_of(frame.subset)}/{stem}.txt", rows))
             listed.append(f"images/{split_of(frame.subset)}/{frame.name.rsplit('/', 1)[-1]}")
-            if frame.media is not None:
-                sink.write(
-                    f"images/{split_of(frame.subset)}/{frame.name.rsplit('/', 1)[-1]}", frame.media
+            if frame.has_media:
+                sink.write_media(
+                    f"images/{split_of(frame.subset)}/{frame.name.rsplit('/', 1)[-1]}", frame
                 )
 
         segments = any(row.polygon for _path, rows in pending for row in rows)

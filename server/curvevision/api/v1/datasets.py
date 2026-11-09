@@ -2,12 +2,18 @@
 
 from __future__ import annotations
 
+import shutil
+import tempfile
 import uuid
+from pathlib import Path
 
 from fastapi import APIRouter, File, Response, UploadFile, status
+from fastapi.responses import FileResponse
 from sqlalchemy import select
+from starlette.background import BackgroundTask
 
 from curvevision.api.deps import ProjectScopeDep, SessionDep, SettingsDep, TaskScopeDep
+from curvevision.core.config import Settings
 from curvevision.core.errors import ValidationError
 from curvevision.domain.enums import DatasetVersionState, WebhookEvent
 from curvevision.domain.system import DatasetVersion
@@ -29,6 +35,24 @@ from curvevision.storage import get_storage
 router = APIRouter(tags=["datasets"])
 
 
+def export_workdir(settings: Settings) -> Path:
+    """A fresh directory for one export, removed once its archive has been sent."""
+    root = settings.export_work_dir
+    if root is not None:
+        Path(root).mkdir(parents=True, exist_ok=True)
+    return Path(tempfile.mkdtemp(prefix="curvevision-export-", dir=root))
+
+
+def archive_response(archive: Path, workdir: Path, headers: dict[str, str]) -> FileResponse:
+    """The archive, streamed from disk; the working directory goes once it has been sent."""
+    return FileResponse(
+        archive,
+        media_type="application/zip",
+        headers=headers,
+        background=BackgroundTask(shutil.rmtree, workdir, ignore_errors=True),
+    )
+
+
 @router.post("/projects/{project_id}/export")
 async def export_project(
     payload: ExportRequest,
@@ -38,28 +62,34 @@ async def export_project(
 ) -> Response:
     """Export a project's annotations as a downloadable archive.
 
-    Synchronous, because the common case (a few thousand frames, no images) finishes in
-    well under a second. Large exports with images belong on the background-task path,
-    which is *In Progress*.
+    Synchronous: 10,000 frames without images take well under a second, and with images
+    the archive is assembled on disk and streamed, so memory stays flat however many
+    gigabytes it carries (see `export_dataset_file`).
     """
     scope.authorize(Action.EXPORT)
     fmt = get_format(payload.format)
-    archive, warnings = await dataset_service.export_dataset(
-        session,
-        scope.project,
-        format_id=payload.format,
-        task_ids=payload.task_ids or None,
-        only_accepted=payload.only_accepted,
-        include_images=payload.include_images,
-        storage=get_storage(settings) if payload.include_images else None,
-    )
+    workdir = export_workdir(settings)
+    try:
+        archive, warnings = await dataset_service.export_dataset_file(
+            session,
+            scope.project,
+            workdir=workdir,
+            format_id=payload.format,
+            task_ids=payload.task_ids or None,
+            only_accepted=payload.only_accepted,
+            include_images=payload.include_images,
+            storage=get_storage(settings) if payload.include_images else None,
+        )
+    except BaseException:
+        shutil.rmtree(workdir, ignore_errors=True)
+        raise
     filename = f"{scope.project.slug}-{payload.format}.{fmt.extension}"
     headers = {"Content-Disposition": f'attachment; filename="{filename}"'}
     if warnings:
         # Surfaced in a header as well as inside the archive, so a scripted caller can see
         # that something was dropped without unzipping the result.
         headers["X-CurveVision-Warnings"] = " | ".join(warnings)[:900]
-    return Response(content=archive, media_type="application/zip", headers=headers)
+    return archive_response(archive, workdir, headers)
 
 
 @router.post("/tasks/{task_id}/import", response_model=ImportResultOut)
@@ -231,14 +261,20 @@ async def export_version(
     scope.authorize(Action.EXPORT)
     version = await dataset_service.get_dataset_version(session, scope.project.id, version_id)
     fmt = get_format(payload.format)
-    archive, warnings = await dataset_service.export_dataset_version(
-        session,
-        scope.project,
-        version,
-        format_id=payload.format,
-        include_images=payload.include_images,
-        storage=get_storage(settings),
-    )
+    workdir = export_workdir(settings)
+    try:
+        archive, warnings = await dataset_service.export_dataset_version_file(
+            session,
+            scope.project,
+            version,
+            workdir=workdir,
+            format_id=payload.format,
+            include_images=payload.include_images,
+            storage=get_storage(settings),
+        )
+    except BaseException:
+        shutil.rmtree(workdir, ignore_errors=True)
+        raise
     safe = "".join(c if c.isalnum() or c in "-_." else "-" for c in version.name)
     filename = f"{scope.project.slug}-{safe}-{payload.format}.{fmt.extension}"
     headers = {"Content-Disposition": f'attachment; filename="{filename}"'}
@@ -246,7 +282,7 @@ async def export_version(
         headers["X-CurveVision-Content-Hash"] = version.content_hash
     if warnings:
         headers["X-CurveVision-Warnings"] = " | ".join(warnings)[:900]
-    return Response(content=archive, media_type="application/zip", headers=headers)
+    return archive_response(archive, workdir, headers)
 
 
 @router.get("/projects/{project_id}/versions/{version_id}", response_model=DatasetVersionOut)

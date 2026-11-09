@@ -74,8 +74,8 @@ def _data_yaml(
 
 
 def _write_media(sink: ExportSink, frame: FrameRecord) -> None:
-    if frame.media is not None:
-        sink.write(f"images/{split_of(frame.subset)}/{frame.name.rsplit('/', 1)[-1]}", frame.media)
+    if frame.has_media:
+        sink.write_media(f"images/{split_of(frame.subset)}/{frame.name.rsplit('/', 1)[-1]}", frame)
 
 
 # ------------------------------------------------------------------- oriented boxes
@@ -483,15 +483,14 @@ class YoloClassificationFormat:
                 continue
             tag = frame.tags[0]
             classes.add(tag)
-            if frame.media is None:
+            if not frame.has_media:
                 without_media.append(frame.name)
                 continue
             # `train/<class>/`, at the root, as Ultralytics' classification datasets are laid
             # out; `images/train/<class>/` (until iteration 66) is the detection layout.
             splits.add(split_of(frame.subset))
-            sink.write(
-                f"{split_of(frame.subset)}/{tag}/{frame.name.rsplit('/', 1)[-1]}",
-                frame.media,
+            sink.write_media(
+                f"{split_of(frame.subset)}/{tag}/{frame.name.rsplit('/', 1)[-1]}", frame
             )
 
         report = ["Ultralytics YOLO classification export by CurveVision.", ""]
