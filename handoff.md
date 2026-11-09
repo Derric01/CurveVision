@@ -5,7 +5,7 @@
 > [`AGENTS.md`](./AGENTS.md) first; it is the working contract. Update this file after every
 > iteration, including the ones that mostly failed.
 >
-> **Last updated:** 2026-11-09 (iteration 102l) · branch `claude/start-work-yx080h` · PRs
+> **Last updated:** 2026-11-09 (iteration 102m) · branch `claude/start-work-yx080h` · PRs
 > [#1](https://github.com/Derric01/CurveVision/pull/1)–[#39](https://github.com/Derric01/CurveVision/pull/39)
 > **all merged**, #37 carrying iterations 84 (the rest) to 98, #38 iteration 99 and #39 iteration 100.
 >
@@ -2302,6 +2302,24 @@ Iteration 54:
 
 ## Last iteration
 
+### 102m — playing a job's frames
+
+Release bar item (2), part two.
+
+* **Play / Pause** and a speed (1, 5, 10, 25 fps) in the editor's frame bar
+  (`web/src/features/editor/playback.ts`). The editor could only step. The next frame is
+  asked for only once the current one's image has arrived (the effect is keyed on the
+  image URL, not the frame number), so playback never runs ahead of loading: on a slow
+  connection it plays slower rather than flashing blank frames. It stops at the last
+  frame; from there, Play starts over. Stepping, scrubbing, any panel's jump to a frame,
+  and touching the canvas all pause it (`seek` in `EditorPage`).
+* Checked in Chromium against the real server (`scripts/verify_playback.py`, 12 frames
+  of distinct shades). It plays through, stops at the end, restarts, an arrow pauses it,
+  and every frame it showed had been drawn before it moved on: the canvas's centre pixel
+  matched the frame's shade.
+* Image adjustments (brightness, contrast) are still not in the editor; they are not on
+  the release bar.
+
 ### 102l — per-object controls in the editor; consistent frame numbers
 
 Release bar item (2), part one.
@@ -2327,7 +2345,7 @@ Release bar item (2), part one.
   keeping its width, all read back from what the server stored. Engine tests:
   `canvas/__tests__/objectControls.test.ts`.
 
-**Next on (2):** video playback (a play button) for video tasks.
+**Next on (2):** video playback; done in 102m.
 
 ### 102k — every format round-tripped; four editor bugs that changed what was saved
 

@@ -24,6 +24,8 @@ import {
   Lock,
   LockOpen,
   Maximize2,
+  Pause,
+  Play,
   MousePointer2,
   Pentagon,
   PersonStanding,
@@ -52,6 +54,7 @@ import {
   withUnsaved,
 } from './adapters';
 import { useFrameObjectUrl } from './useFrameObjectUrl';
+import { DEFAULT_PLAYBACK_RATE, PLAYBACK_RATES, usePlayback, type PlaybackRate } from './playback';
 import { TrackTimeline } from './TrackTimeline';
 import { adjacentKeyframe, trackRows } from './timeline';
 import { markDeparture, moveKeyframe, toggleKeyframe, type EditResult } from './keyframes';
@@ -240,6 +243,25 @@ export function EditorPage() {
   );
   const imageUrl = useFrameObjectUrl(task.data?.id, currentFrame);
 
+  const [playbackRate, setPlaybackRate] = useState<PlaybackRate>(DEFAULT_PLAYBACK_RATE);
+  const playback = usePlayback({
+    frame: currentFrame,
+    start: job.data?.start_frame ?? 0,
+    stop: job.data?.stop_frame ?? 0,
+    shown: imageUrl,
+    rate: playbackRate,
+    onFrame: setFrame,
+  });
+  const { pause } = playback;
+  /** A frame the annotator chose: it stops playback, as stepping does in any player. */
+  const seek = useCallback(
+    (target: number) => {
+      pause();
+      setFrame(target);
+    },
+    [pause],
+  );
+
   // The same query key the issues panel uses, so react-query serves both from one fetch
   // rather than this becoming a second request or a prop drilled through the sidebar.
   const issues = useQuery({
@@ -360,6 +382,7 @@ export function EditorPage() {
       if (target && ['INPUT', 'TEXTAREA', 'SELECT'].includes(target.tagName)) return;
       if (!job.data) return;
 
+      if (['ArrowRight', 'd', 'ArrowLeft', 'a', '.', ','].includes(event.key)) pause();
       if (event.key === 'ArrowRight' || event.key === 'd') {
         setFrame((current) => Math.min(job.data!.stop_frame, (current ?? 0) + 1));
       } else if (event.key === 'ArrowLeft' || event.key === 'a') {
@@ -387,7 +410,7 @@ export function EditorPage() {
     }
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [job.data, keyframes, frame, selectedTrackId, editTrack]);
+  }, [job.data, keyframes, frame, selectedTrackId, editTrack, pause]);
 
   // Flush pending work before leaving the frame, so changes are never stranded.
   useEffect(() => {
@@ -484,7 +507,7 @@ export function EditorPage() {
           refused={autosave.refused}
           labels={labelStyles}
           currentFrame={currentFrame}
-          onSeek={setFrame}
+          onSeek={seek}
         />
       )}
 
@@ -536,8 +559,8 @@ export function EditorPage() {
           </RailButton>
         </nav>
 
-        {/* Canvas */}
-        <div className="relative min-w-0 flex-1">
+        {/* Canvas. Touching it stops playback: nobody draws on a moving picture. */}
+        <div className="relative min-w-0 flex-1" onPointerDownCapture={pause}>
           <AnnotationCanvas
             ref={canvasRef}
             annotations={visible}
@@ -777,7 +800,7 @@ export function EditorPage() {
             currentFrame={currentFrame}
             beforeDeciding={autosave.flush}
             onGoTo={(place) => {
-              setFrame(place.frame);
+              seek(place.frame);
               setFocusId(place.id);
             }}
           />
@@ -801,10 +824,10 @@ export function EditorPage() {
                 ? (visible.find((item) => item.id === selection[0]) ?? null)
                 : null
             }
-            onSeek={setFrame}
+            onSeek={seek}
           />
 
-          <QualityPanel job={job.data} labels={labelStyles} onSeek={setFrame} />
+          <QualityPanel job={job.data} labels={labelStyles} onSeek={seek} />
 
           {/* Last, because that is the order the decision is made in: read the objects, the
               issues and the score, then rule on the job. Renders nothing unless it is
@@ -821,7 +844,7 @@ export function EditorPage() {
         startFrame={job.data?.start_frame ?? 0}
         stopFrame={job.data?.stop_frame ?? 0}
         currentFrame={currentFrame}
-        onSeek={setFrame}
+        onSeek={seek}
         selectedTrackId={selectedTrackId}
         onSelectTrack={(trackId) => {
           setSelectedTrackId(trackId);
@@ -836,10 +859,38 @@ export function EditorPage() {
 
       {/* Frame navigation */}
       <footer className="flex h-12 shrink-0 items-center gap-3 border-t border-ink-800 px-3">
+        {frameCount > 1 && (
+          <>
+            <Button
+              size="sm"
+              variant="ghost"
+              onClick={playback.playing ? playback.pause : playback.play}
+              title={playback.playing ? 'Pause' : 'Play'}
+              aria-label={playback.playing ? 'Pause' : 'Play'}
+              data-playback={playback.playing ? 'playing' : 'paused'}
+            >
+              {playback.playing ? <Pause size={16} /> : <Play size={16} />}
+            </Button>
+            <select
+              className="rounded border border-ink-700 bg-ink-900 px-1 py-0.5 font-mono text-xs text-ink-300"
+              value={playbackRate}
+              onChange={(event) => setPlaybackRate(Number(event.target.value) as PlaybackRate)}
+              aria-label="Playback speed"
+              title="Playback speed"
+              data-playback-rate=""
+            >
+              {PLAYBACK_RATES.map((rate) => (
+                <option key={rate} value={rate}>
+                  {rate} fps
+                </option>
+              ))}
+            </select>
+          </>
+        )}
         <Button
           size="sm"
           variant="ghost"
-          onClick={() => setFrame(Math.max(job.data!.start_frame, currentFrame - 1))}
+          onClick={() => seek(Math.max(job.data!.start_frame, currentFrame - 1))}
           disabled={currentFrame <= (job.data?.start_frame ?? 0)}
         >
           <ChevronLeft size={16} />
@@ -850,7 +901,7 @@ export function EditorPage() {
           min={job.data?.start_frame ?? 0}
           max={job.data?.stop_frame ?? 0}
           value={currentFrame}
-          onChange={(event) => setFrame(Number(event.target.value))}
+          onChange={(event) => seek(Number(event.target.value))}
           className="h-1 flex-1 cursor-pointer appearance-none rounded-full bg-ink-800 accent-curve-500"
           aria-label="Frame"
         />
@@ -858,7 +909,7 @@ export function EditorPage() {
         <Button
           size="sm"
           variant="ghost"
-          onClick={() => setFrame(Math.min(job.data!.stop_frame, currentFrame + 1))}
+          onClick={() => seek(Math.min(job.data!.stop_frame, currentFrame + 1))}
           disabled={currentFrame >= (job.data?.stop_frame ?? 0)}
         >
           <ChevronRight size={16} />
