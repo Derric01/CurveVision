@@ -79,18 +79,34 @@ class WebDriver:
         self.base = f"http://127.0.0.1:{port}"
         self.session = ""
 
+    #: Requests that change nothing, so asking again after a dropped connection is safe:
+    #: reading, finding an element, switching windows, clearing a field. A click or a script
+    #: is never repeated here, since the first may have happened.
+    _REPEATABLE = ("/element", "/window", "/clear")
+
     def call(self, method: str, path: str, body: object = None) -> Any:
-        request = urllib.request.Request(
-            f"{self.base}{path}",
-            method=method,
-            data=None if body is None else json.dumps(body).encode(),
-            headers={"Content-Type": "application/json"},
-        )
-        try:
-            with urllib.request.urlopen(request, timeout=180) as response:
-                return json.loads(response.read())["value"]
-        except urllib.error.HTTPError as exc:
-            raise RuntimeError(f"{method} {path}: {exc.read().decode()[:400]}") from None
+        """One WebDriver command. WebKitWebDriver drops connections around windows opening,
+        closing and navigating (handoff.md, *Known issues*); one drop used to end the run at
+        whichever step it landed on, a different one each time. A repeatable command is
+        asked again; anything else still raises, for its caller to judge."""
+        repeatable = method == "GET" or path.endswith(self._REPEATABLE)
+        for attempt in range(4 if repeatable else 1):
+            request = urllib.request.Request(
+                f"{self.base}{path}",
+                method=method,
+                data=None if body is None else json.dumps(body).encode(),
+                headers={"Content-Type": "application/json"},
+            )
+            try:
+                with urllib.request.urlopen(request, timeout=180) as response:
+                    return json.loads(response.read())["value"]
+            except urllib.error.HTTPError as exc:
+                raise RuntimeError(f"{method} {path}: {exc.read().decode()[:400]}") from None
+            except OSError:
+                if not repeatable or attempt == 3:
+                    raise
+                time.sleep(0.5 * (attempt + 1))
+        raise AssertionError("unreachable")
 
     def start(self, application: Path) -> None:
         value = self.call(
@@ -164,9 +180,17 @@ class WebDriver:
         self.call("POST", self.s(f"/element/{self.wait_for(css)}/click"), {})
 
     def type(self, css: str, text: str) -> None:
-        element = self.wait_for(css)
-        self.call("POST", self.s(f"/element/{element}/clear"), {})
-        self.call("POST", self.s(f"/element/{element}/value"), {"text": text})
+        # Cleared first, so typing again after a dropped connection cannot double the text.
+        for attempt in range(4):
+            try:
+                element = self.wait_for(css)
+                self.call("POST", self.s(f"/element/{element}/clear"), {})
+                self.call("POST", self.s(f"/element/{element}/value"), {"text": text})
+                return
+            except OSError:
+                if attempt == 3:
+                    raise
+                time.sleep(0.5 * (attempt + 1))
 
     def text(self, css: str) -> str:
         return str(self.call("GET", self.s(f"/element/{self.wait_for(css)}/text")))
