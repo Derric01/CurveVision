@@ -114,8 +114,18 @@ jobs:
         run: |
           updater=false
           [ -n "$TAURI_SIGNING_PRIVATE_KEY" ] && updater=true
-          npx --yes @tauri-apps/cli@2 build --bundles ${{ matrix.bundles }} \
-            --config "{\"build\":{\"beforeBuildCommand\":\"\"},\"bundle\":{\"createUpdaterArtifacts\":$updater}}"
+          # Bundling downloads its tools (the AppImage's AppRun and linuxdeploy, WiX, NSIS)
+          # from GitHub's release servers, which answered 504 for hours on 2026-11-09. A failed
+          # attempt is tried again; the compiled application is reused, so a retry is quick.
+          for attempt in 1 2 3; do
+            if npx --yes @tauri-apps/cli@2 build --bundles ${{ matrix.bundles }} \
+              --config "{\"build\":{\"beforeBuildCommand\":\"\"},\"bundle\":{\"createUpdaterArtifacts\":$updater}}"; then
+              break
+            fi
+            [ "$attempt" = 3 ] && exit 1
+            echo "Bundling failed (attempt $attempt); trying again"
+            sleep $((attempt * 30))
+          done
 
       # Tauri names the macOS update archive `CurveVision.app.tar.gz` whatever the machine,
       # so the two Macs' archives would overwrite each other in the release. Name each after
