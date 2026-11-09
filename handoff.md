@@ -2350,6 +2350,24 @@ task one job. Four defects showed up, and each is fixed with a test:
 | load a 1,000-box job | 0.05 s |
 | export COCO / YOLO with images | 3.1 s / 3.5 s |
 
+100,000 images, segments of 500:
+
+| Step | Time |
+| --- | --- |
+| upload, 1,000 batches | 914 s (first batch 0.58 s, last 1.13 s) |
+| open the task / its jobs / media metadata | ≤ 0.03 s each |
+| open the last frame | 0.22 s |
+| save 200,000 boxes | 153 s |
+| load a 1,000-box job | 0.05 s |
+| export COCO / YOLO with images | 34 s / 32 s |
+
+**Still open at 100,000:** an export holds the *annotations* in memory, though no longer
+the images: about 840 MB for 200,000 boxes, measured through the test client. That is fine
+on a server or a 16 GB laptop and tight on an 8 GB one. Making it stream means a COCO
+writer that does not build its whole JSON document, and frame records produced per
+task rather than all at once. Uploads still slow down slightly, about 2× from the first
+batch to the thousandth; the remaining per-batch cost is rebuilding the task's jobs.
+
 ### 102i — dependency advisories cleared; phone photos annotated the right way up
 
 * **Advisories.** Every one npm reported was in development tooling: production installs
