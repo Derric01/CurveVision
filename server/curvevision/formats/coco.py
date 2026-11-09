@@ -11,6 +11,8 @@ reported as dropped before the export runs.
 from __future__ import annotations
 
 import json
+import shutil
+import tempfile
 from typing import Any
 
 from curvevision.core.logging import get_logger
@@ -29,6 +31,7 @@ from curvevision.formats.base import (
     polygon_area,
     rectangle_to_polygon,
     rotated_corners,
+    streamed_text,
 )
 from curvevision.formats.registry import register
 from curvevision.formats.rle import from_coco_rle, mask_bounds, pixels, to_coco_rle
@@ -82,44 +85,45 @@ class CocoFormat:
                 category["skeleton"] = [[a + 1, b + 1] for a, b in label.skeleton_edges]
             categories.append(category)
 
-        images: list[dict[str, Any]] = []
-        annotations: list[dict[str, Any]] = []
+        # Written as it goes, not built and then serialised: 200,000 annotations as a list
+        # of dicts and then one string took several hundred megabytes. Image entries are
+        # short and kept as text; annotations, the bulk, go through a temporary file so the
+        # document keeps COCO's usual order (images, then annotations).
+        images: list[str] = []
         annotation_id = 1
-
-        for frame in dataset:
-            image_id = frame.index + 1
-            images.append(
-                {
-                    "id": image_id,
-                    "file_name": frame.name,
-                    "width": frame.width or 0,
-                    "height": frame.height or 0,
-                }
-            )
-            if frame.has_media:
-                sink.write_media(f"images/{frame.name}", frame)
-
-            for shape in frame.shapes:
-                entry = self._annotation_entry(
-                    shape, image_id, annotation_id, category_ids, frame.width, frame.height
+        with tempfile.TemporaryFile("w+", encoding="utf-8") as pending:
+            for frame in dataset:
+                image_id = frame.index + 1
+                images.append(
+                    json.dumps(
+                        {
+                            "id": image_id,
+                            "file_name": frame.name,
+                            "width": frame.width or 0,
+                            "height": frame.height or 0,
+                        }
+                    )
                 )
-                if entry is None:
-                    continue
-                annotations.append(entry)
-                annotation_id += 1
+                if frame.has_media:
+                    sink.write_media(f"images/{frame.name}", frame)
 
-        document = {
-            "info": {
-                "description": dataset.name,
-                "version": "1.0",
-                "contributor": "CurveVision",
-            },
-            "licenses": [],
-            "images": images,
-            "annotations": annotations,
-            "categories": categories,
-        }
-        sink.write("annotations/instances_default.json", json.dumps(document, indent=1))
+                for shape in frame.shapes:
+                    entry = self._annotation_entry(
+                        shape, image_id, annotation_id, category_ids, frame.width, frame.height
+                    )
+                    if entry is None:
+                        continue
+                    pending.write(("" if annotation_id == 1 else ",\n") + json.dumps(entry))
+                    annotation_id += 1
+
+            info = {"description": dataset.name, "version": "1.0", "contributor": "CurveVision"}
+            with streamed_text(sink, "annotations/instances_default.json") as out:
+                out.write('{"info": ' + json.dumps(info) + ',\n"licenses": [],\n"images": [\n')
+                out.write(",\n".join(images))
+                out.write('\n],\n"annotations": [\n')
+                pending.seek(0)
+                shutil.copyfileobj(pending, out)
+                out.write('\n],\n"categories": ' + json.dumps(categories) + "}\n")
 
     def _annotation_entry(
         self,

@@ -294,7 +294,28 @@ async def _collect_job_annotations(
     present_types: set[ShapeType],
     track_ids: _TrackIds,
 ) -> None:
-    shapes = (await session.execute(select(Shape).where(Shape.job_id == job.id))).scalars().all()
+    # Columns, not entities: an export reads each shape once, and loading them as ORM
+    # objects registered every one in the session's identity map for the whole export --
+    # a share of the memory that grew with every box (measured: 2.5 KB a box in total).
+    shapes = (
+        await session.execute(
+            select(
+                Shape.frame,
+                Shape.label_id,
+                Shape.shape_type,
+                Shape.points,
+                Shape.rotation,
+                Shape.occluded,
+                Shape.z_order,
+                Shape.group,
+                Shape.attributes,
+                Shape.source,
+                Shape.confidence,
+                Shape.mask,
+                Shape.elements,
+            ).where(Shape.job_id == job.id)
+        )
+    ).all()
     for shape in shapes:
         present_types.add(ShapeType(shape.shape_type))
         by_frame.setdefault(shape.frame, []).append(

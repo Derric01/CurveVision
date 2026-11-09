@@ -5,7 +5,7 @@
 > [`AGENTS.md`](./AGENTS.md) first; it is the working contract. Update this file after every
 > iteration, including the ones that mostly failed.
 >
-> **Last updated:** 2026-11-09 (iteration 102m) · branch `claude/start-work-yx080h` · PRs
+> **Last updated:** 2026-11-09 (iteration 102n) · branch `claude/start-work-yx080h` · PRs
 > [#1](https://github.com/Derric01/CurveVision/pull/1)–[#39](https://github.com/Derric01/CurveVision/pull/39)
 > **all merged**, #37 carrying iterations 84 (the rest) to 98, #38 iteration 99 and #39 iteration 100.
 >
@@ -2301,6 +2301,30 @@ Iteration 54:
 ---
 
 ## Last iteration
+
+### 102n — exports write their JSON as they go
+
+Release bar item (3). Measured with `tracemalloc` on exports without images, phase by
+phase. At the start, an export's peak was 3.5 KB a box for COCO and 4.6 for the native
+format, from building the whole document as dicts and then one string.
+
+* `formats.base.streamed_text` and `ExportSink.write_file`: a format writes a large file
+  piece by piece to a temporary file, which is then streamed into the archive. It cannot
+  go straight into the zip, because images are added during the same loop.
+* **COCO** keeps its key order (images, then annotations). Image entries are held as short
+  strings; annotations go through a temporary file.
+* **Native** (`dataset.json`, also what backups and frozen dataset versions are) writes one
+  frame per line. Readers parse it as before; only the whitespace differs.
+* Shapes are loaded as columns, not ORM entities.
+* Result: the format phase is under 1 KB a box. The whole export peaks at about 2.5 KB a
+  box for COCO, YOLO and native alike; 20,000 and 40,000 boxes give the same ratio. At
+  200,000 boxes that is about 500 MB, where it was 700–920 MB.
+* **What is left**, and why it was not done: most of the remaining peak is
+  `build_dataset_view` holding every frame's record. Per-image asset and blob rows are
+  loaded as ORM objects, and `FrameRecord`s for every frame live until the format runs.
+  Removing that means producing frames task by task while the format consumes them, but
+  formats are synchronous and the database is async. 500 MB fits an 8 GB laptop, so this
+  waits for after launch.
 
 ### 102m — playing a job's frames
 

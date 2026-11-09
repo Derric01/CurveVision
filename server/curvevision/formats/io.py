@@ -34,6 +34,9 @@ class ZipExportSink:
         payload = data.encode("utf-8") if isinstance(data, str) else data
         self._zip.writestr(path, payload, compress_type=_compression(path))
 
+    def write_file(self, path: str, source: Path) -> None:
+        self._zip.write(source, arcname=path, compress_type=_compression(path))
+
     def write_media(self, path: str, frame: FrameRecord) -> None:
         if frame.media_path is not None:
             self._zip.write(frame.media_path, arcname=path, compress_type=_compression(path))
@@ -63,6 +66,9 @@ class MemoryExportSink:
 
     def write(self, path: str, data: bytes | str) -> None:
         self.files[path] = data.encode("utf-8") if isinstance(data, str) else data
+
+    def write_file(self, path: str, source: Path) -> None:
+        self.files[path] = source.read_bytes()
 
     def write_media(self, path: str, frame: FrameRecord) -> None:
         media = frame.read_media()

@@ -17,10 +17,12 @@ without a database.
 
 from __future__ import annotations
 
+import tempfile
 from collections.abc import Iterable, Iterator
+from contextlib import contextmanager
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Literal, Protocol, runtime_checkable
+from typing import Any, Literal, Protocol, TextIO, runtime_checkable
 
 from curvevision.domain.enums import AttributeType, ShapeType
 
@@ -162,6 +164,25 @@ class ExportSink(Protocol):
 
     def write_media(self, path: str, frame: FrameRecord) -> None:
         """Write the frame's image at `path`, from memory or streamed from disk."""
+
+    def write_file(self, path: str, source: Path) -> None:
+        """Write the file at `source` to `path`, streamed rather than read whole."""
+
+
+@contextmanager
+def streamed_text(sink: ExportSink, path: str) -> Iterator[TextIO]:
+    """A text file a format writes piece by piece, added to the export at `path` when done.
+
+    For a document too large to build in memory first: COCO's annotations for 100,000
+    images were a list of dicts and then a string of several hundred megabytes. It goes to
+    a temporary file rather than straight into the archive because a format adds images to
+    the archive while it is still writing the document.
+    """
+    with tempfile.TemporaryDirectory(prefix="curvevision-part-") as directory:
+        local = Path(directory) / "part"
+        with local.open("w", encoding="utf-8") as handle:
+            yield handle
+        sink.write_file(path, local)
 
 
 class ImportSource(Protocol):
