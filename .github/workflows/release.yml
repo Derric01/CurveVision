@@ -55,8 +55,8 @@ jobs:
         image: [server, web]
     steps:
       - uses: actions/checkout@v5
-      - uses: docker/setup-buildx-action@v3
-      - uses: docker/login-action@v3
+      - uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3
+      - uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
@@ -69,7 +69,7 @@ jobs:
           echo "version=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
       - name: Build and push
         id: push
-        uses: docker/build-push-action@v6
+        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6
         with:
           context: .
           file: deploy/Dockerfile.${{ matrix.image }}
@@ -87,6 +87,14 @@ jobs:
           subject-name: ${{ steps.name.outputs.image }}
           subject-digest: ${{ steps.push.outputs.digest }}
           push-to-registry: true
+      # Sigstore keyless signing: the signature is bound to this workflow's identity by a
+      # short-lived certificate, so there is no long-lived key to leak. Verify with
+      # `cosign verify <image> --certificate-identity-regexp
+      #  'https://github.com/Derric01/CurveVision/.github/workflows/release.yml@.*'
+      #  --certificate-oidc-issuer https://token.actions.githubusercontent.com`.
+      - uses: sigstore/cosign-installer@756fe2d284c7292c4e9b62c8a28f1e5629c59532 # v4.1.3
+      - name: Sign the image (Sigstore)
+        run: cosign sign --yes "${{ steps.name.outputs.image }}@${{ steps.push.outputs.digest }}"
 
   draft:
     name: Scan, checksum, attest, draft the release
@@ -131,9 +139,30 @@ jobs:
             echo "No .sig files: the updater's signing key is not configured, so no feed."
           fi
 
+      # A software bill of materials: every component and version in what is released, for
+      # anyone who has to answer "are we affected?" when the next advisory lands.
+      - name: The software bill of materials
+        uses: anchore/sbom-action@e22c389904149dbc22b58101806040fa8d37a610 # v0
+        with:
+          path: .
+          format: spdx-json
+          output-file: release/curvevision-sbom.spdx.json
+          upload-artifact: false
+          upload-release-assets: false
+
       - name: Checksums
         working-directory: release
         run: sha256sum * | grep -v ' SHA256SUMS$' > SHA256SUMS && cat SHA256SUMS
+
+      # The checksum list, signed keylessly with Sigstore: one signature that covers every
+      # file through the hashes it lists. Verify with `cosign verify-blob SHA256SUMS
+      # --bundle SHA256SUMS.sigstore.json --certificate-identity-regexp
+      # 'https://github.com/Derric01/CurveVision/.github/workflows/release.yml@.*'
+      # --certificate-oidc-issuer https://token.actions.githubusercontent.com`.
+      - uses: sigstore/cosign-installer@756fe2d284c7292c4e9b62c8a28f1e5629c59532 # v4.1.3
+      - name: Sign the checksums (Sigstore)
+        working-directory: release
+        run: cosign sign-blob --yes SHA256SUMS --bundle SHA256SUMS.sigstore.json
 
       - uses: actions/attest-build-provenance@v2
         with:
@@ -150,7 +179,8 @@ jobs:
           | Your computer | File |
           | --- | --- |
           | Windows 10/11 | \`CurveVision_${version}_x64-setup.exe\` |
-          | macOS (Apple Silicon) | \`CurveVision_${version}_aarch64.dmg\` |
+          | macOS, Apple Silicon (M1 and later) | \`CurveVision_${version}_aarch64.dmg\` |
+          | macOS, Intel | \`CurveVision_${version}_x64.dmg\` |
           | Linux (Debian, Ubuntu) | \`curve-vision_${version}_amd64.deb\` |
           | Linux (Fedora, RHEL) | \`curve-vision-${version}-1.x86_64.rpm\` |
           | Linux (any) | \`CurveVision_${version}_amd64.AppImage\` |
@@ -167,8 +197,9 @@ jobs:
           \`\`\`
 
           The installers are **not yet code-signed**: Windows SmartScreen will ask you to
-          confirm ("More info" → "Run anyway"), and macOS will ask you to allow the app in
-          System Settings → Privacy & Security. Every file was scanned with ClamAV before
+          confirm ("More info" → "Run anyway"). On a Mac, open the app once, then choose
+          "Open Anyway" in System Settings → Privacy & Security; the README's *Opening it
+          the first time on a Mac* has the rest. Every file was scanned with ClamAV before
           this release was made.
           NOTES
           gh release create "${GITHUB_REF_NAME}" release/* \

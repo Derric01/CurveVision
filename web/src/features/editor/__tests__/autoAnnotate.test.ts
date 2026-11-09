@@ -4,6 +4,7 @@ import {
   blockedReason,
   describePlan,
   describeUnmatched,
+  listBriefly,
   ignoredClassesNote,
   labelMapping,
   parseClasses,
@@ -240,7 +241,27 @@ describe('where predictions will land', () => {
   });
 });
 
+describe('listBriefly', () => {
+  it('lists a few names in full', () => {
+    expect(listBriefly(['cup', 'cat'])).toBe('cup, cat');
+  });
+
+  it('cuts a long list to its first names and a count', () => {
+    const coco = Array.from({ length: 80 }, (_, index) => `class${index}`);
+    const text = listBriefly(coco);
+    expect(text).toContain('class0, class1');
+    expect(text).toContain('class7 and 72 more');
+    expect(text).not.toContain('class8,');
+  });
+});
+
 describe('describeUnmatched', () => {
+  it('stays short for a model with many classes', () => {
+    const note = describeUnmatched(Array.from({ length: 76 }, (_, i) => `c${i}`)) ?? '';
+    expect(note).toContain('and 68 more have no matching label');
+  });
+
+
   it('is silent when everything lands', () => {
     expect(describeUnmatched([])).toBeNull();
   });

@@ -3,6 +3,7 @@ import { Link, Navigate, Route, Routes, useLocation, useNavigate } from 'react-r
 import { Globe, KeyRound, LogOut, Layers, ListChecks, Sparkles, Users } from 'lucide-react';
 import { useSession } from '@/store/session';
 import { desktop, onTeamServerMenu } from '@/desktop';
+import { ThemeToggle } from '@/ui/ThemeToggle';
 import { Button, Spinner } from '@/ui/primitives';
 import { LoginPage } from '@/features/auth/LoginPage';
 import { SsoCallback } from '@/features/auth/SsoCallback';
@@ -20,15 +21,24 @@ import { TeamServerPage } from '@/features/desktop/TeamServerPage';
 function Logo() {
   return (
     <Link to="/projects" className="flex items-center gap-2">
-      <svg viewBox="0 0 32 32" className="h-6 w-6" aria-hidden>
+      <svg viewBox="0 0 32 32" className="h-6 w-6 text-ink-100" aria-hidden>
         <path
           d="M6 22C6 13 12 8 20 8"
-          stroke="#2dd4bf"
+          stroke="currentColor"
           strokeWidth="3"
           fill="none"
           strokeLinecap="round"
         />
-        <rect x="14" y="14" width="12" height="10" rx="1.5" stroke="#5eead4" strokeWidth="2" fill="none" />
+        <rect
+          x="14"
+          y="14"
+          width="12"
+          height="10"
+          rx="1.5"
+          stroke="currentColor"
+          strokeWidth="2"
+          fill="none"
+        />
       </svg>
       <span className="text-sm font-semibold tracking-tight text-ink-100">CurveVision</span>
     </Link>
@@ -68,6 +78,7 @@ function TopBar() {
         </nav>
       </div>
       <div className="flex items-center gap-3">
+        <ThemeToggle />
         {/* On a shared server, who you are matters and you can stop being them. In the
             desktop application there is one person and no session to end, so a name badge
             and a sign-out button would both be furniture. */}

@@ -91,12 +91,25 @@ export function plannedClasses(
   return { classes: [...projectLabels], source: 'project' };
 }
 
+/** How many names a note lists before it says how many more there are. */
+export const LISTED = 8;
+
+/**
+ * A list a person can read in the rail: every name when there are a few, the first few and
+ * a count when there are many. A COCO detector has 80 classes, and listing all of them
+ * pushed the rest of the editor's rail off the screen.
+ */
+export function listBriefly(names: readonly string[], limit: number = LISTED): string {
+  if (names.length <= limit) return names.join(', ');
+  return `${names.slice(0, limit).join(', ')} and ${names.length - limit} more`;
+}
+
 /** One line under the class box: what will be searched for, and why those. */
 export function describePlan(plan: ClassPlan): string {
   if (plan.classes.length === 0) {
     return 'Nothing to look for yet.';
   }
-  const list = plan.classes.join(', ');
+  const list = listBriefly(plan.classes);
   switch (plan.source) {
     case 'typed':
       return `Will look for: ${list}`;
@@ -208,7 +221,7 @@ export function labelMapping(
 /** The warning shown before a run, when some of what it finds has nowhere to land. */
 export function describeUnmatched(unmatched: readonly string[]): string | null {
   if (unmatched.length === 0) return null;
-  const list = unmatched.join(', ');
+  const list = listBriefly(unmatched);
   const verb = unmatched.length === 1 ? 'has' : 'have';
   return `${list} ${verb} no matching label in this project, so anything found will be discarded. Add the label first to keep it.`;
 }

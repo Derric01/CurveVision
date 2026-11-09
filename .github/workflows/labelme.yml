@@ -54,7 +54,9 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           pip install -e "server[media]"
-          pip install labelme
+          # labelme 6.3.1 imports onnxruntime when it is imported, for its AI-assisted tools,
+          # without declaring it: without this, `import labelme` fails before anything is read.
+          pip install labelme onnxruntime
 
       - name: Read and write
         env:

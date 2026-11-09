@@ -1,0 +1,45 @@
+# The product website (site/), published to GitHub Pages: the landing page, with the
+# README's screenshot and the demo video copied in at build time rather than committed
+# twice. Turn it on once: Settings → Pages → Source: GitHub Actions.
+name: Website
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'site/**'
+      - 'docs/images/editor.png'
+      - 'docs/demo/curvevision-demo.mp4'
+      - 'web/public/favicon.svg'
+      - '.github/workflows/pages.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v5
+      - name: Assemble the site
+        run: |
+          mkdir -p public/assets
+          cp site/index.html public/
+          cp docs/images/editor.png docs/demo/curvevision-demo.mp4 public/assets/
+          cp web/public/favicon.svg public/assets/
+      - uses: actions/configure-pages@v5
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: public
+      - id: deployment
+        uses: actions/deploy-pages@v4

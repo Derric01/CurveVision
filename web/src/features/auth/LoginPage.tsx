@@ -5,6 +5,7 @@ import type { SignInOptions } from "@/api/types";
 import { isDesktop } from "@/desktop";
 import { useSession } from "@/store/session";
 import { Button, ErrorNotice, Input } from "@/ui/primitives";
+import { ThemeToggle } from "@/ui/ThemeToggle";
 import { keepState, keepVerifier, newVerifier } from "./sso";
 
 /** What a server too old to say offers: the password form, as it always did. */
@@ -88,13 +89,14 @@ export function LoginPage() {
   }
 
   return (
-    <div className="flex min-h-full items-center justify-center px-4 py-12">
+    <div className="relative flex min-h-full items-center justify-center px-4 py-12">
+      <ThemeToggle className="absolute right-4 top-4" />
       <div className="w-full max-w-sm">
         <div className="mb-8 text-center">
-          <svg viewBox="0 0 32 32" className="mx-auto h-10 w-10" aria-hidden>
+          <svg viewBox="0 0 32 32" className="mx-auto h-10 w-10 text-ink-100" aria-hidden>
             <path
               d="M6 22C6 13 12 8 20 8"
-              stroke="#2dd4bf"
+              stroke="currentColor"
               strokeWidth="3"
               fill="none"
               strokeLinecap="round"
@@ -105,7 +107,7 @@ export function LoginPage() {
               width="12"
               height="10"
               rx="1.5"
-              stroke="#5eead4"
+              stroke="currentColor"
               strokeWidth="2"
               fill="none"
             />

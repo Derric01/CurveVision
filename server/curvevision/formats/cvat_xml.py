@@ -30,6 +30,9 @@ from dataclasses import replace
 from typing import Any
 from xml.sax.saxutils import escape
 
+import defusedxml.ElementTree as SafeET
+from defusedxml import DefusedXmlException
+
 from curvevision.core.errors import ValidationError
 from curvevision.core.logging import get_logger
 from curvevision.domain.enums import ShapeType
@@ -455,9 +458,14 @@ class CvatXmlFormat:
             return result
 
         try:
-            root = ET.fromstring(source.read(name).decode("utf-8"))
+            # The file is untrusted: defusedxml refuses entity declarations and external
+            # entities rather than expanding them (a "billion laughs" file, an XXE probe).
+            root = SafeET.fromstring(source.read(name).decode("utf-8"))
         except ET.ParseError as error:
             result.warnings.append(f"{name}: not valid XML ({error}); nothing imported")
+            return result
+        except DefusedXmlException as error:
+            result.warnings.append(f"{name}: refused, {error}; nothing imported")
             return result
 
         seen_labels = dict(context.known_labels)

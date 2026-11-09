@@ -1,0 +1,27 @@
+# HTTPS for the Docker Compose stack: Caddy answers on ports 80 and 443 and obtains a
+# Let's Encrypt certificate for CURVEVISION_DOMAIN automatically, renewing it before it
+# expires. The domain's DNS must point at this machine, and ports 80 and 443 must be open.
+#
+#   CURVEVISION_DOMAIN=cv.example.com \
+#     docker compose -f docker-compose.yml -f deploy/compose.https.yml up -d
+services:
+  https:
+    image: caddy:2.10
+    restart: unless-stopped
+    depends_on:
+      - web
+    environment:
+      CURVEVISION_DOMAIN: ${CURVEVISION_DOMAIN:?set CURVEVISION_DOMAIN to the server's domain}
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"
+    volumes:
+      - ./deploy/Caddyfile:/etc/caddy/Caddyfile:ro
+      # The certificate and its account key: kept, so a restart does not ask again.
+      - caddy-data:/data
+      - caddy-config:/config
+
+volumes:
+  caddy-data:
+  caddy-config:

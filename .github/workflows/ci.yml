@@ -294,10 +294,10 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
-      - uses: docker/setup-buildx-action@v3
+      - uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3
 
       - name: Build server image
-        uses: docker/build-push-action@v6
+        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6
         with:
           context: .
           file: deploy/Dockerfile.server
@@ -306,7 +306,7 @@ jobs:
           cache-to: type=gha,mode=max
 
       - name: Build web image
-        uses: docker/build-push-action@v6
+        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6
         with:
           context: .
           file: deploy/Dockerfile.web
@@ -354,14 +354,16 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
-      - uses: azure/setup-helm@v4
+      - uses: azure/setup-helm@1a275c3b69536ee54be43f2070a358922e12c8d4 # v4
         with:
           version: v3.16.2
 
       - name: Lint, render and validate against the Kubernetes schemas
         working-directory: deploy/helm
         run: |
-          curl -sSfL https://github.com/yannh/kubeconform/releases/download/v0.6.7/kubeconform-linux-amd64.tar.gz \
+          # Retried: GitHub's release downloads answer 5xx at times (a 504 failed this job once).
+          curl -sSfL --retry 5 --retry-all-errors --retry-delay 5 \
+            https://github.com/yannh/kubeconform/releases/download/v0.6.7/kubeconform-linux-amd64.tar.gz \
             | tar xz kubeconform
           set -- --set secretKey=s --set database.url=postgresql+asyncpg://u:p@db/cv \
                  --set redis.url=redis://r:6379/0
@@ -380,10 +382,10 @@ jobs:
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@v5
-      - uses: docker/setup-buildx-action@v3
+      - uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3
 
       - name: Build the server image
-        uses: docker/build-push-action@v6
+        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6
         with:
           context: .
           file: deploy/Dockerfile.server
@@ -393,7 +395,7 @@ jobs:
           cache-to: type=gha,mode=max
 
       - name: Build the web image
-        uses: docker/build-push-action@v6
+        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6
         with:
           context: .
           file: deploy/Dockerfile.web
@@ -402,10 +404,22 @@ jobs:
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
-      - uses: helm/kind-action@v1
+      # kind, built from its source through Go's module proxy rather than downloaded from
+      # GitHub's release servers, which answered 504 for this file for hours on 2026-11-09
+      # (helm/kind-action fetches only from there). The module proxy is a separate service,
+      # and `go install` checks what it fetches against Go's public checksum database.
+      - uses: actions/setup-go@v5
         with:
-          cluster_name: curvevision
-      - uses: azure/setup-helm@v4
+          go-version: stable
+          cache: false
+      - name: A kind cluster
+        run: |
+          go install sigs.k8s.io/kind@v0.31.0
+          sudo install -m 0755 "$(go env GOPATH)/bin/kind" /usr/local/bin/kind
+          kind version
+          kind create cluster --name curvevision --wait 60s
+          kubectl cluster-info
+      - uses: azure/setup-helm@1a275c3b69536ee54be43f2070a358922e12c8d4 # v4
         with:
           version: v3.16.2
 

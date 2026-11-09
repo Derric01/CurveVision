@@ -10,12 +10,13 @@
 Same editor, same exporters, same code — your images never leave your infrastructure.**
 
 [![CI](https://github.com/Derric01/CurveVision/actions/workflows/ci.yml/badge.svg)](https://github.com/Derric01/CurveVision/actions/workflows/ci.yml)
+[![Security](https://github.com/Derric01/CurveVision/actions/workflows/security.yml/badge.svg)](https://github.com/Derric01/CurveVision/actions/workflows/security.yml)
 [![License: MIT](https://img.shields.io/badge/license-MIT-14b8a6.svg)](LICENSE)
 [![Python 3.11+](https://img.shields.io/badge/python-3.11%2B-3776ab.svg)](server/pyproject.toml)
 [![Node 22+](https://img.shields.io/badge/node-22%2B-5fa04e.svg)](web/package.json)
 [![PRs welcome](https://img.shields.io/badge/PRs-welcome-f59e0b.svg)](docs/CONTRIBUTING.md)
 
-[**⬇ Download**](https://github.com/Derric01/CurveVision/releases/latest) · [**Quick start**](#quick-start) · [Features](#what-it-does) · [Architecture](docs/ARCHITECTURE.md) · [API](docs/API.md) · [Roadmap](docs/ROADMAP.md) · [Contributing](docs/CONTRIBUTING.md)
+[**⬇ Download**](https://github.com/Derric01/CurveVision/releases/latest) · [**Website**](https://derric01.github.io/CurveVision/) · [**Quick start**](#quick-start) · [Features](#what-it-does) · [Architecture](docs/ARCHITECTURE.md) · [API](docs/API.md) · [Roadmap](docs/ROADMAP.md) · [Contributing](docs/CONTRIBUTING.md)
 
 </div>
 
@@ -29,9 +30,11 @@ which drives the real application in a real browser and draws those boxes with r
 on a real photograph. Nothing here is a mockup.
 </sub></div>
 
-<p align="center"><b><a href="docs/demo/curvevision-demo.mp4">▶ Watch the one-minute demo</a></b> —
-sign in, a project, boxes and a polygon on real photographs, a real COCO export.
-Recorded from the running application by <a href="scripts/record_demo.py"><code>scripts/record_demo.py</code></a>.</p>
+<p align="center"><b><a href="docs/demo/curvevision-demo.mp4">▶ Watch the 90-second demo (1080p)</a></b> —
+a real detector (YOLO11n, on a laptop CPU) labels the job first; its guesses are reviewed one
+by one; what it missed is drawn by hand; a real COCO export comes out the other end.
+Recorded from the running application by <a href="scripts/record_demo.py"><code>scripts/record_demo.py</code></a>,
+which then opens the export and checks it holds exactly what the video made.</p>
 
 ---
 
@@ -99,7 +102,8 @@ one installer per platform, nothing else to install, no account:
 | Your computer | Download | Then |
 | --- | --- | --- |
 | **Windows** 10 / 11 | `CurveVision_<version>_x64-setup.exe` | run it |
-| **macOS** (Apple Silicon) | `CurveVision_<version>_aarch64.dmg` | open it, drag CurveVision to Applications |
+| **macOS** — Apple Silicon (M1 and later) | `CurveVision_<version>_aarch64.dmg` | open it, drag CurveVision to Applications, then [first launch](#opening-it-the-first-time-on-a-mac) |
+| **macOS** — Intel | `CurveVision_<version>_x64.dmg` | the same |
 | **Linux** — Debian, Ubuntu | `curve-vision_<version>_amd64.deb` | `sudo apt install ./curve-vision_*.deb` |
 | **Linux** — Fedora, RHEL | `curve-vision-<version>-1.x86_64.rpm` | `sudo dnf install ./curve-vision-*.rpm` |
 | **Linux** — any | `CurveVision_<version>_amd64.AppImage` | `chmod +x` it, then run it |
@@ -111,17 +115,37 @@ where they are and never uploaded anywhere.
 workflow ([`release.yml`](.github/workflows/release.yml)) from the tagged source — never on
 someone's laptop — scanned with ClamAV before the release is made, listed with its SHA-256
 in `SHA256SUMS`, and given a signed provenance attestation that says which commit and which
-workflow run built it. Check a download in two commands:
+workflow run built it. The checksum list itself is signed with [Sigstore](https://www.sigstore.dev/),
+bound to this repository's release workflow. Check a download:
 
 ```bash
-sha256sum --check --ignore-missing SHA256SUMS                       # the bytes are the ones published
+cosign verify-blob SHA256SUMS --bundle SHA256SUMS.sigstore.json \
+  --certificate-identity-regexp 'https://github.com/Derric01/CurveVision/.github/workflows/release.yml@.*' --certificate-oidc-issuer https://token.actions.githubusercontent.com   # the list is ours
+sha256sum --check --ignore-missing SHA256SUMS                       # the bytes are the ones it lists
 gh attestation verify CurveVision_*_x64-setup.exe --repo Derric01/CurveVision   # built here, from this source
 ```
 
-The installers are **not yet code-signed** (that needs an Apple Developer ID and a Windows
-code-signing certificate). Until they are, Windows SmartScreen asks you to confirm — *More
-info → Run anyway* — and macOS asks you to allow the app in *System Settings → Privacy &
-Security*. The checks above are how you know it is the real thing.
+The installers are **not yet code-signed with a publisher certificate** (that needs an Apple
+Developer ID and a Windows code-signing certificate). Until they are, Windows SmartScreen
+asks you to confirm — *More info → Run anyway* — and a Mac asks once, as below. The checks
+above are how you know it is the real thing.
+
+#### Opening it the first time on a Mac
+
+The Mac app is signed *ad hoc* (its contents are sealed, but by no registered publisher),
+so macOS 15 says it "could not verify CurveVision is free of malware" the first time. Once:
+
+1. Open CurveVision from Applications, and choose **Done** at the warning.
+2. Open **System Settings → Privacy & Security**, scroll to *Security*, and choose
+   **Open Anyway** beside CurveVision. Confirm with your password.
+
+It opens normally from then on. (On macOS 14 and earlier, Control-click the app and choose
+**Open** instead.) If your Mac says the app "is damaged and can't be opened", that is the
+same check worded differently. Remove the download's quarantine flag and open it again:
+
+```bash
+xattr -dr com.apple.quarantine /Applications/CurveVision.app
+```
 
 *The link works from the first published release (v1.0.0) onward. Until then, build it
 yourself:*

@@ -1,0 +1,15 @@
+# HTTPS in front of the team server, with a certificate Caddy obtains from Let's Encrypt and
+# renews by itself. Used by deploy/compose.https.yml; see docs/OPERATIONS.md, *HTTPS*.
+{$CURVEVISION_DOMAIN} {
+	encode zstd gzip
+	header {
+		# Browsers keep to HTTPS for this host for a year once they have seen it.
+		Strict-Transport-Security "max-age=31536000"
+		-Server
+	}
+	request_body {
+		# Large videos go up in chunks (resumable uploads); this only bounds one request.
+		max_size 2GB
+	}
+	reverse_proxy web:80
+}

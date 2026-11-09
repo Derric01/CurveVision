@@ -33,6 +33,9 @@ dependencies = [
     # The operating system's certificate store, for the one request a desktop installation
     # makes to another server: checking a team server before switching to it.
     "truststore>=0.10",
+    # Imported annotation files (CVAT XML, Pascal VOC) are untrusted XML: defusedxml refuses
+    # entity expansion and external entities instead of resolving them.
+    "defusedxml>=0.7.1",
 ]
 
 [project.urls]
@@ -135,7 +138,7 @@ no_implicit_optional = true
 exclude = ["curvevision/migrations/", "tests/"]
 
 [[tool.mypy.overrides]]
-module = ["dramatiq.*", "boto3.*", "botocore.*", "av.*", "PIL.*", "argon2.*", "prometheus_client.*", "datumaro.*", "onelogin.*"]
+module = ["dramatiq.*", "boto3.*", "botocore.*", "av.*", "PIL.*", "argon2.*", "prometheus_client.*", "datumaro.*", "onelogin.*", "defusedxml", "defusedxml.*"]
 ignore_missing_imports = true
 
 [tool.pytest.ini_options]

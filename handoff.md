@@ -2302,6 +2302,150 @@ Iteration 54:
 
 ## Last iteration
 
+### 102g — signatures, and which certificates only the maintainer can get
+
+* **HTTPS certificates for team servers**, which had no documented setup:
+  `deploy/compose.https.yml` puts Caddy in front of the Compose stack, with a Let's Encrypt
+  certificate obtained and renewed automatically, HSTS, and a refusal to start without
+  `CURVEVISION_DOMAIN`. `docker compose config` is checked; Caddy's own validator was not
+  run (no Docker daemon here). The Kubernetes path is cert-manager through the chart's
+  existing ingress annotations and TLS values, read against the template, since Helm is not
+  installed here. `docs/OPERATIONS.md` § *HTTPS* covers both.
+
+Asked to "get all the security certificates we can". Added what costs nothing and needs no
+identity:
+
+* **Sigstore keyless signing** in `release.yml`: `cosign sign` on both images, and
+  `cosign sign-blob` on `SHA256SUMS` (→ `SHA256SUMS.sigstore.json`), bound to the release
+  workflow's identity. The verify commands are in the README and `docs/RELEASING.md`. **Not
+  run yet:** `release.yml` runs on a tag.
+* **OpenSSF Scorecard** (`scorecard.yml`) and **CodeQL** (`codeql.yml`), every action pinned
+  to a commit; both are skipped while the repository is **private**, which it is.
+* `docs/RELEASING.md` § *Certificates and badges* lists who can get what. Only the
+  maintainer can get: the Apple Developer ID (US$99 a year), Windows signing (SignPath
+  Foundation, free for qualifying OSS, by application), the updater key (generated locally,
+  stored as secrets), the OpenSSF Best Practices badge, and private vulnerability
+  reporting. **Making the repository public** is the prerequisite for downloads anyone can
+  open, free Pages, Scorecard and CodeQL.
+
+### 102f — a security audit, and the checks that keep it true
+
+Asked for "more security checks so others can safely install it". Ran every scanner against
+what ships, fixed what they found, and made each a permanent CI check
+(`.github/workflows/security.yml`, on every PR, `main`, and weekly):
+
+* **pip-audit** on `server/constraints.txt`: nothing found.
+* **npm audit** (production): `react-router` 6 had an open redirect and no patched 6.x, so
+  it was upgraded to **7.18.5**. Typecheck, lint, 818 tests and the build pass.
+* **bandit**: the CVAT XML and Pascal VOC importers parsed untrusted XML with the standard
+  library. They now use **defusedxml** (declared, pinned and in THIRD_PARTY_NOTICES).
+  `tests/unit/test_formats_hostile_xml.py` feeds both an entity bomb and an XXE probe;
+  with the old parser restored, all four hostile cases fail.
+* **cargo audit**: 10 vulnerabilities, now 0. The TLS crates moved to patched releases,
+  and `tauri-plugin-updater` went 2.12 → 2.14.1, which takes `zip` 4.6 → 9.5. **Not built
+  here** (no WebKitGTK dev libraries in this container): `desktop.yml` on the PR builds
+  and tests all four platforms.
+* **Secrets**: the whole git history was scanned for common credential patterns. Clean.
+* **Trivy** (pinned to a commit) for lockfiles and secrets, failing on a finding; its
+  configuration scan of the Dockerfiles and Helm chart reports without failing. **Not run
+  here**: downloading the binary was refused in this container, so CI is its first run.
+* **Dependabot** for pip, npm, cargo and actions. Releases now carry an **SPDX SBOM**.
+
+### 102e — a product website, and the Mac builds proven
+
+* **`site/index.html`**: the landing page, one self-contained file in the app's pitch-black
+  style. It has a hero with the real editor screenshot, the formats it exports, the
+  features, real numbers only, the demo video, desktop against team server, and a download
+  card per platform. The download button names the visitor's own OS. It is responsive
+  (no sideways scroll at phone width), and shows no fake logos or invented users.
+  **`pages.yml`** publishes it to `https://derric01.github.io/CurveVision/` on a push to
+  `main`, copying in the screenshot, video and icon. **A maintainer must turn Pages on
+  once:** Settings → Pages → Source: GitHub Actions.
+* **The Mac builds passed** on PR #41, Apple Silicon (`macos-15`) and Intel
+  (`macos-15-intel`), including `codesign --verify --deep --strict` and the architecture
+  check.
+* **WebDriver harness:** a third place where WebKitGTK drops the connection, the team
+  server's sign-in click, which navigates. It now tolerates the drop and checks the
+  outcome, as the first submit already did.
+
+### 102d — pitch black and white: a monochrome look, two themes
+
+Asked for a look like ChatGPT's, "white and black theme, pitch black".
+
+* **Every colour is a CSS variable** (`web/src/index.css`), and `tailwind.config.js` maps
+  the existing `ink` and `curve` names onto them. So no markup changed; the
+  `<alpha-value>` form keeps `bg-ink-900/90` working.
+* **Dark, the default, is pitch black**: page `#000`, panels barely lifted, neutral greys,
+  and white as the only accent (the primary button is white with black text). **Light**
+  is the same scale turned over, with black as the accent. The pale status tints (amber,
+  red, green, sky) get darker shades in light, or they could not be read on white.
+* **A toggle** (sun/moon) in the top bar and on the sign-in page, remembered per browser
+  (`ui/theme.ts`, tested), and applied before React renders, so the page never flashes.
+* Pill buttons, an outlined secondary, rounder inputs and panels. The logo is drawn in
+  `currentColor`, and the favicon is black and white. On the canvas, the marquee, hover
+  and handle colours are monochrome too; label colours are untouched.
+* The demo video and the README screenshots are regenerated in the new look (the
+  screenshot needed the packaged server rebuilt, since it embeds the web build).
+
+Verified: web lint, typecheck, 818 tests (2 new); browser harnesses `verify_tool_sync`,
+`verify_view_settings`, `verify_interactor`, `verify_workspace`, `verify_frame_tags` and
+`verify_mask_brush` pass; both themes screenshotted on sign-in, projects, project and
+editor.
+
+### 102c — a demo video worth watching, and an editor rail that scrolls by itself
+
+Asked for a marketing video that is "very realistic and effective". `scripts/record_demo.py`
+is rewritten. Every frame is still the real application:
+
+* **A real model.** `scripts/demo_detector.py` serves **YOLO11n** (ONNX, on CPU through
+  onnxruntime) behind the HTTP inference contract. It finds the cup (79%), the cat (87%)
+  and the astronaut (90%); the video reviews those, rejects one, and draws by hand what the
+  model cannot know ("saucer" is no COCO class) or missed (the spoon, the rocket). The
+  weights are AGPL-3.0 and downloaded at run time from Ultralytics' release, never
+  committed. Neither onnxruntime nor the model is a CurveVision dependency.
+* **1080p at 30 fps.** Chromium runs in an app window (no tabs or address bar) on Xvfb,
+  captured with ffmpeg's x11grab, not Playwright's low-bitrate recorder. A drawn pointer,
+  click ripples, a keycap for each shortcut, captions, and a title and closing card with
+  the download link. Chrome's password-manager bubble is off in the profile. Its download
+  animation, which no flag removes in an app window, is painted over from the export on.
+* **Checked, twice.** The COCO export must hold exactly the six objects the video makes,
+  and each hand-drawn shape must land where it was meant to (IoU ≥ 0.8). An earlier take
+  passed a count-only check with the saucer drawn over the whole photograph, because a
+  reviewed suggestion had left the view zoomed in. The video now clicks *Fit to frame*
+  before drawing, as a person would.
+
+Two product fixes the recording exposed:
+
+* **The editor's right rail scrolls on its own** (`EditorPage.tsx`). A long panel used to
+  scroll the whole editor, canvas included, under the pointer. The object list keeps a
+  minimum height. Re-run and passing: `verify_auto_annotate`, `verify_suggestion_review`,
+  `verify_frame_tags`, `verify_issues_panel`, `verify_attribute_editor`,
+  `verify_quality_panel`.
+* **A model with many classes no longer floods the panel.** `listBriefly` names the first
+  eight and counts the rest, in the plan and in the unmatched note (`autoAnnotate.ts`, with
+  tests). An 80-class COCO detector printed all 80, twice.
+
+### 102b — a Mac download for every Mac, and one that opens
+
+The macOS build had been cancelled before starting on every run since 2026-11-02: GitHub
+**retired the `macos-14` image** that day, after October brownouts. It was not billing, as
+first guessed. Now:
+
+* Apple Silicon builds on `macos-15` and Intel on `macos-15-intel` (GitHub's last Intel
+  image, until August 2027). Each platform's artifact has its own name.
+* The app is **signed ad hoc** (`signingIdentity: "-"`). Unsigned, a downloaded Apple
+  Silicon app is refused as "damaged". With an ad-hoc seal, macOS offers *Open Anyway*.
+  The CI step runs `codesign --verify --deep --strict`, and `file` checks the binaries
+  are for the runner's architecture.
+* Tauri names the update archive `CurveVision.app.tar.gz` on both Macs, so in a release
+  one would overwrite the other. Each is renamed `CurveVision_<v>_<arch>.app.tar.gz`, and
+  `updater_manifest.py` now writes both `darwin-aarch64` and `darwin-x86_64`.
+* The README and release notes list both `.dmg` files and say how to open the app the
+  first time, with the `xattr` way out if a Mac says "damaged".
+
+**Not verified here:** no Mac in this container. The PR's `desktop.yml` run is the test.
+The first-launch wording is from Apple's current behaviour, not checked on a real Mac.
+
 ### 102 — frame tags in the editor; CurveVision beside CVAT, row by row
 
 Asked to "ensure that all the core features in our application is similar to CVAT". Read

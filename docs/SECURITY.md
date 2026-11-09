@@ -46,6 +46,42 @@ Particularly interesting to us:
   configured — see the operator guidance below.
 * Reports from automated scanners with no demonstrated impact.
 
+## What is checked, on every change and every week
+
+`.github/workflows/security.yml` runs on every pull request, on `main`, and weekly, because
+advisories are published against code that has not changed. Each check fails the run.
+
+| What | Tool | Covers |
+| --- | --- | --- |
+| Python dependencies | `pip-audit` | every version the server ships with (`server/constraints.txt`) |
+| Server code | `bandit`, medium severity and up | handling of untrusted input, crypto misuse, shell injection |
+| Browser dependencies | `npm audit --omit=dev` | the web app and the TypeScript SDK, as shipped |
+| Desktop shell | `cargo audit` | every Rust crate in the installers (`Cargo.lock`) |
+| Lockfiles and history | Trivy (vulnerabilities and secrets) | a second opinion on every lockfile; credentials committed by mistake |
+| Dockerfiles, Helm chart | Trivy (configuration) | reported for review, not failing: much of it is an operator's choice |
+
+Dependabot (`.github/dependabot.yml`) opens a pull request when a dependency has a fix.
+Every release also carries an **SBOM** (`curvevision-sbom.spdx.json`) listing every
+component and version, beside `SHA256SUMS` and the provenance attestations.
+
+**The audit of November 2026** found, and fixed:
+
+* `react-router` 6 (open redirect through a backslash in a link): upgraded to 7.18.5;
+* the two importers that read XML, CVAT XML and Pascal VOC, parsed untrusted uploads with
+  the standard library. They now use `defusedxml`, which refuses entity-expansion bombs
+  and external entities, and tests feed both a real bomb and an XXE probe;
+* the desktop shell's TLS stack (`rustls`, `rustls-webpki`, root certificates) and the
+  updater's `zip` (symlink and permission handling during extraction), by updating
+  `tauri-plugin-updater` to 2.14.1 and the TLS crates to patched releases.
+
+Bandit's remaining low-severity findings are reviewed false positives: `"cv"` and
+`"desktop"` are a token prefix and a token name, not passwords; `random` jitters webhook
+retries and protects nothing; the one `subprocess` call deliberately runs without a shell;
+the one `assert` narrows a type after explicit validation. The remaining `cargo audit`
+warnings are "unmaintained" notices on the GTK and D-Bus bindings Tauri itself uses on
+Linux, not vulnerabilities. Development-only npm tools (`vitest`, `esbuild`) have
+advisories that do not reach anyone who installs CurveVision.
+
 ## How CurveVision is built to be secure
 
 Stating the design so you know what to test *against*, and so operators know what they get.
@@ -161,9 +197,11 @@ CurveVision cannot enforce these for you:
 
 Stated plainly, because a security document that only lists strengths is not useful:
 
-* **The installers are not code-signed.** That needs an Apple Developer ID (with
-  notarisation) and a Windows code-signing certificate, which the project does not have
-  yet. Windows SmartScreen and macOS Gatekeeper therefore warn on first run. Checksums and
+* **The installers are not code-signed by a publisher.** That needs an Apple Developer ID
+  (with notarisation) and a Windows code-signing certificate, which the project does not
+  have yet. The Mac app is signed ad hoc, which seals its contents (macOS on Apple Silicon
+  runs nothing unsigned) but names no publisher. Windows SmartScreen and macOS Gatekeeper
+  therefore warn on first run. Checksums and
   provenance attestations (*What you download*, above) are how a download is verified
   until then; they say who built it, which a signature would also say, but the operating
   system does not check them for you.

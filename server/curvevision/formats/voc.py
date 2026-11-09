@@ -20,6 +20,9 @@ from __future__ import annotations
 import xml.etree.ElementTree as ET
 from xml.etree.ElementTree import ParseError
 
+import defusedxml.ElementTree as SafeET
+from defusedxml import DefusedXmlException
+
 from curvevision.domain.enums import ShapeType
 from curvevision.formats.base import (
     DatasetView,
@@ -130,9 +133,13 @@ class PascalVocFormat:
 
         for path in xml_files:
             try:
-                root = ET.fromstring(source.read(path).decode("utf-8", errors="replace"))
+                # Untrusted input: entity declarations and external entities are refused.
+                root = SafeET.fromstring(source.read(path).decode("utf-8", errors="replace"))
             except ParseError as exc:
                 result.warnings.append(f"{path}: malformed XML ({exc})")
+                continue
+            except DefusedXmlException as exc:
+                result.warnings.append(f"{path}: refused, {exc}")
                 continue
 
             filename = (root.findtext("filename") or "").strip()

@@ -41,9 +41,14 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - {name: 'Linux (.deb, .rpm, .AppImage)', os: ubuntu-22.04, bundles: 'deb,rpm,appimage'}
-          - {name: 'macOS (.dmg)', os: macos-14, bundles: 'app,dmg'}
-          - {name: 'Windows (.exe installer)', os: windows-latest, bundles: nsis}
+          # Each runs where it ships: PyInstaller builds for the machine it runs on, so the
+          # two Macs are two builds. `macos-14` was retired on 2026-11-02 (and cancelled
+          # every job in its October brownouts); `macos-15-intel` is GitHub's last Intel
+          # image, supported until August 2027.
+          - {name: 'Linux (.deb, .rpm, .AppImage)', os: ubuntu-22.04, bundles: 'deb,rpm,appimage', artifact: linux}
+          - {name: 'macOS, Apple Silicon (.dmg)', os: macos-15, bundles: 'app,dmg', artifact: macos-aarch64}
+          - {name: 'macOS, Intel (.dmg)', os: macos-15-intel, bundles: 'app,dmg', artifact: macos-x64}
+          - {name: 'Windows (.exe installer)', os: windows-latest, bundles: nsis, artifact: windows}
     steps:
       - uses: actions/checkout@v5
 
@@ -59,11 +64,12 @@ jobs:
           cache: npm
           cache-dependency-path: web/package-lock.json
 
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable
         with:
+          toolchain: stable
           components: clippy, rustfmt
 
-      - uses: Swatinem/rust-cache@v2
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2
         with:
           workspaces: desktop/shell/src-tauri
 
@@ -109,8 +115,38 @@ jobs:
         run: |
           updater=false
           [ -n "$TAURI_SIGNING_PRIVATE_KEY" ] && updater=true
-          npx --yes @tauri-apps/cli@2 build --bundles ${{ matrix.bundles }} \
-            --config "{\"build\":{\"beforeBuildCommand\":\"\"},\"bundle\":{\"createUpdaterArtifacts\":$updater}}"
+          # Bundling downloads its tools (the AppImage's AppRun and linuxdeploy, WiX, NSIS)
+          # from GitHub's release servers, which answered 504 for hours on 2026-11-09. A failed
+          # attempt is tried again; the compiled application is reused, so a retry is quick.
+          for attempt in 1 2 3; do
+            if npx --yes @tauri-apps/cli@2 build --bundles ${{ matrix.bundles }} \
+              --config "{\"build\":{\"beforeBuildCommand\":\"\"},\"bundle\":{\"createUpdaterArtifacts\":$updater}}"; then
+              break
+            fi
+            [ "$attempt" = 3 ] && exit 1
+            echo "Bundling failed (attempt $attempt); trying again"
+            sleep $((attempt * 30))
+          done
+
+      # Tauri names the macOS update archive `CurveVision.app.tar.gz` whatever the machine,
+      # so the two Macs' archives would overwrite each other in the release. Name each after
+      # its architecture, as the .dmg already is (scripts/updater_manifest.py reads these).
+      # Then check the app carries a signature macOS will accept for a download: ad hoc
+      # (tauri.conf.json `signingIdentity: "-"`), until there is a Developer ID.
+      - name: The Mac app — named for its architecture, and signed
+        if: runner.os == 'macOS'
+        working-directory: desktop/shell/src-tauri/target/release/bundle
+        run: |
+          arch=$(uname -m); [ "$arch" = arm64 ] && arch=aarch64; [ "$arch" = x86_64 ] && arch=x64
+          version=$(python3 -c 'import json; print(json.load(open("../../../tauri.conf.json"))["version"])')
+          for file in macos/*.app.tar.gz macos/*.app.tar.gz.sig; do
+            [ -e "$file" ] || continue
+            mv "$file" "macos/CurveVision_${version}_${arch}.app.tar.gz${file##*.app.tar.gz}"
+          done
+          ls macos dmg
+          codesign --verify --deep --strict --verbose=2 macos/*.app
+          codesign --display --verbose=2 macos/*.app 2>&1 | grep -E 'Signature|Identifier'
+          file macos/*.app/Contents/MacOS/* | tee /dev/stderr | grep -q "$(uname -m)"
 
       # Install the .deb as a person would, then start the server it carries and use it:
       # the handshake line, the API, and the editor it serves.
@@ -136,7 +172,7 @@ jobs:
 
       - uses: actions/upload-artifact@v6
         with:
-          name: curvevision-desktop-${{ runner.os }}
+          name: curvevision-desktop-${{ matrix.artifact }}
           path: |
             desktop/shell/src-tauri/target/release/bundle/deb/*.deb
             desktop/shell/src-tauri/target/release/bundle/rpm/*.rpm
@@ -176,9 +212,11 @@ jobs:
           cache: npm
           cache-dependency-path: web/package-lock.json
 
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable
+        with:
+          toolchain: stable
 
-      - uses: Swatinem/rust-cache@v2
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2
         with:
           workspaces: desktop/shell/src-tauri
 
