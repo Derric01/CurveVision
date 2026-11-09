@@ -107,8 +107,8 @@ class PascalVocFormat:
                 f"Annotations/{stem}.xml",
                 ET.tostring(root, encoding="unicode", xml_declaration=True),
             )
-            if frame.media is not None:
-                sink.write(f"JPEGImages/{base}", frame.media)
+            if frame.has_media:
+                sink.write_media(f"JPEGImages/{base}", frame)
 
         sink.write("ImageSets/Main/default.txt", "\n".join(stems) + "\n")
         # `name:r,g,b:parts:actions`, the labelmap CVAT and Datumaro read. A `#38bdf8` here

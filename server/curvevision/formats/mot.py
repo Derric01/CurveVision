@@ -111,8 +111,8 @@ class MotFormat:
         )
 
         for frame in dataset:
-            if frame.media is not None:
-                sink.write(f"img1/{frame.name}", frame.media)
+            if frame.has_media:
+                sink.write_media(f"img1/{frame.name}", frame)
 
         if untracked:
             logger.info(

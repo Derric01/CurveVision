@@ -343,10 +343,10 @@ class CityscapesFormat:
             sink.write(f"{folder}{INSTANCE_IDS}", _png(instance_ids.convert("I;16")))
             sink.write(f"{folder}{COLOR}", _png(color))
             sink.write(f"{folder}{TRAIN_IDS}", _png(train_ids))
-            if frame.media is not None:
+            if frame.has_media:
                 extension = frame.name.rsplit(".", 1)[-1] if "." in frame.name else "png"
-                sink.write(
-                    f"{IMAGE_DIR}/{frame.subset}/{stem}{IMAGE_SUFFIX}.{extension}", frame.media
+                sink.write_media(
+                    f"{IMAGE_DIR}/{frame.subset}/{stem}{IMAGE_SUFFIX}.{extension}", frame
                 )
 
         if skipped:

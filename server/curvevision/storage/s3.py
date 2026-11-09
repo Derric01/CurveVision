@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import asyncio
 from collections.abc import AsyncIterator, Iterable
+from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from curvevision.core.config import Settings
@@ -112,6 +113,21 @@ class S3Storage:
             ContentType=content_type,
         )
         return StoredObject(key=key, size=len(body), content_type=content_type)
+
+    async def put_file(
+        self, key: str, path: Path, *, content_type: str = "application/octet-stream"
+    ) -> StoredObject:
+        # boto3's managed transfer: a multipart upload in parts read from disk, so a
+        # multi-gigabyte export is never in memory and is not bound by a single PUT's limit.
+        await asyncio.to_thread(
+            self._client.upload_file,
+            str(path),
+            self._bucket,
+            key,
+            ExtraArgs={"ContentType": content_type},
+        )
+        size = (await asyncio.to_thread(path.stat)).st_size
+        return StoredObject(key=key, size=size, content_type=content_type)
 
     async def append(self, key: str, data: bytes) -> int:
         """Read-modify-write append.

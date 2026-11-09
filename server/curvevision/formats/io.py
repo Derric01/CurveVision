@@ -6,26 +6,45 @@ import io
 import zipfile
 from pathlib import Path
 
+from curvevision.formats.base import FrameRecord
+
+#: Already-compressed image formats: deflating them again costs CPU and saves nothing.
+_STORED_SUFFIXES = (".jpg", ".jpeg", ".png", ".webp", ".gif", ".avif", ".heic", ".mp4", ".webm")
+
 
 class ZipExportSink:
-    """Streams format output into a zip archive."""
+    """Streams format output into a zip archive.
 
-    def __init__(self) -> None:
-        self._buffer = io.BytesIO()
+    In memory by default. Given ``path``, the archive is written to that file instead, and
+    images given as files (``FrameRecord.media_path``) are streamed into it from disk, so
+    an export's memory stays flat however many gigabytes of images it carries. ``close``
+    then returns ``b""``; the archive is the file.
+    """
+
+    def __init__(self, path: Path | None = None) -> None:
+        self._path = path
+        self._buffer: io.BytesIO | None = None if path is not None else io.BytesIO()
+        target: Path | io.BytesIO = path if path is not None else self._buffer  # type: ignore[assignment]
         self._zip = zipfile.ZipFile(
-            self._buffer, "w", compression=zipfile.ZIP_DEFLATED, compresslevel=6
+            target, "w", compression=zipfile.ZIP_DEFLATED, compresslevel=6, allowZip64=True
         )
         self._closed = False
 
     def write(self, path: str, data: bytes | str) -> None:
         payload = data.encode("utf-8") if isinstance(data, str) else data
-        self._zip.writestr(path, payload)
+        self._zip.writestr(path, payload, compress_type=_compression(path))
+
+    def write_media(self, path: str, frame: FrameRecord) -> None:
+        if frame.media_path is not None:
+            self._zip.write(frame.media_path, arcname=path, compress_type=_compression(path))
+        elif frame.media is not None:
+            self.write(path, frame.media)
 
     def close(self) -> bytes:
         if not self._closed:
             self._zip.close()
             self._closed = True
-        return self._buffer.getvalue()
+        return self._buffer.getvalue() if self._buffer is not None else b""
 
     def __enter__(self) -> ZipExportSink:
         return self
@@ -44,6 +63,15 @@ class MemoryExportSink:
 
     def write(self, path: str, data: bytes | str) -> None:
         self.files[path] = data.encode("utf-8") if isinstance(data, str) else data
+
+    def write_media(self, path: str, frame: FrameRecord) -> None:
+        media = frame.read_media()
+        if media is not None:
+            self.files[path] = media
+
+
+def _compression(path: str) -> int:
+    return zipfile.ZIP_STORED if path.lower().endswith(_STORED_SUFFIXES) else zipfile.ZIP_DEFLATED
 
 
 class ZipImportSource:

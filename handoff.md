@@ -5,7 +5,7 @@
 > [`AGENTS.md`](./AGENTS.md) first; it is the working contract. Update this file after every
 > iteration, including the ones that mostly failed.
 >
-> **Last updated:** 2026-11-09 (iteration 102i) · branch `claude/start-work-yx080h` · PRs
+> **Last updated:** 2026-11-09 (iteration 102j) · branch `claude/start-work-yx080h` · PRs
 > [#1](https://github.com/Derric01/CurveVision/pull/1)–[#39](https://github.com/Derric01/CurveVision/pull/39)
 > **all merged**, #37 carrying iterations 84 (the rest) to 98, #38 iteration 99 and #39 iteration 100.
 >
@@ -2301,6 +2301,72 @@ Iteration 54:
 ---
 
 ## Last iteration
+
+### 102j — 10,000 and 100,000 images: measured, and the four things that broke
+
+`server/tests/benchmarks/test_ten_thousand_images.py` drives a whole project through the
+real API: upload in the web app's batches, open the task, open the last frame, save two
+boxes on every frame, load a job, and export COCO and YOLO with images.
+`CURVEVISION_BENCH_IMAGES` sets the size, and `CURVEVISION_BENCH_SEGMENT=0` makes the
+task one job. Four defects showed up, and each is fixed with a test:
+
+* **Upload: one request for everything.** The web app sent every chosen file in a
+  single request: 10,000 photos meant tens of gigabytes, past the 5 GB limit, lost
+  whole on a dropped connection. `web/src/features/tasks/uploadBatches.ts` now sends
+  batches of at most 100 files or 64 MB, one at a time, retrying each once and reporting
+  failures per file. The task page shows "Uploaded X of Y files"; the failure list is
+  capped at 20 names.
+* **Upload: each batch slower than the last.** `tasks.recount_frames` loaded every asset
+  after every batch. It now reads four columns and writes only the offsets that changed.
+  At 10,000 images, uploading went from 106 s to 63 s; the last batch takes 0.71 s against
+  the first's 0.60 s, where before it took 1.46 s.
+* **Export with images: about twice the images' size in memory.** Measured: 303 MB of
+  images added 577 MB to peak memory, which for 10,000 phone photos is about 60 GB.
+  `FrameRecord.media_path` attaches images as files. A desktop reference or local
+  storage is used where it is, without a copy, and S3 objects are streamed to a work
+  folder. Every format writes images through `ExportSink.write_media`, and
+  `ZipExportSink(path)` streams them into an archive on disk; images are stored, not
+  deflated again. The routes return it as a `FileResponse` and delete the work folder
+  once it has been sent; the background job stores it with the new `Storage.put_file`
+  (S3: boto3's multipart `upload_file`). Measured again with the service called
+  directly: 150 MB and 303 MB of images add **0 MB**. Through the test client the figure
+  still grows, because httpx's in-process transport buffers the whole response; it is
+  the client, not the server. The new setting `CURVEVISION_EXPORT_WORK_DIR` is
+  documented in OPERATIONS.md: an export needs disk space about the images' size.
+  Tests: `tests/api/test_streamed_export.py`.
+* **One job per task.** The web app never set a job size, so 100,000 images became one
+  job; at 10,000 that job's editor already loaded 6.7 MB of annotations in 1.3 s.
+  `tasks.effective_segment_size` now splits an image task that has no size of its own
+  into jobs of `AUTO_IMAGE_JOB_SIZE` (1,000) frames. Video stays one job, because a job
+  boundary cuts tracks. Tests: `tests/api/test_automatic_job_size.py`.
+
+10,000 images, segments of 500, on this container:
+
+| Step | Time |
+| --- | --- |
+| upload, 100 batches | 63 s |
+| open the task / its jobs / media metadata / the last frame | ≤ 0.03 s each |
+| save 20,000 boxes, 500 frames a request | 16 s |
+| load a 1,000-box job | 0.05 s |
+| export COCO / YOLO with images | 3.1 s / 3.5 s |
+
+100,000 images, segments of 500:
+
+| Step | Time |
+| --- | --- |
+| upload, 1,000 batches | 914 s (first batch 0.58 s, last 1.13 s) |
+| open the task / its jobs / media metadata | ≤ 0.03 s each |
+| open the last frame | 0.22 s |
+| save 200,000 boxes | 153 s |
+| load a 1,000-box job | 0.05 s |
+| export COCO / YOLO with images | 34 s / 32 s |
+
+**Still open at 100,000:** an export holds the *annotations* in memory, though no longer
+the images: about 840 MB for 200,000 boxes, measured through the test client. That is fine
+on a server or a 16 GB laptop and tight on an 8 GB one. Making it stream means a COCO
+writer that does not build its whole JSON document, and frame records produced per
+task rather than all at once. Uploads still slow down slightly, about 2× from the first
+batch to the thousandth; the remaining per-batch cost is rebuilding the task's jobs.
 
 ### 102i — dependency advisories cleared; phone photos annotated the right way up
 

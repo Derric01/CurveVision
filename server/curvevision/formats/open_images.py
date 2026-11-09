@@ -182,9 +182,9 @@ class OpenImagesFormat:
             subset = frame.subset
             files = rows.setdefault(subset, {"images": [], "labels": [], "boxes": [], "masks": []})
             files["images"].append({"ImageID": image_id, "Subset": subset})
-            if frame.media is not None:
+            if frame.has_media:
                 extension = frame.name.rsplit(".", 1)[-1] if "." in frame.name else "jpg"
-                sink.write(f"images/{subset}/{image_id}.{extension}", frame.media)
+                sink.write_media(f"images/{subset}/{image_id}.{extension}", frame)
             for tag in _tags(frame):
                 files["labels"].append(
                     {

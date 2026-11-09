@@ -880,9 +880,9 @@ export interface paths {
          * Export Project
          * @description Export a project's annotations as a downloadable archive.
          *
-         *     Synchronous, because the common case (a few thousand frames, no images) finishes in
-         *     well under a second. Large exports with images belong on the background-task path,
-         *     which is *In Progress*.
+         *     Synchronous: 10,000 frames without images take well under a second, and with images
+         *     the archive is assembled on disk and streamed, so memory stays flat however many
+         *     gigabytes it carries (see `export_dataset_file`).
          */
         post: operations["export_project_api_v1_projects__project_id__export_post"];
         delete?: never;

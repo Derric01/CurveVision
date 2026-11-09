@@ -29,6 +29,10 @@ class LocalStorage:
             raise StorageError(f"Refusing to access key outside the storage root: {key!r}")
         return candidate
 
+    def path_of(self, key: str) -> Path:
+        """Where ``key`` lives on disk, so a large object can be read without copying it."""
+        return self._path(key)
+
     async def put(
         self,
         key: str,
@@ -55,6 +59,21 @@ class LocalStorage:
             return written
 
         size = await asyncio.to_thread(_write)
+        return StoredObject(key=key, size=size, content_type=content_type)
+
+    async def put_file(
+        self, key: str, path: Path, *, content_type: str = "application/octet-stream"
+    ) -> StoredObject:
+        target = self._path(key)
+
+        def _copy() -> int:
+            target.parent.mkdir(parents=True, exist_ok=True)
+            tmp = target.with_suffix(target.suffix + ".part")
+            shutil.copyfile(path, tmp)
+            tmp.replace(target)
+            return target.stat().st_size
+
+        size = await asyncio.to_thread(_copy)
         return StoredObject(key=key, size=size, content_type=content_type)
 
     async def append(self, key: str, data: bytes) -> int:

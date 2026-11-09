@@ -18,6 +18,7 @@ import { GroundTruthPanel } from './GroundTruthPanel';
 import { AnnotationImportPanel } from './AnnotationImportPanel';
 import { canImportInto } from './annotationImport';
 import { FrameCountNotice } from './FrameCountNotice';
+import { uploadInBatches } from './uploadBatches';
 import { ManageMenu } from '@/features/common/ManageMenu';
 import { latestReportByJob, splitJobs } from './groundTruth';
 import { assignmentCandidates, assignmentPatch } from './assignment';
@@ -32,6 +33,8 @@ import {
   jobStateTone,
 } from '@/ui/primitives';
 
+/** Failed files listed by name; a whole failed batch of thousands would bury the page. */
+const FAILURES_SHOWN = 20;
 export function TaskPage() {
   const { taskId = '' } = useParams();
 
@@ -105,6 +108,10 @@ export function TaskPage() {
   // Bytes received so far, per filename, for the files large enough to go through the
   // resumable path -- a plain batch upload has no useful mid-flight progress to show.
   const [uploadProgress, setUploadProgress] = useState<Record<string, number>>({});
+  // Ordinary photos are sent in batches; this counts the files those batches have carried.
+  const [batchProgress, setBatchProgress] = useState<{ done: number; total: number } | null>(
+    null,
+  );
 
   const uploadMedia = useCallback(
     async (files: File[]) => {
@@ -122,16 +129,17 @@ export function TaskPage() {
       const entries: UploadEntry[] = [];
 
       if (small.length > 0) {
-        try {
-          await api.uploadAssets(taskId, small);
-          entries.push(...small.map((file) => ({ name: file.name, ok: true })));
-        } catch (error) {
-          // One request for the whole small batch means one failure covers all of them --
-          // still reported per file, so the summary reads the same way a partial large-file
-          // failure does.
-          const reason = error instanceof Error ? error.message : 'upload failed';
-          entries.push(...small.map((file) => ({ name: file.name, ok: false, reason })));
-        }
+        // In batches, so 10,000 photos are a hundred bounded requests rather than one
+        // that a dropped connection throws away whole. See `uploadBatches.ts`.
+        setBatchProgress({ done: 0, total: small.length });
+        entries.push(
+          ...(await uploadInBatches(
+            small,
+            (batch) => api.uploadAssets(taskId, batch),
+            (done, total) => setBatchProgress({ done, total }),
+          )),
+        );
+        setBatchProgress(null);
       }
 
       // Sequential, not parallel: two resumable completions finishing for the same task at
@@ -326,8 +334,22 @@ export function TaskPage() {
         <p className="text-sm text-ink-400">
           Images and videos are copied into CurveVision. A file at or over{' '}
           {(RESUMABLE_UPLOAD_THRESHOLD_BYTES / (1024 * 1024)).toFixed(0)} MB is sent in chunks
-          and can resume if the connection drops; the rest go in one request.
+          and can resume if the connection drops; the rest go in batches of up to 100.
         </p>
+        {batchProgress && (
+          <div className="mt-3">
+            <div className="mb-1 flex items-center justify-between text-xs text-ink-400">
+              <span>
+                Uploaded {batchProgress.done.toLocaleString()} of{' '}
+                {batchProgress.total.toLocaleString()} files
+              </span>
+              <span className="tabular-nums">
+                {Math.round((batchProgress.done / batchProgress.total) * 100)}%
+              </span>
+            </div>
+            <ProgressBar value={batchProgress.done / batchProgress.total} />
+          </div>
+        )}
         {Object.entries(uploadProgress).length > 0 && (
           <ul className="mt-3 space-y-2">
             {Object.entries(uploadProgress).map(([name, fraction]) => (
@@ -353,11 +375,17 @@ export function TaskPage() {
             <p>{uploadSummary.headline}</p>
             {uploadFailures.length > 0 && (
               <ul className="mt-2 space-y-1 font-mono text-xs opacity-80">
-                {uploadFailures.map((failure, index) => (
+                {uploadFailures.slice(0, FAILURES_SHOWN).map((failure, index) => (
                   <li key={`${index}-${failure.name}`}>
                     {failure.name}: {failure.reason}
                   </li>
                 ))}
+                {uploadFailures.length > FAILURES_SHOWN && (
+                  <li>
+                    …and {(uploadFailures.length - FAILURES_SHOWN).toLocaleString()} more. Choose
+                    the same files again to retry them.
+                  </li>
+                )}
               </ul>
             )}
           </div>

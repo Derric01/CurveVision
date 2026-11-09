@@ -7,11 +7,14 @@ before the format sees them, so every format gets one uniform shape stream.
 
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import json
+import tempfile
 import uuid
 from collections.abc import AsyncIterator, Callable, Iterator
 from dataclasses import dataclass, field, replace
+from pathlib import Path
 from typing import Any
 
 from sqlalchemy import select
@@ -64,11 +67,15 @@ async def build_dataset_view(
     only_accepted: bool = False,
     include_images: bool = False,
     storage: Storage | None = None,
+    media_dir: Path | None = None,
 ) -> tuple[DatasetView, list[ShapeType]]:
     """Assemble a streaming view over a project's annotations.
 
     Returns the view and the geometry types it contains, so the caller can warn about what
     the chosen format will drop *before* running the export.
+
+    With ``media_dir``, images are attached as files (``FrameRecord.media_path``) rather
+    than bytes, so an export of thousands of photos never holds them all in memory.
     """
     labels = list(
         (
@@ -152,13 +159,19 @@ async def build_dataset_view(
                 # video frames is a background media job; shipping the container itself
                 # under a frame's filename would be misleading.
                 media: bytes | None = None
+                media_path: Path | None = None
                 if (
                     include_images
                     and storage is not None
                     and blob is not None
                     and asset.frame_count == 1
                 ):
-                    media = await media_service.read_blob(blob, storage)
+                    if media_dir is not None:
+                        media_path = await media_service.blob_as_file(
+                            blob, storage, media_dir, f"{len(frame_records)}"
+                        )
+                    else:
+                        media = await media_service.read_blob(blob, storage)
 
                 frame_records.append(
                     FrameRecord(
@@ -171,6 +184,7 @@ async def build_dataset_view(
                         tag_records=tags_by_frame.get(frame_index, []),
                         media=media,
                         media_sha256=blob.sha256 if blob else None,
+                        media_path=media_path,
                     )
                 )
 
@@ -382,11 +396,47 @@ async def export_dataset(
     include_images: bool = False,
     storage: Storage | None = None,
 ) -> tuple[bytes, list[str]]:
-    """Run an export. Returns the archive bytes and any capability warnings."""
+    """Run an export. Returns the archive bytes and any capability warnings.
+
+    For anything that might carry many images, `export_dataset_file` keeps memory flat.
+    """
+    with tempfile.TemporaryDirectory(prefix="curvevision-export-") as workdir:
+        archive, warnings = await export_dataset_file(
+            session,
+            project,
+            workdir=Path(workdir),
+            format_id=format_id,
+            task_ids=task_ids,
+            only_accepted=only_accepted,
+            include_images=include_images,
+            storage=storage,
+        )
+        return await asyncio.to_thread(archive.read_bytes), warnings
+
+
+async def export_dataset_file(
+    session: AsyncSession,
+    project: Project,
+    *,
+    workdir: Path,
+    format_id: str,
+    task_ids: list[uuid.UUID] | None = None,
+    only_accepted: bool = False,
+    include_images: bool = False,
+    storage: Storage | None = None,
+) -> tuple[Path, list[str]]:
+    """Run an export into ``workdir``. Returns the archive's path and any warnings.
+
+    Images are streamed from where they are stored into the archive one at a time, and the
+    archive is written to disk, so 10,000 photos cost disk space rather than memory. The
+    caller owns ``workdir`` and removes it once the archive has been sent or stored.
+    """
     fmt = get_format(format_id)
     if not fmt.capabilities.supports_export:
         raise ValidationError(f"Format {format_id!r} does not support export")
 
+    media_dir = workdir / "media"
+    media_dir.mkdir(parents=True, exist_ok=True)
     view, present = await build_dataset_view(
         session,
         project,
@@ -394,13 +444,18 @@ async def export_dataset(
         only_accepted=only_accepted,
         include_images=include_images,
         storage=storage,
+        media_dir=media_dir,
     )
-    return _run_export(format_id, view, present, [])
+    archive = workdir / EXPORT_ARCHIVE_NAME
+    warnings = await asyncio.to_thread(_run_export_to, archive, format_id, view, present, [])
+    return archive, warnings
 
 
-def _run_export(
-    format_id: str, view: DatasetView, present: list[ShapeType], notes: list[str]
-) -> tuple[bytes, list[str]]:
+#: The archive's name inside an export's working directory.
+EXPORT_ARCHIVE_NAME = "export.zip"
+
+
+def _export_warnings(format_id: str, present: list[ShapeType], notes: list[str]) -> list[str]:
     fmt = get_format(format_id)
     warnings = list(notes)
     dropped = fmt.capabilities.unsupported(present)
@@ -410,13 +465,32 @@ def _run_export(
             f"{fmt.name} cannot represent "
             f"{', '.join(shape.value for shape in dropped)}; those annotations were omitted.",
         )
+    return warnings
 
+
+def _run_export(
+    format_id: str, view: DatasetView, present: list[ShapeType], notes: list[str]
+) -> tuple[bytes, list[str]]:
+    warnings = _export_warnings(format_id, present, notes)
     with ZipExportSink() as sink:
-        fmt.export(view, sink)
+        get_format(format_id).export(view, sink)
         if warnings:
             sink.write("curvevision_export_notes.txt", "\n".join(warnings) + "\n")
         archive = sink.close()
     return archive, warnings
+
+
+def _run_export_to(
+    path: Path, format_id: str, view: DatasetView, present: list[ShapeType], notes: list[str]
+) -> list[str]:
+    """`_run_export`, writing the archive to ``path`` and streaming file-backed images."""
+    warnings = _export_warnings(format_id, present, notes)
+    with ZipExportSink(path) as sink:
+        get_format(format_id).export(view, sink)
+        if warnings:
+            sink.write("curvevision_export_notes.txt", "\n".join(warnings) + "\n")
+        sink.close()
+    return warnings
 
 
 # ------------------------------------------------------------------------------ import
@@ -1067,14 +1141,39 @@ async def export_dataset_version(
     include_images: bool,
     storage: Storage,
 ) -> tuple[bytes, list[str]]:
-    """Export a dataset version in any format.
+    """`export_dataset_version_file`, returning the archive's bytes."""
+    with tempfile.TemporaryDirectory(prefix="curvevision-export-") as workdir:
+        archive, warnings = await export_dataset_version_file(
+            session,
+            project,
+            version,
+            workdir=Path(workdir),
+            format_id=format_id,
+            include_images=include_images,
+            storage=storage,
+        )
+        return await asyncio.to_thread(archive.read_bytes), warnings
+
+
+async def export_dataset_version_file(
+    session: AsyncSession,
+    project: Project,
+    version: DatasetVersion,
+    *,
+    workdir: Path,
+    format_id: str,
+    include_images: bool,
+    storage: Storage,
+) -> tuple[Path, list[str]]:
+    """Export a dataset version in any format, into ``workdir``.
 
     A released version exports from its frozen copy, so it is the same annotations however
     the project has changed since. A draft has nothing frozen yet and exports the project's
     current annotations for the version's tasks — what releasing it now would freeze.
 
     Images are found by content hash, wherever they are still stored; one whose every task
-    has since been deleted is gone, and the export says which frames lost theirs.
+    has since been deleted is gone, and the export says which frames lost theirs. As in
+    `export_dataset_file`, they are streamed into the archive on disk, not held in memory.
     """
     fmt = get_format(format_id)
     if not fmt.capabilities.supports_export:
@@ -1082,9 +1181,10 @@ async def export_dataset_version(
 
     if version.state is not DatasetVersionState.RELEASED:
         task_ids = [uuid.UUID(value) for value in version.manifest.get("task_ids", [])]
-        return await export_dataset(
+        return await export_dataset_file(
             session,
             project,
+            workdir=workdir,
             format_id=format_id,
             task_ids=task_ids or None,
             include_images=include_images,
@@ -1113,7 +1213,9 @@ async def export_dataset_version(
 
     notes: list[str] = []
     if include_images:
-        missing = await _attach_media(session, frames, storage)
+        media_dir = workdir / "media"
+        media_dir.mkdir(parents=True, exist_ok=True)
+        missing = await _attach_media(session, frames, storage, media_dir)
         if missing:
             shown = ", ".join(missing[:10]) + (" …" if len(missing) > 10 else "")
             notes.append(
@@ -1121,13 +1223,18 @@ async def export_dataset_version(
                 f"after this version was released ({shown})."
             )
     view = DatasetView(name=view.name, labels=view.labels, frames=frames, metadata=view.metadata)
-    return _run_export(format_id, view, present, notes)
+    archive = workdir / EXPORT_ARCHIVE_NAME
+    warnings = await asyncio.to_thread(_run_export_to, archive, format_id, view, present, notes)
+    return archive, warnings
 
 
 async def _attach_media(
-    session: AsyncSession, frames: list[FrameRecord], storage: Storage
+    session: AsyncSession, frames: list[FrameRecord], storage: Storage, media_dir: Path
 ) -> list[str]:
-    """Give each single-image frame its bytes, found by hash. Returns the frames without."""
+    """Give each single-image frame its image as a file, found by hash.
+
+    Returns the frames without one.
+    """
     hashes = {frame.media_sha256 for frame in frames if frame.media_sha256}
     blobs = {
         blob.sha256: blob
@@ -1136,13 +1243,15 @@ async def _attach_media(
         .all()
     }
     missing: list[str] = []
-    for frame in frames:
+    for position, frame in enumerate(frames):
         blob = blobs.get(frame.media_sha256 or "")
         # As in a live export, only single-image frames carry their bytes.
         if blob is None:
             missing.append(frame.name)
         elif (blob.frame_count or 1) == 1:
-            frame.media = await media_service.read_blob(blob, storage)
+            frame.media_path = await media_service.blob_as_file(
+                blob, storage, media_dir, str(position)
+            )
     return missing
 
 
@@ -1159,7 +1268,9 @@ __all__ = [
     "build_import_context",
     "create_dataset_version",
     "export_dataset",
+    "export_dataset_file",
     "export_dataset_version",
+    "export_dataset_version_file",
     "get_dataset_version",
     "release_dataset_version",
     "summarise_import",

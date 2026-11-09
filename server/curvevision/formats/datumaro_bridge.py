@@ -23,6 +23,7 @@ from __future__ import annotations
 
 import importlib.util
 import json
+import shutil
 import tempfile
 from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
@@ -208,12 +209,15 @@ def to_datumaro(dataset: DatasetView, media_dir: Path) -> tuple[list[Any], dict[
     for frame in dataset:
         stem = frame.name.replace("\\", "/").rsplit(".", 1)[0]
         size = (frame.height, frame.width) if frame.width and frame.height else None
-        if frame.media is not None:
+        if frame.has_media:
             with_media = True
             extension = "." + frame.name.rsplit(".", 1)[-1] if "." in frame.name else ".png"
             stored = media_dir / f"{len(items)}{extension}"
             stored.parent.mkdir(parents=True, exist_ok=True)
-            stored.write_bytes(frame.media)
+            if frame.media_path is not None:
+                shutil.copyfile(frame.media_path, stored)
+            else:
+                stored.write_bytes(frame.media or b"")
             media = Image.from_file(path=str(stored), size=size)
         else:
             media = Image.from_file(path=frame.name, size=size)

@@ -238,6 +238,36 @@ async def read_blob(blob: MediaBlob, storage: Storage) -> bytes:
     return await storage.get(blob.storage_key)
 
 
+async def blob_as_file(blob: MediaBlob, storage: Storage, directory: Path, name: str) -> Path:
+    """The blob's bytes as a file on disk, for an export that streams them into an archive.
+
+    No copy when the bytes are already a file: a desktop reference to the user's own file,
+    or an object in local storage. Otherwise (S3) streamed into ``directory/name`` a chunk
+    at a time, so memory stays flat however large the image.
+    """
+    from curvevision.storage.local import LocalStorage
+
+    if blob.source_path is not None:
+        source = Path(blob.source_path)
+        if not await asyncio.to_thread(source.is_file):
+            raise NotFoundError(
+                f"The file for this media has moved or cannot be read: {blob.source_path}"
+            )
+        return source
+    if blob.storage_key is None:  # pragma: no cover - defensive
+        raise NotFoundError("Media has neither stored bytes nor a source path")
+    if isinstance(storage, LocalStorage):
+        return storage.path_of(blob.storage_key)
+    target = directory / name
+    handle = await asyncio.to_thread(target.open, "wb")
+    try:
+        async for chunk in storage.stream(blob.storage_key):
+            await asyncio.to_thread(handle.write, chunk)
+    finally:
+        await asyncio.to_thread(handle.close)
+    return target
+
+
 async def open_blob(
     blob: MediaBlob, storage: Storage, chunk_size: int = 1024 * 1024
 ) -> AsyncIterator[bytes]:

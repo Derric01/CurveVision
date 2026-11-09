@@ -369,7 +369,7 @@ def _example(
 ) -> dict[str, tuple[str, list[Any]]]:
     filename = frame.name.replace("\\", "/")
     extension = filename.rsplit(".", 1)[-1].lower() if "." in filename else ""
-    encoded = frame.media or b""
+    encoded = frame.read_media() or b""
     features: dict[str, tuple[str, list[Any]]] = {
         "image/height": ("int", [height]),
         "image/width": ("int", [width]),
