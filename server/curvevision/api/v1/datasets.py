@@ -6,28 +6,45 @@ import shutil
 import tempfile
 import uuid
 from pathlib import Path
+from urllib.parse import urlencode
 
 from fastapi import APIRouter, File, Response, UploadFile, status
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, StreamingResponse
 from sqlalchemy import select
 from starlette.background import BackgroundTask
 
-from curvevision.api.deps import ProjectScopeDep, SessionDep, SettingsDep, TaskScopeDep
+from curvevision.api.deps import (
+    IdentityDep,
+    ProjectScopeDep,
+    SessionDep,
+    SettingsDep,
+    TaskScopeDep,
+)
 from curvevision.core.config import Settings
-from curvevision.core.errors import ValidationError
-from curvevision.domain.enums import DatasetVersionState, WebhookEvent
+from curvevision.core.errors import (
+    ConflictError,
+    NotFoundError,
+    PermissionDeniedError,
+    ValidationError,
+)
+from curvevision.core.signing import signed_query, verify
+from curvevision.domain.enums import BackgroundTaskState, DatasetVersionState, WebhookEvent
+from curvevision.domain.system import BackgroundTask as BackgroundTaskRow
 from curvevision.domain.system import DatasetVersion
 from curvevision.domain.task import Job
 from curvevision.formats import ZipImportSource, get_format
 from curvevision.policy import Action, ResourceType
 from curvevision.schemas.system import (
+    BackgroundTaskOut,
     DatasetVersionCreate,
     DatasetVersionOut,
+    DownloadLinkOut,
     ExportRequest,
     ImportResultOut,
     VersionExportRequest,
 )
 from curvevision.services import annotations as annotation_service
+from curvevision.services import background as background_service
 from curvevision.services import datasets as dataset_service
 from curvevision.services import webhooks as webhook_service
 from curvevision.storage import get_storage
@@ -90,6 +107,97 @@ async def export_project(
         # that something was dropped without unzipping the result.
         headers["X-CurveVision-Warnings"] = " | ".join(warnings)[:900]
     return archive_response(archive, workdir, headers)
+
+
+# ---------------------------------------------------------- exports too large to buffer
+#
+# `POST /projects/{id}/export` answers with the archive itself, which a page has to hold in
+# memory before it can save it. Fine for annotations; not for an export carrying 10,000
+# photographs. These routes run the same export as a background task, then hand the
+# browser a short-lived signed link, which its own download manager streams to disk.
+
+#: How long a download link works. Long enough to click, short enough not to be a credential.
+DOWNLOAD_LINK_SECONDS = 600
+DOWNLOAD_PURPOSE = "export-download"
+
+
+@router.post(
+    "/projects/{project_id}/exports",
+    response_model=BackgroundTaskOut,
+    status_code=status.HTTP_202_ACCEPTED,
+)
+async def start_export(
+    payload: ExportRequest, scope: ProjectScopeDep, session: SessionDep
+) -> BackgroundTaskOut:
+    """Start an export in the background. Poll `GET /background-tasks/{id}` for it."""
+    scope.authorize(Action.EXPORT)
+    fmt = get_format(payload.format)
+    if not fmt.capabilities.supports_export:
+        raise ValidationError(f"Format {payload.format!r} does not support export")
+    queued = await background_service.enqueue(
+        session,
+        kind="dataset.export",
+        payload={
+            "project_id": str(scope.project.id),
+            "format": payload.format,
+            "task_ids": [str(task_id) for task_id in payload.task_ids],
+            "only_accepted": payload.only_accepted,
+            "include_images": payload.include_images,
+            "filename": f"{scope.project.slug}-{payload.format}.{fmt.extension}",
+        },
+        created_by_id=scope.identity.user.id,
+        resource_type="project",
+        resource_id=scope.project.id,
+    )
+    await session.refresh(queued)
+    return BackgroundTaskOut.model_validate(queued)
+
+
+@router.post("/exports/{task_id}/link", response_model=DownloadLinkOut)
+async def export_download_link(
+    task_id: uuid.UUID, identity: IdentityDep, session: SessionDep, settings: SettingsDep
+) -> DownloadLinkOut:
+    """A link that downloads a finished export, for ten minutes, without the auth header."""
+    task = await session.get(BackgroundTaskRow, task_id)
+    if task is None or task.kind != "dataset.export":
+        raise NotFoundError("Export not found")
+    if not identity.principal.is_superuser and task.created_by_id != identity.principal.user_id:
+        raise PermissionDeniedError("This export belongs to another user")
+    if task.state is not BackgroundTaskState.SUCCEEDED or not task.result.get("storage_key"):
+        raise ConflictError("This export has not finished")
+    query = signed_query(settings.secret_key, DOWNLOAD_PURPOSE, str(task.id), DOWNLOAD_LINK_SECONDS)
+    return DownloadLinkOut(
+        url=f"/api/v1/exports/{task.id}/archive?{urlencode(query)}",
+        expires_in=DOWNLOAD_LINK_SECONDS,
+    )
+
+
+@router.get("/exports/{task_id}/archive")
+async def download_export(
+    task_id: uuid.UUID,
+    expires: int,
+    signature: str,
+    session: SessionDep,
+    settings: SettingsDep,
+) -> StreamingResponse:
+    """The archive, streamed. Opened by the signed link, so it takes no auth header."""
+    if not verify(settings.secret_key, DOWNLOAD_PURPOSE, str(task_id), expires, signature):
+        raise PermissionDeniedError("This download link is not valid, or it has expired")
+    task = await session.get(BackgroundTaskRow, task_id)
+    if task is None or not task.result.get("storage_key"):
+        raise NotFoundError("Export not found")
+    filename = str(task.payload.get("filename") or "export.zip")
+    headers = {"Content-Disposition": f'attachment; filename="{filename}"'}
+    if task.result.get("size_bytes"):
+        headers["Content-Length"] = str(task.result["size_bytes"])
+    if task.result.get("warnings"):
+        headers["X-CurveVision-Warnings"] = " | ".join(task.result["warnings"])[:900]
+    storage = get_storage(settings)
+    return StreamingResponse(
+        storage.stream(str(task.result["storage_key"])),
+        media_type="application/zip",
+        headers=headers,
+    )
 
 
 @router.post("/tasks/{task_id}/import", response_model=ImportResultOut)

@@ -332,3 +332,80 @@ async def test_health_advertises_local_mode(local_owner: ApiActor) -> None:
     response = await local_owner.get("/api/v1/health")
     assert response.status_code == 200
     assert response.json()["local_mode"] is True
+
+
+# ------------------------------------------------------------- exporting to a chosen file
+#
+# The web app downloaded an export into the page's memory before saving it; tens of
+# gigabytes of images cannot survive that, least of all in the desktop webview. In the
+# desktop app the shell's save dialog returns a path and the server writes the archive there.
+
+
+async def attach_folder(actor: ApiActor, project: dict[str, Any], folder: Path) -> None:
+    task = await make_task(actor, project)
+    response = await actor.post(
+        f"/api/v1/tasks/{task['id']}/local-import", json={"path": str(folder)}
+    )
+    assert response.status_code == 200, response.text
+
+
+async def test_writes_the_archive_where_the_dialog_said_with_the_images(
+    local_owner: ApiActor, local_project: dict[str, Any], photo_folder: Path, tmp_path: Path
+) -> None:
+    await attach_folder(local_owner, local_project, photo_folder)
+    destination = tmp_path / "Exports" / "survey coco.zip"
+    destination.parent.mkdir()
+
+    response = await local_owner.post(
+        f"/api/v1/projects/{local_project['id']}/local-export",
+        json={"destination": str(destination), "format": "coco", "include_images": True},
+    )
+
+    assert response.status_code == 200, response.text
+    body = response.json()
+    assert body["path"] == str(destination)
+    assert body["size_bytes"] == destination.stat().st_size
+    with zipfile.ZipFile(destination) as archive:
+        names = archive.namelist()
+    assert "annotations/instances_default.json" in names
+    assert sum(name.endswith(".png") for name in names) == 3
+    # Nothing is left beside it: the working folder went once the archive was in place.
+    assert [p.name for p in destination.parent.iterdir()] == ["survey coco.zip"]
+
+
+async def test_replaces_a_file_the_user_chose_to_overwrite(
+    local_owner: ApiActor, local_project: dict[str, Any], photo_folder: Path, tmp_path: Path
+) -> None:
+    await attach_folder(local_owner, local_project, photo_folder)
+    destination = tmp_path / "export.zip"
+    destination.write_bytes(b"an older export")
+
+    response = await local_owner.post(
+        f"/api/v1/projects/{local_project['id']}/local-export",
+        json={"destination": str(destination), "format": "yolo"},
+    )
+
+    assert response.status_code == 200, response.text
+    assert zipfile.is_zipfile(destination)
+
+
+async def test_refuses_a_folder_that_does_not_exist_or_is_not_a_file(
+    local_owner: ApiActor, local_project: dict[str, Any], tmp_path: Path
+) -> None:
+    for destination in (tmp_path / "missing" / "x.zip", tmp_path, "relative.zip"):
+        response = await local_owner.post(
+            f"/api/v1/projects/{local_project['id']}/local-export",
+            json={"destination": str(destination), "format": "coco"},
+        )
+        assert response.status_code == 422, (destination, response.text)
+
+
+async def test_local_export_does_not_exist_on_a_shared_server(
+    owner: ApiActor, project: dict[str, Any], tmp_path: Path
+) -> None:
+    """A path names a file on the *server's* disk there; writing one is not on offer."""
+    response = await owner.post(
+        f"/api/v1/projects/{project['id']}/local-export",
+        json={"destination": str(tmp_path / "x.zip"), "format": "coco"},
+    )
+    assert response.status_code == 404

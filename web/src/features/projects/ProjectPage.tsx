@@ -3,6 +3,9 @@ import { Link, useNavigate, useParams } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Check, Download, ImagePlus, Pencil, Plus, Tag, Trash2, X } from 'lucide-react';
 import { api } from '@/api/client';
+import { chooseSaveFile, isDesktop } from '@/desktop';
+import type { BackgroundTaskBrief } from '@/api/types';
+import { followDownload, runBackgroundExport } from './backgroundExport';
 import { uploadInBatches } from '@/features/tasks/uploadBatches';
 import type { Label as LabelSchemaEntry } from '@/api/types';
 import { ManageMenu } from '@/features/common/ManageMenu';
@@ -92,9 +95,42 @@ export function ProjectPage() {
   });
 
   const [exportImages, setExportImages] = useState(false);
+  const [exportProgress, setExportProgress] = useState<BackgroundTaskBrief | null>(null);
   const [exportAccepted, setExportAccepted] = useState(false);
   const exportDataset = useMutation({
-    mutationFn: async (format: string) => {
+    mutationFn: async (format: string): Promise<string | null> => {
+      const name = `${project.data?.slug ?? 'dataset'}-${format}.zip`;
+      if (isDesktop()) {
+        // The shell's save dialog, and the local server writes the file: nothing passes
+        // through the page, however many gigabytes of images the export carries.
+        const destination = await chooseSaveFile(name);
+        if (!destination) return null;
+        const saved = await api.exportProjectToFile(projectId, {
+          destination,
+          format,
+          include_images: exportImages,
+          only_accepted: exportAccepted,
+        });
+        return saved.path;
+      }
+      if (exportImages) {
+        // Images make an export large; the browser's download manager takes it from a
+        // signed link rather than the page holding it. See `backgroundExport.ts`.
+        await runBackgroundExport({
+          start: () =>
+            api.startExport(projectId, {
+              format,
+              include_images: true,
+              only_accepted: exportAccepted,
+            }),
+          poll: (id) => api.backgroundTask(id),
+          link: (id) => api.exportLink(id),
+          download: followDownload,
+          onProgress: (task) => setExportProgress(task.state === 'succeeded' ? null : task),
+        });
+        setExportProgress(null);
+        return null;
+      }
       const blob = await api.exportProject(projectId, {
         format,
         include_images: exportImages,
@@ -103,9 +139,10 @@ export function ProjectPage() {
       const url = URL.createObjectURL(blob);
       const anchor = document.createElement('a');
       anchor.href = url;
-      anchor.download = `${project.data?.slug ?? 'dataset'}-${format}.zip`;
+      anchor.download = name;
       anchor.click();
       URL.revokeObjectURL(url);
+      return null;
     },
   });
 
@@ -197,12 +234,21 @@ export function ProjectPage() {
             data-export-run=""
           >
             <Download size={15} />
-            {exportDataset.isPending ? 'Exporting…' : 'Export'}
+            {exportDataset.isPending
+              ? exportProgress
+                ? `Preparing… ${Math.round(exportProgress.progress * 100)}%`
+                : 'Exporting…'
+              : 'Export'}
           </Button>
         </div>
       </header>
 
       {exportDataset.error && <ErrorNotice error={exportDataset.error} />}
+      {exportDataset.data && (
+        <p className="text-sm text-emerald-300" data-export-saved="">
+          Saved to <span className="font-mono">{exportDataset.data}</span>
+        </p>
+      )}
 
       <div className="grid gap-6 lg:grid-cols-3">
         <div className="space-y-6 lg:col-span-2">

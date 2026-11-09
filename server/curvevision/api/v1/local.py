@@ -19,18 +19,35 @@ account, the loopback-only bind and the per-launch token are what bound it.
 from __future__ import annotations
 
 import asyncio
+import os
+import shutil
+import tempfile
 from pathlib import Path
 
 from fastapi import APIRouter
 
-from curvevision.api.deps import IdentityDep, SessionDep, SettingsDep, TaskScopeDep
+from curvevision.api.deps import (
+    IdentityDep,
+    ProjectScopeDep,
+    SessionDep,
+    SettingsDep,
+    TaskScopeDep,
+)
 from curvevision.core.config import Settings
 from curvevision.core.errors import NotFoundError, ValidationError
 from curvevision.policy import Action, ResourceType
 from curvevision.schemas.system import TeamServerCheckIn, TeamServerCheckOut
-from curvevision.schemas.task import AssetOut, LocalImportRequest, LocalImportResult
+from curvevision.schemas.task import (
+    AssetOut,
+    LocalExportRequest,
+    LocalExportResult,
+    LocalImportRequest,
+    LocalImportResult,
+)
+from curvevision.services import datasets as dataset_service
 from curvevision.services import media as media_service
 from curvevision.services import team_server
+from curvevision.storage import get_storage
 
 router = APIRouter(tags=["local"])
 
@@ -85,6 +102,56 @@ async def import_local_path(
         skipped=skipped,
         frame_count=scope.task.frame_count,
     )
+
+
+@router.post("/projects/{project_id}/local-export", response_model=LocalExportResult)
+async def export_to_local_path(
+    payload: LocalExportRequest,
+    scope: ProjectScopeDep,
+    session: SessionDep,
+    settings: SettingsDep,
+) -> LocalExportResult:
+    """Export the project straight to a file the user chose in the save dialog.
+
+    The browser path downloads an archive into the page's memory before saving it, which
+    an export with 10,000 photographs -- tens of gigabytes -- cannot survive, least of all
+    in the desktop webview. Here nothing passes through the page: the archive is assembled
+    beside the destination, with images streamed in from disk, and renamed into place, so
+    a half-written file never sits under the name the user chose.
+    """
+    _require_local_mode(settings)
+    scope.authorize(Action.EXPORT)
+    destination = await asyncio.to_thread(Path(payload.destination).expanduser)
+    if not destination.is_absolute():
+        raise ValidationError("The destination must be an absolute path")
+    if not await asyncio.to_thread(destination.parent.is_dir):
+        raise ValidationError(f"There is no folder {str(destination.parent)!r} to save into")
+    if await asyncio.to_thread(destination.is_dir):
+        raise ValidationError(f"{str(destination)!r} is a folder, not a file name")
+
+    # Beside the destination, so the final step is a rename on one filesystem rather than a
+    # second copy of a file that may be tens of gigabytes.
+    workdir = Path(
+        await asyncio.to_thread(
+            tempfile.mkdtemp, prefix=".curvevision-export-", dir=destination.parent
+        )
+    )
+    try:
+        archive, warnings = await dataset_service.export_dataset_file(
+            session,
+            scope.project,
+            workdir=workdir,
+            format_id=payload.format,
+            task_ids=payload.task_ids or None,
+            only_accepted=payload.only_accepted,
+            include_images=payload.include_images,
+            storage=get_storage(settings) if payload.include_images else None,
+        )
+        await asyncio.to_thread(os.replace, archive, destination)
+    finally:
+        await asyncio.to_thread(shutil.rmtree, workdir, True)
+    size = (await asyncio.to_thread(destination.stat)).st_size
+    return LocalExportResult(path=str(destination), size_bytes=size, warnings=warnings)
 
 
 @router.post("/local/team-server-check", response_model=TeamServerCheckOut)

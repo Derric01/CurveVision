@@ -275,7 +275,7 @@ function Lane({
           // makes the drag a guess.
           const dragging = drag?.from === frame;
           const shown = dragging ? drag.to : frame;
-          const label = `Frame ${frame}${departure ? ' — object leaves' : ''}`;
+          const label = `Frame ${frame + 1}${departure ? ' — object leaves' : ''}`;
           return (
             <button
               key={frame}

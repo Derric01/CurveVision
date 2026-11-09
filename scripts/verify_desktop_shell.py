@@ -35,7 +35,10 @@ what was until now only claimed:
 11. annotating files where they are, through the operating system's own dialogs — GTK's,
     driven at the keyboard too: *File ▸ Open Folder…* (Ctrl+O) on a task's page opens the
     folder dialog, a folder chosen there is attached in place, and the page's *Choose
-    files…* does the same for one file.
+    files…* does the same for one file;
+12. exporting through the system's save dialog: the project page's *Export*, with its
+    images, asks where to save, and the local server writes the archive there — nothing
+    passes through the page, which could not hold tens of gigabytes.
 
 Needs: Linux, Xvfb, `xdotool`, `WebKitWebDriver` (Debian/Ubuntu: `webkit2gtk-driver`),
 `tauri-driver` (`cargo install tauri-driver --locked`), the shell built with `cargo build`
@@ -55,6 +58,7 @@ import tempfile
 import time
 import urllib.error
 import urllib.request
+import zipfile
 from pathlib import Path
 from typing import Any
 
@@ -213,6 +217,10 @@ open.onsuccess = () => {
 SUMMARY = """
 const summary = document.querySelector('[data-import-summary]');
 return summary ? summary.textContent : null;
+"""
+SAVED_NOTICE = """
+const notice = document.querySelector('[data-export-saved]');
+return notice ? notice.textContent : null;
 """
 MARK_READ = """
 const done = arguments[arguments.length - 1];
@@ -543,6 +551,30 @@ def main() -> int:
                 f"dialog answered: {chose}; the task has {frames()} frames",
             )
 
+            # ------------------------------------------------------------ 12
+            wd.call(
+                "POST", wd.s("/url"), {"url": f"{connection['url']}/projects/{project['id']}"}
+            )
+            wd.wait_for("[data-export-run]")
+            wd.click("[data-export-images]")
+            saved_to = home / "exports" / "photos coco.zip"
+            saved_to.parent.mkdir()
+            wd.click("[data-export-run]")
+            chose = save_in_dialog(display, "Save export", saved_to)
+            written = until(lambda: saved_to.is_file() and zipfile.is_zipfile(saved_to), 60)
+            names = zipfile.ZipFile(saved_to).namelist() if written else []
+            shown = until(lambda: wd.run(SAVED_NOTICE), 10)
+            check(
+                chose
+                and bool(written)
+                and "annotations/instances_default.json" in names
+                and sum(name.endswith(".png") for name in names) == 4
+                and str(saved_to) in (shown or ""),
+                "Export asks where to save, and the archive with its images is written there",
+                f"dialog answered: {chose}; file written: {bool(written)}; archive has "
+                f"{names}; the page said {shown!r}",
+            )
+
             # ------------------------------------------------------------ 9
             # A launch of its own, with the release feed: the driver passes its environment
             # on to the application it starts.
@@ -779,6 +811,30 @@ def choose_in_dialog(display: str, title: str, path: Path) -> bool:
     for _ in range(2 if path.is_dir() else 1):
         _xdotool(display, "key", "Return")
         time.sleep(1.5)
+    gone = until(
+        lambda: not _xdotool(display, "search", "--onlyvisible", "--name", f"^{title}").split(),
+        10,
+    )
+    return bool(gone)
+
+
+def save_in_dialog(display: str, title: str, path: Path) -> bool:
+    """Save as `path` in the GTK save dialog whose title starts with `title`, at the keyboard.
+
+    A save dialog opens with its name field focused, and GTK takes a whole path typed there.
+    Ctrl+A first, so the suggested name is replaced rather than appended to.
+    """
+    found = until(
+        lambda: _xdotool(display, "search", "--onlyvisible", "--name", f"^{title}").split(), 20
+    )
+    if not found:
+        return False
+    _xdotool(display, "windowfocus", "--sync", found[0])
+    _xdotool(display, "key", "ctrl+a")
+    time.sleep(0.4)
+    _xdotool(display, "type", "--delay", "20", str(path))
+    time.sleep(0.5)
+    _xdotool(display, "key", "Return")
     gone = until(
         lambda: not _xdotool(display, "search", "--onlyvisible", "--name", f"^{title}").split(),
         10,

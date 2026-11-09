@@ -32,6 +32,7 @@ from curvevision.formats.base import (
     LabelSpec,
     ShapeRecord,
     TagRecord,
+    streamed_text,
 )
 from curvevision.formats.registry import register
 
@@ -56,10 +57,21 @@ class CurveVisionFormat:
     # ----------------------------------------------------------------------- export
 
     def export(self, dataset: DatasetView, sink: ExportSink) -> None:
-        frames: list[dict[str, Any]] = []
-        for frame in dataset:
-            frames.append(
-                {
+        # Frames are the last key, so the document is written frame by frame as they come,
+        # one per line, rather than built whole first: a backup of 100,000 frames as one
+        # dict and then one string cost several hundred megabytes.
+        header = {
+            "schema": "curvevision/dataset",
+            "schema_version": SCHEMA_VERSION,
+            "name": dataset.name,
+            "metadata": dataset.metadata,
+            "labels": [self._label_to_json(label) for label in dataset.labels],
+        }
+        opening = json.dumps(header, indent=2, default=str)
+        with streamed_text(sink, "dataset.json") as out:
+            out.write(opening[:-2] + ',\n  "frames": [\n')
+            for position, frame in enumerate(dataset):
+                entry = {
                     "index": frame.index,
                     "name": frame.name,
                     "width": frame.width,
@@ -79,19 +91,12 @@ class CurveVisionFormat:
                     ],
                     "shapes": [self._shape_to_json(shape) for shape in frame.shapes],
                 }
-            )
-            if frame.has_media:
-                sink.write_media(f"data/{frame.name}", frame)
-
-        document = {
-            "schema": "curvevision/dataset",
-            "schema_version": SCHEMA_VERSION,
-            "name": dataset.name,
-            "metadata": dataset.metadata,
-            "labels": [self._label_to_json(label) for label in dataset.labels],
-            "frames": frames,
-        }
-        sink.write("dataset.json", json.dumps(document, indent=2, default=str))
+                out.write(
+                    ("" if position == 0 else ",\n") + "    " + json.dumps(entry, default=str)
+                )
+                if frame.has_media:
+                    sink.write_media(f"data/{frame.name}", frame)
+            out.write("\n  ]\n}\n")
 
     @staticmethod
     def _label_to_json(label: LabelSpec) -> dict[str, Any]:

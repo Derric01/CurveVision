@@ -107,6 +107,25 @@ async fn choose_files(app: AppHandle) -> Vec<String> {
     receiver.recv().unwrap_or_default()
 }
 
+/// Ask where to save an export, via the operating system's own save dialog.
+///
+/// Returns the chosen path, or nothing when the user cancelled. The local server writes the
+/// archive there (`/projects/{id}/local-export`): an export with its images can be tens of
+/// gigabytes, which a download through the webview would hold in the page's memory.
+#[tauri::command]
+async fn choose_save_file(app: AppHandle, default_name: String) -> Option<String> {
+    let (sender, receiver) = std::sync::mpsc::channel();
+    app.dialog()
+        .file()
+        .set_title("Save export")
+        .set_file_name(&default_name)
+        .add_filter("Zip archive", &["zip"])
+        .save_file(move |chosen| {
+            let _ = sender.send(chosen.map(|path| path.to_string()));
+        });
+    receiver.recv().ok().flatten()
+}
+
 /// Find the packaged server.
 ///
 /// Installed, it sits beside the shell's own executable, which is where Tauri puts an
@@ -405,6 +424,7 @@ pub fn run() {
             connection,
             choose_folder,
             choose_files,
+            choose_save_file,
             connect_to_team_server,
             check_for_update,
             install_update

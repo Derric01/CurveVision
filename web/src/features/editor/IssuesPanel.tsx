@@ -129,8 +129,8 @@ export function IssuesPanel({
           rows={2}
           placeholder={
             selected
-              ? `Something wrong with the selected object on frame ${currentFrame}?`
-              : `Something wrong on frame ${currentFrame}?`
+              ? `Something wrong with the selected object on frame ${currentFrame + 1}?`
+              : `Something wrong on frame ${currentFrame + 1}?`
           }
           className="w-full resize-none rounded-md border border-ink-700 bg-ink-950 px-2 py-1.5 text-xs text-ink-100 placeholder:text-ink-600 focus:border-curve-400 focus:outline-none"
           aria-label="Describe the problem"
@@ -168,7 +168,7 @@ export function IssuesPanel({
             ? `pinned at ${Math.round(pickedPoint.x)}, ${Math.round(pickedPoint.y)}`
             : selected
               ? 'on the selected object'
-              : `on frame ${currentFrame}`}
+              : `on frame ${currentFrame + 1}`}
         </p>
 
         {error !== null && error !== undefined && (
@@ -300,7 +300,7 @@ function IssueItem({
         <button
           type="button"
           onClick={onSeek}
-          title={`Go to frame ${row.issue.frame}`}
+          title={`Go to frame ${row.issue.frame + 1}`}
           className="mt-1.5 shrink-0 px-1 text-ink-600 hover:text-ink-200"
         >
           <ChevronRight size={12} />

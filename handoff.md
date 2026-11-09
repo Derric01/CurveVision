@@ -5,7 +5,7 @@
 > [`AGENTS.md`](./AGENTS.md) first; it is the working contract. Update this file after every
 > iteration, including the ones that mostly failed.
 >
-> **Last updated:** 2026-11-09 (iteration 102j) · branch `claude/start-work-yx080h` · PRs
+> **Last updated:** 2026-11-09 (iteration 102o) · branch `claude/start-work-yx080h` · PRs
 > [#1](https://github.com/Derric01/CurveVision/pull/1)–[#39](https://github.com/Derric01/CurveVision/pull/39)
 > **all merged**, #37 carrying iterations 84 (the rest) to 98, #38 iteration 99 and #39 iteration 100.
 >
@@ -1038,7 +1038,7 @@ full docs set including seven ADRs.
 | Cuboid (2D wireframe box) | Complete and measured in a browser: a two-stage tool (drag the front face, then move and click to set the depth), a wireframe renderer, and CVAT XML export/import using CVAT's own real attribute names. The backend needed no new code at all — `ShapeType.CUBOID`, its minimum-points entry, its IoU comparison and its track interpolation were already there, unused. **Not** the 3D/point-cloud kind — see `docs/ROADMAP.md`'s honestly-unchanged limitation on that. |
 | Resumable uploads | Complete and tested end to end — API, SDK, CLI and the web upload panel: create a session, `PATCH` chunks at a stated offset, read the current offset back, complete, resume by id after a crash or a page reload. Driven in a browser through a deliberately dropped chunk and a real resume. Nothing outstanding. |
 | Label schema | Complete, driven in a browser: a label is added, renamed, recoloured and removed, and its **attributes** are added, renamed, extended and removed from the same form — with any edit that would strand a value already recorded refused by the server. Attribute **values** are set from the editor's right rail (iteration 54), and a required one nobody has set no longer poisons autosave (iteration 55). The form offers `required` (iteration 57). |
-| Autosave crash recovery | Complete in a browser (iteration 56), driven through a closed page, a dropped connection, a save that landed unheard and a killed-and-relaunched desktop server. Not yet checked in the Tauri shell's own webview, whose storage persisting across launches is the platform default. |
+| Autosave crash recovery | Complete in a browser (iteration 56), driven through a closed page, a dropped connection, a save that landed unheard and a killed-and-relaunched desktop server (`verify_crash_recovery.py`). The property it rests on in the Tauri shell's own webview, IndexedDB kept from one launch to the next on the same origin, is check 8 of `verify_desktop_shell.py`, which CI runs on Linux. Checked in iteration 102n: this line said it had not been, after the check existed. Not driven end to end inside the shell (draw, kill the app, relaunch, restore), and not on the macOS or Windows webviews. |
 | Job review | Complete end to end and driven in a browser, all three parts: the **assignment** (an annotator picker and a reviewer picker on each job row of the task page, either clearable back to Unassigned), the **queue** (`GET /jobs?reviewing=true`, split on the My work page into what can be reviewed now and what is merely named to you), and the **decision** (accept or send back with a required reason, from the editor's rail). Nothing outstanding. |
 
 *This table went stale once — it still listed the open-folder flow and chunked delivery as
@@ -2301,6 +2301,149 @@ Iteration 54:
 ---
 
 ## Last iteration
+
+### 102o — exports of any size reach the disk; the whole path, end to end
+
+Release bar item (4), and a defect found on the way.
+
+* **The project page held every export in the page before saving it.** `api.exportProject`
+  returns a `Blob`, so an export with 10,000 photographs (tens of GB) could not be
+  downloaded, least of all in the desktop webview, which also has no download handler of
+  its own. Two paths now, by where the app runs:
+  * **Desktop:** the shell's native save dialog (`choose_save_file`, granted in
+    `capabilities/default.json`, generated permission committed). The local server writes
+    the archive there (`POST /projects/{id}/local-export`, local mode only, a 404
+    elsewhere, like `local-import`). It is assembled beside the destination and renamed
+    into place. Tests: `tests/api/test_local_media.py`. In the real shell: check 12 of
+    `scripts/verify_desktop_shell.py`, which answers GTK's save dialog at the keyboard. It
+    runs in CI's WebDriver job; it was not run here (no WebKitWebDriver in this container).
+  * **Browser, with images:** `POST /projects/{id}/exports` runs the existing
+    `dataset.export` job, which nothing used to start. `POST /exports/{task}/link` gives a
+    10-minute HMAC-signed URL (`core/signing.py`; bound to purpose and export, owner only),
+    and `GET /exports/{task}/archive` streams it with no auth header, so the browser's
+    download manager saves it to disk. Annotation-only exports keep the direct download.
+    Tests: `tests/api/test_export_download.py` covers tampered, expired, another export's
+    signature, another user, and a task that is not an export.
+* **End to end** (`scripts/verify_end_to_end.py`), all in the real interface against the
+  real server: draw a box, a polygon, and a box relabelled from the panel; submit;
+  accept; export COCO with images, accepted only, downloaded by Chromium through the
+  signed link; every image byte for byte; re-imported into a fresh task, every shape back
+  on its frame with its label and geometry. Passed on the first run.
+* Stale line corrected: crash recovery's dependency on the desktop webview keeping
+  IndexedDB has been check 8 of `verify_desktop_shell.py` all along (*In progress* table).
+* **Follow-ups:** archives from background exports stay in storage (`exports/…`) with
+  nothing removing them, so a team server's storage grows by every export with images;
+  a sweep after a day is the obvious fix. Crash recovery is not driven end to end inside
+  the shell, and the macOS and Windows webviews are not driven at all: a job for beta
+  testers.
+
+### 102n — exports write their JSON as they go
+
+Release bar item (3). Measured with `tracemalloc` on exports without images, phase by
+phase. At the start, an export's peak was 3.5 KB a box for COCO and 4.6 for the native
+format, from building the whole document as dicts and then one string.
+
+* `formats.base.streamed_text` and `ExportSink.write_file`: a format writes a large file
+  piece by piece to a temporary file, which is then streamed into the archive. It cannot
+  go straight into the zip, because images are added during the same loop.
+* **COCO** keeps its key order (images, then annotations). Image entries are held as short
+  strings; annotations go through a temporary file.
+* **Native** (`dataset.json`, also what backups and frozen dataset versions are) writes one
+  frame per line. Readers parse it as before; only the whitespace differs.
+* Shapes are loaded as columns, not ORM entities.
+* Result: the format phase is under 1 KB a box. The whole export peaks at about 2.5 KB a
+  box for COCO, YOLO and native alike; 20,000 and 40,000 boxes give the same ratio. At
+  200,000 boxes that is about 500 MB, where it was 700–920 MB.
+* **What is left**, and why it was not done: most of the remaining peak is
+  `build_dataset_view` holding every frame's record. Per-image asset and blob rows are
+  loaded as ORM objects, and `FrameRecord`s for every frame live until the format runs.
+  Removing that means producing frames task by task while the format consumes them, but
+  formats are synchronous and the database is async. 500 MB fits an 8 GB laptop, so this
+  waits for after launch.
+
+### 102m — playing a job's frames
+
+Release bar item (2), part two.
+
+* **Play / Pause** and a speed (1, 5, 10, 25 fps) in the editor's frame bar
+  (`web/src/features/editor/playback.ts`). The editor could only step. The next frame is
+  asked for only once the current one's image has arrived (the effect is keyed on the
+  image URL, not the frame number), so playback never runs ahead of loading: on a slow
+  connection it plays slower rather than flashing blank frames. It stops at the last
+  frame; from there, Play starts over. Stepping, scrubbing, any panel's jump to a frame,
+  and touching the canvas all pause it (`seek` in `EditorPage`).
+* Checked in Chromium against the real server (`scripts/verify_playback.py`, 12 frames
+  of distinct shades). It plays through, stops at the end, restarts, an arrow pauses it,
+  and every frame it showed had been drawn before it moved on: the canvas's centre pixel
+  matched the frame's shade.
+* Image adjustments (brightness, contrast) are still not in the editor; they are not on
+  the release bar.
+
+### 102l — per-object controls in the editor; consistent frame numbers
+
+Release bar item (2), part one.
+
+* **The selected object's panel** (`web/src/features/editor/ObjectPanel.tsx`). It holds
+  the label, Occluded (Q), and Front / Back (`]` / `[`). The engine could relabel and
+  toggle occlusion before, but nothing on screen called either; changing a label meant
+  redrawing the object. Stacking is new: `engine.restackSelection` moves the selection
+  above or below everything on its frame. It is saved as `z_order` and decides which of
+  two overlapping objects a click picks. Each control is one undo step (`executeAlone`).
+* **Hide and lock, per object**: an eye and a lock on every row of the objects list. As in
+  CVAT they are the session's own state (`Scene.hiddenObjects` / `lockedObjects`) and
+  never saved. Hidden means off the canvas and out of reach of clicks; locked means on
+  screen but not editable. Either one deselects the object.
+* **Duplicate (Ctrl+D)** offset every coordinate by 12, so it grew an ellipse's radii and
+  left a mask's pixels behind. It now uses `moveAnnotation`/`clampMove`, as a drag does.
+* **Frame numbers**: the issues panel, the quality panel's conflict list and the track
+  timeline's tooltips showed the 0-based index while the rest of the editor shows
+  1-based. In the screenshot the same frame read "frame 1" and "frame 0". All are 1-based.
+* Checked in the real editor against the real server
+  (`scripts/verify_object_controls.py`, screenshot `docs/images/object-controls.png`).
+  It checks relabel, occluded, front, hide, lock, and a box dragged past the right edge
+  keeping its width, all read back from what the server stored. Engine tests:
+  `canvas/__tests__/objectControls.test.ts`.
+
+**Next on (2):** video playback; done in 102m.
+
+### 102k — every format round-tripped; four editor bugs that changed what was saved
+
+The release bar the maintainer agreed to: (1) no lost or corrupted annotations, (2) the
+per-object editor controls and video playback, (3) exports that stream annotations at
+100,000 images, (4) a real end-to-end run. This entry is the first part of (1).
+
+* **Every format, one awkward dataset** (`server/tests/unit/test_round_trip_matrix.py`).
+  It sends sub-pixel coordinates, a box the size of the image, French and Japanese label
+  names, a 1920×1080 frame and every geometry each format declares, to all 12 formats
+  that both write and read. The invariant: every shape comes back under its label,
+  covering the same region (within 0.01 px, or 1 px for raster formats). Type changes
+  the format admits to are allowed; a rotated box becoming a polygon in COCO is one. All
+  12 pass, and none lost data. Swapping width and height (this morning's EXIF bug) fails
+  YOLO, YOLO OBB and Open Images, so the test has teeth.
+  A false alarm, recorded so nobody repeats it: an ellipse is `[cx, cy, rx, ry]`, centre
+  and radii, not a second point. The first probe got that wrong and blamed four formats.
+* **Undo merged separate gestures.** Consecutive edits to the same objects merge, so a
+  drag is one Ctrl+Z, but nothing marked where a gesture ended. Two drags of the same box,
+  two relabels or two occlusion toggles were one undo step. `CommandStack.seal()` marks
+  the boundary on every press, and `executeAlone` wraps one-off actions. The test
+  `canvas/__tests__/undoGestures.test.ts` includes 190 seeded random edits, each undone
+  and redone and checked step by step. History holds 200 steps; a longer random run
+  "fails" for that reason only.
+* **A box pushed against the image edge was squashed**: every coordinate was clamped on
+  its own, so a 40 px box dragged right was saved as `[400, 100, 400, 140]`.
+  `tools.clampMove` limits the move by the whole selection's bounds, so it stops at the
+  edge. An object already partly outside may move back in, never further out.
+* **Moving an ellipse grew it.** `[cx, cy, rx, ry]` was translated pair by pair.
+  `tools.moveAnnotation` moves the centre only.
+* **Moving a mask moved its box, not its pixels.** It now moves both, by whole pixels.
+  Moves are computed from where the drag started, so no error accumulates.
+* **A resize could shrink a box to a speck** (1×1 px), which drawing refuses.
+  `tools.tooSmall` stops it at `MIN_SHAPE_SIZE` (2 px).
+* Tests: `canvas/__tests__/moveAndResize.test.ts` and `undoGestures.test.ts`. Against the
+  old code 11 of their 12 tests fail; the twelfth (one drag undone whole) already worked.
+
+**Next, still on (1):** autosave and crash recovery inside the Tauri shell's own webview
+(checked in a browser only, see *In progress*).
 
 ### 102j — 10,000 and 100,000 images: measured, and the four things that broke
 

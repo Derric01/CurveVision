@@ -24,6 +24,8 @@ import {
   Lock,
   LockOpen,
   Maximize2,
+  Pause,
+  Play,
   MousePointer2,
   Pentagon,
   PersonStanding,
@@ -52,6 +54,7 @@ import {
   withUnsaved,
 } from './adapters';
 import { useFrameObjectUrl } from './useFrameObjectUrl';
+import { DEFAULT_PLAYBACK_RATE, PLAYBACK_RATES, usePlayback, type PlaybackRate } from './playback';
 import { TrackTimeline } from './TrackTimeline';
 import { adjacentKeyframe, trackRows } from './timeline';
 import { markDeparture, moveKeyframe, toggleKeyframe, type EditResult } from './keyframes';
@@ -67,6 +70,7 @@ import { ReviewPanel } from './ReviewPanel';
 import { canSubmit, submitBlocker } from './review';
 import { useAutosave, type Recovered, type Refusal } from './useAutosave';
 import { AttributesPanel } from './AttributesPanel';
+import { ObjectPanel } from './ObjectPanel';
 import { FrameTagsPanel } from './FrameTagsPanel';
 import { tagsOn } from './frameTags';
 import { attributesFor, mutableNames } from './attributeValues';
@@ -107,6 +111,11 @@ export function EditorPage() {
   const [showSuggestions, setShowSuggestions] = useState(true);
   const [fillOpacity, setFillOpacity] = useState(0.18);
   const [selection, setSelection] = useState<string[]>([]);
+  // Per-object hide and lock: the editor's own state for this session, never saved.
+  const [hiddenObjects, setHiddenObjects] = useState<ReadonlySet<string>>(new Set());
+  const [lockedObjects, setLockedObjects] = useState<ReadonlySet<string>>(new Set());
+  // Bumped after an edit made from the side panel, so the panel shows the object as it is.
+  const [, setPanelRevision] = useState(0);
   const [labelStyles, setLabelStyles] = useState<LabelStyle[]>([]);
   // What a multi-step tool is waiting for. The skeleton tool is the only one that sets
   // it today: its joint order is invisible on the canvas, so clicking through a
@@ -234,6 +243,25 @@ export function EditorPage() {
   );
   const imageUrl = useFrameObjectUrl(task.data?.id, currentFrame);
 
+  const [playbackRate, setPlaybackRate] = useState<PlaybackRate>(DEFAULT_PLAYBACK_RATE);
+  const playback = usePlayback({
+    frame: currentFrame,
+    start: job.data?.start_frame ?? 0,
+    stop: job.data?.stop_frame ?? 0,
+    shown: imageUrl,
+    rate: playbackRate,
+    onFrame: setFrame,
+  });
+  const { pause } = playback;
+  /** A frame the annotator chose: it stops playback, as stepping does in any player. */
+  const seek = useCallback(
+    (target: number) => {
+      pause();
+      setFrame(target);
+    },
+    [pause],
+  );
+
   // The same query key the issues panel uses, so react-query serves both from one fetch
   // rather than this becoming a second request or a prop drilled through the sidebar.
   const issues = useQuery({
@@ -354,6 +382,7 @@ export function EditorPage() {
       if (target && ['INPUT', 'TEXTAREA', 'SELECT'].includes(target.tagName)) return;
       if (!job.data) return;
 
+      if (['ArrowRight', 'd', 'ArrowLeft', 'a', '.', ','].includes(event.key)) pause();
       if (event.key === 'ArrowRight' || event.key === 'd') {
         setFrame((current) => Math.min(job.data!.stop_frame, (current ?? 0) + 1));
       } else if (event.key === 'ArrowLeft' || event.key === 'a') {
@@ -381,7 +410,7 @@ export function EditorPage() {
     }
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [job.data, keyframes, frame, selectedTrackId, editTrack]);
+  }, [job.data, keyframes, frame, selectedTrackId, editTrack, pause]);
 
   // Flush pending work before leaving the frame, so changes are never stranded.
   useEffect(() => {
@@ -478,7 +507,7 @@ export function EditorPage() {
           refused={autosave.refused}
           labels={labelStyles}
           currentFrame={currentFrame}
-          onSeek={setFrame}
+          onSeek={seek}
         />
       )}
 
@@ -530,8 +559,8 @@ export function EditorPage() {
           </RailButton>
         </nav>
 
-        {/* Canvas */}
-        <div className="relative min-w-0 flex-1">
+        {/* Canvas. Touching it stops playback: nobody draws on a moving picture. */}
+        <div className="relative min-w-0 flex-1" onPointerDownCapture={pause}>
           <AnnotationCanvas
             ref={canvasRef}
             annotations={visible}
@@ -681,7 +710,48 @@ export function EditorPage() {
             selection={selection}
             refused={autosave.refused}
             onFocus={(id) => engine?.focusAnnotation(id)}
+            hidden={hiddenObjects}
+            locked={lockedObjects}
+            onToggleHidden={(id) => {
+              const hide = !hiddenObjects.has(id);
+              engine?.setObjectHidden(id, hide);
+              setHiddenObjects((current) => toggled(current, id, hide));
+            }}
+            onToggleLocked={(id) => {
+              const lock = !lockedObjects.has(id);
+              engine?.setObjectLocked(id, lock);
+              setLockedObjects((current) => toggled(current, id, lock));
+            }}
           />
+
+          {(() => {
+            const selected = selection
+              .map((id) => engine?.scene.get(id) ?? visible.find((item) => item.id === id))
+              .filter((item): item is NonNullable<typeof item> => item !== undefined);
+            if (selected.length === 0) return null;
+            const shared = selected.every((item) => item.labelId === selected[0]!.labelId);
+            const refresh = () => setPanelRevision((revision) => revision + 1);
+            return (
+              <ObjectPanel
+                count={selected.length}
+                labelId={shared ? selected[0]!.labelId : null}
+                occluded={selected.every((item) => item.occluded)}
+                labels={drawableLabels(labelStyles)}
+                onRelabel={(labelId) => {
+                  engine?.relabelSelection(labelId);
+                  refresh();
+                }}
+                onToggleOccluded={() => {
+                  engine?.toggleOccluded();
+                  refresh();
+                }}
+                onRestack={(where) => {
+                  engine?.restackSelection(where);
+                  refresh();
+                }}
+              />
+            );
+          })()}
 
           {(() => {
             // From the scene first: it holds an object drawn a moment ago that no save has
@@ -730,7 +800,7 @@ export function EditorPage() {
             currentFrame={currentFrame}
             beforeDeciding={autosave.flush}
             onGoTo={(place) => {
-              setFrame(place.frame);
+              seek(place.frame);
               setFocusId(place.id);
             }}
           />
@@ -754,10 +824,10 @@ export function EditorPage() {
                 ? (visible.find((item) => item.id === selection[0]) ?? null)
                 : null
             }
-            onSeek={setFrame}
+            onSeek={seek}
           />
 
-          <QualityPanel job={job.data} labels={labelStyles} onSeek={setFrame} />
+          <QualityPanel job={job.data} labels={labelStyles} onSeek={seek} />
 
           {/* Last, because that is the order the decision is made in: read the objects, the
               issues and the score, then rule on the job. Renders nothing unless it is
@@ -774,7 +844,7 @@ export function EditorPage() {
         startFrame={job.data?.start_frame ?? 0}
         stopFrame={job.data?.stop_frame ?? 0}
         currentFrame={currentFrame}
-        onSeek={setFrame}
+        onSeek={seek}
         selectedTrackId={selectedTrackId}
         onSelectTrack={(trackId) => {
           setSelectedTrackId(trackId);
@@ -789,10 +859,38 @@ export function EditorPage() {
 
       {/* Frame navigation */}
       <footer className="flex h-12 shrink-0 items-center gap-3 border-t border-ink-800 px-3">
+        {frameCount > 1 && (
+          <>
+            <Button
+              size="sm"
+              variant="ghost"
+              onClick={playback.playing ? playback.pause : playback.play}
+              title={playback.playing ? 'Pause' : 'Play'}
+              aria-label={playback.playing ? 'Pause' : 'Play'}
+              data-playback={playback.playing ? 'playing' : 'paused'}
+            >
+              {playback.playing ? <Pause size={16} /> : <Play size={16} />}
+            </Button>
+            <select
+              className="rounded border border-ink-700 bg-ink-900 px-1 py-0.5 font-mono text-xs text-ink-300"
+              value={playbackRate}
+              onChange={(event) => setPlaybackRate(Number(event.target.value) as PlaybackRate)}
+              aria-label="Playback speed"
+              title="Playback speed"
+              data-playback-rate=""
+            >
+              {PLAYBACK_RATES.map((rate) => (
+                <option key={rate} value={rate}>
+                  {rate} fps
+                </option>
+              ))}
+            </select>
+          </>
+        )}
         <Button
           size="sm"
           variant="ghost"
-          onClick={() => setFrame(Math.max(job.data!.start_frame, currentFrame - 1))}
+          onClick={() => seek(Math.max(job.data!.start_frame, currentFrame - 1))}
           disabled={currentFrame <= (job.data?.start_frame ?? 0)}
         >
           <ChevronLeft size={16} />
@@ -803,7 +901,7 @@ export function EditorPage() {
           min={job.data?.start_frame ?? 0}
           max={job.data?.stop_frame ?? 0}
           value={currentFrame}
-          onChange={(event) => setFrame(Number(event.target.value))}
+          onChange={(event) => seek(Number(event.target.value))}
           className="h-1 flex-1 cursor-pointer appearance-none rounded-full bg-ink-800 accent-curve-500"
           aria-label="Frame"
         />
@@ -811,7 +909,7 @@ export function EditorPage() {
         <Button
           size="sm"
           variant="ghost"
-          onClick={() => setFrame(Math.min(job.data!.stop_frame, currentFrame + 1))}
+          onClick={() => seek(Math.min(job.data!.stop_frame, currentFrame + 1))}
           disabled={currentFrame >= (job.data?.stop_frame ?? 0)}
         >
           <ChevronRight size={16} />
@@ -1097,18 +1195,34 @@ function LabelPanel({
   );
 }
 
+/** `set` with `id` added or removed, as a new set so React sees the change. */
+function toggled(set: ReadonlySet<string>, id: string, present: boolean): ReadonlySet<string> {
+  const next = new Set(set);
+  if (present) next.add(id);
+  else next.delete(id);
+  return next;
+}
+
 function ObjectList({
   annotations,
   labels,
   selection,
   refused,
   onFocus,
+  hidden,
+  locked,
+  onToggleHidden,
+  onToggleLocked,
 }: {
   annotations: { id: string; labelId: string; shapeType: string; source: string; confidence?: number | null }[];
   labels: LabelStyle[];
   selection: string[];
   refused: ReadonlyMap<string, Refusal>;
   onFocus: (id: string) => void;
+  hidden: ReadonlySet<string>;
+  locked: ReadonlySet<string>;
+  onToggleHidden: (id: string) => void;
+  onToggleLocked: (id: string) => void;
 }) {
   const colorOf = (labelId: string) => labels.find((l) => l.id === labelId)?.color ?? '#38bdf8';
   const nameOf = (labelId: string) => labels.find((l) => l.id === labelId)?.name ?? 'unlabelled';
@@ -1123,7 +1237,7 @@ function ObjectList({
       ) : (
         <ul className="pb-2">
           {annotations.map((annotation) => (
-            <li key={annotation.id}>
+            <li key={annotation.id} className="flex items-center">
               {/* Fully keyboard reachable: the canvas itself cannot be, so the object list
                   is how the editor stays navigable without a mouse. */}
               <button
@@ -1137,10 +1251,11 @@ function ObjectList({
                 // class, which a harness cannot read without knowing the palette.
                 data-selected={selection.includes(annotation.id) ? 'true' : 'false'}
                 className={clsx(
-                  'flex w-full items-center gap-2 px-3 py-1.5 text-left text-xs',
+                  'flex min-w-0 flex-1 items-center gap-2 py-1.5 pl-3 pr-1 text-left text-xs',
                   selection.includes(annotation.id)
                     ? 'bg-curve-500/10 text-curve-200'
                     : 'text-ink-300 hover:bg-ink-850',
+                  hidden.has(annotation.id) && 'opacity-50',
                 )}
               >
                 <span
@@ -1171,6 +1286,28 @@ function ObjectList({
                   </span>
                 )}
               </button>
+              {/* Siblings of the row's button, not children: a button inside a button is
+                  invalid, and a click on it would also focus the object. */}
+              <button
+                type="button"
+                className="px-1 py-1.5 text-ink-500 hover:text-ink-200"
+                onClick={() => onToggleHidden(annotation.id)}
+                title={hidden.has(annotation.id) ? 'Show' : 'Hide'}
+                aria-label={hidden.has(annotation.id) ? 'Show object' : 'Hide object'}
+                data-object-hide={annotation.id}
+              >
+                {hidden.has(annotation.id) ? <EyeOff size={12} /> : <Eye size={12} />}
+              </button>
+              <button
+                type="button"
+                className="py-1.5 pl-1 pr-3 text-ink-500 hover:text-ink-200"
+                onClick={() => onToggleLocked(annotation.id)}
+                title={locked.has(annotation.id) ? 'Unlock' : 'Lock'}
+                aria-label={locked.has(annotation.id) ? 'Unlock object' : 'Lock object'}
+                data-object-lock={annotation.id}
+              >
+                {locked.has(annotation.id) ? <Lock size={12} /> : <LockOpen size={12} />}
+              </button>
             </li>
           ))}
         </ul>
@@ -1191,6 +1328,8 @@ function ShortcutHelp() {
           ['← / →', 'Previous / next frame'],
           [', / .', 'Previous / next keyframe'],
           ['K / O', 'Add or remove a keyframe / mark a departure'],
+          ['Q', 'Mark the selection occluded, or not'],
+          ['] / [', 'Bring the selection to the front / send it to the back'],
           ['Enter', 'Finish polygon or skeleton'],
           ['Backspace', 'Remove last vertex or joint'],
           ['X', 'Skip the joint being asked for'],

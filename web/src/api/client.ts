@@ -666,6 +666,33 @@ export const api = {
     body: { format: string; only_accepted?: boolean; include_images?: boolean },
   ) => request<Blob>(`/projects/${projectId}/export`, { method: 'POST', body }),
 
+  /** Start an export in the background; poll `backgroundTask` until it finishes. */
+  startExport: (
+    projectId: string,
+    body: { format: string; only_accepted?: boolean; include_images?: boolean },
+  ) => request<BackgroundTaskBrief>(`/projects/${projectId}/exports`, { method: 'POST', body }),
+
+  backgroundTask: (taskId: string) => request<BackgroundTaskBrief>(`/background-tasks/${taskId}`),
+
+  /** A short-lived link to a finished export that the browser can download by itself. */
+  exportLink: (taskId: string) =>
+    request<{ url: string; expires_in: number }>(`/exports/${taskId}/link`, { method: 'POST' }),
+
+  /** Desktop only: write the export straight to `destination`, a path the save dialog gave. */
+  exportProjectToFile: (
+    projectId: string,
+    body: {
+      destination: string;
+      format: string;
+      only_accepted?: boolean;
+      include_images?: boolean;
+    },
+  ) =>
+    request<{ path: string; size_bytes: number; warnings: string[] }>(
+      `/projects/${projectId}/local-export`,
+      { method: 'POST', body },
+    ),
+
   // -------------------------------------------------------------- dataset versions
   versions: (projectId: string) =>
     request<DatasetVersion[]>(`/projects/${projectId}/versions`),

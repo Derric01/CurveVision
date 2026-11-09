@@ -197,7 +197,40 @@ export class Scene {
     }
   }
 
+  // ------------------------------------------------------------ per-object hide and lock
+  //
+  // The editor's own state, as in CVAT: a way to get one object out of the way or keep it
+  // from being nudged while working around it. Neither is saved; both last the session.
+
+  private hiddenObjects = new Set<string>();
+  private lockedObjects = new Set<string>();
+
+  isObjectHidden(id: string): boolean {
+    return this.hiddenObjects.has(id);
+  }
+
+  isObjectLocked(id: string): boolean {
+    return this.lockedObjects.has(id);
+  }
+
+  setObjectHidden(id: string, hidden: boolean): void {
+    if (hidden) this.hiddenObjects.add(id);
+    else this.hiddenObjects.delete(id);
+    // Hidden or locked, it must not stay selected: the next drag would move something the
+    // annotator can no longer see, or silently do nothing.
+    if (hidden && this.selection.delete(id)) this.emitSelection();
+    this.onChange?.();
+  }
+
+  setObjectLocked(id: string, locked: boolean): void {
+    if (locked) this.lockedObjects.add(id);
+    else this.lockedObjects.delete(id);
+    if (locked && this.selection.delete(id)) this.emitSelection();
+    this.onChange?.();
+  }
+
   isVisible(annotation: Annotation): boolean {
+    if (this.hiddenObjects.has(annotation.id)) return false;
     // Same predicate as the dashing, for the same reason: a suggestion a human has
     // accepted is an ordinary annotation and must not vanish with the pending ones.
     if (!this.showSuggestions && isUnreviewed(annotation)) return false;
@@ -207,7 +240,11 @@ export class Scene {
 
   isEditable(annotation: Annotation): boolean {
     const label = this.labels.get(annotation.labelId);
-    return this.isVisible(annotation) && !(label?.locked ?? false);
+    return (
+      this.isVisible(annotation) &&
+      !(label?.locked ?? false) &&
+      !this.lockedObjects.has(annotation.id)
+    );
   }
 
   // ------------------------------------------------------------------- selection

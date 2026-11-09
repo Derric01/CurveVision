@@ -15,6 +15,7 @@
     "allow-connection",
     "allow-choose-folder",
     "allow-choose-files",
+    "allow-choose-save-file",
     "allow-connect-to-team-server",
     "allow-check-for-update",
     "allow-install-update",
