@@ -41,6 +41,45 @@ data. It also counts the **rate limit** every `api` replica shares
 (`CURVEVISION_RATE_LIMIT_BACKEND=redis`, the compose default); while Redis is down, requests
 are not rate-limited rather than refused ([API.md](./API.md#rate-limiting)).
 
+### HTTPS: a certificate for the server
+
+A team server must be reached over HTTPS: passwords, tokens and every image cross the
+network. Both ways of running it get a free, automatically renewed certificate from
+[Let's Encrypt](https://letsencrypt.org/). In both, the domain's DNS must point at the
+server, and ports 80 and 443 must be reachable from the internet for the certificate check.
+
+**Docker Compose.** `deploy/compose.https.yml` adds [Caddy](https://caddyserver.com/) in
+front of the stack. It obtains the certificate on first start, renews it before it expires,
+redirects HTTP to HTTPS and sends HSTS:
+
+```bash
+CURVEVISION_DOMAIN=cv.example.com \
+  docker compose -f docker-compose.yml -f deploy/compose.https.yml up -d
+```
+
+Then nothing else needs port 8080 from outside: close it at the firewall, so the only way
+in is HTTPS. The certificate is kept in the `caddy-data` volume.
+
+**Kubernetes.** Install [cert-manager](https://cert-manager.io/) and a Let's Encrypt
+`ClusterIssuer` once per cluster, then let the chart's ingress ask for a certificate:
+
+```bash
+helm upgrade --install cv deploy/helm/curvevision \
+  --set ingress.enabled=true \
+  --set ingress.className=nginx \
+  --set ingress.host=cv.example.com \
+  --set-string ingress.annotations."cert-manager\.io/cluster-issuer"=letsencrypt \
+  --set "ingress.tls[0].secretName=curvevision-tls" \
+  --set "ingress.tls[0].hosts[0]=cv.example.com"
+```
+
+**Behind a proxy or load balancer you already run** (a company gateway, a cloud load
+balancer), terminate TLS there and forward to the `web` service on port 8080.
+
+Whichever you use, configure the sign-in URLs with `https://` (`CURVEVISION_OIDC_REDIRECT_URI`,
+`CURVEVISION_SAML_ACS_URL`, `CURVEVISION_SAML_CALLBACK_URL`): the server builds sign-in
+redirects from what it is configured with, never from the request.
+
 ### Scanning uploads for malware
 
 Off by default. To have ClamAV scan every upload before it is stored:

@@ -59,6 +59,7 @@ Done in this repository, free, nothing to apply for:
 | SBOM | `anchore/sbom-action`, SPDX | every component and version shipped |
 | Vulnerability scanning | `security.yml`, Dependabot | no known-vulnerable dependency ships unnoticed |
 | HTTPS for the website | GitHub Pages | automatic certificate on `derric01.github.io` |
+| HTTPS for a team server | `deploy/compose.https.yml` (Caddy) or cert-manager on Kubernetes | a Let's Encrypt certificate, renewed automatically (`docs/OPERATIONS.md`, *HTTPS*) |
 
 Ready, waiting on **the repository being public**:
 

@@ -2304,6 +2304,14 @@ Iteration 54:
 
 ### 102g — signatures, and which certificates only the maintainer can get
 
+* **HTTPS certificates for team servers**, which had no documented setup:
+  `deploy/compose.https.yml` puts Caddy in front of the Compose stack, with a Let's Encrypt
+  certificate obtained and renewed automatically, HSTS, and a refusal to start without
+  `CURVEVISION_DOMAIN`. `docker compose config` is checked; Caddy's own validator was not
+  run (no Docker daemon here). The Kubernetes path is cert-manager through the chart's
+  existing ingress annotations and TLS values, read against the template, since Helm is not
+  installed here. `docs/OPERATIONS.md` § *HTTPS* covers both.
+
 Asked to "get all the security certificates we can". Added what costs nothing and needs no
 identity:
 
