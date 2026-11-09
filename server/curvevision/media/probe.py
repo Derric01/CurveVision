@@ -132,9 +132,65 @@ def _probe_image(data: bytes, content_type: str) -> MediaInfo:
     try:
         with Image.open(io.BytesIO(data)) as image:
             width, height = image.size
+            # The size the annotator sees, which is the space every coordinate is in.
+            if _exif_orientation(image) in _QUARTER_TURNS:
+                width, height = height, width
     except Exception as exc:
         raise ValidationError(f"Could not read this image: {exc}") from exc
     return MediaInfo(kind=MediaKind.IMAGE, content_type=content_type, width=width, height=height)
+
+
+# --- EXIF orientation ---------------------------------------------------------------------
+#
+# A phone stores a portrait photo as landscape pixels plus an EXIF tag that says "turn me a
+# quarter". Browsers obey the tag, so the annotator draws on the upright picture, and every
+# coordinate CurveVision stores is in that upright space -- the convention CVAT and
+# Ultralytics follow too. Anything on the server that reads the pixels or the size has to
+# obey the same tag, or a box lands on the wrong part of the photo: the size used to scale
+# YOLO's normalised coordinates is the wrong way round, and a model shown the raw pixels
+# answers in a space rotated from the annotator's.
+
+#: The EXIF Orientation tag.
+_ORIENTATION_TAG = 0x0112
+#: Orientations that swap width and height (transpose, rotate 90, transverse, rotate 270).
+_QUARTER_TURNS = frozenset({5, 6, 7, 8})
+
+
+def _exif_orientation(image: object) -> int:
+    try:
+        value = image.getexif().get(_ORIENTATION_TAG, 1)  # type: ignore[attr-defined]
+        return int(value)
+    except Exception:  # a malformed EXIF block is treated as no rotation, as browsers do
+        return 1
+
+
+def upright(data: bytes, content_type: str) -> tuple[bytes, str]:
+    """The image as the annotator sees it: EXIF orientation applied, the tag removed.
+
+    Bytes without an orientation (almost every image that is not straight off a phone)
+    come back unchanged, so nothing is re-encoded that does not need to be. Without Pillow,
+    or for bytes it cannot read, the input is returned as it is.
+    """
+    if not content_type.startswith("image/"):
+        return data, content_type
+    try:
+        from PIL import Image, ImageOps
+    except ImportError:  # pragma: no cover - Pillow ships with the desktop and server images
+        return data, content_type
+    try:
+        with Image.open(io.BytesIO(data)) as image:
+            if _exif_orientation(image) == 1:
+                return data, content_type
+            turned = ImageOps.exif_transpose(image)
+            buffer = io.BytesIO()
+            if content_type == "image/jpeg":
+                turned.convert("RGB").save(buffer, format="JPEG", quality=95)
+                return buffer.getvalue(), "image/jpeg"
+            turned.save(buffer, format="PNG")
+            return buffer.getvalue(), "image/png"
+    except Exception:
+        logger.warning("could not apply EXIF orientation; using the image as stored")
+        return data, content_type
 
 
 def _probe_video(data: bytes, filename: str, content_type: str) -> MediaInfo:
@@ -207,8 +263,11 @@ def make_thumbnail(data: bytes, max_edge: int) -> bytes | None:
     except ImportError:
         return None
     try:
+        from PIL import ImageOps
+
         with Image.open(io.BytesIO(data)) as source:
-            thumbnail = source.convert("RGB")
+            # Upright, as the annotator sees the full image.
+            thumbnail = ImageOps.exif_transpose(source).convert("RGB")
             thumbnail.thumbnail((max_edge, max_edge))
             buffer = io.BytesIO()
             thumbnail.save(buffer, format="JPEG", quality=82, optimize=True)
