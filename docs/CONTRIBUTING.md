@@ -8,6 +8,8 @@ By participating you agree to the [Code of Conduct](../CODE_OF_CONDUCT.md).
 
 ## Before you start
 
+Maintainers: how pull requests are reviewed and merged is in [MAINTAINING.md](MAINTAINING.md).
+
 **Open an issue first for anything non-trivial.** Not bureaucracy: it saves you from
 building something that conflicts with work already in flight, and it gives us a chance to
 say "yes, and here is the seam it should plug into".

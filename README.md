@@ -475,6 +475,14 @@ For where the project stands right now, [handoff.md](handoff.md) is the fastest 
 
 ---
 
+## Disclaimer
+
+CurveVision is provided "as is", without warranty of any kind, under the [MIT License](LICENSE).
+Keep backups of your data. Models and services you connect are governed by their own licences
+and terms. CurveVision is an independent project, not affiliated with CVAT, Ultralytics,
+Anthropic, OpenAI, Google or any other project it names; their names are trademarks of their
+owners. The full text is in [DISCLAIMER.md](DISCLAIMER.md).
+
 ## Free and open source, without an asterisk
 
 CurveVision's core is complete. There is no crippled edition, no feature held back to

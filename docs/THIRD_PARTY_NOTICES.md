@@ -191,3 +191,13 @@ committed.
 
 If a dependency is missing, misattributed, or its license is stated incorrectly, please
 open an issue — we will treat it as a priority fix.
+
+## The website's fonts
+
+| Font | Licence | Copyright | Used for |
+| --- | --- | --- | --- |
+| [Instrument Serif](https://github.com/Instrument/instrument-serif) | SIL OFL 1.1 | The Instrument Serif Project Authors | Headings on the website, served from `site/fonts/` |
+| [Inter](https://github.com/rsms/inter) | SIL OFL 1.1 | The Inter Project Authors | Body text on the website, served from `site/fonts/` |
+
+The licence text travels with the files, in `site/fonts/LICENSE.md`.
+
