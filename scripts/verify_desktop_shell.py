@@ -409,7 +409,10 @@ def main() -> int:
             # ------------------------------------------------------------ 5
             wd.type("input[name=identifier]", "kim")
             wd.type("input[name=password]", PASSWORD)
-            wd.click("button[type=submit]")
+            # Signing in navigates the page, and WebKitWebDriver can drop the connection
+            # rather than answer the click; whether it signed in is checked just below.
+            with contextlib.suppress(OSError):
+                wd.click("button[type=submit]")
             signed_in = until(lambda: wd.url().rstrip("/").endswith("/projects"), 30)
             check(
                 bool(signed_in),

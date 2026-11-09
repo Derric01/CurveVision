@@ -15,7 +15,7 @@ Same editor, same exporters, same code — your images never leave your infrastr
 [![Node 22+](https://img.shields.io/badge/node-22%2B-5fa04e.svg)](web/package.json)
 [![PRs welcome](https://img.shields.io/badge/PRs-welcome-f59e0b.svg)](docs/CONTRIBUTING.md)
 
-[**⬇ Download**](https://github.com/Derric01/CurveVision/releases/latest) · [**Quick start**](#quick-start) · [Features](#what-it-does) · [Architecture](docs/ARCHITECTURE.md) · [API](docs/API.md) · [Roadmap](docs/ROADMAP.md) · [Contributing](docs/CONTRIBUTING.md)
+[**⬇ Download**](https://github.com/Derric01/CurveVision/releases/latest) · [**Website**](https://derric01.github.io/CurveVision/) · [**Quick start**](#quick-start) · [Features](#what-it-does) · [Architecture](docs/ARCHITECTURE.md) · [API](docs/API.md) · [Roadmap](docs/ROADMAP.md) · [Contributing](docs/CONTRIBUTING.md)
 
 </div>
 

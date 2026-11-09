@@ -2302,6 +2302,23 @@ Iteration 54:
 
 ## Last iteration
 
+### 102e — a product website, and the Mac builds proven
+
+* **`site/index.html`**: the landing page, one self-contained file in the app's pitch-black
+  style. It has a hero with the real editor screenshot, the formats it exports, the
+  features, real numbers only, the demo video, desktop against team server, and a download
+  card per platform. The download button names the visitor's own OS. It is responsive
+  (no sideways scroll at phone width), and shows no fake logos or invented users.
+  **`pages.yml`** publishes it to `https://derric01.github.io/CurveVision/` on a push to
+  `main`, copying in the screenshot, video and icon. **A maintainer must turn Pages on
+  once:** Settings → Pages → Source: GitHub Actions.
+* **The Mac builds passed** on PR #41, Apple Silicon (`macos-15`) and Intel
+  (`macos-15-intel`), including `codesign --verify --deep --strict` and the architecture
+  check.
+* **WebDriver harness:** a third place where WebKitGTK drops the connection, the team
+  server's sign-in click, which navigates. It now tolerates the drop and checks the
+  outcome, as the first submit already did.
+
 ### 102d — pitch black and white: a monochrome look, two themes
 
 Asked for a look like ChatGPT's, "white and black theme, pitch black".
