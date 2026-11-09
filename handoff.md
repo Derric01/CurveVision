@@ -5,7 +5,7 @@
 > [`AGENTS.md`](./AGENTS.md) first; it is the working contract. Update this file after every
 > iteration, including the ones that mostly failed.
 >
-> **Last updated:** 2026-11-08 (iteration 101) · branch `claude/start-work-yx080h` · PRs
+> **Last updated:** 2026-11-09 (iteration 102h) · branch `claude/start-work-yx080h` · PRs
 > [#1](https://github.com/Derric01/CurveVision/pull/1)–[#39](https://github.com/Derric01/CurveVision/pull/39)
 > **all merged**, #37 carrying iterations 84 (the rest) to 98, #38 iteration 99 and #39 iteration 100.
 >
@@ -2301,6 +2301,26 @@ Iteration 54:
 ---
 
 ## Last iteration
+
+### 102h — a light landing page, a disclaimer, and reviewing outside pull requests
+
+* **`site/index.html`**: the hero is centred. The page follows the system theme and has a
+  toggle (`localStorage` key `cv-theme`). The fonts (Instrument Serif and Inter, OFL, Latin
+  subsets) are served from `site/fonts/`, so a visit makes no request to another site.
+  This was checked in Chromium: no outside requests, both themes, a phone width with no
+  sideways scroll, and the toggle surviving a reload.
+* **`DISCLAIMER.md`**, linked from the README and the page footer. It covers: no warranty;
+  who is responsible for data on a team server; that hosted models fall under their
+  providers' terms; that YOLO weights are AGPL and not redistributed; and no affiliation
+  with CVAT, Ultralytics, model providers or COCO.
+* **`.github/CODEOWNERS`** and **`docs/MAINTAINING.md`**. The latter lists the repository
+  settings to switch on once (approval before an outsider's CI runs, read-only workflow
+  token, a ruleset requiring Code Owner review), what to read before approving CI, and how
+  to merge and revert. **These settings are not switched on yet:** only the maintainer can
+  do it, on GitHub.
+* The v1.0.0 release run was started from Actions → Release → Run workflow (PR #51 added
+  that path, because pushing a tag from the sandbox was refused). The release stays a
+  **draft** until the maintainer publishes it.
 
 ### 102g — signatures, and which certificates only the maintainer can get
 
