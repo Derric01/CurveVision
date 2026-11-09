@@ -16,7 +16,15 @@ import {
   type RendererLayers,
 } from './renderer';
 import { Scene } from './scene';
-import { createTool, PathTool, TOOL_SHORTCUTS, type Tool, type ToolContext } from './tools';
+import {
+  clampMove,
+  createTool,
+  moveAnnotation,
+  PathTool,
+  TOOL_SHORTCUTS,
+  type Tool,
+  type ToolContext,
+} from './tools';
 import type { Interact } from './interactor';
 import {
   createViewport,
@@ -411,6 +419,15 @@ export class AnnotationEngine {
       this.deleteSelection();
       return true;
     }
+    // CVAT's key for occluded; brackets for stacking order, as in drawing programs.
+    if (!accel && key.toLowerCase() === 'q' && this.scene.selected.length > 0) {
+      this.toggleOccluded();
+      return true;
+    }
+    if (!accel && (key === ']' || key === '[') && this.scene.selected.length > 0) {
+      this.restackSelection(key === ']' ? 'front' : 'back');
+      return true;
+    }
     if (key === 'Escape') {
       this.applyResult(this.tool.cancel());
       this.scene.clearSelection();
@@ -460,12 +477,20 @@ export class AnnotationEngine {
     const selected = this.scene.selected;
     if (selected.length === 0) return;
 
+    // Offset the copy the way a move would: an ellipse by its centre, a mask by its pixels,
+    // and no further than the edge of the image (shifting every coordinate, as this did,
+    // grew an ellipse's radii and left a mask's pixels where they were).
+    const { width, height } = this.media;
+    // No frame loaded yet means no edge to stop at.
+    const [dx, dy] =
+      width > 0 && height > 0
+        ? clampMove(selected, offset, offset, width, height)
+        : [offset, offset];
     const copies: Annotation[] = selected.map((annotation) => ({
-      ...annotation,
+      ...moveAnnotation(annotation, dx, dy),
       id: `${annotation.id}-copy-${Math.random().toString(36).slice(2, 8)}`,
       clientId: undefined,
       pending: true,
-      points: annotation.points.map((value, index) => value + (index % 2 === 0 ? offset : offset)),
     }));
 
     for (const copy of copies) {
@@ -510,6 +535,43 @@ export class AnnotationEngine {
       createUpdateCommand(this.commandTarget(), before, after, `Set ${name}`),
     );
     this.listeners.annotationsChanged?.({ created: [], updated: after, deletedIds: [] });
+    this.invalidate('shapes', 'overlay');
+  }
+
+  /**
+   * Put the selected objects in front of, or behind, everything else on their frame.
+   *
+   * Stacking decides which of two overlapping objects a click picks and which is drawn on
+   * top, and it is saved (`z_order`), so a format that carries it keeps the order.
+   */
+  restackSelection(where: 'front' | 'back'): void {
+    const before = this.scene.selected.filter((a) => this.scene.isEditable(a)).map((a) => ({ ...a }));
+    if (before.length === 0) return;
+    const frame = this.scene.all().filter((a) => a.frame === before[0]!.frame);
+    const orders = frame.map((a) => a.zOrder);
+    const edge = where === 'front' ? Math.max(...orders) + 1 : Math.min(...orders) - 1;
+    const after = before.map((a) => ({ ...a, zOrder: edge }));
+    this.commands.executeAlone(
+      createUpdateCommand(
+        this.commandTarget(),
+        before,
+        after,
+        where === 'front' ? 'Bring to front' : 'Send to back',
+      ),
+    );
+    this.listeners.annotationsChanged?.({ created: [], updated: after, deletedIds: [] });
+    this.invalidate('shapes', 'overlay');
+  }
+
+  /** Hide one object for this session, or show it again. Not saved. */
+  setObjectHidden(id: string, hidden: boolean): void {
+    this.scene.setObjectHidden(id, hidden);
+    this.invalidate('shapes', 'overlay');
+  }
+
+  /** Lock one object against edits for this session, or unlock it. Not saved. */
+  setObjectLocked(id: string, locked: boolean): void {
+    this.scene.setObjectLocked(id, locked);
     this.invalidate('shapes', 'overlay');
   }
 

@@ -67,6 +67,7 @@ import { ReviewPanel } from './ReviewPanel';
 import { canSubmit, submitBlocker } from './review';
 import { useAutosave, type Recovered, type Refusal } from './useAutosave';
 import { AttributesPanel } from './AttributesPanel';
+import { ObjectPanel } from './ObjectPanel';
 import { FrameTagsPanel } from './FrameTagsPanel';
 import { tagsOn } from './frameTags';
 import { attributesFor, mutableNames } from './attributeValues';
@@ -107,6 +108,11 @@ export function EditorPage() {
   const [showSuggestions, setShowSuggestions] = useState(true);
   const [fillOpacity, setFillOpacity] = useState(0.18);
   const [selection, setSelection] = useState<string[]>([]);
+  // Per-object hide and lock: the editor's own state for this session, never saved.
+  const [hiddenObjects, setHiddenObjects] = useState<ReadonlySet<string>>(new Set());
+  const [lockedObjects, setLockedObjects] = useState<ReadonlySet<string>>(new Set());
+  // Bumped after an edit made from the side panel, so the panel shows the object as it is.
+  const [, setPanelRevision] = useState(0);
   const [labelStyles, setLabelStyles] = useState<LabelStyle[]>([]);
   // What a multi-step tool is waiting for. The skeleton tool is the only one that sets
   // it today: its joint order is invisible on the canvas, so clicking through a
@@ -681,7 +687,48 @@ export function EditorPage() {
             selection={selection}
             refused={autosave.refused}
             onFocus={(id) => engine?.focusAnnotation(id)}
+            hidden={hiddenObjects}
+            locked={lockedObjects}
+            onToggleHidden={(id) => {
+              const hide = !hiddenObjects.has(id);
+              engine?.setObjectHidden(id, hide);
+              setHiddenObjects((current) => toggled(current, id, hide));
+            }}
+            onToggleLocked={(id) => {
+              const lock = !lockedObjects.has(id);
+              engine?.setObjectLocked(id, lock);
+              setLockedObjects((current) => toggled(current, id, lock));
+            }}
           />
+
+          {(() => {
+            const selected = selection
+              .map((id) => engine?.scene.get(id) ?? visible.find((item) => item.id === id))
+              .filter((item): item is NonNullable<typeof item> => item !== undefined);
+            if (selected.length === 0) return null;
+            const shared = selected.every((item) => item.labelId === selected[0]!.labelId);
+            const refresh = () => setPanelRevision((revision) => revision + 1);
+            return (
+              <ObjectPanel
+                count={selected.length}
+                labelId={shared ? selected[0]!.labelId : null}
+                occluded={selected.every((item) => item.occluded)}
+                labels={drawableLabels(labelStyles)}
+                onRelabel={(labelId) => {
+                  engine?.relabelSelection(labelId);
+                  refresh();
+                }}
+                onToggleOccluded={() => {
+                  engine?.toggleOccluded();
+                  refresh();
+                }}
+                onRestack={(where) => {
+                  engine?.restackSelection(where);
+                  refresh();
+                }}
+              />
+            );
+          })()}
 
           {(() => {
             // From the scene first: it holds an object drawn a moment ago that no save has
@@ -1097,18 +1144,34 @@ function LabelPanel({
   );
 }
 
+/** `set` with `id` added or removed, as a new set so React sees the change. */
+function toggled(set: ReadonlySet<string>, id: string, present: boolean): ReadonlySet<string> {
+  const next = new Set(set);
+  if (present) next.add(id);
+  else next.delete(id);
+  return next;
+}
+
 function ObjectList({
   annotations,
   labels,
   selection,
   refused,
   onFocus,
+  hidden,
+  locked,
+  onToggleHidden,
+  onToggleLocked,
 }: {
   annotations: { id: string; labelId: string; shapeType: string; source: string; confidence?: number | null }[];
   labels: LabelStyle[];
   selection: string[];
   refused: ReadonlyMap<string, Refusal>;
   onFocus: (id: string) => void;
+  hidden: ReadonlySet<string>;
+  locked: ReadonlySet<string>;
+  onToggleHidden: (id: string) => void;
+  onToggleLocked: (id: string) => void;
 }) {
   const colorOf = (labelId: string) => labels.find((l) => l.id === labelId)?.color ?? '#38bdf8';
   const nameOf = (labelId: string) => labels.find((l) => l.id === labelId)?.name ?? 'unlabelled';
@@ -1123,7 +1186,7 @@ function ObjectList({
       ) : (
         <ul className="pb-2">
           {annotations.map((annotation) => (
-            <li key={annotation.id}>
+            <li key={annotation.id} className="flex items-center">
               {/* Fully keyboard reachable: the canvas itself cannot be, so the object list
                   is how the editor stays navigable without a mouse. */}
               <button
@@ -1137,10 +1200,11 @@ function ObjectList({
                 // class, which a harness cannot read without knowing the palette.
                 data-selected={selection.includes(annotation.id) ? 'true' : 'false'}
                 className={clsx(
-                  'flex w-full items-center gap-2 px-3 py-1.5 text-left text-xs',
+                  'flex min-w-0 flex-1 items-center gap-2 py-1.5 pl-3 pr-1 text-left text-xs',
                   selection.includes(annotation.id)
                     ? 'bg-curve-500/10 text-curve-200'
                     : 'text-ink-300 hover:bg-ink-850',
+                  hidden.has(annotation.id) && 'opacity-50',
                 )}
               >
                 <span
@@ -1171,6 +1235,28 @@ function ObjectList({
                   </span>
                 )}
               </button>
+              {/* Siblings of the row's button, not children: a button inside a button is
+                  invalid, and a click on it would also focus the object. */}
+              <button
+                type="button"
+                className="px-1 py-1.5 text-ink-500 hover:text-ink-200"
+                onClick={() => onToggleHidden(annotation.id)}
+                title={hidden.has(annotation.id) ? 'Show' : 'Hide'}
+                aria-label={hidden.has(annotation.id) ? 'Show object' : 'Hide object'}
+                data-object-hide={annotation.id}
+              >
+                {hidden.has(annotation.id) ? <EyeOff size={12} /> : <Eye size={12} />}
+              </button>
+              <button
+                type="button"
+                className="py-1.5 pl-1 pr-3 text-ink-500 hover:text-ink-200"
+                onClick={() => onToggleLocked(annotation.id)}
+                title={locked.has(annotation.id) ? 'Unlock' : 'Lock'}
+                aria-label={locked.has(annotation.id) ? 'Unlock object' : 'Lock object'}
+                data-object-lock={annotation.id}
+              >
+                {locked.has(annotation.id) ? <Lock size={12} /> : <LockOpen size={12} />}
+              </button>
             </li>
           ))}
         </ul>
@@ -1191,6 +1277,8 @@ function ShortcutHelp() {
           ['← / →', 'Previous / next frame'],
           [', / .', 'Previous / next keyframe'],
           ['K / O', 'Add or remove a keyframe / mark a departure'],
+          ['Q', 'Mark the selection occluded, or not'],
+          ['] / [', 'Bring the selection to the front / send it to the back'],
           ['Enter', 'Finish polygon or skeleton'],
           ['Backspace', 'Remove last vertex or joint'],
           ['X', 'Skip the joint being asked for'],

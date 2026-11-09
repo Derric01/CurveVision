@@ -250,7 +250,7 @@ export function QualityPanel({
                     style={{ backgroundColor: row.color }}
                   />
                   <span className="w-10 shrink-0 tabular-nums text-ink-500">
-                    {row.conflict.frame}
+                    {row.conflict.frame + 1}
                   </span>
                   <span className="truncate">
                     {CONFLICT_LABELS[row.conflict.kind]}: {row.name}

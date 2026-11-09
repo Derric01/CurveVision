@@ -5,7 +5,7 @@
 > [`AGENTS.md`](./AGENTS.md) first; it is the working contract. Update this file after every
 > iteration, including the ones that mostly failed.
 >
-> **Last updated:** 2026-11-09 (iteration 102k) · branch `claude/start-work-yx080h` · PRs
+> **Last updated:** 2026-11-09 (iteration 102l) · branch `claude/start-work-yx080h` · PRs
 > [#1](https://github.com/Derric01/CurveVision/pull/1)–[#39](https://github.com/Derric01/CurveVision/pull/39)
 > **all merged**, #37 carrying iterations 84 (the rest) to 98, #38 iteration 99 and #39 iteration 100.
 >
@@ -2301,6 +2301,33 @@ Iteration 54:
 ---
 
 ## Last iteration
+
+### 102l — per-object controls in the editor; consistent frame numbers
+
+Release bar item (2), part one.
+
+* **The selected object's panel** (`web/src/features/editor/ObjectPanel.tsx`). It holds
+  the label, Occluded (Q), and Front / Back (`]` / `[`). The engine could relabel and
+  toggle occlusion before, but nothing on screen called either; changing a label meant
+  redrawing the object. Stacking is new: `engine.restackSelection` moves the selection
+  above or below everything on its frame. It is saved as `z_order` and decides which of
+  two overlapping objects a click picks. Each control is one undo step (`executeAlone`).
+* **Hide and lock, per object**: an eye and a lock on every row of the objects list. As in
+  CVAT they are the session's own state (`Scene.hiddenObjects` / `lockedObjects`) and
+  never saved. Hidden means off the canvas and out of reach of clicks; locked means on
+  screen but not editable. Either one deselects the object.
+* **Duplicate (Ctrl+D)** offset every coordinate by 12, so it grew an ellipse's radii and
+  left a mask's pixels behind. It now uses `moveAnnotation`/`clampMove`, as a drag does.
+* **Frame numbers**: the issues panel, the quality panel's conflict list and the track
+  timeline's tooltips showed the 0-based index while the rest of the editor shows
+  1-based. In the screenshot the same frame read "frame 1" and "frame 0". All are 1-based.
+* Checked in the real editor against the real server
+  (`scripts/verify_object_controls.py`, screenshot `docs/images/object-controls.png`).
+  It checks relabel, occluded, front, hide, lock, and a box dragged past the right edge
+  keeping its width, all read back from what the server stored. Engine tests:
+  `canvas/__tests__/objectControls.test.ts`.
+
+**Next on (2):** video playback (a play button) for video tasks.
 
 ### 102k — every format round-tripped; four editor bugs that changed what was saved
 
