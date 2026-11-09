@@ -404,9 +404,26 @@ jobs:
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
-      - uses: helm/kind-action@v1
-        with:
-          cluster_name: curvevision
+      # kind, installed here rather than by helm/kind-action, which downloads once and fails on
+      # a bad answer: GitHub's release downloads answered 504 for hours on 2026-11-09, and the
+      # error page failed the checksum. Retried until the checksum matches, then the cluster.
+      - name: A kind cluster
+        run: |
+          version=v0.31.0
+          base="https://github.com/kubernetes-sigs/kind/releases/download/${version}"
+          for attempt in 1 2 3 4 5 6; do
+            if curl -sSfL --retry 3 --retry-all-errors -o kind "${base}/kind-linux-amd64" \
+              && curl -sSfL --retry 3 --retry-all-errors -o kind.sha256 "${base}/kind-linux-amd64.sha256sum" \
+              && echo "$(cut -d' ' -f1 kind.sha256)  kind" | sha256sum --check --status; then
+              break
+            fi
+            echo "kind download attempt ${attempt} failed; retrying"
+            [ "$attempt" = 6 ] && exit 1
+            sleep $((attempt * 10))
+          done
+          sudo install -m 0755 kind /usr/local/bin/kind
+          kind create cluster --name curvevision --wait 60s
+          kubectl cluster-info
       - uses: azure/setup-helm@v4
         with:
           version: v3.16.2
