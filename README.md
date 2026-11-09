@@ -10,6 +10,7 @@
 Same editor, same exporters, same code — your images never leave your infrastructure.**
 
 [![CI](https://github.com/Derric01/CurveVision/actions/workflows/ci.yml/badge.svg)](https://github.com/Derric01/CurveVision/actions/workflows/ci.yml)
+[![Security](https://github.com/Derric01/CurveVision/actions/workflows/security.yml/badge.svg)](https://github.com/Derric01/CurveVision/actions/workflows/security.yml)
 [![License: MIT](https://img.shields.io/badge/license-MIT-14b8a6.svg)](LICENSE)
 [![Python 3.11+](https://img.shields.io/badge/python-3.11%2B-3776ab.svg)](server/pyproject.toml)
 [![Node 22+](https://img.shields.io/badge/node-22%2B-5fa04e.svg)](web/package.json)
@@ -114,10 +115,13 @@ where they are and never uploaded anywhere.
 workflow ([`release.yml`](.github/workflows/release.yml)) from the tagged source — never on
 someone's laptop — scanned with ClamAV before the release is made, listed with its SHA-256
 in `SHA256SUMS`, and given a signed provenance attestation that says which commit and which
-workflow run built it. Check a download in two commands:
+workflow run built it. The checksum list itself is signed with [Sigstore](https://www.sigstore.dev/),
+bound to this repository's release workflow. Check a download:
 
 ```bash
-sha256sum --check --ignore-missing SHA256SUMS                       # the bytes are the ones published
+cosign verify-blob SHA256SUMS --bundle SHA256SUMS.sigstore.json \
+  --certificate-identity-regexp 'https://github.com/Derric01/CurveVision/.github/workflows/release.yml@.*' --certificate-oidc-issuer https://token.actions.githubusercontent.com   # the list is ours
+sha256sum --check --ignore-missing SHA256SUMS                       # the bytes are the ones it lists
 gh attestation verify CurveVision_*_x64-setup.exe --repo Derric01/CurveVision   # built here, from this source
 ```
 

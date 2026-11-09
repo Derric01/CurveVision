@@ -2302,6 +2302,24 @@ Iteration 54:
 
 ## Last iteration
 
+### 102g — signatures, and which certificates only the maintainer can get
+
+Asked to "get all the security certificates we can". Added what costs nothing and needs no
+identity:
+
+* **Sigstore keyless signing** in `release.yml`: `cosign sign` on both images, and
+  `cosign sign-blob` on `SHA256SUMS` (→ `SHA256SUMS.sigstore.json`), bound to the release
+  workflow's identity. The verify commands are in the README and `docs/RELEASING.md`. **Not
+  run yet:** `release.yml` runs on a tag.
+* **OpenSSF Scorecard** (`scorecard.yml`) and **CodeQL** (`codeql.yml`), every action pinned
+  to a commit; both are skipped while the repository is **private**, which it is.
+* `docs/RELEASING.md` § *Certificates and badges* lists who can get what. Only the
+  maintainer can get: the Apple Developer ID (US$99 a year), Windows signing (SignPath
+  Foundation, free for qualifying OSS, by application), the updater key (generated locally,
+  stored as secrets), the OpenSSF Best Practices badge, and private vulnerability
+  reporting. **Making the repository public** is the prerequisite for downloads anyone can
+  open, free Pages, Scorecard and CodeQL.
+
 ### 102f — a security audit, and the checks that keep it true
 
 Asked for "more security checks so others can safely install it". Ran every scanner against
