@@ -28,7 +28,7 @@ dependencies = [
     "python-multipart>=0.0.9",
     "httpx>=0.27",
     # Claude, through its official SDK (ADR 0010). Brings httpx2, jiter, docstring-parser.
-    "anthropic>=1.13,<2",
+    "anthropic>=1.13,<3",
     "prometheus-client>=0.20",
     # The operating system's certificate store, for the one request a desktop installation
     # makes to another server: checking a team server before switching to it.
